@@ -1,0 +1,38 @@
+<%- include('partials/header', { title: 'Register', siteTitle, maxWidth: '400px' }) %>
+
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 80vh; margin-top: -40px;">
+            <div style="width: 100%; background-color: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 40px;">
+                <div style="text-align: center; font-size: 36px; font-weight: 700; margin-bottom: 10px; background: linear-gradient(135deg, #2ea043, #238636); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">📎 <%= siteTitle %></div>
+                <h1 style="text-align: center; font-size: 24px; font-weight: 600; margin-bottom: 30px; color: #f0f6fc;">Create Account</h1>
+                
+                <% if (error) { %>
+                    <div class="error"><%= error %></div>
+                <% } %>
+                
+                <form method="POST" action="/auth/register">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" required minlength="3" maxlength="30" value="<%= username || '' %>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" name="email" required value="<%= email || '' %>">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required minlength="6">
+                    </div>
+                    
+                    <button type="submit" class="btn" style="width: 100%; margin-bottom: 15px;">Create Account</button>
+                    <a href="/auth/login" class="btn btn-secondary" style="width: 100%; text-decoration: none; text-align: center; display: block;">Already have an account? Sign In</a>
+                </form>
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 14px;">
+                    <a href="/" style="color: #58a6ff; text-decoration: none;">← Back to <%= siteTitle %></a>
+                </div>
+            </div>
+        </div>
+
+<%- include('partials/footer') %>

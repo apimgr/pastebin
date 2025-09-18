@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  pastebin:
+    build: .
+    ports:
+      - "3010:3010"
+    environment:
+      - NODE_ENV=production
+      - PORT=3010
+      - DB_TYPE=sqlite
+      - DB_PATH=/app/data/pastebin.db
+      - JWT_SECRET=production-jwt-secret-please-change-this-to-something-very-long-and-random
+      - RATE_LIMIT_WINDOW_MS=3600000
+      - RATE_LIMIT_MAX=900
+    volumes:
+      - pastebin_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3010/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL example (uncomment to use instead of SQLite)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     POSTGRES_DB: pastebin
+  #     POSTGRES_USER: pastebin
+  #     POSTGRES_PASSWORD: pastebin_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+  # pastebin-postgres:
+  #   build: .
+  #   ports:
+  #     - "3010:3010"
+  #   environment:
+  #     - NODE_ENV=production
+  #     - PORT=3010
+  #     - DB_TYPE=postgresql
+  #     - DB_HOST=postgres
+  #     - DB_PORT=5432
+  #     - DB_NAME=pastebin
+  #     - DB_USER=pastebin
+  #     - DB_PASSWORD=pastebin_password
+  #     - JWT_SECRET=production-jwt-secret-change-this
+  #   depends_on:
+  #     - postgres
+  #   restart: unless-stopped
+
+volumes:
+  pastebin_data:
+  # postgres_data:
