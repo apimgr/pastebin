@@ -1,0 +1,101 @@
+<%- include('partials/header', { title, siteTitle, maxWidth: '800px' }) %>
+
+        <%- include('partials/nav', { siteTitle, tagline }) %>
+        
+        <% if (error) { %>
+            <div class="error"><%= error %></div>
+        <% } %>
+        
+        <div class="card">
+            <h2 style="font-size: 24px; font-weight: 600; margin-bottom: 30px; color: #f0f6fc; text-align: center;">Create New Paste</h2>
+            
+            <form method="POST" action="/" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="title">Title (optional)</label>
+                    <input type="text" id="title" name="title" placeholder="Untitled" value="<%= titleValue || '' %>">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div class="form-group">
+                        <label for="language">Language</label>
+                        <select id="language" name="language">
+                            <option value="" <% if (!selectedLanguage) { %>selected<% } %>>Auto-detect</option>
+                            <option value="text" <% if (selectedLanguage === 'text') { %>selected<% } %>>Plain Text</option>
+                            <option value="javascript" <% if (selectedLanguage === 'javascript') { %>selected<% } %>>JavaScript</option>
+                            <option value="typescript">TypeScript</option>
+                            <option value="python">Python</option>
+                            <option value="java">Java</option>
+                            <option value="c">C</option>
+                            <option value="cpp">C++</option>
+                            <option value="csharp">C#</option>
+                            <option value="php">PHP</option>
+                            <option value="ruby">Ruby</option>
+                            <option value="go">Go</option>
+                            <option value="rust">Rust</option>
+                            <option value="html">HTML</option>
+                            <option value="css">CSS</option>
+                            <option value="sql">SQL</option>
+                            <option value="bash">Bash</option>
+                            <option value="json">JSON</option>
+                            <option value="xml">XML</option>
+                            <option value="yaml">YAML</option>
+                            <option value="markdown">Markdown</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="expiration">Expiration</label>
+                        <select id="expiration" name="expiration">
+                            <option value="">Never</option>
+                            <option value="10">10 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="1440">1 day</option>
+                            <option value="10080">1 week</option>
+                            <option value="43200">1 month</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="content">Content</label>
+                    <textarea id="content" name="content" placeholder="Paste your code here..." style="min-height: 300px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; resize: vertical;"><%= content || '' %></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="files">Upload Files (optional)</label>
+                    <input type="file" id="files" name="files" multiple accept="text/*,.js,.ts,.py,.java,.c,.cpp,.cs,.php,.rb,.go,.rs,.html,.css,.sql,.sh,.json,.xml,.yml,.yaml,.md" style="background-color: #21262d; border: 2px dashed #30363d; border-radius: 6px; padding: 20px; width: 100%;">
+                    <div style="font-size: 12px; color: #6e7681; margin-top: 5px;">Multiple files supported</div>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 8px; margin: 20px 0;">
+                    <input type="checkbox" id="private" name="private" style="width: auto;" <% if (isPrivate) { %>checked<% } %>>
+                    <label for="private" style="margin-bottom: 0;">Private paste</label>
+                </div>
+                
+                <div style="text-align: center;">
+                    <button type="submit" class="btn">Create Paste</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearForm()" style="margin-left: 10px;">Clear</button>
+                </div>
+            </form>
+            
+            <div style="background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 20px; margin: 30px 0; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 13px;">
+                <div style="color: #58a6ff; font-weight: 600; margin-bottom: 15px; font-size: 16px;">📡 API Examples</div>
+                <div style="margin: 8px 0; padding: 8px; background-color: #161b22; border-radius: 4px; color: #e6edf3;">curl -X POST --data-binary @file.txt <%= baseUrl %>/create</div>
+                <div style="margin: 8px 0; padding: 8px; background-color: #161b22; border-radius: 4px; color: #e6edf3;">curl -X POST -F "files=@file.txt" <%= baseUrl %>/create</div>
+                <div style="margin: 8px 0; padding: 8px; background-color: #161b22; border-radius: 4px; color: #e6edf3;">curl -H "Content-Type: application/json" -d '{"content":"hello"}' <%= baseUrl %>/create</div>
+                <div style="font-size: 11px; color: #6e7681; margin-top: 12px; text-align: center;">URLs adapt automatically to your deployment</div>
+            </div>
+        </div>
+
+        <script>
+            function clearForm() {
+                document.getElementById('title').value = '';
+                document.getElementById('content').value = '';
+                document.getElementById('language').selectedIndex = 0;
+                document.getElementById('expiration').selectedIndex = 0;
+                document.getElementById('private').checked = false;
+                document.getElementById('files').value = '';
+            }
+        </script>
+
+<%- include('partials/footer') %>

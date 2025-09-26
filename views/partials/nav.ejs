@@ -1,0 +1,17 @@
+        <div class="header">
+            <div class="logo">📎 <%= siteTitle %></div>
+            <% if (typeof tagline !== 'undefined' && tagline) { %>
+                <div class="tagline"><%= tagline %></div>
+            <% } %>
+        </div>
+        
+        <div class="nav">
+            <a href="/">🏠 Home</a>
+            <a href="/recent">📋 Recent Pastes</a>
+            <% if (typeof isAuthenticated !== 'undefined' && isAuthenticated) { %>
+                <a href="/auth/dashboard">👤 <%= currentUser.username %></a>
+                <a href="/auth/logout" style="color: #f85149;">Logout</a>
+            <% } else { %>
+                <a href="/auth/dashboard">👤 Dashboard</a>
+            <% } %>
+        </div>

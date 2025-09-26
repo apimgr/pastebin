@@ -1,0 +1,79 @@
+<%- include('partials/header', { title: 'Dashboard', siteTitle, maxWidth: '1200px' }) %>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid #30363d;">
+            <div class="logo">📎 <%= siteTitle %></div>
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <span>Welcome, <%= user.username %>!</span>
+                <a href="/auth/logout" class="btn btn-danger">Logout</a>
+            </div>
+        </div>
+        
+        <%- include('partials/nav', { siteTitle }) %>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+            <div class="card">
+                <h3 style="margin-bottom: 20px; color: #f0f6fc;">API Tokens</h3>
+                
+                <form method="POST" action="/auth/tokens" style="margin-bottom: 20px;">
+                    <div class="form-group">
+                        <label for="tokenName">Token Name (optional)</label>
+                        <input type="text" id="tokenName" name="name" placeholder="My API Token">
+                    </div>
+                    <button type="submit" class="btn">Create New Token</button>
+                </form>
+                
+                <div id="tokens">
+                    <% if (tokens && tokens.length > 0) { %>
+                        <% tokens.forEach(token => { %>
+                            <div style="background-color: #21262d; border: 1px solid #30363d; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <strong style="color: #f0f6fc;"><%= token.name %></strong>
+                                    <form method="POST" action="/auth/tokens/<%= token.id || token._id %>/delete" style="margin: 0;">
+                                        <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="return confirm('Delete this token?')">Delete</button>
+                                    </form>
+                                </div>
+                                <div style="font-family: monospace; font-size: 12px; color: #8b949e; word-break: break-all;"><%= token.token %></div>
+                                <div style="font-size: 12px; color: #8b949e;">Created: <%= new Date(token.createdAt).toLocaleDateString() %></div>
+                            </div>
+                        <% }); %>
+                    <% } else { %>
+                        <div style="text-align: center; color: #8b949e; padding: 40px;">No API tokens yet</div>
+                    <% } %>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3 style="margin-bottom: 20px; color: #f0f6fc;">Your Pastes</h3>
+                
+                <div id="pastes">
+                    <% if (pastes && pastes.length > 0) { %>
+                        <% pastes.forEach(paste => { %>
+                            <div style="background-color: #21262d; border: 1px solid #30363d; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <a href="/<%= paste.id %>" style="color: #f0f6fc; text-decoration: none; font-weight: 600;"><%= paste.title || 'Untitled' %></a>
+                                    <div style="display: flex; gap: 5px;">
+                                        <a href="/<%= paste.id %>" class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;">View</a>
+                                        <form method="POST" action="/pastes/<%= paste.id %>/delete" style="margin: 0;">
+                                            <button type="submit" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="return confirm('Delete this paste?')">Delete</button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div style="font-size: 12px; color: #8b949e;">
+                                    <%= paste.language || 'text' %> • 
+                                    <%= paste.isPublic ? 'Public' : 'Private' %> • 
+                                    <%= paste.views || 0 %> views • 
+                                    <%= new Date(paste.createdAt).toLocaleDateString() %>
+                                </div>
+                            </div>
+                        <% }); %>
+                    <% } else { %>
+                        <div style="text-align: center; color: #8b949e; padding: 40px;">
+                            <p>No pastes yet</p>
+                            <a href="/" style="color: #58a6ff; text-decoration: none;">Create your first paste →</a>
+                        </div>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+
+<%- include('partials/footer') %>

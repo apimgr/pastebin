@@ -1,0 +1,80 @@
+<%- include('partials/header', { title: paste.title, siteTitle, maxWidth: '1200px' }) %>
+
+        <%- include('partials/nav', { siteTitle }) %>
+        
+        <div style="border-bottom: 1px solid #30363d; padding-bottom: 20px; margin-bottom: 20px;">
+            <h1 style="font-size: 28px; font-weight: 600; margin: 10px 0; color: #f0f6fc;"><%= paste.title %></h1>
+            
+            <div style="font-size: 14px; color: #8b949e; display: flex; gap: 20px; flex-wrap: wrap; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span>🔗</span>
+                    <span><strong><%= paste.id %></strong></span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span class="paste-language"><%= paste.language || 'text' %></span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span>📅</span>
+                    <span><%= new Date(paste.createdAt).toLocaleString() %></span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span>👁️</span>
+                    <span><%= (paste.views || 0) + 1 %> views</span>
+                </div>
+                <% if (paste.expiresAt) { %>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span>⏰</span>
+                    <span>Expires: <%= new Date(paste.expiresAt).toLocaleString() %></span>
+                </div>
+                <% } %>
+            </div>
+        </div>
+        
+        <div style="background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; margin: 20px 0;">
+            <div style="background-color: #21262d; padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #8b949e;">
+                <% if (paste.content.startsWith('data:image/')) { %>
+                    <span>Image • <%= Math.round(paste.content.length / 1024) %> KB</span>
+                <% } else if (paste.content.startsWith('data:')) { %>
+                    <span>Binary file • <%= Math.round(paste.content.length / 1024) %> KB</span>
+                <% } else { %>
+                    <span><%= paste.content.split('\n').length %> lines • <%= paste.content.length %> characters</span>
+                <% } %>
+            </div>
+            <div style="padding: 20px; overflow-x: auto;">
+                <% if (paste.content.startsWith('data:image/')) { %>
+                    <div style="text-align: center;">
+                        <img src="<%= paste.content %>" style="max-width: 100%; height: auto; border-radius: 6px;" alt="<%= paste.title %>">
+                    </div>
+                <% } else if (paste.content.startsWith('data:video/')) { %>
+                    <div style="text-align: center;">
+                        <video controls style="max-width: 100%; height: auto; border-radius: 6px;">
+                            <source src="<%= paste.content %>" type="<%= paste.content.split(';')[0].split(':')[1] %>">
+                            Your browser does not support the video tag.
+                        </video>
+                    </div>
+                <% } else if (paste.content.startsWith('data:audio/')) { %>
+                    <div style="text-align: center;">
+                        <audio controls style="width: 100%;">
+                            <source src="<%= paste.content %>" type="<%= paste.content.split(';')[0].split(':')[1] %>">
+                            Your browser does not support the audio tag.
+                        </audio>
+                    </div>
+                <% } else if (paste.content.startsWith('data:')) { %>
+                    <div style="text-align: center; color: #8b949e; padding: 40px;">
+                        <h3>Binary File</h3>
+                        <p>This file cannot be displayed as text.</p>
+                        <p>Use the download button below to save the file.</p>
+                    </div>
+                <% } else { %>
+                    <pre style="margin: 0; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;"><%= (typeof paste.content === 'string' ? paste.content : JSON.stringify(paste.content, null, 2)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') %></pre>
+                <% } %>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="/raw/<%= paste.id %>" class="btn">📄 Raw</a>
+            <a href="/download/<%= paste.id %>" class="btn btn-secondary">💾 Download</a>
+            <a href="/" class="btn btn-secondary">➕ New Paste</a>
+        </div>
+
+<%- include('partials/footer') %>

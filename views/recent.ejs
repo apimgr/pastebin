@@ -1,0 +1,42 @@
+<%- include('partials/header', { title: 'Recent Pastes', siteTitle, maxWidth: '1200px' }) %>
+
+        <%- include('partials/nav', { siteTitle }) %>
+        
+        <div class="stats">
+            Showing <%= pastes.length %> of <%= total %> public pastes
+        </div>
+        
+        <% if (pastes.length > 0) { %>
+            <div class="paste-grid">
+                <% pastes.forEach(paste => { %>
+                    <div class="paste-card">
+                        <div class="paste-title">
+                            <a href="/<%= paste.id %>"><%= paste.title || 'Untitled' %></a>
+                        </div>
+                        <div class="paste-meta">
+                            <span class="paste-language"><%= paste.language || 'text' %></span>
+                            <div>
+                                <span>👁️ <%= paste.views || 0 %></span>
+                                <span>📅 <%= new Date(paste.createdAt).toLocaleDateString() %></span>
+                            </div>
+                        </div>
+                    </div>
+                <% }); %>
+            </div>
+            
+            <% if (totalPages > 1) { %>
+                <div class="pagination">
+                    <% if (page > 1) { %><a href="?page=<%= page - 1 %>&limit=<%= limit %>" class="page-btn">← Previous</a><% } %>
+                    <span class="page-btn active">Page <%= page %> of <%= totalPages %></span>
+                    <% if (page < totalPages) { %><a href="?page=<%= page + 1 %>&limit=<%= limit %>" class="page-btn">Next →</a><% } %>
+                </div>
+            <% } %>
+        <% } else { %>
+            <div class="empty-state">
+                <h3>No public pastes yet</h3>
+                <p>Be the first to create one!</p>
+                <a href="/" style="color: #58a6ff; text-decoration: none;">← Go back to create a paste</a>
+            </div>
+        <% } %>
+
+<%- include('partials/footer') %>
