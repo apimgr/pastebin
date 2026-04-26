@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.SiteTitle}} - Paste Sharing Service</title>
+    <meta name="description" content="Simple, fast paste sharing service with syntax highlighting and API access">
+    <meta name="theme-color" content="#6366f1">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link active">Home</a>
+                <a href="/create" class="nav-link">Create</a>
+                <a href="/recent" class="nav-link">Recent</a>
+                <a href="/api" class="nav-link">API</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="container">
+                <div class="hero-content">
+                    <div class="hero-badge">
+                        <span class="hero-badge-dot"></span>
+                        <span>API v1.0 - Live</span>
+                    </div>
+                    <h1 class="hero-title">
+                        Paste <span class="hero-title-gradient">Sharing</span>
+                    </h1>
+                    <p class="hero-description">
+                        Share code snippets, text, and files instantly. Syntax highlighting, expiration options, and powerful API for automation.
+                    </p>
+                    <div class="hero-actions">
+                        <a href="/create" class="btn btn-primary btn-lg">
+                            Create Paste
+                        </a>
+                        <a href="/recent" class="btn btn-secondary btn-lg">
+                            Browse Recent
+                        </a>
+                    </div>
+                    <div class="hero-stats">
+                        <div class="hero-stat">
+                            <div class="hero-stat-value">15+</div>
+                            <div class="hero-stat-label">Languages</div>
+                        </div>
+                        <div class="hero-stat">
+                            <div class="hero-stat-value">REST</div>
+                            <div class="hero-stat-label">API</div>
+                        </div>
+                        <div class="hero-stat">
+                            <div class="hero-stat-value">100%</div>
+                            <div class="hero-stat-label">Free</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="features">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">Features</h2>
+                    <p class="section-description">Everything you need for code sharing</p>
+                </div>
+                <div class="features-grid">
+                    <a href="/create" class="feature-card">
+                        <div class="feature-icon">📝</div>
+                        <h3 class="feature-title">Create Paste</h3>
+                        <p class="feature-description">Share code snippets and text instantly with syntax highlighting for 15+ languages.</p>
+                    </a>
+                    <a href="/recent" class="feature-card">
+                        <div class="feature-icon">📋</div>
+                        <h3 class="feature-title">Recent Pastes</h3>
+                        <p class="feature-description">Browse recent public pastes shared by the community.</p>
+                    </a>
+                    <a href="/api" class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3 class="feature-title">REST API</h3>
+                        <p class="feature-description">Full-featured REST API for automation and integration with your tools.</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Start Section -->
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h2 class="section-title">Quick Start</h2>
+                    <p class="section-description">Upload pastes from the command line</p>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">Upload Text File</span>
+                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>curl -X POST --data-binary @file.txt {{.BaseURL}}/create</pre>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">Upload via Form</span>
+                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>curl -X POST -F "files=@code.py" {{.BaseURL}}/create</pre>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">JSON API</span>
+                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>curl -H "Content-Type: application/json" \
+     -d '{"content":"Hello World","language":"text"}' \
+     {{.BaseURL}}/api/v1/create</pre>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">Pipe Content</span>
+                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/create</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/api" class="footer-link">API Docs</a>
+                <a href="/healthz" class="footer-link">Status</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+    <script>
+        function copyCode(btn) {
+            const code = btn.closest('.code-block').querySelector('pre').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Paste.Title}} - {{.SiteTitle}}</title>
+    <meta name="description" content="View paste: {{.Paste.Title}}">
+    <meta name="theme-color" content="#6366f1">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/create" class="nav-link">Create</a>
+                <a href="/recent" class="nav-link">Recent</a>
+                <a href="/api" class="nav-link">API</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="search-section">
+            <div class="container">
+                <div class="paste-view">
+                    <div class="paste-header">
+                        <h1>{{.Paste.Title}}</h1>
+                        <div class="paste-meta">
+                            <span class="language">{{.Paste.Language}}</span>
+                            <span>{{.Paste.Views}} views</span>
+                            <span>Created: {{.Paste.CreatedAt}}</span>
+                        </div>
+                        <div class="paste-actions">
+                            <a href="/raw/{{.ID}}" class="btn btn-secondary">Raw</a>
+                            <a href="/download/{{.ID}}" class="btn btn-secondary">Download</a>
+                            <button onclick="copyToClipboard()" class="btn btn-primary" id="copyBtn">
+                                Copy Code
+                            </button>
+                        </div>
+                    </div>
+                    <div class="paste-content">
+                        <pre><code id="paste-code">{{.Paste.Content}}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/api" class="footer-link">API Docs</a>
+                <a href="/healthz" class="footer-link">Status</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+    <script>
+        function copyToClipboard() {
+            const content = document.getElementById('paste-code').textContent;
+            const btn = document.getElementById('copyBtn');
+
+            navigator.clipboard.writeText(content).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = 'Copy Code';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                btn.textContent = 'Failed';
+                setTimeout(() => {
+                    btn.textContent = 'Copy Code';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

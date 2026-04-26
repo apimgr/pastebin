@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recent Pastes - {{.SiteTitle}}</title>
+    <meta name="description" content="Browse recent public pastes">
+    <meta name="theme-color" content="#6366f1">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/create" class="nav-link">Create</a>
+                <a href="/recent" class="nav-link active">Recent</a>
+                <a href="/api" class="nav-link">API</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Recent Pastes</h1>
+                    <p class="section-description">Browse recent public pastes shared by the community</p>
+                </div>
+
+                <!-- Loading State -->
+                <div id="loading" class="loading-state">
+                    <div class="loading-spinner"></div>
+                    <p>Loading pastes...</p>
+                </div>
+
+                <!-- Pastes List -->
+                <div id="pastes-list" class="pastes-list" style="display: none;"></div>
+
+                <!-- Empty State -->
+                <div id="emptyState" class="empty-state" style="display: none;">
+                    <div class="empty-state-icon">📋</div>
+                    <h3 class="empty-state-title">No pastes yet</h3>
+                    <p class="empty-state-description">Be the first to create a paste!</p>
+                    <a href="/create" class="btn btn-primary">Create Paste</a>
+                </div>
+
+                <!-- Pagination -->
+                <div id="pagination" class="pagination" style="display: none;"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/api" class="footer-link">API Docs</a>
+                <a href="/healthz" class="footer-link">Status</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+    <script>
+        let currentPage = 1;
+
+        async function loadPastes(page) {
+            const loading = document.getElementById('loading');
+            const listDiv = document.getElementById('pastes-list');
+            const emptyState = document.getElementById('emptyState');
+            const pagination = document.getElementById('pagination');
+
+            loading.style.display = 'flex';
+            listDiv.style.display = 'none';
+            emptyState.style.display = 'none';
+            pagination.style.display = 'none';
+
+            try {
+                const response = await fetch(`/api/v1/pastes?page=${page}&limit=20`);
+                const data = await response.json();
+
+                loading.style.display = 'none';
+
+                if (data.pastes && data.pastes.length > 0) {
+                    listDiv.style.display = 'flex';
+                    pagination.style.display = 'flex';
+
+                    listDiv.innerHTML = data.pastes.map(paste => `
+                        <div class="paste-item">
+                            <a href="/${paste.id}" class="paste-title">${escapeHtml(paste.title)}</a>
+                            <div class="paste-item-meta">
+                                <span class="language">${escapeHtml(paste.language)}</span>
+                                <span>${paste.views} views</span>
+                                <span>${formatDate(paste.created_at)}</span>
+                            </div>
+                        </div>
+                    `).join('');
+
+                    // Pagination
+                    pagination.innerHTML = `
+                        <button onclick="loadPastes(${page - 1})" ${!data.pagination.hasPrev ? 'disabled' : ''}>
+                            Previous
+                        </button>
+                        <span>Page ${data.pagination.page} of ${data.pagination.totalPages}</span>
+                        <button onclick="loadPastes(${page + 1})" ${!data.pagination.hasNext ? 'disabled' : ''}>
+                            Next
+                        </button>
+                    `;
+                    currentPage = page;
+                } else {
+                    emptyState.style.display = 'flex';
+                }
+            } catch (error) {
+                loading.style.display = 'none';
+                console.error('Error loading pastes:', error);
+                emptyState.style.display = 'flex';
+                emptyState.querySelector('.empty-state-title').textContent = 'Error Loading';
+                emptyState.querySelector('.empty-state-description').textContent = 'Unable to load pastes. Please try again.';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        // Load initial pastes
+        loadPastes(1);
+    </script>
+</body>
+</html>

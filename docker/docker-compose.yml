@@ -1,0 +1,25 @@
+name: pastebin
+
+services:
+  pastebin:
+    image: ghcr.io/apimgr/pastebin:latest
+    container_name: pastebin
+    restart: unless-stopped
+    environment:
+      # Hardcoded with sane defaults - NO .env files
+      - MODE=production
+      - TZ=America/New_York
+      # ENABLE_TOR=true is default, no need to specify
+    ports:
+      # Production: bound to Docker bridge only
+      - "172.17.0.1:64580:80"
+    volumes:
+      - ./rootfs/config/pastebin:/config
+      - ./rootfs/data/pastebin:/data
+    networks:
+      - pastebin
+
+networks:
+  pastebin:
+    name: pastebin
+    external: false
