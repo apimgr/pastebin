@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="{{.Theme}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,9 +7,6 @@
     <meta name="description" content="Simple, fast paste sharing service with syntax highlighting and API access">
     <meta name="theme-color" content="#6366f1">
     <link rel="manifest" href="/manifest.json">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
@@ -132,8 +129,9 @@
                     </div>
                     <div class="code-content">
                         <pre>curl -H "Content-Type: application/json" \
+     -H "Accept: application/json" \
      -d '{"content":"Hello World","language":"text"}' \
-     {{.BaseURL}}/api/v1/create</pre>
+     {{.BaseURL}}/api/v1/pastes</pre>
                     </div>
                 </div>
 

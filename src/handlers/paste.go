@@ -1,197 +1,284 @@
 package handlers
 
 import (
+	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"math/rand"
+	"fmt"
+	"html/template"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/apimgr/pastebin/src/auth"
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+
 	"github.com/apimgr/pastebin/src/database"
-	"github.com/apimgr/pastebin/src/models"
+	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
 )
 
-const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+// charset for paste IDs — URL-safe alphanumeric.
+const idCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// PasteHandler handles all paste HTTP operations.
 type PasteHandler struct {
 	db      database.DB
-	baseURL string
+	baseURL string // optional override, e.g. "https://paste.example.com"
 }
 
+// NewPasteHandler constructs a PasteHandler.
 func NewPasteHandler(db database.DB, baseURL string) *PasteHandler {
-	return &PasteHandler{
-		db:      db,
-		baseURL: baseURL,
-	}
+	return &PasteHandler{db: db, baseURL: baseURL}
 }
 
-func generatePasteID() string {
+// ─── ID & token generation ────────────────────────────────────────────────────
+
+// generateID returns an 8-character random alphanumeric string using crypto/rand.
+func generateID() (string, error) {
 	b := make([]byte, 8)
-	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+	if _, err := rand.Read(b); err != nil {
+		return "", err
 	}
-	return string(b)
+	for i, v := range b {
+		b[i] = idCharset[int(v)%len(idCharset)]
+	}
+	return string(b), nil
 }
 
-// CreatePaste handles paste creation
+// generateDeleteToken returns a 64-char hex token and its SHA-256 hash.
+func generateDeleteToken() (plaintext, hash string, err error) {
+	raw := make([]byte, 32)
+	if _, err = rand.Read(raw); err != nil {
+		return "", "", err
+	}
+	plaintext = hex.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(plaintext))
+	hash = hex.EncodeToString(sum[:])
+	return plaintext, hash, nil
+}
+
+// HashToken returns the SHA-256 hex digest of a plaintext delete token.
+// Exported so the server layer can call it for web form submissions.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// ─── Create ───────────────────────────────────────────────────────────────────
+
+// CreateRequest is the JSON body for paste creation.
+type CreateRequest struct {
+	Content    string `json:"content"`
+	Title      string `json:"title"`
+	Language   string `json:"language"`
+	Visibility string `json:"visibility"` // "public" | "unlisted"
+	ExpiresIn  string `json:"expires_in"` // "1h","1d","1w","1m","3m","6m","1y","18m","2y","never", or seconds
+	BurnAfter  int    `json:"burn_after"` // 0=disabled, 1-9999
+}
+
+// CreatePaste handles paste creation via JSON, multipart, or raw body.
 func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
-	var content, title, language string
-	var isPublic = true
-	var expiresAt *time.Time
+	var req CreateRequest
 
-	contentType := r.Header.Get("Content-Type")
+	ct := r.Header.Get("Content-Type")
 
-	// Handle different content types
-	if strings.HasPrefix(contentType, "application/json") {
-		var req struct {
-			Content   string `json:"content"`
-			Title     string `json:"title"`
-			Language  string `json:"language"`
-			IsPublic  *bool  `json:"is_public"`
-			ExpiresIn string `json:"expires_in"` // "1h", "1d", "1w", "never"
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			h.errorResponse(w, r, "Invalid JSON", http.StatusBadRequest)
+	switch {
+	case strings.HasPrefix(ct, "application/json"):
+		dec := json.NewDecoder(io.LimitReader(r.Body, 10<<20))
+		if err := dec.Decode(&req); err != nil {
+			h.errJSON(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		content = req.Content
-		title = req.Title
-		language = req.Language
-		if req.IsPublic != nil {
-			isPublic = *req.IsPublic
-		}
-		if req.ExpiresIn != "" && req.ExpiresIn != "never" {
-			exp := parseExpiry(req.ExpiresIn)
-			if exp != nil {
-				expiresAt = exp
-			}
-		}
-	} else if strings.HasPrefix(contentType, "multipart/form-data") {
-		// Handle form upload
+
+	case strings.HasPrefix(ct, "multipart/form-data"):
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			h.errorResponse(w, r, "Failed to parse form", http.StatusBadRequest)
+			h.errJSON(w, "failed to parse form", http.StatusBadRequest)
 			return
 		}
 		file, header, err := r.FormFile("files")
 		if err == nil {
 			defer file.Close()
-			buf := make([]byte, header.Size)
-			file.Read(buf)
-			content = string(buf)
-			title = header.Filename
-			language = detectLanguage(header.Filename)
+			raw, _ := io.ReadAll(io.LimitReader(file, 10<<20))
+			req.Content = string(raw)
+			req.Title = header.Filename
+			req.Language = DetectLanguage(header.Filename)
 		} else {
-			content = r.FormValue("content")
-			title = r.FormValue("title")
-			language = r.FormValue("language")
+			req.Content = r.FormValue("content")
+			req.Title = r.FormValue("title")
+			req.Language = r.FormValue("language")
 		}
-	} else {
-		// Raw text upload (curl --data-binary)
-		buf := make([]byte, 10<<20) // 10MB max
-		n, _ := r.Body.Read(buf)
-		content = string(buf[:n])
-		title = r.Header.Get("X-Title")
-		language = r.Header.Get("X-Language")
+		req.Visibility = r.FormValue("visibility")
+		req.ExpiresIn = r.FormValue("expires_in")
+		if ba, err := strconv.Atoi(r.FormValue("burn_after")); err == nil {
+			req.BurnAfter = ba
+		}
+
+	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
+		if err := r.ParseForm(); err != nil {
+			h.errJSON(w, "failed to parse form", http.StatusBadRequest)
+			return
+		}
+		req.Content = r.FormValue("content")
+		req.Title = r.FormValue("title")
+		req.Language = r.FormValue("language")
+		req.Visibility = r.FormValue("visibility")
+		req.ExpiresIn = r.FormValue("expires_in")
+		if ba, err := strconv.Atoi(r.FormValue("burn_after")); err == nil {
+			req.BurnAfter = ba
+		}
+
+	default:
+		// Raw body (curl --data-binary)
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+		req.Content = string(raw)
+		req.Title = r.Header.Get("X-Title")
+		req.Language = r.Header.Get("X-Language")
+		req.ExpiresIn = r.Header.Get("X-Expires-In")
 	}
 
-	if strings.TrimSpace(content) == "" {
-		h.errorResponse(w, r, "Content is required", http.StatusBadRequest)
+	req.Content = strings.TrimRight(req.Content, "\n")
+	if strings.TrimSpace(req.Content) == "" {
+		h.errJSON(w, "content is required", http.StatusBadRequest)
 		return
 	}
 
-	// Generate unique ID
+	// Visibility
+	vis := model.VisibilityPublic
+	if req.Visibility == "unlisted" || req.Visibility == "1" {
+		vis = model.VisibilityUnlisted
+	}
+
+	// BurnAfter clamp
+	burn := req.BurnAfter
+	if burn < 0 {
+		burn = 0
+	}
+	if burn > 9999 {
+		burn = 9999
+	}
+
+	// Expiry
+	var expiresAt *time.Time
+	if req.ExpiresIn != "" && req.ExpiresIn != "never" {
+		if t := ParseExpiry(req.ExpiresIn); t != nil {
+			expiresAt = t
+		}
+	}
+
+	// Language default
+	if req.Language == "" {
+		req.Language = "text"
+	}
+	if req.Title == "" {
+		req.Title = "Untitled"
+	}
+
+	// Generate unique paste ID
 	var pasteID string
-	for attempts := 0; attempts < 10; attempts++ {
-		pasteID = generatePasteID()
-		existing, _ := h.db.GetPasteByID(pasteID)
+	for range 10 {
+		id, err := generateID()
+		if err != nil {
+			h.errJSON(w, "failed to generate ID", http.StatusInternalServerError)
+			return
+		}
+		existing, _ := h.db.GetPasteByID(id)
 		if existing == nil {
+			pasteID = id
 			break
 		}
 	}
-
-	// Get user from context (may be nil)
-	user := auth.GetUserFromContext(r)
-	var userID *string
-	if user != nil {
-		userID = &user.ID
+	if pasteID == "" {
+		h.errJSON(w, "could not generate unique ID", http.StatusInternalServerError)
+		return
 	}
 
-	paste := &models.Paste{
-		ID:        pasteID,
-		Title:     title,
-		Content:   strings.TrimSpace(content),
-		Language:  language,
-		IsPublic:  isPublic,
-		ExpiresAt: expiresAt,
-		UserID:    userID,
-		Views:     0,
+	// Delete token
+	plainToken, tokenHash, err := generateDeleteToken()
+	if err != nil {
+		h.errJSON(w, "failed to generate token", http.StatusInternalServerError)
+		return
 	}
 
-	if paste.Title == "" {
-		paste.Title = "Untitled"
-	}
-	if paste.Language == "" {
-		paste.Language = "text"
+	paste := &model.Paste{
+		ID:              pasteID,
+		Title:           req.Title,
+		Content:         req.Content,
+		Language:        req.Language,
+		Visibility:      vis,
+		ExpiresAt:       expiresAt,
+		BurnAfter:       burn,
+		DeleteTokenHash: tokenHash,
+		Views:           0,
 	}
 
 	if err := h.db.CreatePaste(paste); err != nil {
-		h.errorResponse(w, r, "Failed to create paste", http.StatusInternalServerError)
+		h.errJSON(w, "failed to create paste", http.StatusInternalServerError)
 		return
 	}
 
-	pasteURL := h.getPasteURL(r, paste.ID)
-
-	// Return response based on Accept header
-	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "application/json") {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"id":         paste.ID,
-			"title":      paste.Title,
-			"language":   paste.Language,
-			"is_public":  paste.IsPublic,
-			"created_at": paste.CreatedAt,
-			"link":       pasteURL,
-		})
-	} else {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(pasteURL))
+	link := h.pasteURL(r, paste.ID)
+	resp := model.CreateResponse{
+		ID:          paste.ID,
+		Title:       paste.Title,
+		Language:    paste.Language,
+		Visibility:  paste.Visibility,
+		BurnAfter:   paste.BurnAfter,
+		ExpiresAt:   paste.ExpiresAt,
+		Views:       0,
+		CreatedAt:   paste.CreatedAt,
+		Link:        link,
+		DeleteToken: plainToken,
 	}
+
+	accept := r.Header.Get("Accept")
+	isAPI := strings.HasPrefix(r.URL.Path, "/api/")
+	isJSON := strings.Contains(accept, "application/json")
+
+	// Browser form submit (no JS): redirect to the paste view.
+	if !isAPI && !isJSON && strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
+		http.Redirect(w, r, "/"+paste.ID, http.StatusSeeOther)
+		return
+	}
+
+	// curl / raw / non-JSON API callers: return the URL as plain text.
+	if !isAPI && !isJSON {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintln(w, link)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
 }
 
-// GetPaste retrieves a paste by ID
+// ─── Get ──────────────────────────────────────────────────────────────────────
+
+// GetPaste returns paste JSON (burns if applicable).
 func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-
-	paste, err := h.db.GetPasteByID(id)
-	if err != nil || paste == nil {
-		h.errorResponse(w, r, "Paste not found", http.StatusNotFound)
+	paste, err := h.loadLivePaste(w, id)
+	if paste == nil || err != nil {
 		return
 	}
 
-	// Check expiration
-	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
-		h.errorResponse(w, r, "Paste has expired", http.StatusGone)
-		return
-	}
-
-	// Check visibility
-	if !paste.IsPublic {
-		user := auth.GetUserFromContext(r)
-		if user == nil || (paste.UserID != nil && *paste.UserID != user.ID) {
-			h.errorResponse(w, r, "This paste is private", http.StatusForbidden)
-			return
-		}
-	}
-
-	// Increment views
 	h.db.IncrementPasteViews(id)
 	paste.Views++
+
+	// After incrementing, check burn limit.
+	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
+		h.db.DeletePaste(id)
+	}
+
+	// Never return delete token hash.
+	paste.DeleteTokenHash = ""
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -200,36 +287,27 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetRawPaste returns the raw content
+// GetRawPaste returns paste content as plain text.
 func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-
-	paste, err := h.db.GetPasteByID(id)
-	if err != nil || paste == nil {
-		http.Error(w, "Paste not found", http.StatusNotFound)
+	paste, err := h.loadLivePaste(w, id)
+	if paste == nil || err != nil {
 		return
-	}
-
-	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
-		http.Error(w, "Paste has expired", http.StatusGone)
-		return
-	}
-
-	if !paste.IsPublic {
-		user := auth.GetUserFromContext(r)
-		if user == nil || (paste.UserID != nil && *paste.UserID != user.ID) {
-			http.Error(w, "This paste is private", http.StatusForbidden)
-			return
-		}
 	}
 
 	h.db.IncrementPasteViews(id)
 
+	if paste.BurnAfter > 0 && paste.Views+1 >= paste.BurnAfter {
+		h.db.DeletePaste(id)
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(paste.Content))
+	fmt.Fprint(w, paste.Content)
 }
 
-// ListPastes lists public pastes
+// ─── List ─────────────────────────────────────────────────────────────────────
+
+// ListPastes returns paginated public pastes as JSON.
 func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
@@ -242,125 +320,260 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 
 	pastes, total, err := h.db.GetPublicPastes(page, limit)
 	if err != nil {
-		h.errorResponse(w, r, "Failed to fetch pastes", http.StatusInternalServerError)
+		h.errJSON(w, "failed to fetch pastes", http.StatusInternalServerError)
 		return
 	}
 
 	totalPages := (total + limit - 1) / limit
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"pastes": pastes,
 		"pagination": map[string]interface{}{
-			"page":       page,
-			"limit":      limit,
-			"total":      total,
-			"totalPages": totalPages,
-			"hasNext":    page < totalPages,
-			"hasPrev":    page > 1,
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_next":    page < totalPages,
+			"has_prev":    page > 1,
 		},
 	})
 }
 
-// DeletePaste deletes a paste
+// ─── Delete ───────────────────────────────────────────────────────────────────
+
+// DeletePaste deletes a paste after verifying the delete token.
 func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	user := auth.GetUserFromContext(r)
 
-	if user == nil {
-		h.errorResponse(w, r, "Authentication required", http.StatusUnauthorized)
+	// Token from query param or JSON body or header.
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		token = r.Header.Get("X-Delete-Token")
+	}
+	if token == "" && strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Token string `json:"token"`
+		}
+		json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&body)
+		token = body.Token
+	}
+
+	if token == "" {
+		h.errJSON(w, "delete token required", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.db.DeletePaste(id, user.ID); err != nil {
-		h.errorResponse(w, r, "Paste not found or access denied", http.StatusNotFound)
+	if err := h.db.DeletePasteByToken(id, HashToken(token)); err != nil {
+		h.errJSON(w, "paste not found or invalid token", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Paste deleted successfully",
-	})
+	json.NewEncoder(w).Encode(map[string]string{"message": "paste deleted"})
 }
 
-func (h *PasteHandler) getPasteURL(r *http.Request, id string) string {
+// ─── Web view helpers ─────────────────────────────────────────────────────────
+
+// GetPasteForWeb returns the paste struct for server-side template rendering.
+// Increments views and handles burn logic. Returns nil if paste is unavailable.
+func (h *PasteHandler) GetPasteForWeb(id string) (*model.Paste, error) {
+	paste, err := h.db.GetPasteByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if paste == nil {
+		return nil, nil
+	}
+	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
+		h.db.DeletePaste(id)
+		return nil, nil
+	}
+
+	h.db.IncrementPasteViews(id)
+	paste.Views++
+
+	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
+		h.db.DeletePaste(id)
+	}
+
+	paste.DeleteTokenHash = ""
+	return paste, nil
+}
+
+// HighlightedContent returns Chroma-highlighted HTML for the paste content.
+// Falls back to HTML-escaped plain text if the language is unknown or highlighting fails.
+func HighlightedContent(paste *model.Paste) template.HTML {
+	lexer := lexers.Get(paste.Language)
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+
+	style := styles.Get("github-dark")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	formatter := chromahtml.New(
+		chromahtml.TabWidth(4),
+		chromahtml.WithLineNumbers(false),
+	)
+
+	iterator, err := lexer.Tokenise(nil, paste.Content)
+	if err != nil {
+		return template.HTML(template.HTMLEscapeString(paste.Content))
+	}
+
+	var buf bytes.Buffer
+	if err := formatter.Format(&buf, style, iterator); err != nil {
+		return template.HTML(template.HTMLEscapeString(paste.Content))
+	}
+
+	return template.HTML(buf.String())
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// loadLivePaste retrieves a paste by ID, enforces expiry, and writes an error
+// response if unavailable. Returns nil when a response has already been written.
+func (h *PasteHandler) loadLivePaste(w http.ResponseWriter, id string) (*model.Paste, error) {
+	paste, err := h.db.GetPasteByID(id)
+	if err != nil {
+		h.errJSON(w, "internal server error", http.StatusInternalServerError)
+		return nil, err
+	}
+	if paste == nil {
+		h.errJSON(w, "paste not found", http.StatusNotFound)
+		return nil, nil
+	}
+	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
+		h.db.DeletePaste(id)
+		h.errJSON(w, "paste has expired", http.StatusGone)
+		return nil, nil
+	}
+	return paste, nil
+}
+
+func (h *PasteHandler) pasteURL(r *http.Request, id string) string {
+	if h.baseURL != "" {
+		return h.baseURL + "/" + id
+	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	host := r.Host
-	if h.baseURL != "" {
-		return h.baseURL + "/" + id
-	}
-	return scheme + "://" + host + "/" + id
+	return scheme + "://" + r.Host + "/" + id
 }
 
-func (h *PasteHandler) errorResponse(w http.ResponseWriter, r *http.Request, message string, status int) {
-	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "application/json") || strings.HasPrefix(r.URL.Path, "/api/") {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(map[string]string{"error": message})
-	} else {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(status)
-		w.Write([]byte("Error: " + message))
-	}
+func (h *PasteHandler) errJSON(w http.ResponseWriter, msg string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func parseExpiry(expiry string) *time.Time {
-	var duration time.Duration
-	switch expiry {
+// ─── Expiry parsing ───────────────────────────────────────────────────────────
+
+// ParseExpiry converts an expiry string to an absolute time.
+// Accepts: 1h 1d 1w 1m 3m 6m 1y 18m 2y or raw seconds as a decimal string.
+func ParseExpiry(s string) *time.Time {
+	var d time.Duration
+	switch s {
 	case "1h":
-		duration = time.Hour
+		d = time.Hour
 	case "1d":
-		duration = 24 * time.Hour
+		d = 24 * time.Hour
 	case "1w":
-		duration = 7 * 24 * time.Hour
+		d = 7 * 24 * time.Hour
 	case "1m":
-		duration = 30 * 24 * time.Hour
+		d = 30 * 24 * time.Hour
+	case "3m":
+		d = 90 * 24 * time.Hour
+	case "6m":
+		d = 180 * 24 * time.Hour
+	case "18m":
+		d = 540 * 24 * time.Hour
+	case "1y":
+		d = 365 * 24 * time.Hour
+	case "2y":
+		d = 730 * 24 * time.Hour
 	default:
-		return nil
+		// Try raw seconds.
+		if sec, err := strconv.ParseInt(s, 10, 64); err == nil && sec > 0 {
+			d = time.Duration(sec) * time.Second
+		} else {
+			return nil
+		}
 	}
-	t := time.Now().Add(duration)
+	t := time.Now().Add(d)
 	return &t
 }
 
-func detectLanguage(filename string) string {
+// ─── Language detection ───────────────────────────────────────────────────────
+
+// DetectLanguage infers a syntax-highlighting language name from a filename extension.
+func DetectLanguage(filename string) string {
 	ext := strings.ToLower(filename)
 	if idx := strings.LastIndex(ext, "."); idx != -1 {
 		ext = ext[idx+1:]
 	}
 
-	langMap := map[string]string{
-		"js":    "javascript",
-		"ts":    "typescript",
-		"py":    "python",
-		"rb":    "ruby",
-		"go":    "go",
-		"rs":    "rust",
-		"java":  "java",
-		"c":     "c",
-		"cpp":   "cpp",
-		"h":     "c",
-		"hpp":   "cpp",
-		"cs":    "csharp",
-		"php":   "php",
-		"sh":    "bash",
-		"bash":  "bash",
-		"zsh":   "bash",
-		"html":  "html",
-		"css":   "css",
-		"json":  "json",
-		"yaml":  "yaml",
-		"yml":   "yaml",
-		"xml":   "xml",
-		"sql":   "sql",
-		"md":    "markdown",
-		"txt":   "text",
+	m := map[string]string{
+		"js":   "javascript",
+		"ts":   "typescript",
+		"jsx":  "jsx",
+		"tsx":  "tsx",
+		"py":   "python",
+		"rb":   "ruby",
+		"go":   "go",
+		"rs":   "rust",
+		"java": "java",
+		"c":    "c",
+		"cpp":  "cpp",
+		"cc":   "cpp",
+		"h":    "c",
+		"hpp":  "cpp",
+		"cs":   "csharp",
+		"php":  "php",
+		"sh":   "bash",
+		"bash": "bash",
+		"zsh":  "bash",
+		"fish": "bash",
+		"ps1":  "powershell",
+		"html": "html",
+		"htm":  "html",
+		"css":  "css",
+		"scss": "scss",
+		"sass": "sass",
+		"json": "json",
+		"yaml": "yaml",
+		"yml":  "yaml",
+		"toml": "toml",
+		"xml":  "xml",
+		"sql":  "sql",
+		"md":   "markdown",
+		"txt":  "text",
+		"lua":  "lua",
+		"r":    "r",
+		"swift": "swift",
+		"kt":   "kotlin",
+		"dart": "dart",
+		"ex":   "elixir",
+		"exs":  "elixir",
+		"erl":  "erlang",
+		"hs":   "haskell",
+		"clj":  "clojure",
+		"scala": "scala",
+		"pl":   "perl",
+		"ini":  "ini",
+		"conf": "ini",
+		"env":  "bash",
+		"diff": "diff",
+		"patch": "diff",
+		"dockerfile": "dockerfile",
+		"makefile": "makefile",
+		"mk":   "makefile",
 	}
 
-	if lang, ok := langMap[ext]; ok {
+	if lang, ok := m[ext]; ok {
 		return lang
 	}
 	return "text"

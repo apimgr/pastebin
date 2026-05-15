@@ -6,142 +6,130 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/paths"
+	"github.com/apimgr/pastebin/src/scheduler"
 	"github.com/apimgr/pastebin/src/server"
+)
+
+// Version, Commit, and BuildDate are injected at build time via -ldflags.
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
 )
 
 const appName = "pastebin"
 
 func main() {
-	serviceMode := flag.Bool("service", false, "Run in service mode (production)")
-	maintenanceMode := flag.Bool("maintenance", false, "Run in maintenance mode")
-	showVersion := flag.Bool("version", false, "Show version information")
-	cleanExpired := flag.Bool("clean-expired", false, "Clean up expired pastes")
-	portFlag := flag.String("port", "", "Server port (overrides config)")
-	addressFlag := flag.String("address", "", "Listen address (overrides config)")
-	modeFlag := flag.String("mode", "", "Application mode (dev/development, prod/production)")
-	updateCmd := flag.String("update", "", "Update command (stable, beta, nightly)")
-	configPath := flag.String("config", "", "Path to configuration file")
-	dataPath := flag.String("data", "", "Path to data directory")
-	logsPath := flag.String("logs", "", "Path to logs directory")
-	showStatus := flag.Bool("status", false, "Show service status")
-	showHelp := flag.Bool("help", false, "Show help information")
+	var (
+		portFlag     = flag.String("port", "", "server port (overrides config)")
+		addressFlag  = flag.String("address", "", "listen address (overrides config)")
+		modeFlag     = flag.String("mode", "", "application mode: dev|production")
+		configPath   = flag.String("config", "", "path to config file (server.yml)")
+		dataPath     = flag.String("data", "", "path to data directory")
+		logsPath     = flag.String("logs", "", "path to logs directory")
+		showVersion  = flag.Bool("version", false, "print version and exit")
+		showStatus   = flag.Bool("status", false, "show runtime paths and exit")
+		showHelp     = flag.Bool("help", false, "show help and exit")
+		cleanExpired = flag.Bool("clean-expired", false, "delete expired pastes and exit")
+		debugFlag    = flag.Bool("debug", false, "enable debug output")
+	)
 	flag.Parse()
 
+	binaryName := filepath.Base(os.Args[0])
+
 	if *showHelp {
-		printHelp()
-		os.Exit(0)
-	}
-
-	if *showStatus {
-		printStatus()
-		os.Exit(0)
-	}
-
-	// Handle update command
-	if *updateCmd != "" {
-		handleUpdateCommand(*updateCmd)
-		os.Exit(0)
-	}
-
-	// Initialize mode
-	if err := mode.Initialize(*modeFlag); err != nil {
-		log.Printf("Warning: invalid mode: %v", err)
+		printHelp(binaryName)
+		return
 	}
 
 	if *showVersion {
-		fmt.Println("pastebin v1.0.0")
-		fmt.Println("A pastebin service with multi-database support")
-		os.Exit(0)
+		fmt.Printf("%s %s\n", binaryName, Version)
+		return
 	}
 
-	// Get config directory
+	if err := mode.Initialize(*modeFlag); err != nil {
+		log.Printf("warning: %v", err)
+	}
+
+	if *debugFlag {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		log.Printf("debug mode enabled")
+	}
+
+	// Resolve directories.
 	configDir := paths.GetConfigDir(appName)
-	if err := paths.EnsureDir(configDir); err != nil {
-		log.Printf("Warning: could not create config directory: %v", err)
-	}
-
-	// Get data directory
 	dataDir := paths.GetDataDir(appName)
 	if *dataPath != "" {
 		dataDir = *dataPath
 	}
-	if err := paths.EnsureDir(dataDir); err != nil {
-		log.Printf("Warning: could not create data directory: %v", err)
-	}
-
-	// Get logs directory
 	logsDir := paths.GetLogsDir(appName)
 	if *logsPath != "" {
 		logsDir = *logsPath
 	}
-	if err := paths.EnsureDir(logsDir); err != nil {
-		log.Printf("Warning: could not create logs directory: %v", err)
-	}
-	_ = logsDir // Use logs directory for log files
 
-	// Load configuration
-	cfgPath := filepath.Join(configDir, "server.yml")
+	for _, dir := range []string{configDir, dataDir, logsDir} {
+		if err := paths.EnsureDir(dir); err != nil {
+			log.Printf("warning: could not create directory %s: %v", dir, err)
+		}
+	}
+
+	if *showStatus {
+		fmt.Printf("%s %s\n", binaryName, Version)
+		fmt.Printf("Mode:   %s\n", mode.Get())
+		fmt.Printf("Config: %s\n", filepath.Join(configDir, "server.yml"))
+		fmt.Printf("Data:   %s\n", dataDir)
+		fmt.Printf("Logs:   %s\n", logsDir)
+		return
+	}
+
+	// Load config.
+	cfgFile := filepath.Join(configDir, "server.yml")
 	if *configPath != "" {
-		cfgPath = *configPath
+		cfgFile = *configPath
 	}
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		log.Printf("Warning: could not load config: %v", err)
+		log.Printf("warning: config load: %v", err)
 	}
 
-	// Set default database path if using SQLite and path is relative
-	if cfg.Database.Type == "sqlite" && !filepath.IsAbs(cfg.Database.Path) {
-		cfg.Database.Path = filepath.Join(dataDir, "pastebin.db")
+	// Resolve database path.
+	if cfg.Database.Path == "" {
+		cfg.Database.Path = filepath.Join(dataDir, "db", "server.db")
+	}
+	if err := paths.EnsureDir(filepath.Dir(cfg.Database.Path)); err != nil {
+		log.Printf("warning: db dir: %v", err)
 	}
 
-	// Connect to database
-	log.Printf("Connecting to %s database...", cfg.Database.Type)
-	db, err := database.NewDatabase(&cfg.Database)
+	// Open database.
+	db, err := database.NewDatabase(cfg.Database.Type, cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("database: %v", err)
 	}
 	defer db.Close()
-	log.Printf("Connected to %s database", db.Type())
 
-	// Handle maintenance mode
-	if *maintenanceMode || *cleanExpired {
-		count, err := db.DeleteExpiredPastes()
+	log.Printf("%s %s — database: %s (%s)", appName, Version, db.Type(), cfg.Database.Path)
+
+	// One-shot: clean expired pastes then exit.
+	if *cleanExpired {
+		n, err := db.DeleteExpiredPastes()
 		if err != nil {
-			log.Fatalf("Failed to clean expired pastes: %v", err)
+			log.Fatalf("clean expired: %v", err)
 		}
-		log.Printf("Deleted %d expired pastes", count)
-		os.Exit(0)
+		b, _ := db.DeleteBurnedPastes()
+		log.Printf("deleted %d expired + %d burned pastes", n, b)
+		return
 	}
 
-	// Build info
-	version := "1.0.0"
-
-	// Create and start server
-	srv := server.New(db, cfg, version)
-
-	// Handle graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		log.Println("Shutting down server...")
-		cancel()
-	}()
-
-	// Override config with CLI flags if provided
+	// CLI flag overrides.
 	if *portFlag != "" {
 		cfg.Server.Port = *portFlag
 	}
@@ -149,97 +137,68 @@ func main() {
 		cfg.Server.Address = *addressFlag
 	}
 
+	// Start background scheduler.
+	sched := scheduler.New()
+	sched.AddTask("expire-pastes", 10*time.Minute, func() error {
+		n, err := db.DeleteExpiredPastes()
+		if err != nil {
+			return err
+		}
+		b, _ := db.DeleteBurnedPastes()
+		if n+b > 0 {
+			log.Printf("scheduler: removed %d expired + %d burned pastes", n, b)
+		}
+		return nil
+	})
+	sched.Start()
+	defer sched.Stop()
+
+	// Build and start HTTP server.
+	srv := server.New(db, cfg, Version)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sig
+		log.Printf("shutting down…")
+		cancel()
+	}()
+
 	addr := cfg.Server.Address + ":" + cfg.Server.Port
-	if *serviceMode {
-		log.Printf("Starting pastebin server in service mode on %s", addr)
-	} else {
-		log.Printf("Starting pastebin server on %s", addr)
-		log.Printf("Database: %s", db.Type())
-		log.Printf("")
-		log.Printf("URLs:")
-		log.Printf("  Web interface: http://%s/", addr)
-		log.Printf("  API docs: http://%s/api", addr)
-		log.Printf("  Health check: http://%s/healthz", addr)
-		log.Printf("")
-		log.Printf("Usage examples:")
-		log.Printf("  Upload text: curl -X POST --data-binary @file.txt http://%s/create", addr)
-		log.Printf("  Upload file: curl -X POST -F \"files=@file.txt\" http://%s/create", addr)
-		log.Printf("  Upload JSON: curl -H \"Content-Type: application/json\" -d '{\"content\":\"hello\"}' http://%s/api/v1/create", addr)
-	}
+	log.Printf("listening on %s", addr)
 
 	if err := srv.Run(ctx, addr); err != nil {
-		log.Fatalf("Server error: %v", err)
+		log.Fatalf("server: %v", err)
 	}
 }
 
-func printHelp() {
-	fmt.Printf(`%s - A pastebin service with multi-database support
+func printHelp(name string) {
+	fmt.Printf(`%s — a fast, public pastebin service
 
-USAGE:
+USAGE
     %s [OPTIONS]
 
-OPTIONS:
-    --service            Run in service mode (production)
-    --maintenance        Run in maintenance mode (cleanup)
-    --clean-expired      Clean up expired pastes
-    --mode <MODE>        Application mode (dev, prod)
-    --update <BRANCH>    Update from branch (stable, beta, nightly)
-    --config <PATH>      Path to configuration file
-    --data <PATH>        Path to data directory
-    --logs <PATH>        Path to logs directory
-    --port <PORT>        Server port (overrides config)
-    --address <ADDR>     Listen address (overrides config)
-    --status             Show service status
-    --version            Show version information
-    --help               Show this help message
+OPTIONS
+    --port <PORT>        server port (default from config)
+    --address <ADDR>     listen address (default from config)
+    --mode <MODE>        dev | production
+    --config <PATH>      path to server.yml
+    --data <PATH>        path to data directory
+    --logs <PATH>        path to logs directory
+    --clean-expired      delete expired/burned pastes and exit
+    --status             show runtime paths and exit
+    --version            print version and exit
+    --debug              enable debug logging
+    --help               show this help
 
-EXAMPLES:
-    %s --service                    Run in production mode
-    %s --mode dev --port 8080       Run in development mode on port 8080
-    %s --maintenance                Clean expired pastes
-    %s --update stable              Update to latest stable version
+EXAMPLES
+    %s                              run with defaults
+    %s --port 8080 --mode dev       development mode on port 8080
+    %s --clean-expired              one-shot cleanup
+    %s --status                     inspect runtime paths
 
-`, appName, appName, appName, appName, appName, appName)
-}
-
-func printStatus() {
-	fmt.Printf("%s Status\n", appName)
-	fmt.Println("================")
-	fmt.Printf("Mode:     %s\n", mode.Get())
-	fmt.Printf("Config:   %s\n", filepath.Join(paths.GetConfigDir(appName), "server.yml"))
-	fmt.Printf("Data:     %s\n", paths.GetDataDir(appName))
-	fmt.Printf("Logs:     %s\n", paths.GetLogsDir(appName))
-}
-
-func handleUpdateCommand(branch string) {
-	validBranches := map[string]bool{
-		"stable":  true,
-		"beta":    true,
-		"nightly": true,
-	}
-
-	if !validBranches[branch] {
-		fmt.Printf("Error: invalid update branch %q (valid: stable, beta, nightly)\n", branch)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Updating %s from %s branch...\n", appName, branch)
-
-	// Check if git is available
-	if _, err := exec.LookPath("git"); err != nil {
-		fmt.Println("Error: git is not installed")
-		os.Exit(1)
-	}
-
-	// Perform update
-	cmd := exec.Command("git", "pull", "origin", branch)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Update failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Update complete. Please rebuild the application.")
+`, name, name, name, name, name, name)
 }

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service - {{.SiteTitle}}</title>
+    <meta name="theme-color" content="#6366f1">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/create" class="nav-link">Create</a>
+                <a href="/recent" class="nav-link">Recent</a>
+                <a href="/api" class="nav-link">API</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Terms of Service</h1>
+                </div>
+
+                <div class="paste-view" style="padding:var(--space-6);">
+                    <h2>Acceptable use</h2>
+                    <p>By using this service you agree not to upload content that is:</p>
+                    <ul style="line-height:2; padding-left:var(--space-6);">
+                        <li>Illegal under applicable law</li>
+                        <li>Malware, ransomware, or exploit code intended for harm</li>
+                        <li>Private credentials, keys, or personal data belonging to others</li>
+                        <li>Spam or automated junk at scale</li>
+                    </ul>
+
+                    <h2 style="margin-top:var(--space-6);">No warranty</h2>
+                    <p>
+                        This service is provided as-is. We make no guarantees about uptime, data durability,
+                        or fitness for any particular purpose. Do not use this service as a backup solution.
+                    </p>
+
+                    <h2 style="margin-top:var(--space-6);">Content removal</h2>
+                    <p>
+                        You may delete your own paste at any time using your delete token.
+                        We reserve the right to remove any paste that violates these terms.
+                    </p>
+
+                    <h2 style="margin-top:var(--space-6);">Public nature of pastes</h2>
+                    <p>
+                        Public pastes are visible to anyone. Unlisted pastes are accessible via their link.
+                        Treat all pastes as public. Do not paste secrets, passwords, or private keys.
+                    </p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/api" class="footer-link">API Docs</a>
+                <a href="/healthz" class="footer-link">Status</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

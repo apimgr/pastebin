@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Help - {{.SiteTitle}}</title>
+    <meta name="theme-color" content="#6366f1">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/create" class="nav-link">Create</a>
+                <a href="/recent" class="nav-link">Recent</a>
+                <a href="/api" class="nav-link">API</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Help &amp; Usage</h1>
+                </div>
+
+                <div class="paste-view" style="padding:var(--space-6);">
+
+                    <h2>Create a paste via the web</h2>
+                    <p>Go to <a href="/create">/create</a>, fill in your content, choose a language and expiry, then click <strong>Create Paste</strong>. Save the delete token — it is shown only once.</p>
+
+                    <h2 style="margin-top:var(--space-6);">Create via curl — raw body</h2>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl --data-binary @file.txt {{.BaseURL}}/create</pre></div>
+                    </div>
+
+                    <h2 style="margin-top:var(--space-6);">Pipe to paste</h2>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>cat myfile.py | curl --data-binary @- {{.BaseURL}}/create</pre></div>
+                    </div>
+
+                    <h2 style="margin-top:var(--space-6);">JSON API — create</h2>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -H "Content-Type: application/json" \
+     -H "Accept: application/json" \
+     -d '{"content":"Hello","language":"text","expires_in":"1d"}' \
+     {{.BaseURL}}/api/v1/pastes</pre></div>
+                    </div>
+
+                    <h2 style="margin-top:var(--space-6);">Get raw content</h2>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl {{.BaseURL}}/raw/{id}</pre></div>
+                    </div>
+
+                    <h2 style="margin-top:var(--space-6);">Delete a paste</h2>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -X DELETE \
+     "{{.BaseURL}}/api/v1/pastes/{id}?token={delete_token}"</pre></div>
+                    </div>
+
+                    <h2 style="margin-top:var(--space-6);">Expiry values</h2>
+                    <table style="width:100%; border-collapse:collapse; margin-top:var(--space-3);">
+                        <tr><th style="text-align:left; padding:var(--space-1) var(--space-3);">Value</th><th style="text-align:left; padding:var(--space-1) var(--space-3);">Duration</th></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>1h</code></td><td style="padding:var(--space-1) var(--space-3);">1 hour</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>1d</code></td><td style="padding:var(--space-1) var(--space-3);">1 day</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>1w</code></td><td style="padding:var(--space-1) var(--space-3);">1 week</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>1m</code></td><td style="padding:var(--space-1) var(--space-3);">1 month (30 days)</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>3m</code></td><td style="padding:var(--space-1) var(--space-3);">3 months</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>6m</code></td><td style="padding:var(--space-1) var(--space-3);">6 months</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>1y</code></td><td style="padding:var(--space-1) var(--space-3);">1 year</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>2y</code></td><td style="padding:var(--space-1) var(--space-3);">2 years</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><code>never</code></td><td style="padding:var(--space-1) var(--space-3);">No expiry</td></tr>
+                        <tr><td style="padding:var(--space-1) var(--space-3);"><em>N</em></td><td style="padding:var(--space-1) var(--space-3);">N seconds</td></tr>
+                    </table>
+
+                    <h2 style="margin-top:var(--space-6);">Burn after N views</h2>
+                    <p>Set <code>burn_after</code> to a number 1–9999. The paste is deleted after that many views. Set to <code>0</code> to disable.</p>
+
+                    <h2 style="margin-top:var(--space-6);">pastebin.com compatibility</h2>
+                    <p>Scripts targeting <code>pastebin.com</code> work by pointing them at this server:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -d "api_dev_key=x&api_paste_code=Hello&api_option=paste" \
+     {{.BaseURL}}/api/api_post.php</pre></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/api" class="footer-link">API Docs</a>
+                <a href="/healthz" class="footer-link">Status</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

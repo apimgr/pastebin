@@ -3,162 +3,137 @@ package config
 import (
 	"os"
 	"strconv"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// Config is the top-level configuration for the pastebin server.
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Auth        AuthConfig        `yaml:"auth"`
-	RateLimit   RateLimitConfig   `yaml:"rate-limit"`
-	WebUI       WebUIConfig       `yaml:"web-ui"`
-	WebRobots   WebRobotsConfig   `yaml:"web-robots"`
-	WebSecurity WebSecurityConfig `yaml:"web-security"`
+	Server    ServerConfig    `yaml:"server"`
+	Database  DatabaseConfig  `yaml:"database"`
+	Paste     PasteConfig     `yaml:"paste"`
+	RateLimit RateLimitConfig `yaml:"rate_limit"`
+	Web       WebConfig       `yaml:"web"`
 }
 
+// ServerConfig holds listener and runtime settings.
 type ServerConfig struct {
-	Port         string        `yaml:"port"`
-	FQDN         string        `yaml:"fqdn"`
-	Address      string        `yaml:"address"`
-	Mode         string        `yaml:"mode"`
-	UpdateBranch string        `yaml:"update_branch"`
-	Metrics      MetricsConfig `yaml:"metrics"`
-	Logging      LoggingConfig `yaml:"logging"`
-	Admin        AdminConfig   `yaml:"admin"`
-	Session      SessionConfig `yaml:"session"`
+	Port    string        `yaml:"port"`
+	Address string        `yaml:"address"`
+	FQDN    string        `yaml:"fqdn"`
+	Mode    string        `yaml:"mode"`
+	BaseURL string        `yaml:"base_url"` // override for URL generation
+	Metrics MetricsConfig `yaml:"metrics"`
+	Logging LoggingConfig `yaml:"logging"`
 }
 
-type AdminConfig struct {
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	APIToken string `yaml:"api_token"`
-}
-
-type SessionConfig struct {
-	Timeout int `yaml:"timeout"`
-}
-
+// MetricsConfig configures the /metrics endpoint.
 type MetricsConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	Endpoint string `yaml:"endpoint"`
+	Token    string `yaml:"token"`
 }
 
+// LoggingConfig controls access log format and log level.
 type LoggingConfig struct {
 	AccessFormat string `yaml:"access_format"`
 	Level        string `yaml:"level"`
 }
 
+// DatabaseConfig selects and configures the storage backend.
 type DatabaseConfig struct {
-	Type     string `yaml:"type"`     // sqlite, postgres, mysql
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Name     string `yaml:"name"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	Path     string `yaml:"path"` // For SQLite
+	Type string `yaml:"type"` // only "sqlite" for now
+	Path string `yaml:"path"` // path to the SQLite database file
 }
 
-type AuthConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	JWTSecret   string        `yaml:"jwt_secret"`
-	JWTExpiry   time.Duration `yaml:"jwt_expiry"`
-	SessionName string        `yaml:"session_name"`
+// PasteConfig controls paste-specific behaviour.
+type PasteConfig struct {
+	MaxSizeBytes    int64  `yaml:"max_size_bytes"`    // max paste size (default 10 MiB)
+	DefaultExpiry   string `yaml:"default_expiry"`    // "never" or expiry code
+	DefaultLanguage string `yaml:"default_language"`  // "text"
+	MaxBurnAfter    int    `yaml:"max_burn_after"`    // cap on burn_after (default 9999)
+	AllowUnlisted   bool   `yaml:"allow_unlisted"`    // allow unlisted pastes (default true)
 }
 
+// RateLimitConfig controls request throttling.
 type RateLimitConfig struct {
-	Enabled   bool          `yaml:"enabled"`
-	WindowMS  time.Duration `yaml:"window_ms"`
-	MaxReqs   int           `yaml:"max_requests"`
-	BypassKey string        `yaml:"bypass_key"`
+	Enabled    bool `yaml:"enabled"`
+	CreatePerM int  `yaml:"create_per_minute"` // paste creates per IP per minute
+	ReadPerM   int  `yaml:"read_per_minute"`   // paste reads per IP per minute
 }
 
-type WebUIConfig struct {
-	Theme         string              `yaml:"theme"`
-	SiteTitle     string              `yaml:"site_title"`
-	Notifications NotificationsConfig `yaml:"notifications"`
+// WebConfig holds web-UI settings.
+type WebConfig struct {
+	SiteTitle string    `yaml:"site_title"`
+	Theme     string    `yaml:"theme"` // "dark" | "light" | "auto"
+	Robots    RobotsConfig `yaml:"robots"`
+	Security  SecurityConfig `yaml:"security"`
 }
 
-type NotificationsConfig struct {
-	Enabled       bool     `yaml:"enabled"`
-	Announcements []string `yaml:"announcements"`
-}
-
-type WebRobotsConfig struct {
+// RobotsConfig sets robots.txt allow/deny lists.
+type RobotsConfig struct {
 	Allow []string `yaml:"allow"`
 	Deny  []string `yaml:"deny"`
 }
 
-type WebSecurityConfig struct {
-	Admin string `yaml:"admin"`
-	CORS  string `yaml:"cors"`
+// SecurityConfig holds security.txt contact info.
+type SecurityConfig struct {
+	Contact string `yaml:"contact"`
+	CORS    string `yaml:"cors"`
 }
 
+// DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:         "3010",
-			FQDN:         "localhost",
-			Address:      "0.0.0.0",
-			Mode:         "production",
-			UpdateBranch: "stable",
+			Port:    "3010",
+			Address: "0.0.0.0",
+			FQDN:    "localhost",
+			Mode:    "production",
 			Metrics: MetricsConfig{
 				Enabled:  false,
 				Endpoint: "/metrics",
+				Token:    "",
 			},
 			Logging: LoggingConfig{
 				AccessFormat: "apache",
 				Level:        "info",
 			},
-			Admin: AdminConfig{
-				Username: "admin",
-				Password: "",
-				APIToken: "",
-			},
-			Session: SessionConfig{
-				Timeout: 3600,
-			},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
-			Path: "./data/pastebin.db",
+			Path: "", // resolved at startup relative to data dir
 		},
-		Auth: AuthConfig{
-			Enabled:     true,
-			JWTSecret:   "change-me-in-production-super-secret-key",
-			JWTExpiry:   7 * 24 * time.Hour,
-			SessionName: "pastebin_session",
+		Paste: PasteConfig{
+			MaxSizeBytes:    10 << 20, // 10 MiB
+			DefaultExpiry:   "never",
+			DefaultLanguage: "text",
+			MaxBurnAfter:    9999,
+			AllowUnlisted:   true,
 		},
 		RateLimit: RateLimitConfig{
-			Enabled:   true,
-			WindowMS:  time.Hour,
-			MaxReqs:   900,
-			BypassKey: "",
+			Enabled:    true,
+			CreatePerM: 10,
+			ReadPerM:   120,
 		},
-		WebUI: WebUIConfig{
-			Theme:     "dark",
+		Web: WebConfig{
 			SiteTitle: "Pastebin",
-			Notifications: NotificationsConfig{
-				Enabled:       true,
-				Announcements: []string{},
+			Theme:     "dark",
+			Robots: RobotsConfig{
+				Allow: []string{"/"},
+				Deny:  []string{},
 			},
-		},
-		WebRobots: WebRobotsConfig{
-			Allow: []string{"/", "/api"},
-			Deny:  []string{"/auth"},
-		},
-		WebSecurity: WebSecurityConfig{
-			Admin: "admin@example.com",
-			CORS:  "*",
+			Security: SecurityConfig{
+				Contact: "mailto:admin@example.com",
+				CORS:    "*",
+			},
 		},
 	}
 }
 
+// Load reads config from path, creating it with defaults if absent.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
-
-	// Override from environment variables
 	cfg.loadEnv()
 
 	data, err := os.ReadFile(path)
@@ -174,51 +149,42 @@ func Load(path string) (*Config, error) {
 		return cfg, err
 	}
 
-	// Env always overrides file
+	// Env always wins over file.
 	cfg.loadEnv()
-
 	return cfg, nil
 }
 
 func (c *Config) loadEnv() {
-	if port := os.Getenv("PORT"); port != "" {
-		c.Server.Port = port
+	if v := os.Getenv("PORT"); v != "" {
+		c.Server.Port = v
 	}
-	if dbType := os.Getenv("DB_TYPE"); dbType != "" {
-		c.Database.Type = dbType
+	if v := os.Getenv("ADDRESS"); v != "" {
+		c.Server.Address = v
 	}
-	if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
-		c.Database.Host = dbHost
+	if v := os.Getenv("BASE_URL"); v != "" {
+		c.Server.BaseURL = v
 	}
-	if dbPort := os.Getenv("DB_PORT"); dbPort != "" {
-		if p, err := strconv.Atoi(dbPort); err == nil {
-			c.Database.Port = p
+	if v := os.Getenv("DB_PATH"); v != "" {
+		c.Database.Path = v
+	}
+	if v := os.Getenv("SITE_TITLE"); v != "" {
+		c.Web.SiteTitle = v
+	}
+	if v := os.Getenv("THEME"); v != "" {
+		c.Web.Theme = v
+	}
+	if v := os.Getenv("MAX_SIZE_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			c.Paste.MaxSizeBytes = n
 		}
-	}
-	if dbName := os.Getenv("DB_NAME"); dbName != "" {
-		c.Database.Name = dbName
-	}
-	if dbUser := os.Getenv("DB_USER"); dbUser != "" {
-		c.Database.User = dbUser
-	}
-	if dbPass := os.Getenv("DB_PASSWORD"); dbPass != "" {
-		c.Database.Password = dbPass
-	}
-	if dbPath := os.Getenv("DB_PATH"); dbPath != "" {
-		c.Database.Path = dbPath
-	}
-	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {
-		c.Auth.JWTSecret = jwtSecret
-	}
-	if siteTitle := os.Getenv("SITE_TITLE"); siteTitle != "" {
-		c.WebUI.SiteTitle = siteTitle
 	}
 }
 
+// Save writes config to path.
 func Save(path string, cfg *Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o640)
 }

@@ -5,13 +5,12 @@ import (
 	"embed"
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/apimgr/pastebin/src/admin"
-	"github.com/apimgr/pastebin/src/auth"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/handlers"
@@ -22,52 +21,35 @@ import (
 //go:embed templates/*.html
 var templatesFS embed.FS
 
-//go:embed static/*
+//go:embed static
 var staticFS embed.FS
 
+// Server owns the HTTP router and all handler dependencies.
 type Server struct {
 	router       *chi.Mux
 	db           database.DB
-	config       *config.Config
+	cfg          *config.Config
 	templates    *template.Template
-	authService  *auth.AuthService
 	pasteHandler *handlers.PasteHandler
-	authHandler  *handlers.AuthHandler
-	adminHandler *admin.Handler
+	compatHandler *handlers.CompatHandler
 	version      string
 }
 
+// New constructs a Server and wires all routes.
 func New(db database.DB, cfg *config.Config, version string) *Server {
 	s := &Server{
 		router:  chi.NewRouter(),
 		db:      db,
-		config:  cfg,
+		cfg:     cfg,
 		version: version,
 	}
 
-	// Initialize auth service
-	s.authService = auth.NewAuthService(db, cfg.Auth.JWTSecret, cfg.Auth.JWTExpiry)
+	s.pasteHandler = handlers.NewPasteHandler(db, cfg.Server.BaseURL)
+	s.compatHandler = handlers.NewCompatHandler(s.pasteHandler, db)
 
-	// Initialize handlers
-	s.pasteHandler = handlers.NewPasteHandler(db, "")
-	s.authHandler = handlers.NewAuthHandler(db, s.authService)
-
-	// Initialize admin handler
-	s.adminHandler = admin.NewHandler(
-		cfg.Server.Admin.Username,
-		cfg.Server.Admin.Password,
-		cfg.Server.Admin.APIToken,
-		cfg.Server.Session.Timeout,
-		false, // SSL enabled - would check TLS config
-		version,
-		"",    // commit
-		"",    // buildDate
-	)
-
-	// Parse templates
-	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
+	tmpl, err := template.New("").ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
-		log.Printf("Warning: could not parse templates: %v", err)
+		log.Printf("warning: could not parse templates: %v", err)
 	}
 	s.templates = tmpl
 
@@ -78,122 +60,215 @@ func New(db database.DB, cfg *config.Config, version string) *Server {
 func (s *Server) setupRoutes() {
 	r := s.router
 
-	// Middleware
+	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.RealIP)
+	r.Use(middleware.CleanPath)
 	r.Use(s.corsMiddleware)
+	r.Use(s.noTrailingSlash)
 
-	// Register admin routes
-	s.adminHandler.RegisterRoutes(r)
-
-	// Health check
-	r.Get("/healthz", s.handleHealthz)
-	r.Get("/health", s.handleHealthz)
-
-	// Static files
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-
-	// PWA support
+	// ── Static assets & PWA ──────────────────────────────────────────────────
+	staticSub, _ := fs.Sub(staticFS, "static")
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 	r.Get("/robots.txt", s.handleRobots)
 	r.Get("/security.txt", s.handleSecurity)
+	r.Get("/favicon.ico", s.handleFavicon)
 
-	// API info
-	r.Get("/api", s.handleAPIInfo)
-	r.Get("/api/v1", s.handleAPIInfo)
+	// ── Server info pages ────────────────────────────────────────────────────
+	r.Get("/server/about", s.handleAbout)
+	r.Get("/server/help", s.handleHelp)
+	r.Get("/server/privacy", s.handlePrivacy)
+	r.Get("/server/terms", s.handleTerms)
+	r.Get("/server/healthz", s.handleHealthz)
+	r.Get("/healthz", s.handleHealthz)
+	r.Get("/health", s.handleHealthz)
 
-	// API v1 routes
-	r.Route("/api/v1", func(r chi.Router) {
-		// Auth routes
-		r.Route("/auth", func(r chi.Router) {
-			r.Post("/register", s.authHandler.Register)
-			r.Post("/login", s.authHandler.Login)
-
-			// Protected routes
-			r.Group(func(r chi.Router) {
-				r.Use(s.authService.Middleware(true))
-				r.Get("/me", s.authHandler.GetMe)
-				r.Get("/tokens", s.authHandler.ListTokens)
-				r.Post("/tokens", s.authHandler.CreateToken)
-				r.Delete("/tokens/{tokenId}", s.authHandler.DeleteToken)
-				r.Get("/pastes", s.authHandler.GetMyPastes)
-			})
-		})
-
-		// Paste routes
-		r.Get("/create", s.pasteHandler.ListPastes)
-		r.Get("/pastes", s.pasteHandler.ListPastes)
-
-		r.Group(func(r chi.Router) {
-			r.Use(s.authService.Middleware(false)) // Optional auth
-			r.Post("/create", s.pasteHandler.CreatePaste)
-			r.Post("/pastes", s.pasteHandler.CreatePaste)
-		})
+	// ── Auth stubs (no user accounts — redirect to home) ─────────────────────
+	for _, path := range []string{
+		"/login", "/register", "/logout", "/settings",
+		"/server/auth/login", "/server/auth/register",
+		"/server/auth/logout", "/server/auth/settings",
+	} {
+		r.Get(path, handlers.AuthStubRedirect)
+		r.Post(path, handlers.AuthStubRedirect)
+	}
+	// microbin auth-gate redirects
+	r.Get("/u/{username}", handlers.AuthStubRedirect) // user profiles → home
+	r.Get("/auth/{id}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/"+chi.URLParam(r, "id"), http.StatusFound)
+	})
+	r.Get("/auth_raw/{id}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/raw/"+chi.URLParam(r, "id"), http.StatusFound)
+	})
+	r.Get("/auth_remove_private/{id}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/remove/"+chi.URLParam(r, "id"), http.StatusFound)
 	})
 
-	// Web routes
-	r.Get("/", s.handleHome)
-	r.Get("/create", s.handleCreatePage)
-	r.Get("/recent", s.handleRecentPage)
+	// ── pastebin.com API compatibility ───────────────────────────────────────
+	r.Post("/api/api_post.php", s.compatHandler.PastebinPost)
+	r.Get("/api/api_raw.php", s.compatHandler.PastebinRaw)
+	r.Post("/api/api_login.php", s.compatHandler.PastebinLogin)
 
-	// Raw paste routes
+	// ── lenpaste API compatibility ───────────────────────────────────────────
+	r.Post("/api/new", s.compatHandler.LenCreate)
+	r.Get("/api/get", s.compatHandler.LenGet)
+	r.Delete("/api/remove", s.compatHandler.LenRemove)
+	r.Get("/api/remove", s.compatHandler.LenRemove) // some clients use GET
+	r.Get("/api/list", s.compatHandler.LenList)
+
+	// ── Versioned API (native) ───────────────────────────────────────────────
+	r.Get("/api", s.handleAPIInfo)
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/", s.handleAPIInfo)
+
+		// Pastes
+		r.Get("/pastes", s.pasteHandler.ListPastes)
+		r.Post("/pastes", s.pasteHandler.CreatePaste)
+		r.Get("/pastes/{id}", s.pasteHandler.GetPaste)
+		r.Delete("/pastes/{id}", s.pasteHandler.DeletePaste)
+
+		// microbin-style /pasta alias
+		r.Get("/pasta", s.compatHandler.MicrobinList)
+		r.Post("/pasta", s.compatHandler.MicrobinCreate)
+		r.Get("/pasta/{id}", s.compatHandler.MicrobinGet)
+		r.Delete("/pasta/{id}", s.compatHandler.MicrobinDelete)
+
+		// lenpaste v1 versioned aliases
+		r.Post("/new", s.compatHandler.LenCreate)
+		r.Get("/get", s.compatHandler.LenGet)
+		r.Get("/getServerInfo", s.compatHandler.LenServerInfo)
+
+		// Server info
+		r.Get("/server/healthz", s.handleHealthzJSON)
+		r.Get("/server/version", s.handleVersion)
+		r.Get("/server/swagger", s.handleSwagger)
+	})
+
+	// ── Web: main pages ──────────────────────────────────────────────────────
+	r.Get("/", s.handleHome)
+	r.Get("/recent", s.handleRecent)
+	r.Get("/list", s.handleRecent)    // microbin alias
+	r.Get("/archive", s.handleRecent) // pastebin.com alias
+	r.Get("/trends", s.handleRecent)  // pastebin.com alias
+	r.Post("/create", s.pasteHandler.CreatePaste)
+	r.Get("/create", s.handleCreatePage)
+
+	// ── Redirect aliases ────────────────────────────────────────────────────
+	r.Get("/guide", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/server/help", http.StatusFound)
+	})
+	r.Get("/emb_help", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/server/help", http.StatusFound)
+	})
+	r.Get("/about", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/server/about", http.StatusFound)
+	})
+
+	// ── Web: paste views ─────────────────────────────────────────────────────
 	r.Get("/raw/{id}", s.pasteHandler.GetRawPaste)
 	r.Get("/r/{id}", s.pasteHandler.GetRawPaste)
-
-	// Download route
+	r.Get("/dl/{id}", s.handleDownload)
 	r.Get("/download/{id}", s.handleDownload)
+	r.Get("/file/{id}", s.handleDownload) // microbin alias
+	r.Get("/emb/{id}", s.handleEmbed)
+	r.Get("/qr/{id}", s.handleQR)
+	r.Get("/remove/{id}", s.handleRemovePage)
+	r.Post("/remove/{id}", s.handleRemoveSubmit)
+	r.Post("/upload", s.pasteHandler.CreatePaste)    // microbin upload
+	r.Get("/upload/{id}", s.handleViewPaste)          // microbin upload alias
+	r.Get("/p/{id}", s.handleViewPaste)               // microbin short URL
+	r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)   // pastebin.com /id/raw
+	r.Get("/url/{id}", s.handleURLRedirect)           // microbin URL-paste redirect
+	r.Get("/u/{id}", s.handleURLRedirect)             // microbin short URL redirect
 
-	// Create paste (unified endpoint for web/curl)
-	r.Group(func(r chi.Router) {
-		r.Use(s.authService.Middleware(false))
-		r.Post("/create", s.pasteHandler.CreatePaste)
-	})
+	// GraphQL
+	r.Handle("/graphql", s.compatHandler.GraphQLHandler())
 
-	// View paste (must be last - catch-all for paste IDs)
+	// ── Paste view — catch-all (must be last) ────────────────────────────────
 	r.Get("/{id}", s.handleViewPaste)
 }
 
+// ─── Middleware ───────────────────────────────────────────────────────────────
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", s.config.WebSecurity.CORS)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == "OPTIONS" {
+		cors := s.cfg.Web.Security.CORS
+		if cors == "" {
+			cors = "*"
+		}
+		w.Header().Set("Access-Control-Allow-Origin", cors)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Delete-Token, X-Title, X-Language, X-Expires-In")
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
 
+func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" && strings.HasSuffix(r.URL.Path, "/") {
+			r.URL.Path = strings.TrimRight(r.URL.Path, "/")
+			http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ─── Run ─────────────────────────────────────────────────────────────────────
+
+// Run starts the HTTP server and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context, addr string) error {
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.router,
+		Addr:         addr,
+		Handler:      s.router,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
-	errChan := make(chan error, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
+			errCh <- err
 		}
 	}()
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
-	case err := <-errChan:
+		return srv.Shutdown(shut)
+	case err := <-errCh:
 		return err
 	}
 }
 
+// ─── Health & info handlers ───────────────────────────────────────────────────
+
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") {
+		s.handleHealthzJSON(w, r)
+		return
+	}
+	// HTML health page
+	s.renderTemplate(w, r, "healthz.html", map[string]interface{}{
+		"Status":    "ok",
+		"Version":   s.version,
+		"Database":  s.db.Type(),
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+	})
+}
+
+func (s *Server) handleHealthzJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":    "ok",
@@ -203,175 +278,285 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"version": s.version})
+}
+
 func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	baseURL := scheme + "://" + r.Host
+	base := scheme + "://" + r.Host
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"name":        "Pastebin API",
-		"version":     "1.0.0",
-		"description": "A pastebin service with multi-database support",
+		"name":    "Pastebin API",
+		"version": s.version,
 		"endpoints": map[string]interface{}{
-			"unified": map[string]string{
-				"GET /create":       "List all public pastes (web form)",
-				"POST /create":      "Create paste (curl, form, or JSON)",
-				"GET /api/v1/pastes": "List all public pastes (JSON)",
-				"POST /api/v1/pastes": "Create paste (JSON)",
-			},
-			"auth": map[string]string{
-				"register": "POST /api/v1/auth/register",
-				"login":    "POST /api/v1/auth/login",
-				"tokens":   "GET/POST/DELETE /api/v1/auth/tokens",
-				"me":       "GET /api/v1/auth/me",
+			"native": map[string]string{
+				"GET  /api/v1/pastes":       "list public pastes",
+				"POST /api/v1/pastes":       "create paste (JSON/multipart/raw)",
+				"GET  /api/v1/pastes/{id}":  "get paste JSON",
+				"DELETE /api/v1/pastes/{id}": "delete paste (requires token)",
 			},
 			"web": map[string]string{
-				"home":     "GET /",
-				"create":   "GET /create (form), POST /create (submit)",
-				"paste":    "GET /:id",
-				"raw":      "GET /raw/:id or /r/:id",
-				"download": "GET /download/:id",
+				"GET  /":           "home",
+				"GET  /create":     "create form",
+				"POST /create":     "create paste (form/raw)",
+				"GET  /{id}":       "view paste",
+				"GET  /raw/{id}":   "raw content",
+				"GET  /dl/{id}":    "download",
+				"GET  /emb/{id}":   "embed view",
+				"GET  /remove/{id}": "delete form",
+			},
+			"compat_pastebin": map[string]string{
+				"POST /api/api_post.php":  "create paste",
+				"GET  /api/api_raw.php":   "get raw paste (?i=ID)",
+				"POST /api/api_login.php": "always returns ANONYMOUS",
+			},
+			"compat_lenpaste": map[string]string{
+				"POST /api/new":    "create paste",
+				"GET  /api/get":    "get paste (?id=ID)",
+				"DELETE /api/remove": "delete paste (?id=ID&deleteToken=TOKEN)",
+				"GET  /api/list":   "list pastes",
 			},
 		},
 		"examples": map[string]string{
-			"curl_text": "curl -X POST --data-binary @file.txt " + baseURL + "/create",
-			"curl_file": "curl -X POST -F \"files=@file.txt\" " + baseURL + "/create",
-			"curl_json": "curl -X POST -H \"Content-Type: application/json\" -d '{\"content\":\"hello world\"}' " + baseURL + "/api/v1/create",
+			"curl_raw":  "curl --data-binary @file.txt " + base + "/create",
+			"curl_file": "curl -F 'files=@code.py' " + base + "/create",
+			"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/pastes",
+			"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
 		},
 	})
 }
 
+// ─── Web page handlers ────────────────────────────────────────────────────────
+
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Redirect(w, r, "/create", http.StatusTemporaryRedirect)
-		return
-	}
-
-	data := map[string]interface{}{
-		"SiteTitle": s.config.WebUI.SiteTitle,
-		"Theme":     s.config.WebUI.Theme,
-		"Version":   s.version,
-	}
-
-	if err := s.templates.ExecuteTemplate(w, "home.html", data); err != nil {
-		log.Printf("Template error: %v", err)
-		http.Redirect(w, r, "/create", http.StatusTemporaryRedirect)
-	}
+	pastes, _, _ := s.db.GetPublicPastes(1, 5)
+	s.renderTemplate(w, r, "home.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"BaseURL":   s.baseURL(r),
+		"Recent":    pastes,
+	})
 }
 
 func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-
-	data := map[string]interface{}{
-		"SiteTitle": s.config.WebUI.SiteTitle,
-		"Theme":     s.config.WebUI.Theme,
-	}
-
-	if err := s.templates.ExecuteTemplate(w, "create.html", data); err != nil {
-		log.Printf("Template error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
+	s.renderTemplate(w, r, "create.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+	})
 }
 
-func (s *Server) handleRecentPage(w http.ResponseWriter, r *http.Request) {
-	if s.templates == nil {
-		http.Error(w, "Templates not loaded", http.StatusInternalServerError)
-		return
-	}
-
-	data := map[string]interface{}{
-		"SiteTitle": s.config.WebUI.SiteTitle,
-		"Theme":     s.config.WebUI.Theme,
-	}
-
-	if err := s.templates.ExecuteTemplate(w, "recent.html", data); err != nil {
-		log.Printf("Template error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
+func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
+	page := 1
+	pastes, total, _ := s.db.GetPublicPastes(page, 20)
+	s.renderTemplate(w, r, "recent.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"Pastes":    pastes,
+		"Total":     total,
+	})
 }
 
 func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	paste, err := s.db.GetPasteByID(id)
-	if err != nil || paste == nil {
-		http.Redirect(w, r, "/create", http.StatusTemporaryRedirect)
+	paste, err := s.pasteHandler.GetPasteForWeb(id)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if paste == nil {
+		http.NotFound(w, r)
 		return
 	}
 
-	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
-		http.Error(w, "Paste has expired", http.StatusGone)
-		return
-	}
-
-	if !paste.IsPublic {
-		http.Error(w, "This paste is private", http.StatusForbidden)
-		return
-	}
-
-	s.db.IncrementPasteViews(id)
-	paste.Views++
-
-	if s.templates == nil {
-		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(paste.Content))
-		return
-	}
-
-	data := map[string]interface{}{
-		"SiteTitle": s.config.WebUI.SiteTitle,
-		"Theme":     s.config.WebUI.Theme,
+	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
 		"Paste":     paste,
 		"ID":        id,
+		"Content":   handlers.HighlightedContent(paste),
+	})
+}
+
+func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	paste, err := s.pasteHandler.GetPasteForWeb(id)
+	if err != nil || paste == nil {
+		http.NotFound(w, r)
+		return
 	}
 
-	if err := s.templates.ExecuteTemplate(w, "paste.html", data); err != nil {
-		log.Printf("Template error: %v", err)
-		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(paste.Content))
+	s.renderTemplate(w, r, "emb.html", map[string]interface{}{
+		"Paste":   paste,
+		"Content": handlers.HighlightedContent(paste),
+	})
+}
+
+func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	link := s.baseURL(r) + "/" + id
+	// Render a simple page that generates a QR code client-side (or redirect to QR API).
+	s.renderTemplate(w, r, "qr.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"ID":        id,
+		"Link":      link,
+	})
+}
+
+func (s *Server) handleRemovePage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	s.renderTemplate(w, r, "remove.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"ID":        id,
+		"Error":     "",
+		"Success":   false,
+	})
+}
+
+func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
 	}
+	token := r.FormValue("token")
+	if token == "" {
+		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
+			"SiteTitle": s.cfg.Web.SiteTitle,
+			"Theme":     s.cfg.Web.Theme,
+			"ID":        id,
+			"Error":     "delete token is required",
+			"Success":   false,
+		})
+		return
+	}
+
+	if err := s.db.DeletePasteByToken(id, handlers.HashToken(token)); err != nil {
+		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
+			"SiteTitle": s.cfg.Web.SiteTitle,
+			"Theme":     s.cfg.Web.Theme,
+			"ID":        id,
+			"Error":     "paste not found or invalid token",
+			"Success":   false,
+		})
+		return
+	}
+
+	s.renderTemplate(w, r, "remove.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"ID":        id,
+		"Error":     "",
+		"Success":   true,
+	})
 }
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	paste, err := s.db.GetPasteByID(id)
+	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil || paste == nil {
-		http.Error(w, "Paste not found", http.StatusNotFound)
-		return
-	}
-
-	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
-		http.Error(w, "Paste has expired", http.StatusGone)
-		return
-	}
-
-	if !paste.IsPublic {
-		http.Error(w, "This paste is private", http.StatusForbidden)
+		http.NotFound(w, r)
 		return
 	}
 
 	filename := paste.Title
-	if filename == "Untitled" {
+	if filename == "" || filename == "Untitled" {
 		filename = id
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 	w.Write([]byte(paste.Content))
 }
 
+// handleURLRedirect redirects to the paste content if it is a URL; otherwise
+// shows the paste view. Used for microbin /url/{id} and /u/{id}.
+func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	paste, err := s.pasteHandler.GetPasteForWeb(id)
+	if err != nil || paste == nil {
+		http.NotFound(w, r)
+		return
+	}
+	content := strings.TrimSpace(paste.Content)
+	if strings.HasPrefix(content, "http://") || strings.HasPrefix(content, "https://") {
+		http.Redirect(w, r, content, http.StatusFound)
+		return
+	}
+	// Fall back to normal paste view.
+	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"Paste":     paste,
+		"ID":        id,
+		"Content":   handlers.HighlightedContent(paste),
+	})
+}
+
+// handleSwagger serves a minimal OpenAPI JSON description.
+func (s *Server) handleSwagger(w http.ResponseWriter, r *http.Request) {
+	base := s.baseURL(r)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"openapi": "3.0.3",
+		"info": map[string]interface{}{
+			"title":   s.cfg.Web.SiteTitle + " API",
+			"version": s.version,
+		},
+		"servers": []map[string]interface{}{{"url": base}},
+		"paths": map[string]interface{}{
+			"/api/v1/pastes": map[string]interface{}{
+				"get":  map[string]interface{}{"summary": "List public pastes", "tags": []string{"pastes"}},
+				"post": map[string]interface{}{"summary": "Create paste", "tags": []string{"pastes"}},
+			},
+			"/api/v1/pastes/{id}": map[string]interface{}{
+				"get":    map[string]interface{}{"summary": "Get paste by ID", "tags": []string{"pastes"}},
+				"delete": map[string]interface{}{"summary": "Delete paste", "tags": []string{"pastes"}},
+			},
+		},
+	})
+}
+
+// ─── Server info pages ────────────────────────────────────────────────────────
+
+func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, r, "about.html", s.pageData())
+}
+
+func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, r, "help.html", map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+		"BaseURL":   s.baseURL(r),
+	})
+}
+
+func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, r, "privacy.html", s.pageData())
+}
+
+func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, r, "terms.html", s.pageData())
+}
+
+// ─── Misc handlers ────────────────────────────────────────────────────────────
+
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
-	manifest := map[string]interface{}{
-		"name":             s.config.WebUI.SiteTitle,
-		"short_name":       "Pastebin",
-		"description":      "A pastebin service",
+	w.Header().Set("Content-Type", "application/manifest+json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"name":             s.cfg.Web.SiteTitle,
+		"short_name":       "Paste",
+		"description":      "A fast, public pastebin service",
 		"start_url":        "/",
 		"display":          "standalone",
 		"background_color": "#0d1117",
@@ -380,43 +565,66 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
 			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
 		},
-	}
-	w.Header().Set("Content-Type", "application/manifest+json")
-	json.NewEncoder(w).Encode(manifest)
+	})
 }
 
 func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
-	sw := `const CACHE_NAME = 'pastebin-v1';
-const urlsToCache = ['/', '/create', '/static/css/main.css', '/static/js/main.js'];
-
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
-});
-
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(response => response || fetch(event.request))
-  );
-});`
 	w.Header().Set("Content-Type", "application/javascript")
-	w.Write([]byte(sw))
+	w.Write([]byte(`const CACHE='paste-v1';
+const FILES=['/','/ create','/static/css/main.css','/static/js/main.js'];
+self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
+self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`))
 }
 
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
-	var builder strings.Builder
-	builder.WriteString("User-agent: *\n")
-	for _, path := range s.config.WebRobots.Allow {
-		builder.WriteString("Allow: " + path + "\n")
+	var b strings.Builder
+	b.WriteString("User-agent: *\n")
+	for _, p := range s.cfg.Web.Robots.Allow {
+		b.WriteString("Allow: " + p + "\n")
 	}
-	for _, path := range s.config.WebRobots.Deny {
-		builder.WriteString("Disallow: " + path + "\n")
+	for _, p := range s.cfg.Web.Robots.Deny {
+		b.WriteString("Disallow: " + p + "\n")
 	}
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(builder.String()))
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(b.String()))
 }
 
 func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
-	security := "Contact: mailto:" + s.config.WebSecurity.Admin + "\nPreferred-Languages: en\n"
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(security))
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte("Contact: " + s.cfg.Web.Security.Contact + "\nPreferred-Languages: en\n"))
+}
+
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/static/favicon.ico", http.StatusFound)
+}
+
+// ─── Template helpers ─────────────────────────────────────────────────────────
+
+func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
+	if s.templates == nil {
+		http.Error(w, "templates not loaded", http.StatusInternalServerError)
+		return
+	}
+	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
+		log.Printf("template %s error: %v", name, err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) pageData() map[string]interface{} {
+	return map[string]interface{}{
+		"SiteTitle": s.cfg.Web.SiteTitle,
+		"Theme":     s.cfg.Web.Theme,
+	}
+}
+
+func (s *Server) baseURL(r *http.Request) string {
+	if s.cfg.Server.BaseURL != "" {
+		return s.cfg.Server.BaseURL
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }

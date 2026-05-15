@@ -1684,3 +1684,42 @@ main {
 .hidden {
     display: none !important;
 }
+
+/* Danger button */
+.btn-danger {
+    background: var(--color-error);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+    color: white;
+    transform: translateY(-1px);
+}
+
+/* Alert banners */
+.alert {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-3);
+}
+
+.alert-error {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid var(--color-error);
+    color: var(--color-error);
+}
+
+.alert-warning {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid var(--color-warning);
+    color: var(--color-warning);
+}
+
+.alert-success {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid var(--color-success);
+    color: var(--color-success);
+}
+

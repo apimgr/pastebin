@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health - {{.SiteTitle}}</title>
+    <meta name="theme-color" content="#6366f1">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/create" class="nav-link">Create</a>
+                <a href="/recent" class="nav-link">Recent</a>
+                <a href="/api" class="nav-link">API</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Service Health</h1>
+                </div>
+                <div class="paste-view">
+                    <table style="width:100%; border-collapse:collapse;">
+                        <tr>
+                            <th style="text-align:left; padding:var(--space-2) var(--space-3);">Field</th>
+                            <th style="text-align:left; padding:var(--space-2) var(--space-3);">Value</th>
+                        </tr>
+                        <tr>
+                            <td style="padding:var(--space-2) var(--space-3);">Status</td>
+                            <td style="padding:var(--space-2) var(--space-3);">
+                                <span style="color:var(--color-success);">&#10003; {{.Status}}</span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:var(--space-2) var(--space-3);">Version</td>
+                            <td style="padding:var(--space-2) var(--space-3);">{{.Version}}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:var(--space-2) var(--space-3);">Database</td>
+                            <td style="padding:var(--space-2) var(--space-3);">{{.Database}}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/api" class="footer-link">API Docs</a>
+                <a href="/healthz" class="footer-link">Status</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
