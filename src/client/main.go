@@ -27,10 +27,10 @@ import (
 	"time"
 )
 
-// Version, Commit, and BuildDate are injected at build time via -ldflags.
+// Version, CommitID, and BuildDate are injected at build time via -ldflags.
 var (
 	Version   = "dev"
-	Commit    = "unknown"
+	CommitID  = "unknown"
 	BuildDate = "unknown"
 )
 
@@ -55,7 +55,7 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, Commit, BuildDate)
+		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, CommitID, BuildDate)
 		return
 	}
 
@@ -77,7 +77,7 @@ func main() {
 	case "list", "ls":
 		c.cmdList(args[1:])
 	case "version":
-		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, Commit, BuildDate)
+		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, CommitID, BuildDate)
 	default:
 		log.Fatalf("unknown command %q (try: create, get, delete, list)", args[0])
 	}

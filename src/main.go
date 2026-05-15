@@ -19,10 +19,10 @@ import (
 	"github.com/apimgr/pastebin/src/server"
 )
 
-// Version, Commit, and BuildDate are injected at build time via -ldflags.
+// Version, CommitID, and BuildDate are injected at build time via -ldflags.
 var (
 	Version   = "dev"
-	Commit    = "unknown"
+	CommitID  = "unknown"
 	BuildDate = "unknown"
 )
 
