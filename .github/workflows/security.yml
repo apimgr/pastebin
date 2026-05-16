@@ -31,10 +31,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Scan for secrets
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run truffleHog
+        uses: trufflesecurity/trufflehog@37b77001d0174ebec2fcca2bd83ff83a6d45a3ab  # v3.95.3
 
   vuln-scan:
     name: Dependency vulnerability scan
@@ -77,8 +75,11 @@ jobs:
 
       - name: Check no hardcoded secrets in workflows
         run: |
-          # Ensure no obvious plaintext credentials in workflow files
-          if grep -rE '(password|secret|token|api_key)\s*[:=]\s*[^${\[]' .github/workflows/ 2>/dev/null | grep -v '# '; then
+          # Flag any credential assignment whose value is not a GitHub Actions
+          # expression (${{...}}), a comment, or empty/whitespace-only.
+          if grep -rE '(password|secret|token|api_key)\s*[:=]\s*\S' .github/workflows/ 2>/dev/null \
+               | grep -v '#' \
+               | grep -v '\${{'; then
             echo "ERROR: possible hardcoded credential found in workflow"
             exit 1
           fi
