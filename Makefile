@@ -3,152 +3,222 @@
 # ============================================
 PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
-CLIENT_NAME  := pastebin-cli
 
 # VERSION can be overridden: make build VERSION=1.2.3
-# Otherwise, read from release.txt or default to 0.0.1
-VERSION   ?= $(shell cat release.txt 2>/dev/null || echo "0.0.1")
+# Otherwise, read from release.txt or default to 0.1.0
+VERSION   := $(shell [ -f release.txt ] && cat release.txt || echo "$${VERSION:-0.1.0}")
+
+# Build info
 COMMIT_ID  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_DATE := $(shell date +"%B %-d, %Y at %H:%M:%S")
 
-LDFLAGS := -ldflags "-X 'main.Version=$(VERSION)' -X 'main.CommitID=$(COMMIT_ID)' -X 'main.BuildDate=$(BUILD_DATE)' -w -s"
+# Official site URL (OPTIONAL - never guess or assume)
+# Sources (in order of precedence):
+#   1. File: site.txt in project root (single line, URL only)
+#   2. Environment variable: OFFICIALSITE=https://example.com
+#   3. Empty (self-hosted projects - users must use --server flag)
+OFFICIALSITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIALSITE:-}")
 
-# Detect host OS and architecture
-HOSTOS  := $(shell go env GOOS)
-HOSTARCH := $(shell go env GOARCH)
+# Linker flags to embed build info
+LDFLAGS := -ldflags "-s -w -X 'main.Version=$(VERSION)' -X 'main.CommitID=$(COMMIT_ID)' -X 'main.BuildDate=$(BUILD_DATE)' -X 'main.OfficialSite=$(OFFICIALSITE)'"
 
-# Go build/mod cache dirs (host-mounted for speed)
-GOCACHE    ?= $(HOME)/.cache/go-build
-GOMODCACHE ?= $(HOME)/go/pkg/mod
+# Directories
+BINDIR := binaries
+RELDIR := releases
 
-REGISTRY := ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
+# Go directories (persistent across builds)
+GODIR   := $(HOME)/.local/share/go
+GOCACHE := $(HOME)/.local/share/go/build
 
+# Build matrix
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
+
+# Docker
+REGISTRY ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
 GO_DOCKER := docker run --rm \
-	-v $$(pwd):/workspace \
+	-v $$(pwd):/build \
 	-v $(GOCACHE):/root/.cache/go-build \
-	-v $(GOMODCACHE):/root/go/pkg/mod \
-	-w /workspace \
+	-v $(GODIR):/go \
+	-w /build \
 	-e CGO_ENABLED=0 \
 	golang:alpine
 
-# ============================================
-# Main Targets
-# ============================================
-.PHONY: build dev release test docker docker-dev clean
+.PHONY: build local release docker test dev clean
 .DEFAULT_GOAL := build
 
-# Build all binaries for all platforms
-build:
-	@echo "Building $(PROJECTNAME) + $(CLIENT_NAME) $(VERSION) for all platforms..."
-	@mkdir -p binaries
-	@$(GO_DOCKER) sh -c ' \
-		apk add --no-cache git binutils > /dev/null 2>&1 && \
-		for GOOS in linux darwin freebsd windows; do \
-			for GOARCH in amd64 arm64; do \
-				ext=""; \
-				[ "$$GOOS" = "windows" ] && ext=".exe"; \
-				name="$$GOOS-$$GOARCH"; \
-				echo "  → $$name"; \
-				GOOS=$$GOOS GOARCH=$$GOARCH go build $(LDFLAGS) -o binaries/$(PROJECTNAME)-$$name$$ext ./src || exit 1; \
-				GOOS=$$GOOS GOARCH=$$GOARCH go build $(LDFLAGS) -o binaries/$(CLIENT_NAME)-$$name$$ext ./src/client || exit 1; \
-				strip binaries/$(PROJECTNAME)-$$name$$ext 2>/dev/null || true; \
-				strip binaries/$(CLIENT_NAME)-$$name$$ext 2>/dev/null || true; \
-			done; \
-		done && \
-		echo "  → Host ($(HOSTOS)/$(HOSTARCH))" && \
-		GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build $(LDFLAGS) -o binaries/$(PROJECTNAME) ./src && \
-		GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build $(LDFLAGS) -o binaries/$(CLIENT_NAME) ./src/client \
-	'
+# =============================================================================
+# BUILD - Full release build for all platforms (via Docker)
+# =============================================================================
+build: clean
+	@mkdir -p $(BINDIR)
+	@mkdir -p $(GOCACHE) $(GODIR)
+	@echo "Building $(PROJECTNAME) $(VERSION) for all platforms..."
+	@$(GO_DOCKER) go mod tidy
+	@$(GO_DOCKER) go mod download
+
+	@echo "Building local binary..."
+	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME) ./src"
+
+	@for platform in $(PLATFORMS); do \
+		OS=$${platform%/*}; \
+		ARCH=$${platform#*/}; \
+		OUTPUT=$(BINDIR)/$(PROJECTNAME)-$$OS-$$ARCH; \
+		[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
+		echo "  → server $$OS/$$ARCH"; \
+		$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
+			go build $(LDFLAGS) -o $$OUTPUT ./src" || exit 1; \
+	done
+
+	@if [ -d "src/client" ]; then \
+		echo "Building $(PROJECTNAME)-cli..."; \
+		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
+		for platform in $(PLATFORMS); do \
+			OS=$${platform%/*}; \
+			ARCH=$${platform#*/}; \
+			OUTPUT=$(BINDIR)/$(PROJECTNAME)-cli-$$OS-$$ARCH; \
+			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
+			echo "  → cli $$OS/$$ARCH"; \
+			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
+				go build $(LDFLAGS) -o $$OUTPUT ./src/client" || exit 1; \
+		done; \
+	fi
+
+	@if [ -d "src/agent" ]; then \
+		echo "Building $(PROJECTNAME)-agent..."; \
+		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-agent ./src/agent"; \
+		for platform in $(PLATFORMS); do \
+			OS=$${platform%/*}; \
+			ARCH=$${platform#*/}; \
+			OUTPUT=$(BINDIR)/$(PROJECTNAME)-agent-$$OS-$$ARCH; \
+			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
+			echo "  → agent $$OS/$$ARCH"; \
+			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
+				go build $(LDFLAGS) -o $$OUTPUT ./src/agent" || exit 1; \
+		done; \
+	fi
+
 	@echo ""
-	@echo "✓ Built $(PROJECTNAME) + $(CLIENT_NAME) $(VERSION)"
-	@echo "  Binaries: $$(ls -1 binaries/ | wc -l) files"
-	@echo "  Host binaries: binaries/$(PROJECTNAME)  binaries/$(CLIENT_NAME)"
+	@echo "✓ Built $(PROJECTNAME) $(VERSION)"
+	@echo "  Binaries: $$(ls -1 $(BINDIR)/ | wc -l | tr -d ' ') files in $(BINDIR)/"
 
-# Quick host-platform dev build into a temp dir
-dev:
-	@mkdir -p $(GOCACHE) $(GOMODCACHE)
-	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)" && \
-		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
-		echo "Building dev binaries..." && \
-		$(GO_DOCKER) sh -c " \
-			GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
-			GOOS=$(HOSTOS) GOARCH=$(HOSTARCH) go build -o $$BUILD_DIR/$(CLIENT_NAME) ./src/client \
-		" && \
-		echo "✓ Built: $$BUILD_DIR/$(PROJECTNAME)" && \
-		echo "✓ Built: $$BUILD_DIR/$(CLIENT_NAME)"
+# =============================================================================
+# LOCAL - Fast host-platform build into binaries/ (production test build)
+# =============================================================================
+local: clean
+	@mkdir -p $(BINDIR)
+	@mkdir -p $(GOCACHE) $(GODIR)
+	@echo "Building local binaries version $(VERSION)..."
+	@$(GO_DOCKER) go mod tidy
+	@$(GO_DOCKER) go mod download
 
-# Create GitHub release
-release:
-	@echo "Creating GitHub release $(VERSION)..."
-	@mkdir -p releases
-	@echo "Copying platform binaries to releases/..."
-	@cp binaries/$(PROJECTNAME)-linux-amd64   releases/ 2>/dev/null || { echo "Error: run 'make build' first"; exit 1; }
-	@cp binaries/$(PROJECTNAME)-linux-arm64   releases/
-	@cp binaries/$(PROJECTNAME)-darwin-amd64  releases/
-	@cp binaries/$(PROJECTNAME)-darwin-arm64  releases/
-	@cp binaries/$(PROJECTNAME)-freebsd-amd64 releases/
-	@cp binaries/$(PROJECTNAME)-freebsd-arm64 releases/
-	@cp binaries/$(PROJECTNAME)-windows-amd64.exe releases/
-	@cp binaries/$(PROJECTNAME)-windows-arm64.exe releases/
-	@cp binaries/$(CLIENT_NAME)-linux-amd64   releases/
-	@cp binaries/$(CLIENT_NAME)-linux-arm64   releases/
-	@cp binaries/$(CLIENT_NAME)-darwin-amd64  releases/
-	@cp binaries/$(CLIENT_NAME)-darwin-arm64  releases/
-	@cp binaries/$(CLIENT_NAME)-freebsd-amd64 releases/
-	@cp binaries/$(CLIENT_NAME)-freebsd-arm64 releases/
-	@cp binaries/$(CLIENT_NAME)-windows-amd64.exe releases/
-	@cp binaries/$(CLIENT_NAME)-windows-arm64.exe releases/
-	@echo "Creating source archives (no VCS files)..."
-	@git archive --format=tar.gz --prefix=$(PROJECTNAME)-$(VERSION)/ HEAD -o releases/$(PROJECTNAME)-$(VERSION)-src.tar.gz
-	@git archive --format=zip    --prefix=$(PROJECTNAME)-$(VERSION)/ HEAD -o releases/$(PROJECTNAME)-$(VERSION)-src.zip
-	@echo "Deleting existing release if it exists..."
-	@gh release delete $(VERSION) -y 2>/dev/null || true
+	@echo "Building $(PROJECTNAME)..."
+	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME) ./src"
+
+	@if [ -d "src/client" ]; then \
+		echo "Building $(PROJECTNAME)-cli..."; \
+		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
+	fi
+
+	@if [ -d "src/agent" ]; then \
+		echo "Building $(PROJECTNAME)-agent..."; \
+		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-agent ./src/agent"; \
+	fi
+
+	@echo "✓ Local build complete: $(BINDIR)/"
+
+# =============================================================================
+# RELEASE - Manual local release (stable only)
+# =============================================================================
+release: build
+	@mkdir -p $(RELDIR)
+	@echo "Preparing release $(VERSION)..."
+
+	@echo "$(VERSION)" > $(RELDIR)/version.txt
+
+	@for f in $(BINDIR)/$(PROJECTNAME)-*; do \
+		[ -f "$$f" ] || continue; \
+		strip "$$f" 2>/dev/null || true; \
+		cp "$$f" $(RELDIR)/; \
+	done
+
+	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
+		--exclude='$(BINDIR)' --exclude='$(RELDIR)' --exclude='*.tar.gz' \
+		-czf $(RELDIR)/$(PROJECTNAME)-$(VERSION)-source.tar.gz .
+
+	@gh release delete $(VERSION) --yes 2>/dev/null || true
 	@git tag -d $(VERSION) 2>/dev/null || true
-	@echo "Creating GitHub release $(VERSION)..."
-	@gh release create $(VERSION) ./releases/* \
+	@git push origin :refs/tags/$(VERSION) 2>/dev/null || true
+
+	@gh release create $(VERSION) $(RELDIR)/* \
 		--title "$(PROJECTNAME) $(VERSION)" \
-		--notes "Release $(VERSION)\n\nCommit: $(COMMIT_ID)\nBuilt: $(BUILD_DATE)\n\n**Binaries**: 8 platforms (Linux, macOS, Windows, FreeBSD — amd64/arm64)\n**Source**: tar.gz and zip archives"
+		--notes "Release $(VERSION)" \
+		--latest
+
 	@echo "✓ Release $(VERSION) created"
 	@echo "Auto-incrementing version in release.txt..."
 	@echo "$(VERSION)" | awk -F. '{printf "%d.%d.%d\n", $$1, $$2, $$3+1}' > release.txt
 	@echo "✓ Version incremented: $(VERSION) → $$(cat release.txt)"
 
-# Run all tests
-test:
-	@echo "Running tests..."
-	@$(GO_DOCKER) sh -c ' \
-		go vet ./... && \
-		go test -v -timeout 5m ./... \
-	'
-	@echo "✓ All tests passed"
-
-# Build and push multi-platform Docker images (release)
+# =============================================================================
+# DOCKER - Build and push multi-platform Docker images
+# =============================================================================
 docker:
-	@echo "Building multi-platform Docker images..."
+	@echo "Building Docker image $(VERSION)..."
+	@docker buildx version > /dev/null 2>&1 || (echo "docker buildx required" && exit 1)
+	@docker buildx create --name $(PROJECTNAME)-builder --use 2>/dev/null || \
+		docker buildx use $(PROJECTNAME)-builder
 	@docker buildx build \
+		-f docker/Dockerfile \
 		--platform linux/amd64,linux/arm64 \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg COMMIT_ID=$(COMMIT_ID) \
-		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		-t $(REGISTRY):latest \
+		--build-arg VERSION="$(VERSION)" \
+		--build-arg BUILD_DATE="$(BUILD_DATE)" \
+		--build-arg COMMIT_ID="$(COMMIT_ID)" \
 		-t $(REGISTRY):$(VERSION) \
+		-t $(REGISTRY):latest \
 		--push \
 		.
-	@echo "✓ Docker images pushed to $(REGISTRY):$(VERSION)"
+	@echo "✓ Docker push complete: $(REGISTRY):$(VERSION)"
 
-# Build Docker image for development (local only, not pushed)
-docker-dev:
-	@echo "Building development Docker image..."
-	@docker build \
-		--build-arg VERSION=$(VERSION)-dev \
-		--build-arg COMMIT_ID=$(COMMIT_ID) \
-		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		-t $(PROJECTNAME):dev \
-		.
-	@echo "✓ Docker development image built: $(PROJECTNAME):dev"
+# =============================================================================
+# TEST - Run all tests with coverage (via Docker)
+# =============================================================================
+test:
+	@echo "Running tests..."
+	@mkdir -p $(GOCACHE) $(GODIR)
+	@$(GO_DOCKER) go mod download
+	@$(GO_DOCKER) go vet ./...
+	@$(GO_DOCKER) go test -v -timeout 5m -cover -coverprofile=coverage.out ./...
+	@echo "✓ All tests passed"
 
-# Clean build artifacts
+# =============================================================================
+# DEV - Quick build for local development (random temp dir, no ldflags)
+# =============================================================================
+dev:
+	@mkdir -p $(GOCACHE) $(GODIR)
+	@$(GO_DOCKER) go mod tidy
+	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)" && \
+		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
+		echo "Quick dev build to $$BUILD_DIR..." && \
+		$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
+		echo "Built: $$BUILD_DIR/$(PROJECTNAME)" && \
+		if [ -d "src/client" ]; then \
+			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
+			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-cli"; \
+		fi && \
+		if [ -d "src/agent" ]; then \
+			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-agent ./src/agent && \
+			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-agent"; \
+		fi && \
+		echo "Test:  docker run --rm -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
+
+# =============================================================================
+# CLEAN - Remove build artifacts
+# =============================================================================
 clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf binaries/ releases/ coverage.out
-	@echo "✓ Clean complete"
+	@rm -rf $(BINDIR) $(RELDIR) coverage.out

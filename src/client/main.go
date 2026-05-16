@@ -27,11 +27,12 @@ import (
 	"time"
 )
 
-// Version, CommitID, and BuildDate are injected at build time via -ldflags.
+// Version, CommitID, BuildDate, and OfficialSite are injected at build time via -ldflags.
 var (
-	Version   = "dev"
-	CommitID  = "unknown"
-	BuildDate = "unknown"
+	Version      = "dev"
+	CommitID     = "unknown"
+	BuildDate    = "unknown"
+	OfficialSite = ""
 )
 
 const defaultServer = "http://localhost:8080"
@@ -42,16 +43,28 @@ func main() {
 
 	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", defaultServer), "server base URL")
 	asJSON := flag.Bool("json", false, "machine-readable JSON output")
-	colorFlag := flag.String("color", "auto", "color output: auto, yes, no")
+	colorFlag := flag.String("color", "auto", "color output: always, never, auto")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	showHelp := flag.Bool("help", false, "show help and exit")
+
+	// -h and -v are aliases for --help and --version.
+	flag.BoolVar(showHelp, "h", false, "show help and exit")
+	flag.BoolVar(showVersion, "v", false, "print version and exit")
+
+	flag.Usage = printUsage
 	flag.Parse()
 
 	// Honour NO_COLOR env var (https://no-color.org/) and --color flag.
 	switch *colorFlag {
-	case "no":
+	case "never":
 		os.Setenv("NO_COLOR", "1")
-	case "yes":
+	case "always":
 		os.Unsetenv("NO_COLOR")
+	}
+
+	if *showHelp {
+		printUsage()
+		return
 	}
 
 	if *showVersion {
@@ -380,7 +393,7 @@ LIST FLAGS
 GLOBAL FLAGS
     --server <url>       Server base URL (default: %s or $PASTEBIN_SERVER)
     --json               Output machine-readable JSON
-    --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
+    --color <when>       Color output: always, never, auto (default: auto; honors NO_COLOR)
     --version            Print version
 
 EXAMPLES

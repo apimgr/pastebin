@@ -1,4 +1,4 @@
-package handlers
+package handler
 
 // compat.go — route handlers for pastebin.com, microbin, and lenpaste
 // compatibility so existing scripts and CLIs work without changes.

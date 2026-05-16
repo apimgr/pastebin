@@ -92,6 +92,34 @@ func GetLogsDir(appName string) string {
 	}
 }
 
+func GetCacheDir(appName string) string {
+	if dir := os.Getenv("CACHE_DIR"); dir != "" {
+		return dir
+	}
+
+	if isContainer() {
+		return "/cache"
+	}
+
+	if os.Getuid() == 0 {
+		return filepath.Join("/var/cache", orgName, appName)
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, "Library", "Caches", orgName, appName)
+	case "windows":
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), orgName, appName, "cache")
+	default:
+		if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+			return filepath.Join(xdg, orgName, appName)
+		}
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".cache", orgName, appName)
+	}
+}
+
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
 }

@@ -13,7 +13,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
-	"github.com/apimgr/pastebin/src/handlers"
+	"github.com/apimgr/pastebin/src/handler"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -26,13 +26,14 @@ var staticFS embed.FS
 
 // Server owns the HTTP router and all handler dependencies.
 type Server struct {
-	router       *chi.Mux
-	db           database.DB
-	cfg          *config.Config
-	templates    *template.Template
-	pasteHandler *handlers.PasteHandler
-	compatHandler *handlers.CompatHandler
-	version      string
+	router        *chi.Mux
+	db            database.DB
+	cfg           *config.Config
+	templates     *template.Template
+	pasteHandler  *handler.PasteHandler
+	compatHandler *handler.CompatHandler
+	createLimiter *rateLimiter
+	version       string
 }
 
 // New constructs a Server and wires all routes.
@@ -44,8 +45,17 @@ func New(db database.DB, cfg *config.Config, version string) *Server {
 		version: version,
 	}
 
-	s.pasteHandler = handlers.NewPasteHandler(db, cfg.Server.BaseURL)
-	s.compatHandler = handlers.NewCompatHandler(s.pasteHandler, db)
+	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL)
+	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db)
+
+	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
+	createLimit := cfg.RateLimit.CreatePerM
+	if createLimit <= 0 {
+		createLimit = 30
+	}
+	if cfg.RateLimit.Enabled {
+		s.createLimiter = newRateLimiter(createLimit, time.Minute)
+	}
 
 	tmpl, err := template.New("").ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
@@ -55,6 +65,15 @@ func New(db database.DB, cfg *config.Config, version string) *Server {
 
 	s.setupRoutes()
 	return s
+}
+
+// maybeRateLimit wraps h with the create rate limiter if enabled.
+func (s *Server) maybeRateLimit(h http.HandlerFunc) http.HandlerFunc {
+	if s.createLimiter == nil {
+		return h
+	}
+	mw := rateLimitMiddleware(s.createLimiter)
+	return mw(h).ServeHTTP
 }
 
 func (s *Server) setupRoutes() {
@@ -91,11 +110,11 @@ func (s *Server) setupRoutes() {
 		"/server/auth/login", "/server/auth/register",
 		"/server/auth/logout", "/server/auth/settings",
 	} {
-		r.Get(path, handlers.AuthStubRedirect)
-		r.Post(path, handlers.AuthStubRedirect)
+		r.Get(path, handler.AuthStubRedirect)
+		r.Post(path, handler.AuthStubRedirect)
 	}
 	// microbin auth-gate redirects
-	r.Get("/u/{username}", handlers.AuthStubRedirect) // user profiles → home
+	r.Get("/u/{username}", handler.AuthStubRedirect) // user profiles → home
 	r.Get("/auth/{id}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+chi.URLParam(r, "id"), http.StatusFound)
 	})
@@ -107,12 +126,12 @@ func (s *Server) setupRoutes() {
 	})
 
 	// ── pastebin.com API compatibility ───────────────────────────────────────
-	r.Post("/api/api_post.php", s.compatHandler.PastebinPost)
+	r.Post("/api/api_post.php", s.maybeRateLimit(s.compatHandler.PastebinPost))
 	r.Get("/api/api_raw.php", s.compatHandler.PastebinRaw)
 	r.Post("/api/api_login.php", s.compatHandler.PastebinLogin)
 
 	// ── lenpaste API compatibility ───────────────────────────────────────────
-	r.Post("/api/new", s.compatHandler.LenCreate)
+	r.Post("/api/new", s.maybeRateLimit(s.compatHandler.LenCreate))
 	r.Get("/api/get", s.compatHandler.LenGet)
 	r.Delete("/api/remove", s.compatHandler.LenRemove)
 	r.Get("/api/remove", s.compatHandler.LenRemove) // some clients use GET
@@ -126,7 +145,7 @@ func (s *Server) setupRoutes() {
 
 		// Pastes
 		r.Get("/pastes", s.pasteHandler.ListPastes)
-		r.Post("/pastes", s.pasteHandler.CreatePaste)
+		r.Post("/pastes", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 		r.Get("/pastes/{id}", s.pasteHandler.GetPaste)
 		r.Delete("/pastes/{id}", s.pasteHandler.DeletePaste)
 
@@ -153,7 +172,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/list", s.handleRecent)    // microbin alias
 	r.Get("/archive", s.handleRecent) // pastebin.com alias
 	r.Get("/trends", s.handleRecent)  // pastebin.com alias
-	r.Post("/create", s.pasteHandler.CreatePaste)
+	r.Post("/create", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 	r.Get("/create", s.handleCreatePage)
 
 	// ── Redirect aliases ────────────────────────────────────────────────────
@@ -177,7 +196,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/qr/{id}", s.handleQR)
 	r.Get("/remove/{id}", s.handleRemovePage)
 	r.Post("/remove/{id}", s.handleRemoveSubmit)
-	r.Post("/upload", s.pasteHandler.CreatePaste)    // microbin upload
+	r.Post("/upload", s.maybeRateLimit(s.pasteHandler.CreatePaste)) // microbin upload
 	r.Get("/upload/{id}", s.handleViewPaste)          // microbin upload alias
 	r.Get("/p/{id}", s.handleViewPaste)               // microbin short URL
 	r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)   // pastebin.com /id/raw
@@ -380,7 +399,7 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		"Theme":     s.cfg.Web.Theme,
 		"Paste":     paste,
 		"ID":        id,
-		"Content":   handlers.HighlightedContent(paste),
+		"Content":   handler.HighlightedContent(paste),
 	})
 }
 
@@ -395,7 +414,7 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 
 	s.renderTemplate(w, r, "emb.html", map[string]interface{}{
 		"Paste":   paste,
-		"Content": handlers.HighlightedContent(paste),
+		"Content": handler.HighlightedContent(paste),
 	})
 }
 
@@ -440,7 +459,7 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.db.DeletePasteByToken(id, handlers.HashToken(token)); err != nil {
+	if err := s.db.DeletePasteByToken(id, handler.HashToken(token)); err != nil {
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
 			"SiteTitle": s.cfg.Web.SiteTitle,
 			"Theme":     s.cfg.Web.Theme,
@@ -499,7 +518,7 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 		"Theme":     s.cfg.Web.Theme,
 		"Paste":     paste,
 		"ID":        id,
-		"Content":   handlers.HighlightedContent(paste),
+		"Content":   handler.HighlightedContent(paste),
 	})
 }
 
