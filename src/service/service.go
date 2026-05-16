@@ -14,6 +14,14 @@ const (
 	orgName = "apimgr"
 )
 
+// ok returns "✅ " when color/emoji output is enabled, or "[ok] " when NO_COLOR is set.
+func ok() string {
+	if os.Getenv("NO_COLOR") != "" {
+		return "[ok] "
+	}
+	return "✅ "
+}
+
 // ServiceType represents the type of service manager
 type ServiceType int
 
@@ -175,8 +183,8 @@ WantedBy=multi-user.target
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
 
-	fmt.Printf("✅ Service installed at: %s\n", servicePath)
-	fmt.Printf("✅ Binary installed at: %s\n", binaryPath)
+	fmt.Printf("%sService installed at: %s\n", ok(), servicePath)
+	fmt.Printf("%sBinary installed at: %s\n", ok(), binaryPath)
 	fmt.Println()
 	fmt.Println("To start the service:")
 	fmt.Printf("  sudo systemctl start %s\n", appName)
@@ -205,7 +213,7 @@ func uninstallSystemd() error {
 	// Reload systemd
 	exec.Command("systemctl", "daemon-reload").Run()
 
-	fmt.Printf("✅ Service uninstalled: %s\n", servicePath)
+	fmt.Printf("%sService uninstalled: %s\n", ok(), servicePath)
 	return nil
 }
 
@@ -246,7 +254,7 @@ exec svlogd -tt ./main
 	linkPath := fmt.Sprintf("/var/service/%s", appName)
 	os.Symlink(svDir, linkPath)
 
-	fmt.Printf("✅ Runit service installed at: %s\n", svDir)
+	fmt.Printf("%sRunit service installed at: %s\n", ok(), svDir)
 	return nil
 }
 
@@ -264,7 +272,7 @@ func uninstallRunit() error {
 	// Remove service directory
 	os.RemoveAll(svDir)
 
-	fmt.Printf("✅ Runit service uninstalled\n")
+	fmt.Printf("%sRunit service uninstalled\n", ok())
 	return nil
 }
 
@@ -318,7 +326,7 @@ func installLaunchd() error {
 		}
 	}
 
-	fmt.Printf("✅ LaunchDaemon installed at: %s\n", plistPath)
+	fmt.Printf("%sLaunchDaemon installed at: %s\n", ok(), plistPath)
 	fmt.Println()
 	fmt.Println("To load the service:")
 	fmt.Printf("  sudo launchctl load %s\n", plistPath)
@@ -338,7 +346,7 @@ func uninstallLaunchd() error {
 		return fmt.Errorf("failed to remove plist file: %w", err)
 	}
 
-	fmt.Printf("✅ LaunchDaemon uninstalled\n")
+	fmt.Printf("%sLaunchDaemon uninstalled\n", ok())
 	return nil
 }
 
@@ -369,7 +377,7 @@ func installWindows() error {
 		return fmt.Errorf("failed to create Windows service: %w", err)
 	}
 
-	fmt.Printf("✅ Windows service '%s' installed\n", appName)
+	fmt.Printf("%sWindows service '%s' installed\n", ok(), appName)
 	fmt.Println()
 	fmt.Println("To start the service:")
 	fmt.Printf("  sc.exe start %s\n", appName)
@@ -387,7 +395,7 @@ func uninstallWindows() error {
 		return fmt.Errorf("failed to delete Windows service: %w", err)
 	}
 
-	fmt.Printf("✅ Windows service '%s' uninstalled\n", appName)
+	fmt.Printf("%sWindows service '%s' uninstalled\n", ok(), appName)
 	return nil
 }
 
@@ -426,7 +434,7 @@ run_rc_command "$1"
 		}
 	}
 
-	fmt.Printf("✅ BSD rc.d script installed at: %s\n", rcPath)
+	fmt.Printf("%sBSD rc.d script installed at: %s\n", ok(), rcPath)
 	fmt.Println()
 	fmt.Printf("Add '%s_enable=\"YES\"' to /etc/rc.conf\n", appName)
 	fmt.Println()
@@ -448,7 +456,7 @@ func uninstallBSDRC() error {
 		return fmt.Errorf("failed to remove rc.d script: %w", err)
 	}
 
-	fmt.Printf("✅ BSD rc.d script uninstalled\n")
+	fmt.Printf("%sBSD rc.d script uninstalled\n", ok())
 	return nil
 }
 

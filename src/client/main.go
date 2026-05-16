@@ -46,6 +46,7 @@ func main() {
 	colorFlag := flag.String("color", "auto", "color output: always, never, auto")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	showHelp := flag.Bool("help", false, "show help and exit")
+	debugFlag := flag.Bool("debug", false, "enable debug output")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -70,6 +71,10 @@ func main() {
 	if *showVersion {
 		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, CommitID, BuildDate)
 		return
+	}
+
+	if *debugFlag {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
 
 	args := flag.Args()
@@ -394,6 +399,7 @@ GLOBAL FLAGS
     --server <url>       Server base URL (default: %s or $PASTEBIN_SERVER)
     --json               Output machine-readable JSON
     --color <when>       Color output: always, never, auto (default: auto; honors NO_COLOR)
+    --debug              Enable debug output
     --version            Print version
 
 EXAMPLES
