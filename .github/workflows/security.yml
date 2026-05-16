@@ -76,10 +76,10 @@ jobs:
       - name: Check no hardcoded secrets in workflows
         run: |
           # Flag any credential assignment whose value is not a GitHub Actions
-          # expression (${{...}}), a comment, or empty/whitespace-only.
+          # expression, a comment, or empty/whitespace-only.
           if grep -rE '(password|secret|token|api_key)\s*[:=]\s*\S' .github/workflows/ 2>/dev/null \
                | grep -v '#' \
-               | grep -v '\${{'; then
+               | grep -v '[$]{{'; then
             echo "ERROR: possible hardcoded credential found in workflow"
             exit 1
           fi
