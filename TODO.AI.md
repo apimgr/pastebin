@@ -34,12 +34,6 @@ Read: AI.md PART 28
 
 Read: AI.md PART 0
 
-## [ ] Implement GeoIP support
-
-GeoIP detection required by spec (PART 19). Currently not implemented.
-
-Read: AI.md PART 19
-
 ## [ ] Implement Tor hidden service support
 
 Tor is installed in the container (PART 31). Auto-enable when Tor binary found. Currently not implemented.

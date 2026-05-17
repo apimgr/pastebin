@@ -259,6 +259,17 @@ func main() {
 		cfg.Server.Mode = modeFlag
 	}
 
+	// ── GeoIP directory ───────────────────────────────────────────────────────
+
+	if cfg.Server.GeoIP.Dir == "" {
+		cfg.Server.GeoIP.Dir = filepath.Join(dataDir, "security", "geoip")
+	}
+	if cfg.Server.GeoIP.Enabled {
+		if err := paths.EnsureDir(cfg.Server.GeoIP.Dir); err != nil {
+			log.Printf("warning: geoip dir: %v", err)
+		}
+	}
+
 	// ── Database ──────────────────────────────────────────────────────────────
 
 	if cfg.Database.Path == "" {
@@ -308,6 +319,18 @@ func main() {
 	// ── HTTP server ───────────────────────────────────────────────────────────
 
 	srv := server.New(db, cfg, Version, CommitID, BuildDate)
+
+	// Weekly GeoIP database refresh (Sunday 03:00 cadence approximated as 7 days).
+	if srv.GeoIPEnabled() {
+		sched.AddTask("geoip-update", 7*24*time.Hour, func() error {
+			if err := srv.UpdateGeoIP(); err != nil {
+				log.Printf("scheduler: geoip update: %v", err)
+				return err
+			}
+			log.Printf("scheduler: geoip databases updated")
+			return nil
+		})
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

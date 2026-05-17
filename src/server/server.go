@@ -17,6 +17,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/geoip"
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/metrics"
@@ -139,6 +140,7 @@ type Server struct {
 	swaggerHandler   *swagger.Handler
 	graphqlHandler   *graphql.Handler
 	metricsCollector *metrics.Collector
+	geoipDB          *geoip.DB
 	createLimiter    *rateLimiter
 	version          string
 	commitID         string
@@ -166,6 +168,23 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate string
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
 	s.metricsCollector = metrics.New(version, commitID, buildDate, s.startTime, cfg.Server.Metrics.Token)
 
+	if cfg.Server.GeoIP.Enabled {
+		gcfg := geoip.Config{
+			Dir:            cfg.Server.GeoIP.Dir,
+			EnableASN:      cfg.Server.GeoIP.Databases.ASN,
+			EnableCountry:  cfg.Server.GeoIP.Databases.Country,
+			EnableCity:     cfg.Server.GeoIP.Databases.City,
+			EnableWHOIS:    cfg.Server.GeoIP.Databases.WHOIS,
+			DenyCountries:  cfg.Server.GeoIP.DenyCountries,
+			AllowCountries: cfg.Server.GeoIP.AllowCountries,
+		}
+		if gdb, err := geoip.Open(gcfg); err != nil {
+			log.Printf("warning: geoip init: %v", err)
+		} else {
+			s.geoipDB = gdb
+		}
+	}
+
 	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
 	createLimit := cfg.RateLimit.CreatePerM
 	if createLimit <= 0 {
@@ -183,6 +202,19 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate string
 
 	s.setupRoutes()
 	return s
+}
+
+// GeoIPEnabled returns true when the GeoIP database was successfully opened.
+func (s *Server) GeoIPEnabled() bool {
+	return s.geoipDB != nil
+}
+
+// UpdateGeoIP downloads fresh GeoIP databases. Safe to call from a scheduler.
+func (s *Server) UpdateGeoIP() error {
+	if s.geoipDB == nil {
+		return nil
+	}
+	return s.geoipDB.Update()
 }
 
 // maybeRateLimit wraps h with the create rate limiter if enabled.
@@ -205,6 +237,9 @@ func (s *Server) setupRoutes() {
 	r.Use(s.noTrailingSlash)
 	r.Use(s.countRequests)
 	r.Use(s.metricsCollector.Middleware())
+	if s.geoipDB != nil {
+		r.Use(s.geoipDB.Middleware())
+	}
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -391,6 +426,9 @@ func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
 
 // Run starts the HTTP server and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context, addr string) error {
+	if s.geoipDB != nil {
+		defer s.geoipDB.Close()
+	}
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.router,
@@ -474,7 +512,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		},
 		Features: FeaturesInfo{
 			Tor:   TorInfo{Enabled: false, Running: false, Status: "disabled", Hostname: ""},
-			GeoIP: false,
+			GeoIP: s.geoipDB != nil,
 		},
 		Checks: checks,
 		Stats: StatsInfo{

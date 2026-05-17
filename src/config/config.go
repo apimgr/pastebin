@@ -24,7 +24,25 @@ type ServerConfig struct {
 	Mode    string        `yaml:"mode"`
 	BaseURL string        `yaml:"base_url"` // override for URL generation
 	Metrics MetricsConfig `yaml:"metrics"`
+	GeoIP   GeoIPConfig   `yaml:"geoip"`
 	Logging LoggingConfig `yaml:"logging"`
+}
+
+// GeoIPConfig configures GeoIP detection and country blocking.
+type GeoIPConfig struct {
+	Enabled        bool              `yaml:"enabled"`
+	Dir            string            `yaml:"dir"` // path to MMDB database directory
+	DenyCountries  []string          `yaml:"deny_countries"`
+	AllowCountries []string          `yaml:"allow_countries"`
+	Databases      GeoIPDatabasesConfig `yaml:"databases"`
+}
+
+// GeoIPDatabasesConfig controls which MMDB files to download and use.
+type GeoIPDatabasesConfig struct {
+	ASN     bool `yaml:"asn"`
+	Country bool `yaml:"country"`
+	City    bool `yaml:"city"`
+	WHOIS   bool `yaml:"whois"`
 }
 
 // MetricsConfig configures the /metrics endpoint.
@@ -94,6 +112,18 @@ func DefaultConfig() *Config {
 				Enabled:  false,
 				Endpoint: "/metrics",
 				Token:    "",
+			},
+			GeoIP: GeoIPConfig{
+				Enabled:        false,
+				Dir:            "", // resolved at startup to {data_dir}/security/geoip
+				DenyCountries:  []string{},
+				AllowCountries: []string{},
+				Databases: GeoIPDatabasesConfig{
+					ASN:     true,
+					Country: true,
+					City:    true,
+					WHOIS:   true,
+				},
 			},
 			Logging: LoggingConfig{
 				AccessFormat: "apache",
