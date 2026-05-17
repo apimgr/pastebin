@@ -1,0 +1,12 @@
+# CODEOWNERS — reviewed on every pull request
+
+# Catch-all owner for all files
+* @apimgr
+
+# Security-sensitive areas require explicit review
+.github/workflows/         @apimgr
+docker/                    @apimgr
+src/handler/               @apimgr
+src/database/              @apimgr
+src/server/ratelimit.go    @apimgr
+src/ssl/                   @apimgr

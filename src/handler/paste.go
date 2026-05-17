@@ -254,9 +254,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"ok": true, "data": resp})
 }
 
 // ─── Get ──────────────────────────────────────────────────────────────────────
@@ -280,11 +278,7 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 	// Never return delete token hash.
 	paste.DeleteTokenHash = ""
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"data":    paste,
-	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": paste})
 }
 
 // GetRawPaste returns paste content as plain text.
@@ -325,16 +319,18 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	totalPages := (total + limit - 1) / limit
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"pastes": pastes,
-		"pagination": map[string]interface{}{
-			"page":        page,
-			"limit":       limit,
-			"total":       total,
-			"total_pages": totalPages,
-			"has_next":    page < totalPages,
-			"has_prev":    page > 1,
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok": true,
+		"data": map[string]interface{}{
+			"pastes": pastes,
+			"pagination": map[string]interface{}{
+				"page":        page,
+				"limit":       limit,
+				"total":       total,
+				"total_pages": totalPages,
+				"has_next":    page < totalPages,
+				"has_prev":    page > 1,
+			},
 		},
 	})
 }
@@ -368,8 +364,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "paste deleted"})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"message": "paste deleted"}})
 }
 
 // ─── Web view helpers ─────────────────────────────────────────────────────────
@@ -465,9 +460,31 @@ func (h *PasteHandler) pasteURL(r *http.Request, id string) string {
 }
 
 func (h *PasteHandler) errJSON(w http.ResponseWriter, msg string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	writeJSON(w, status, map[string]interface{}{
+		"ok":      false,
+		"error":   httpErrCode(status),
+		"message": msg,
+	})
+}
+
+// httpErrCode maps HTTP status to a canonical error code string.
+func httpErrCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	case http.StatusTooManyRequests:
+		return "RATE_LIMITED"
+	default:
+		return "SERVER_ERROR"
+	}
 }
 
 // ─── Expiry parsing ───────────────────────────────────────────────────────────

@@ -502,9 +502,15 @@ func (c *CompatHandler) execGraphQL(query string, vars map[string]interface{}) (
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		http.Error(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	w.Write(data)
+	w.Write([]byte("\n"))
 }
 
 func expiryUnix(t *time.Time) int64 {

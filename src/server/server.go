@@ -4,11 +4,17 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/apimgr/pastebin/src/config"
@@ -24,6 +30,103 @@ var templatesFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
+// requestStats tracks total and per-hour request counts using a 24-bucket ring.
+type requestStats struct {
+	total      atomic.Int64
+	activeConn atomic.Int64
+	buckets    [24]atomic.Int64
+	mu         sync.Mutex
+	lastHour   int
+}
+
+func (rs *requestStats) inc() {
+	rs.total.Add(1)
+	h := time.Now().Hour()
+	rs.mu.Lock()
+	if h != rs.lastHour {
+		// Zero out stale buckets between lastHour and h.
+		for cur := (rs.lastHour + 1) % 24; cur != (h+1)%24; cur = (cur + 1) % 24 {
+			rs.buckets[cur].Store(0)
+		}
+		rs.lastHour = h
+	}
+	rs.mu.Unlock()
+	rs.buckets[h].Add(1)
+}
+
+func (rs *requestStats) last24h() int64 {
+	var sum int64
+	for i := 0; i < 24; i++ {
+		sum += rs.buckets[i].Load()
+	}
+	return sum
+}
+
+// ─── Health types (PART 13) ──────────────────────────────────────────────────
+
+// HealthResponse is the canonical /server/healthz response structure.
+type HealthResponse struct {
+	Project   ProjectInfo  `json:"project"`
+	Status    string       `json:"status"`
+	Version   string       `json:"version"`
+	GoVersion string       `json:"go_version"`
+	Build     BuildInfo    `json:"build"`
+	Uptime    string       `json:"uptime"`
+	Mode      string       `json:"mode"`
+	Timestamp time.Time    `json:"timestamp"`
+	Cluster   ClusterInfo  `json:"cluster"`
+	Features  FeaturesInfo `json:"features"`
+	Checks    ChecksInfo   `json:"checks"`
+	Stats     StatsInfo    `json:"stats"`
+}
+
+// ProjectInfo holds public branding fields.
+type ProjectInfo struct {
+	Name        string `json:"name"`
+	Tagline     string `json:"tagline"`
+	Description string `json:"description"`
+}
+
+// BuildInfo holds build-time metadata.
+type BuildInfo struct {
+	Commit string `json:"commit"`
+	Date   string `json:"date"`
+}
+
+// ClusterInfo reports cluster state (single-node for now).
+type ClusterInfo struct {
+	Enabled bool `json:"enabled"`
+}
+
+// FeaturesInfo reports which optional features are active.
+type FeaturesInfo struct {
+	Tor   TorInfo `json:"tor"`
+	GeoIP bool    `json:"geoip"`
+}
+
+// TorInfo reports Tor hidden service status.
+type TorInfo struct {
+	Enabled  bool   `json:"enabled"`
+	Running  bool   `json:"running"`
+	Status   string `json:"status"`
+	Hostname string `json:"hostname"`
+}
+
+// ChecksInfo reports component health as "ok" or "error".
+type ChecksInfo struct {
+	Database string `json:"database"`
+	Cache    string `json:"cache"`
+	Disk     string `json:"disk"`
+}
+
+// StatsInfo holds public-safe aggregate statistics.
+type StatsInfo struct {
+	RequestsTotal  int64 `json:"requests_total"`
+	Requests24h    int64 `json:"requests_24h"`
+	ActiveConns    int   `json:"active_connections"`
+	PastesTotal    int64 `json:"pastes_total"`
+}
+
 // Server owns the HTTP router and all handler dependencies.
 type Server struct {
 	router        *chi.Mux
@@ -34,16 +137,24 @@ type Server struct {
 	compatHandler *handler.CompatHandler
 	createLimiter *rateLimiter
 	version       string
+	commitID      string
+	buildDate     string
+	startTime     time.Time
+	stats         requestStats
 }
 
 // New constructs a Server and wires all routes.
-func New(db database.DB, cfg *config.Config, version string) *Server {
+func New(db database.DB, cfg *config.Config, version, commitID, buildDate string) *Server {
 	s := &Server{
-		router:  chi.NewRouter(),
-		db:      db,
-		cfg:     cfg,
-		version: version,
+		router:    chi.NewRouter(),
+		db:        db,
+		cfg:       cfg,
+		version:   version,
+		commitID:  commitID,
+		buildDate: buildDate,
+		startTime: time.Now(),
 	}
+	s.stats.lastHour = time.Now().Hour()
 
 	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL)
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db)
@@ -85,6 +196,7 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.CleanPath)
 	r.Use(s.corsMiddleware)
 	r.Use(s.noTrailingSlash)
+	r.Use(s.countRequests)
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -212,6 +324,15 @@ func (s *Server) setupRoutes() {
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
+func (s *Server) countRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.stats.inc()
+		s.stats.activeConn.Add(1)
+		defer s.stats.activeConn.Add(-1)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cors := s.cfg.Web.Security.CORS
@@ -269,7 +390,102 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	}
 }
 
+// ─── JSON helpers ─────────────────────────────────────────────────────────────
+
+// writeJSON marshals v with 2-space indent and writes it with a trailing newline.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		http.Error(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(data)
+	w.Write([]byte("\n"))
+}
+
 // ─── Health & info handlers ───────────────────────────────────────────────────
+
+func (s *Server) buildHealthResponse() HealthResponse {
+	checks := ChecksInfo{
+		Database: "ok",
+		Cache:    "ok",
+		Disk:     "ok",
+	}
+
+	if err := s.db.Ping(); err != nil {
+		checks.Database = "error"
+	}
+
+	if !s.checkDisk() {
+		checks.Disk = "error"
+	}
+
+	status := "healthy"
+	if checks.Database == "error" || checks.Disk == "error" {
+		status = "unhealthy"
+	}
+
+	hr := HealthResponse{
+		Project: ProjectInfo{
+			Name:        s.cfg.Web.SiteTitle,
+			Tagline:     "Simple, fast paste service",
+			Description: "A self-hosted pastebin with syntax highlighting and burn-after-read support.",
+		},
+		Status:    status,
+		Version:   s.version,
+		GoVersion: runtime.Version(),
+		Build: BuildInfo{
+			Commit: s.commitID,
+			Date:   s.buildDate,
+		},
+		Uptime:    formatUptime(time.Since(s.startTime)),
+		Mode:      s.cfg.Server.Mode,
+		Timestamp: time.Now().UTC(),
+		Cluster: ClusterInfo{
+			Enabled: false,
+		},
+		Features: FeaturesInfo{
+			Tor:   TorInfo{Enabled: false, Running: false, Status: "disabled", Hostname: ""},
+			GeoIP: false,
+		},
+		Checks: checks,
+		Stats: StatsInfo{
+			RequestsTotal: s.stats.total.Load(),
+			Requests24h:   s.stats.last24h(),
+			ActiveConns:   int(s.stats.activeConn.Load()),
+		},
+	}
+	return hr
+}
+
+// checkDisk returns true when at least 100 MiB of free space is available.
+func (s *Server) checkDisk() bool {
+	var stat syscall.Statfs_t
+	dir := os.TempDir()
+	if err := syscall.Statfs(dir, &stat); err != nil {
+		return true // assume ok if we can't check
+	}
+	free := stat.Bavail * uint64(stat.Bsize)
+	return free > 100<<20 // 100 MiB
+}
+
+// formatUptime converts a duration to a human-readable string like "2d 5h 30m".
+func formatUptime(d time.Duration) string {
+	d = d.Round(time.Minute)
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	mins := int(d.Minutes()) % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %dh %dm", days, hours, mins)
+	case hours > 0:
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	default:
+		return fmt.Sprintf("%dm", mins)
+	}
+}
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	accept := r.Header.Get("Accept")
@@ -277,29 +493,21 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		s.handleHealthzJSON(w, r)
 		return
 	}
-	// HTML health page
+	hr := s.buildHealthResponse()
 	s.renderTemplate(w, r, "healthz.html", map[string]interface{}{
-		"Status":    "ok",
-		"Version":   s.version,
-		"Database":  s.db.Type(),
+		"Health":    hr,
 		"SiteTitle": s.cfg.Web.SiteTitle,
 		"Theme":     s.cfg.Web.Theme,
 	})
 }
 
 func (s *Server) handleHealthzJSON(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":    "ok",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"database":  s.db.Type(),
-		"version":   s.version,
-	})
+	hr := s.buildHealthResponse()
+	writeJSON(w, http.StatusOK, hr)
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"version": s.version})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"version": s.version}})
 }
 
 func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
@@ -309,8 +517,9 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	base := scheme + "://" + r.Host
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok": true,
+		"data": map[string]interface{}{
 		"name":    "Pastebin API",
 		"version": s.version,
 		"endpoints": map[string]interface{}{
@@ -348,6 +557,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/pastes",
 			"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
 		},
+	},
 	})
 }
 
@@ -525,8 +735,7 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 // handleSwagger serves a minimal OpenAPI JSON description.
 func (s *Server) handleSwagger(w http.ResponseWriter, r *http.Request) {
 	base := s.baseURL(r)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
 			"title":   s.cfg.Web.SiteTitle + " API",
@@ -572,7 +781,7 @@ func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/manifest+json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name":             s.cfg.Web.SiteTitle,
 		"short_name":       "Paste",
 		"description":      "A fast, public pastebin service",

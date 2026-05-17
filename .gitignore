@@ -1,4 +1,24 @@
 # gitignore created on 09/23/25 at 07:36
+
+# Project build output (gitignored)
+binaries/
+releases/
+
+# Runtime volume data (created locally by docker-compose)
+volumes/
+
+# AI tool config directories (regenerated from AI.md)
+.claude/
+.cursor/
+.aider/
+.ai/
+.windsurf/
+
+# Personal Claude Code preferences
+CLAUDE.local.md
+
+# Test coverage output
+coverage.out
 # Disable reminder in prompt
 ignoredirmessage
 

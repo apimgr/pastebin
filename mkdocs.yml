@@ -1,0 +1,39 @@
+site_name: Pastebin
+site_description: A fast, public pastebin service — drop-in replacement for pastebin.com, microbin, and lenpaste
+site_url: https://github.com/apimgr/pastebin
+repo_url: https://github.com/apimgr/pastebin
+repo_name: apimgr/pastebin
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.instant
+    - search.highlight
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Installation: install.md
+  - Configuration: config.md
+  - API Reference: api.md
+  - CLI Reference: cli.md
+  - Compatibility: compat.md
+  - Security: security.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true

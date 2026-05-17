@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 type DB interface {
 	Close() error
 	Type() string
+	Ping() error
 
 	// Paste operations
 	CreatePaste(paste *model.Paste) error
@@ -120,6 +122,13 @@ func (s *SQLiteDB) Close() error { return s.db.Close() }
 
 // Type returns the database type name.
 func (s *SQLiteDB) Type() string { return "sqlite" }
+
+// Ping verifies the database connection is alive.
+func (s *SQLiteDB) Ping() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return s.db.PingContext(ctx)
+}
 
 // CreatePaste inserts a new paste.
 func (s *SQLiteDB) CreatePaste(p *model.Paste) error {

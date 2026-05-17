@@ -303,7 +303,7 @@ func main() {
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 
-	srv := server.New(db, cfg, Version)
+	srv := server.New(db, cfg, Version, CommitID, BuildDate)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

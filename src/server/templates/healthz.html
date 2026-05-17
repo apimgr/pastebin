@@ -3,9 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Health - {{.SiteTitle}}</title>
+    <title>{{.SiteTitle}} - Health Status</title>
     <meta name="theme-color" content="#6366f1">
     <link rel="stylesheet" href="/static/css/main.css">
+    <style>
+        .health-header { text-align:center; padding: var(--space-6) 0 var(--space-4); }
+        .health-header h1 { font-size:2rem; margin-bottom:var(--space-2); }
+        .health-header .tagline { color:var(--color-text-muted); margin-bottom:var(--space-2); }
+        .status-banner { display:flex; align-items:center; justify-content:center; gap:var(--space-3);
+            padding:var(--space-4); border-radius:var(--radius-lg); margin:var(--space-4) 0;
+            font-size:1.1rem; font-weight:600; }
+        .status-ok    { background:rgba(34,197,94,.15); color:#22c55e; border:1px solid rgba(34,197,94,.3); }
+        .status-error { background:rgba(239,68,68,.15);  color:#ef4444; border:1px solid rgba(239,68,68,.3); }
+        .status-warning { background:rgba(234,179,8,.15); color:#eab308; border:1px solid rgba(234,179,8,.3); }
+        .section-card { background:var(--color-surface-2); border:1px solid var(--color-border);
+            border-radius:var(--radius-lg); padding:var(--space-5); margin-bottom:var(--space-4); }
+        .section-card h2 { font-size:1.05rem; margin-bottom:var(--space-4); }
+        .info-list { display:grid; grid-template-columns:max-content 1fr; gap:var(--space-2) var(--space-4); }
+        .info-list dt { color:var(--color-text-muted); font-size:.85rem; }
+        .info-list dd { margin:0; }
+        .badge { display:inline-block; padding:.15em .6em; border-radius:var(--radius-sm);
+            font-size:.8rem; font-weight:600; }
+        .badge-production { background:rgba(99,102,241,.2); color:#818cf8; }
+        .badge-development { background:rgba(234,179,8,.2); color:#eab308; }
+        .data-table { width:100%; border-collapse:collapse; }
+        .data-table th { text-align:left; padding:var(--space-2) var(--space-3);
+            border-bottom:1px solid var(--color-border); font-size:.85rem; color:var(--color-text-muted); }
+        .data-table td { padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--color-border-subtle,var(--color-border)); }
+        .status-badge { display:inline-flex; align-items:center; gap:.3em;
+            font-size:.85rem; font-weight:600; }
+        .status-badge.ok    { color:#22c55e; }
+        .status-badge.error { color:#ef4444; }
+        .feature-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:var(--space-2); }
+        .feature-enabled { color:var(--color-text); }
+        .feature-disabled { color:var(--color-text-muted); text-decoration:line-through; }
+        .stat-number { font-size:1.2rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    </style>
 </head>
 <body>
     <header class="header">
@@ -24,35 +57,162 @@
     </header>
 
     <main>
-        <section class="search-section">
-            <div class="container container-sm">
-                <div class="section-header">
-                    <h1 class="section-title">Service Health</h1>
-                </div>
-                <div class="paste-view">
-                    <table style="width:100%; border-collapse:collapse;">
-                        <tr>
-                            <th style="text-align:left; padding:var(--space-2) var(--space-3);">Field</th>
-                            <th style="text-align:left; padding:var(--space-2) var(--space-3);">Value</th>
-                        </tr>
-                        <tr>
-                            <td style="padding:var(--space-2) var(--space-3);">Status</td>
-                            <td style="padding:var(--space-2) var(--space-3);">
-                                <span style="color:var(--color-success);">&#10003; {{.Status}}</span>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding:var(--space-2) var(--space-3);">Version</td>
-                            <td style="padding:var(--space-2) var(--space-3);">{{.Version}}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding:var(--space-2) var(--space-3);">Database</td>
-                            <td style="padding:var(--space-2) var(--space-3);">{{.Database}}</td>
-                        </tr>
+        <div class="container container-sm">
+
+            <!-- 1. Project Info -->
+            <header class="health-header">
+                <h1>📦 {{.Health.Project.Name}}</h1>
+                <p class="tagline">{{.Health.Project.Tagline}}</p>
+                <p>{{.Health.Project.Description}}</p>
+            </header>
+
+            <!-- 2. Status Banner -->
+            {{if eq .Health.Status "healthy"}}
+            <div class="status-banner status-ok">
+                <span>✅</span>
+                <span>All Systems Operational</span>
+            </div>
+            {{else if eq .Health.Status "degraded"}}
+            <div class="status-banner status-warning">
+                <span>⚠️</span>
+                <span>Degraded</span>
+            </div>
+            {{else}}
+            <div class="status-banner status-error">
+                <span>❌</span>
+                <span>Unhealthy</span>
+            </div>
+            {{end}}
+
+            <!-- 3. Version & Build -->
+            <section class="section-card">
+                <h2>ℹ️ Version</h2>
+                <dl class="info-list">
+                    <dt>🏷️ Version</dt>
+                    <dd><code>{{.Health.Version}}</code></dd>
+
+                    <dt>🐹 Go Version</dt>
+                    <dd><code>{{.Health.GoVersion}}</code></dd>
+
+                    <dt>🔨 Build Commit</dt>
+                    <dd><code>{{.Health.Build.Commit}}</code></dd>
+
+                    <dt>📅 Build Date</dt>
+                    <dd>{{.Health.Build.Date}}</dd>
+                </dl>
+            </section>
+
+            <!-- 4. Runtime -->
+            <section class="section-card">
+                <h2>⏱️ Runtime</h2>
+                <dl class="info-list">
+                    <dt>⬆️ Uptime</dt>
+                    <dd>{{.Health.Uptime}}</dd>
+
+                    <dt>🔧 Mode</dt>
+                    <dd>
+                        {{if eq .Health.Mode "production"}}
+                        <span class="badge badge-production">Production</span>
+                        {{else}}
+                        <span class="badge badge-development">Development</span>
+                        {{end}}
+                    </dd>
+
+                    <dt>🕐 Timestamp</dt>
+                    <dd><time datetime="{{.Health.Timestamp.Format "2006-01-02T15:04:05Z"}}">{{.Health.Timestamp.Format "2006-01-02 15:04:05 UTC"}}</time></dd>
+                </dl>
+            </section>
+
+            <!-- 5. Cluster (single-node; shown for completeness) -->
+            <section class="section-card">
+                <h2>🔗 Cluster</h2>
+                <dl class="info-list">
+                    <dt>Status</dt>
+                    <dd>{{if .Health.Cluster.Enabled}}Enabled{{else}}Single Node{{end}}</dd>
+                </dl>
+            </section>
+
+            <!-- 6. Features -->
+            <section class="section-card">
+                <h2>✨ Features</h2>
+                <ul class="feature-list">
+                    {{if .Health.Features.Tor.Enabled}}
+                    <li class="feature-enabled">🧅 Tor Hidden Service — {{.Health.Features.Tor.Status}}</li>
+                    {{else}}
+                    <li class="feature-disabled">🧅 Tor Hidden Service</li>
+                    {{end}}
+                    {{if .Health.Features.GeoIP}}
+                    <li class="feature-enabled">🌍 GeoIP</li>
+                    {{else}}
+                    <li class="feature-disabled">🌍 GeoIP</li>
+                    {{end}}
+                    <li class="feature-enabled">🎨 Syntax Highlighting</li>
+                </ul>
+            </section>
+
+            <!-- 7. Checks -->
+            <section class="section-card">
+                <h2>🩺 Health Checks</h2>
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Database</td>
+                                <td>
+                                    {{if eq .Health.Checks.Database "ok"}}
+                                    <span class="status-badge ok">✅ OK</span>
+                                    {{else}}
+                                    <span class="status-badge error">❌ Error</span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Cache</td>
+                                <td>
+                                    {{if eq .Health.Checks.Cache "ok"}}
+                                    <span class="status-badge ok">✅ OK</span>
+                                    {{else}}
+                                    <span class="status-badge error">❌ Error</span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Disk</td>
+                                <td>
+                                    {{if eq .Health.Checks.Disk "ok"}}
+                                    <span class="status-badge ok">✅ OK</span>
+                                    {{else}}
+                                    <span class="status-badge error">❌ Error</span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
-            </div>
-        </section>
+            </section>
+
+            <!-- 8. Stats -->
+            <section class="section-card">
+                <h2>📊 Statistics</h2>
+                <dl class="info-list">
+                    <dt>Total Requests</dt>
+                    <dd class="stat-number">{{.Health.Stats.RequestsTotal}}</dd>
+
+                    <dt>Requests (24h)</dt>
+                    <dd class="stat-number">{{.Health.Stats.Requests24h}}</dd>
+
+                    <dt>Active Connections</dt>
+                    <dd class="stat-number">{{.Health.Stats.ActiveConns}}</dd>
+                </dl>
+            </section>
+
+        </div>
     </main>
 
     <footer class="footer">
