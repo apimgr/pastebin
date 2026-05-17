@@ -10,7 +10,6 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -401,105 +400,6 @@ func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GraphQLHandler returns an HTTP handler for the /graphql endpoint.
-// Only queries are supported (read-only); mutations are intentionally absent.
-func (c *CompatHandler) GraphQLHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			query := r.URL.Query().Get("query")
-			if query == "" {
-				writeJSON(w, http.StatusOK, map[string]interface{}{
-					"data": map[string]interface{}{
-						"__schema": map[string]interface{}{
-							"types": []map[string]interface{}{
-								{"name": "Paste"},
-								{"name": "Query"},
-							},
-						},
-					},
-				})
-				return
-			}
-		}
-
-		var body struct {
-			Query     string                 `json:"query"`
-			Variables map[string]interface{} `json:"variables"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&body); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-				"errors": []map[string]interface{}{{"message": "invalid JSON"}},
-			})
-			return
-		}
-
-		data, errs := c.execGraphQL(body.Query, body.Variables)
-		resp := map[string]interface{}{"data": data}
-		if len(errs) > 0 {
-			resp["errors"] = errs
-		}
-		writeJSON(w, http.StatusOK, resp)
-	})
-}
-
-// execGraphQL executes a minimal read-only GraphQL query.
-func (c *CompatHandler) execGraphQL(query string, vars map[string]interface{}) (interface{}, []map[string]interface{}) {
-	q := strings.TrimSpace(query)
-
-	// query paste(id: "...") { ... }
-	if strings.Contains(q, "paste(") {
-		id, _ := vars["id"].(string)
-		if id == "" {
-			// Try to extract id from inline query.
-			if i := strings.Index(q, `id:`); i != -1 {
-				rest := q[i+3:]
-				rest = strings.TrimSpace(rest)
-				if len(rest) > 0 && (rest[0] == '"' || rest[0] == '\'') {
-					rest = rest[1:]
-					if j := strings.IndexAny(rest, `"'`); j != -1 {
-						id = rest[:j]
-					}
-				}
-			}
-		}
-		if id == "" {
-			return nil, []map[string]interface{}{{"message": "id is required"}}
-		}
-		paste, err := c.db.GetPasteByID(id)
-		if err != nil || paste == nil {
-			return nil, []map[string]interface{}{{"message": "paste not found"}}
-		}
-		paste.DeleteTokenHash = ""
-		return map[string]interface{}{"paste": paste}, nil
-	}
-
-	// query pastes(page: N, limit: N) { ... }
-	page := 1
-	limit := 20
-	if v, ok := vars["page"]; ok {
-		if p, ok := v.(float64); ok {
-			page = int(p)
-		}
-	}
-	if v, ok := vars["limit"]; ok {
-		if l, ok := v.(float64); ok {
-			limit = int(l)
-		}
-	}
-	if limit < 1 || limit > 100 {
-		limit = 20
-	}
-
-	pastes, total, err := c.db.GetPublicPastes(page, limit)
-	if err != nil {
-		return nil, []map[string]interface{}{{"message": "database error"}}
-	}
-
-	return map[string]interface{}{
-		"pastes": pastes,
-		"total":  total,
-	}, nil
-}
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	data, err := json.MarshalIndent(v, "", "  ")

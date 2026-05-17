@@ -17,7 +17,9 @@ import (
 
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
+	"github.com/apimgr/pastebin/src/swagger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -127,18 +129,20 @@ type StatsInfo struct {
 
 // Server owns the HTTP router and all handler dependencies.
 type Server struct {
-	router        *chi.Mux
-	db            database.DB
-	cfg           *config.Config
-	templates     *template.Template
-	pasteHandler  *handler.PasteHandler
-	compatHandler *handler.CompatHandler
-	createLimiter *rateLimiter
-	version       string
-	commitID      string
-	buildDate     string
-	startTime     time.Time
-	stats         requestStats
+	router          *chi.Mux
+	db              database.DB
+	cfg             *config.Config
+	templates       *template.Template
+	pasteHandler    *handler.PasteHandler
+	compatHandler   *handler.CompatHandler
+	swaggerHandler  *swagger.Handler
+	graphqlHandler  *graphql.Handler
+	createLimiter   *rateLimiter
+	version         string
+	commitID        string
+	buildDate       string
+	startTime       time.Time
+	stats           requestStats
 }
 
 // New constructs a Server and wires all routes.
@@ -156,6 +160,8 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate string
 
 	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL)
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db)
+	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
+	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
 
 	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
 	createLimit := cfg.RateLimit.CreatePerM
@@ -273,8 +279,12 @@ func (s *Server) setupRoutes() {
 		// Server info
 		r.Get("/server/healthz", s.handleHealthzJSON)
 		r.Get("/server/version", s.handleVersion)
-		r.Get("/server/swagger", s.handleSwagger)
+		r.Get("/server/swagger", s.swaggerHandler.ServeSpec)
 	})
+
+	// Unversioned aliases that MUST mount the same handler as the versioned route.
+	r.Get("/api/swagger", s.swaggerHandler.ServeSpec)
+	r.Get("/api/graphql", s.graphqlHandler.ServeHTTP)
 
 	// ── Web: main pages ──────────────────────────────────────────────────────
 	r.Get("/", s.handleHome)
@@ -313,8 +323,13 @@ func (s *Server) setupRoutes() {
 	r.Get("/url/{id}", s.handleURLRedirect)           // microbin URL-paste redirect
 	r.Get("/u/{id}", s.handleURLRedirect)             // microbin short URL redirect
 
-	// GraphQL
-	r.Handle("/graphql", s.compatHandler.GraphQLHandler())
+	// GraphQL endpoint (POST for queries, GET for GraphiQL UI)
+	r.Handle("/graphql", s.graphqlHandler)
+
+	// Swagger UI (human-readable docs page)
+	r.Get("/server/swagger", s.swaggerHandler.ServeUI)
+	r.Get("/server/docs/swagger", s.swaggerHandler.ServeUI)
+	r.Get("/server/docs/graphql", s.graphqlHandler.ServeHTTP)
 
 	// ── Paste view — catch-all (must be last) ────────────────────────────────
 	r.Get("/{id}", s.handleViewPaste)
@@ -720,28 +735,6 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSwagger serves a minimal OpenAPI JSON description.
-func (s *Server) handleSwagger(w http.ResponseWriter, r *http.Request) {
-	base := s.baseURL(r)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"openapi": "3.0.3",
-		"info": map[string]interface{}{
-			"title":   s.cfg.Web.SiteTitle + " API",
-			"version": s.version,
-		},
-		"servers": []map[string]interface{}{{"url": base}},
-		"paths": map[string]interface{}{
-			"/api/v1/pastes": map[string]interface{}{
-				"get":  map[string]interface{}{"summary": "List public pastes", "tags": []string{"pastes"}},
-				"post": map[string]interface{}{"summary": "Create paste", "tags": []string{"pastes"}},
-			},
-			"/api/v1/pastes/{id}": map[string]interface{}{
-				"get":    map[string]interface{}{"summary": "Get paste by ID", "tags": []string{"pastes"}},
-				"delete": map[string]interface{}{"summary": "Delete paste", "tags": []string{"pastes"}},
-			},
-		},
-	})
-}
 
 // ─── Server info pages ────────────────────────────────────────────────────────
 

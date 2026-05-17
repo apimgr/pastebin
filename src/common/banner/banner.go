@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/apimgr/pastebin/common/terminal"
+	"github.com/apimgr/pastebin/src/common/terminal"
 )
 
 // BannerConfig holds configuration for the startup banner
