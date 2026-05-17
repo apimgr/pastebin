@@ -28,12 +28,6 @@ All packages have 0% coverage. Add unit tests for database, handler, and server 
 
 Read: AI.md PART 28
 
-## [ ] Add src/data/ embedded data files
-
-`src/data/` directory for static JSON files embedded in binary (e.g., GeoIP data, language list for Chroma).
-
-Read: AI.md PART 0
-
 ## [ ] Implement Tor hidden service support
 
 Tor is installed in the container (PART 31). Auto-enable when Tor binary found. Currently not implemented.

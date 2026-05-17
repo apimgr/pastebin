@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/pastebin/src/data"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
@@ -391,12 +392,7 @@ func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 		"serverRules":    "",
 		"adminName":      "",
 		"adminMail":      "",
-		"syntaxes": []string{
-			"text", "go", "python", "javascript", "typescript",
-			"rust", "java", "c", "cpp", "csharp", "php", "ruby",
-			"swift", "kotlin", "html", "css", "json", "yaml", "xml",
-			"sql", "bash", "powershell", "markdown", "toml",
-		},
+		"syntaxes": data.Languages(),
 	})
 }
 
