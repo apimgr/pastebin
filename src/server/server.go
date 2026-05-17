@@ -19,6 +19,7 @@ import (
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
+	"github.com/apimgr/pastebin/src/metrics"
 	"github.com/apimgr/pastebin/src/swagger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -129,20 +130,21 @@ type StatsInfo struct {
 
 // Server owns the HTTP router and all handler dependencies.
 type Server struct {
-	router          *chi.Mux
-	db              database.DB
-	cfg             *config.Config
-	templates       *template.Template
-	pasteHandler    *handler.PasteHandler
-	compatHandler   *handler.CompatHandler
-	swaggerHandler  *swagger.Handler
-	graphqlHandler  *graphql.Handler
-	createLimiter   *rateLimiter
-	version         string
-	commitID        string
-	buildDate       string
-	startTime       time.Time
-	stats           requestStats
+	router           *chi.Mux
+	db               database.DB
+	cfg              *config.Config
+	templates        *template.Template
+	pasteHandler     *handler.PasteHandler
+	compatHandler    *handler.CompatHandler
+	swaggerHandler   *swagger.Handler
+	graphqlHandler   *graphql.Handler
+	metricsCollector *metrics.Collector
+	createLimiter    *rateLimiter
+	version          string
+	commitID         string
+	buildDate        string
+	startTime        time.Time
+	stats            requestStats
 }
 
 // New constructs a Server and wires all routes.
@@ -162,6 +164,7 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate string
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
+	s.metricsCollector = metrics.New(version, commitID, buildDate, s.startTime, cfg.Server.Metrics.Token)
 
 	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
 	createLimit := cfg.RateLimit.CreatePerM
@@ -201,6 +204,7 @@ func (s *Server) setupRoutes() {
 	r.Use(s.corsMiddleware)
 	r.Use(s.noTrailingSlash)
 	r.Use(s.countRequests)
+	r.Use(s.metricsCollector.Middleware())
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -210,6 +214,15 @@ func (s *Server) setupRoutes() {
 	r.Get("/robots.txt", s.handleRobots)
 	r.Get("/security.txt", s.handleSecurity)
 	r.Get("/favicon.ico", s.handleFavicon)
+
+	// ── Metrics endpoint ─────────────────────────────────────────────────────
+	if s.cfg.Server.Metrics.Enabled {
+		endpoint := s.cfg.Server.Metrics.Endpoint
+		if endpoint == "" {
+			endpoint = "/metrics"
+		}
+		r.Handle(endpoint, s.metricsCollector.Handler())
+	}
 
 	// ── Server info pages ────────────────────────────────────────────────────
 	r.Get("/server/about", s.handleAbout)

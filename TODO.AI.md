@@ -1,15 +1,3 @@
-## [ ] Implement src/swagger/ package
-
-`src/swagger/` is REQUIRED per spec: swagger.go (handler + spec generation), annotations.go, theme.go. OpenAPI/Swagger docs must be served at `/api/v1/server/swagger`.
-
-Read: AI.md PART 14
-
-## [ ] Implement src/graphql/ package
-
-`src/graphql/` is REQUIRED per spec: graphql.go, schema.go, resolvers.go, theme.go. GraphQL endpoint at `/graphql` with `paste(id)` and `pastes(page, limit)` queries.
-
-Read: AI.md PART 14
-
 ## [ ] Implement --service CLI command
 
 `--service {start,restart,stop,reload,--install,--uninstall,--disable,--help}` is currently stubbed out. Full implementation required.
@@ -51,12 +39,6 @@ Read: AI.md PART 0
 GeoIP detection required by spec (PART 19). Currently not implemented.
 
 Read: AI.md PART 19
-
-## [ ] Implement metrics endpoint
-
-Prometheus `/metrics` endpoint required by spec (PART 20). Currently not implemented.
-
-Read: AI.md PART 20
 
 ## [ ] Implement Tor hidden service support
 
