@@ -1,193 +1,734 @@
-// Jenkinsfile for Pastebin API Server
-// Multi-architecture build pipeline (amd64, arm64)
-// Server: jenkins.casjay.cc
-
 pipeline {
     agent none
+
+    triggers {
+        // Daily build at 3am UTC (matches GitHub Actions daily.yml)
+        cron('0 3 * * *')
+    }
 
     environment {
         PROJECTNAME = 'pastebin'
         PROJECTORG = 'apimgr'
-        REGISTRY = 'ghcr.io'
-        IMAGE_NAME = "${REGISTRY}/${PROJECTORG}/${PROJECTNAME}"
+        BINDIR = 'binaries'
+        RELDIR = 'releases'
+        GODIR = "/tmp/${PROJECTORG}/go"
+        GOCACHE = "/tmp/${PROJECTORG}/go/build"
 
-        // Version from release.txt or default
-        VERSION = sh(script: 'cat release.txt 2>/dev/null || echo "0.0.1"', returnStdout: true).trim()
-        COMMIT = sh(script: 'git rev-parse --short HEAD 2>/dev/null || echo "unknown"', returnStdout: true).trim()
-        BUILD_DATE = sh(script: 'date -u +%Y-%m-%dT%H:%M:%SZ', returnStdout: true).trim()
+        // =========================================================================
+        // GIT PROVIDER CONFIGURATION
+        // Uncomment ONE block below based on your git hosting platform
+        // =========================================================================
+
+        // ----- GITHUB (default) -----
+        GIT_FQDN = 'github.com'
+        GIT_TOKEN = credentials('github-token')  // Jenkins credentials ID
+        REGISTRY = "ghcr.io/${PROJECTORG}/${PROJECTNAME}"
+
+        // ----- GITEA / FORGEJO (self-hosted) -----
+        // GIT_FQDN = 'git.example.com'  // Your Gitea/Forgejo domain
+        // GIT_TOKEN = credentials('gitea-token')  // Jenkins credentials ID
+        // REGISTRY = "${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}"
+
+        // ----- GITLAB (gitlab.com or self-hosted) -----
+        // GIT_FQDN = 'gitlab.com'  // or your self-hosted GitLab domain
+        // GIT_TOKEN = credentials('gitlab-token')  // Jenkins credentials ID
+        // REGISTRY = "registry.${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}"
+
+        // ----- DOCKER HUB -----
+        // GIT_FQDN = 'github.com'  // Git provider (separate from registry)
+        // GIT_TOKEN = credentials('github-token')
+        // REGISTRY = "docker.io/${PROJECTORG}/${PROJECTNAME}"
+
+        // =========================================================================
     }
 
     stages {
-        stage('Checkout') {
+        stage('Setup') {
             agent { label 'amd64' }
             steps {
-                checkout scm
-                echo "Building ${PROJECTNAME} ${VERSION} (${COMMIT})"
+                script {
+                    // Determine build type and version
+                    if (env.TAG_NAME) {
+                        // Release build (tag push) - matches release.yml
+                        env.BUILD_TYPE = 'release'
+                        env.VERSION = env.TAG_NAME.replaceFirst('^v', '')
+                    } else if (env.BRANCH_NAME == 'beta') {
+                        // Beta build - matches beta.yml
+                        env.BUILD_TYPE = 'beta'
+                        env.VERSION = sh(script: 'date -u +"%Y%m%d%H%M%S"', returnStdout: true).trim() + '-beta'
+                    } else if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                        // Daily build - matches daily.yml
+                        env.BUILD_TYPE = 'daily'
+                        env.VERSION = sh(script: 'date -u +"%Y%m%d%H%M%S"', returnStdout: true).trim()
+                    } else {
+                        // Other branches - dev build
+                        env.BUILD_TYPE = 'dev'
+                        env.VERSION = sh(script: 'date -u +"%Y%m%d%H%M%S"', returnStdout: true).trim() + '-dev'
+                    }
+                    env.COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.BUILD_DATE = sh(script: 'date +"%a %b %d, %Y at %H:%M:%S %Z"', returnStdout: true).trim()
+                    // OFFICIALSITE (optional): site.txt wins; otherwise use Jenkins credentials or leave empty
+                    // Never guess or assume - must be explicitly defined by user
+                    env.OFFICIALSITE = sh(script: '[ -f site.txt ] && cat site.txt || echo "${OFFICIALSITE:-}"', returnStdout: true).trim()
+                    env.LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildDate=${env.BUILD_DATE}' -X 'main.OfficialSite=${env.OFFICIALSITE}'"
+                    env.HAS_CLI = sh(script: '[ -d src/client ] && echo true || echo false', returnStdout: true).trim()
+                    env.HAS_AGENT = sh(script: '[ -d src/agent ] && echo true || echo false', returnStdout: true).trim()
+                }
+                sh 'mkdir -p ${BINDIR} ${RELDIR}'
+                echo "Build type: ${BUILD_TYPE}, Version: ${VERSION}"
+            }
+        }
+
+        stage('Build Server') {
+            parallel {
+                // Linux
+                stage('Linux AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=linux \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-linux-amd64 ./src
+                        '''
+                    }
+                }
+                stage('Linux ARM64') {
+                    agent { label 'arm64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=linux \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-linux-arm64 ./src
+                        '''
+                    }
+                }
+                // Darwin (macOS)
+                stage('Darwin AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=darwin \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-darwin-amd64 ./src
+                        '''
+                    }
+                }
+                stage('Darwin ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=darwin \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-darwin-arm64 ./src
+                        '''
+                    }
+                }
+                // Windows
+                stage('Windows AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=windows \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-windows-amd64.exe ./src
+                        '''
+                    }
+                }
+                stage('Windows ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=windows \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-windows-arm64.exe ./src
+                        '''
+                    }
+                }
+                // FreeBSD
+                stage('FreeBSD AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=freebsd \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-freebsd-amd64 ./src
+                        '''
+                    }
+                }
+                stage('FreeBSD ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=freebsd \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-freebsd-arm64 ./src
+                        '''
+                    }
+                }
+            }
+        }
+
+        // CLI builds - only if src/client/ exists (matches GitHub Actions)
+        stage('Build CLI') {
+            when {
+                expression { env.HAS_CLI == 'true' }
+            }
+            parallel {
+                stage('CLI Linux AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=linux \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-linux-amd64 ./src/client
+                        '''
+                    }
+                }
+                stage('CLI Linux ARM64') {
+                    agent { label 'arm64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=linux \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-linux-arm64 ./src/client
+                        '''
+                    }
+                }
+                stage('CLI Darwin AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=darwin \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-darwin-amd64 ./src/client
+                        '''
+                    }
+                }
+                stage('CLI Darwin ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=darwin \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-darwin-arm64 ./src/client
+                        '''
+                    }
+                }
+                stage('CLI Windows AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=windows \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-windows-amd64.exe ./src/client
+                        '''
+                    }
+                }
+                stage('CLI Windows ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=windows \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-windows-arm64.exe ./src/client
+                        '''
+                    }
+                }
+                stage('CLI FreeBSD AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=freebsd \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-freebsd-amd64 ./src/client
+                        '''
+                    }
+                }
+                stage('CLI FreeBSD ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=freebsd \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-cli-freebsd-arm64 ./src/client
+                        '''
+                    }
+                }
+            }
+        }
+
+        // Agent builds - only if src/agent/ exists (matches GitHub Actions)
+        stage('Build Agent') {
+            when {
+                expression { env.HAS_AGENT == 'true' }
+            }
+            parallel {
+                stage('Agent Linux AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=linux \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-linux-amd64 ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent Linux ARM64') {
+                    agent { label 'arm64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=linux \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-linux-arm64 ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent Darwin AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=darwin \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-darwin-amd64 ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent Darwin ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=darwin \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-darwin-arm64 ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent Windows AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=windows \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-windows-amd64.exe ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent Windows ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=windows \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-windows-arm64.exe ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent FreeBSD AMD64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=freebsd \
+                                -e GOARCH=amd64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-freebsd-amd64 ./src/agent
+                        '''
+                    }
+                }
+                stage('Agent FreeBSD ARM64') {
+                    agent { label 'amd64' }
+                    steps {
+                        sh '''
+                            docker run --rm \
+                                -v ${WORKSPACE}:/build \
+                                -v ${GOCACHE}:/root/.cache/go-build \
+                                -v ${GODIR}:/go \
+                                -w /build \
+                                -e CGO_ENABLED=0 \
+                                -e GOOS=freebsd \
+                                -e GOARCH=arm64 \
+                                golang:alpine \
+                                go build -ldflags "${LDFLAGS}" -o ${BINDIR}/${PROJECTNAME}-agent-freebsd-arm64 ./src/agent
+                        '''
+                    }
+                }
             }
         }
 
         stage('Test') {
-            parallel {
-                stage('Test on AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        echo 'Running tests on AMD64...'
-                        sh 'make test'
-                    }
-                }
-                stage('Test on ARM64') {
-                    agent { label 'arm64' }
-                    steps {
-                        echo 'Running tests on ARM64...'
-                        sh 'make test'
-                    }
-                }
+            agent { label 'amd64' }
+            steps {
+                sh '''
+                    docker run --rm \
+                        -v ${WORKSPACE}:/build \
+                        -v ${GOCACHE}:/root/.cache/go-build \
+                        -v ${GODIR}:/go \
+                        -w /build \
+                        golang:alpine \
+                        go test -v -cover ./...
+                '''
             }
         }
 
-        stage('Build Binaries') {
-            parallel {
-                stage('Build on AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        echo 'Building binaries on AMD64...'
-                        sh 'make build'
-                        stash includes: 'binaries/**/*', name: 'binaries-amd64'
-                        stash includes: 'releases/**/*', name: 'releases-amd64'
-                    }
-                }
-                stage('Build on ARM64') {
-                    agent { label 'arm64' }
-                    steps {
-                        echo 'Building binaries on ARM64...'
-                        sh 'make build'
-                        stash includes: 'binaries/**/*', name: 'binaries-arm64'
-                        stash includes: 'releases/**/*', name: 'releases-arm64'
-                    }
-                }
-            }
-        }
-
-        stage('Build Docker Images') {
-            parallel {
-                stage('Build Docker AMD64') {
-                    agent { label 'amd64' }
-                    steps {
-                        echo 'Building Docker image for AMD64...'
-                        script {
-                            sh """
-                                docker build \
-                                    --platform linux/amd64 \
-                                    --build-arg VERSION=${VERSION} \
-                                    --build-arg COMMIT=${COMMIT} \
-                                    --build-arg BUILD_DATE=${BUILD_DATE} \
-                                    -t ${IMAGE_NAME}:${VERSION}-amd64 \
-                                    -t ${IMAGE_NAME}:latest-amd64 \
-                                    .
-                            """
-                        }
-                    }
-                }
-                stage('Build Docker ARM64') {
-                    agent { label 'arm64' }
-                    steps {
-                        echo 'Building Docker image for ARM64...'
-                        script {
-                            sh """
-                                docker build \
-                                    --platform linux/arm64 \
-                                    --build-arg VERSION=${VERSION} \
-                                    --build-arg COMMIT=${COMMIT} \
-                                    --build-arg BUILD_DATE=${BUILD_DATE} \
-                                    -t ${IMAGE_NAME}:${VERSION}-arm64 \
-                                    -t ${IMAGE_NAME}:latest-arm64 \
-                                    .
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Push Docker Images') {
+        // Stable Release - matches release.yml (tag push only)
+        stage('Release: Stable') {
             agent { label 'amd64' }
             when {
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
+                expression { env.BUILD_TYPE == 'release' }
             }
             steps {
-                echo 'Pushing Docker images to registry...'
+                sh '''
+                    echo "${VERSION}" > ${RELDIR}/version.txt
+
+                    for f in ${BINDIR}/${PROJECTNAME}-*; do
+                        [ -f "$f" ] || continue
+                        cp "$f" ${RELDIR}/
+                    done
+
+                    tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
+                        --exclude='.forgejo' --exclude='binaries' --exclude='releases' \
+                        --exclude='*.tar.gz' \
+                        -czf ${RELDIR}/${PROJECTNAME}-${VERSION}-source.tar.gz .
+                '''
+                archiveArtifacts artifacts: 'releases/*', fingerprint: true
+            }
+        }
+
+        // Beta Release - matches beta.yml (beta branch only)
+        stage('Release: Beta') {
+            agent { label 'amd64' }
+            when {
+                expression { env.BUILD_TYPE == 'beta' }
+            }
+            steps {
+                sh '''
+                    echo "${VERSION}" > ${RELDIR}/version.txt
+
+                    for f in ${BINDIR}/${PROJECTNAME}-*; do
+                        [ -f "$f" ] || continue
+                        cp "$f" ${RELDIR}/
+                    done
+                '''
+                archiveArtifacts artifacts: 'releases/*', fingerprint: true
+            }
+        }
+
+        // Daily Release - matches daily.yml (main/master + scheduled)
+        stage('Release: Daily') {
+            agent { label 'amd64' }
+            when {
+                expression { env.BUILD_TYPE == 'daily' }
+            }
+            steps {
+                sh '''
+                    echo "${VERSION}" > ${RELDIR}/version.txt
+
+                    for f in ${BINDIR}/${PROJECTNAME}-*; do
+                        [ -f "$f" ] || continue
+                        cp "$f" ${RELDIR}/
+                    done
+                '''
+                archiveArtifacts artifacts: 'releases/*', fingerprint: true
+            }
+        }
+
+        // Docker - matches docker.yml (ALL branches and tags)
+        stage('Docker') {
+            agent { label 'amd64' }
+            steps {
                 script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-registry',
-                        usernameVariable: 'REGISTRY_USER',
-                        passwordVariable: 'REGISTRY_TOKEN'
-                    )]) {
-                        sh """
-                            echo \$REGISTRY_TOKEN | docker login ${REGISTRY} -u \$REGISTRY_USER --password-stdin
+                    def tags = "-t ${REGISTRY}:${COMMIT_ID}"
 
-                            # Push architecture-specific images
-                            docker push ${IMAGE_NAME}:${VERSION}-amd64
-                            docker push ${IMAGE_NAME}:${VERSION}-arm64
-                            docker push ${IMAGE_NAME}:latest-amd64
-                            docker push ${IMAGE_NAME}:latest-arm64
-
-                            # Create and push multi-arch manifest
-                            docker manifest create ${IMAGE_NAME}:${VERSION} \
-                                ${IMAGE_NAME}:${VERSION}-amd64 \
-                                ${IMAGE_NAME}:${VERSION}-arm64
-
-                            docker manifest create ${IMAGE_NAME}:latest \
-                                ${IMAGE_NAME}:latest-amd64 \
-                                ${IMAGE_NAME}:latest-arm64
-
-                            docker manifest push ${IMAGE_NAME}:${VERSION}
-                            docker manifest push ${IMAGE_NAME}:latest
-
-                            docker logout ${REGISTRY}
-                        """
+                    if (env.BUILD_TYPE == 'release') {
+                        // Release tag - version, latest, YYMM
+                        def yymm = new Date().format('yyMM')
+                        tags += " -t ${REGISTRY}:${VERSION}"
+                        tags += " -t ${REGISTRY}:latest"
+                        tags += " -t ${REGISTRY}:${yymm}"
+                    } else if (env.BUILD_TYPE == 'beta') {
+                        // Beta branch - beta, devel
+                        tags += " -t ${REGISTRY}:beta"
+                        tags += " -t ${REGISTRY}:devel"
+                    } else {
+                        // All other branches - devel only
+                        tags += " -t ${REGISTRY}:devel"
                     }
+
+                    // Login to container registry
+                    // Works with: ghcr.io, registry.gitlab.com, gitea/forgejo, docker.io
+                    sh """
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECTORG} --password-stdin
+                    """
+
+                    // Build multi-arch with OCI labels and manifest annotations
+                    sh """
+                        docker buildx create --name ${PROJECTNAME}-builder --use 2>/dev/null || docker buildx use ${PROJECTNAME}-builder
+                        docker buildx build \
+                            -f docker/Dockerfile \
+                            --platform linux/amd64,linux/arm64 \
+                            --build-arg VERSION="${VERSION}" \
+                            --build-arg COMMIT_ID="${COMMIT_ID}" \
+                            --build-arg BUILD_DATE="${BUILD_DATE}" \
+                            --label "org.opencontainers.image.vendor=${PROJECTORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECTORG}" \
+                            --label "org.opencontainers.image.title=${PROJECTNAME}" \
+                            --label "org.opencontainers.image.base.name=${PROJECTNAME}" \
+                            --label "org.opencontainers.image.description=${PROJECTNAME} - standard image (alpine)" \
+                            --label "org.opencontainers.image.licenses=MIT" \
+                            --label "org.opencontainers.image.version=${VERSION}" \
+                            --label "org.opencontainers.image.created=${BUILD_DATE}" \
+                            --label "org.opencontainers.image.revision=${COMMIT_ID}" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECTORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECTORG}" \
+                            --annotation "manifest:org.opencontainers.image.title=${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.base.name=${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.description=${PROJECTNAME} - standard image (alpine)" \
+                            --annotation "manifest:org.opencontainers.image.licenses=MIT" \
+                            --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
+                            --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
+                            --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            ${tags} \
+                            --push \
+                            .
+                    """
                 }
             }
         }
 
-        stage('GitHub Release') {
+        // Docker All-in-One - matches docker.yml build-aio (ALL branches and tags)
+        // AIO uses same repo with -aio tag suffix: {repo}:{tag}-aio
+        stage('Docker AIO') {
             agent { label 'amd64' }
-            when {
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
-            }
             steps {
-                echo 'Creating GitHub release...'
                 script {
-                    unstash 'releases-amd64'
-                    withCredentials([string(
-                        credentialsId: 'github-token',
-                        variable: 'GITHUB_TOKEN'
-                    )]) {
-                        sh """
-                            export GITHUB_TOKEN=\$GITHUB_TOKEN
-                            make release
-                        """
+                    def tags = "-t ${REGISTRY}:${COMMIT_ID}-aio"
+
+                    if (env.BUILD_TYPE == 'release') {
+                        // Release tag - version, latest, YYMM
+                        def yymm = new Date().format('yyMM')
+                        tags += " -t ${REGISTRY}:${VERSION}-aio"
+                        tags += " -t ${REGISTRY}:latest-aio"
+                        tags += " -t ${REGISTRY}:${yymm}-aio"
+                    } else if (env.BUILD_TYPE == 'beta') {
+                        // Beta branch - beta, devel
+                        tags += " -t ${REGISTRY}:beta-aio"
+                        tags += " -t ${REGISTRY}:devel-aio"
+                    } else {
+                        // All other branches - devel only
+                        tags += " -t ${REGISTRY}:devel-aio"
                     }
+
+                    // Login to container registry
+                    sh """
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECTORG} --password-stdin
+                    """
+
+                    // Build multi-arch all-in-one with OCI labels and manifest annotations
+                    sh """
+                        docker buildx create --name ${PROJECTNAME}-builder --use 2>/dev/null || docker buildx use ${PROJECTNAME}-builder
+                        docker buildx build \
+                            -f docker/Dockerfile.aio \
+                            --platform linux/amd64,linux/arm64 \
+                            --build-arg VERSION="${VERSION}" \
+                            --build-arg COMMIT_ID="${COMMIT_ID}" \
+                            --build-arg BUILD_DATE="${BUILD_DATE}" \
+                            --label "org.opencontainers.image.vendor=${PROJECTORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECTORG}" \
+                            --label "org.opencontainers.image.title=${PROJECTNAME}-aio" \
+                            --label "org.opencontainers.image.description=${PROJECTNAME} - all-in-one (debian + postgresql + valkey + tor)" \
+                            --label "org.opencontainers.image.licenses=MIT" \
+                            --label "org.opencontainers.image.version=${VERSION}" \
+                            --label "org.opencontainers.image.created=${BUILD_DATE}" \
+                            --label "org.opencontainers.image.revision=${COMMIT_ID}" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECTORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECTORG}" \
+                            --annotation "manifest:org.opencontainers.image.title=${PROJECTNAME}-aio" \
+                            --annotation "manifest:org.opencontainers.image.description=${PROJECTNAME} - all-in-one (debian + postgresql + valkey + tor)" \
+                            --annotation "manifest:org.opencontainers.image.licenses=MIT" \
+                            --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
+                            --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
+                            --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            ${tags} \
+                            --push \
+                            .
+                    """
                 }
             }
         }
     }
 
     post {
-        success {
-            echo "Build successful for ${PROJECTNAME} ${VERSION}"
-            echo "Docker images: ${IMAGE_NAME}:${VERSION}"
-            echo "Release: https://github.com/${PROJECTORG}/${PROJECTNAME}/releases/tag/${VERSION}"
-        }
-        failure {
-            echo "Build failed for ${PROJECTNAME} ${VERSION}"
-        }
         always {
             cleanWs()
         }

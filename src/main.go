@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/mode"
@@ -176,7 +177,10 @@ func main() {
 	}
 
 	_ = daemonFlag // daemonize not yet implemented
-	_ = langFlag   // language selection not yet implemented
+
+	// Resolve active language for CLI output.
+	activeLang := i18n.GetLanguage(langFlag)
+	_ = activeLang // used by CLI output helpers; stored for future message formatting
 
 	// ── Application mode ─────────────────────────────────────────────────────
 

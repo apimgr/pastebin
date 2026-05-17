@@ -9,12 +9,10 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/apimgr/pastebin/src/config"
@@ -460,16 +458,6 @@ func (s *Server) buildHealthResponse() HealthResponse {
 	return hr
 }
 
-// checkDisk returns true when at least 100 MiB of free space is available.
-func (s *Server) checkDisk() bool {
-	var stat syscall.Statfs_t
-	dir := os.TempDir()
-	if err := syscall.Statfs(dir, &stat); err != nil {
-		return true // assume ok if we can't check
-	}
-	free := stat.Bavail * uint64(stat.Bsize)
-	return free > 100<<20 // 100 MiB
-}
 
 // formatUptime converts a duration to a human-readable string like "2d 5h 30m".
 func formatUptime(d time.Duration) string {

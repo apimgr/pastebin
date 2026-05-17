@@ -52,7 +52,7 @@ jobs:
             echo "VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
             echo "IS_TAG=false" >> $GITHUB_ENV
           fi
-          echo "BUILD_DATE=$(date +"%B %-d, %Y at %H:%M:%S")" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> $GITHUB_ENV
 
       - name: Determine tags (standard)
         id: tags
