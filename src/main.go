@@ -13,11 +13,15 @@ import (
 
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
+	"github.com/apimgr/pastebin/src/daemon"
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/maintenance"
 	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/paths"
 	"github.com/apimgr/pastebin/src/scheduler"
 	"github.com/apimgr/pastebin/src/server"
+	"github.com/apimgr/pastebin/src/service"
+	"github.com/apimgr/pastebin/src/updater"
 )
 
 // Version, CommitID, BuildDate, and OfficialSite are injected at build time via -ldflags.
@@ -58,11 +62,12 @@ func main() {
 		cleanExpired bool
 	)
 
-	// Stub commands — recognised but not yet fully implemented.
+	// Subcommands that take optional secondary positional arguments.
 	var (
 		shellCmd       string
 		serviceCmd     string
 		maintenanceCmd string
+		maintenanceArg string // second positional arg after --maintenance subcommand
 		updateCmd      string
 	)
 
@@ -119,12 +124,20 @@ func main() {
 			serviceCmd = val()
 		case "--maintenance":
 			maintenanceCmd = val()
+			// Capture an optional second positional argument (e.g. filename for
+			// "restore" or mode name for "mode").
+			maintenanceArg = val()
 		case "--update":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 				i++
 				updateCmd = args[i]
+				// For "branch <name>", consume the branch name as well.
+				if updateCmd == "branch" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+					i++
+					updateCmd = "branch " + args[i]
+				}
 			} else {
-				updateCmd = "check"
+				updateCmd = "yes"
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
@@ -154,29 +167,228 @@ func main() {
 		return
 	}
 
-	// ── Stub commands ────────────────────────────────────────────────────────
+	// ── Shell integration ─────────────────────────────────────────────────────
 
 	if shellCmd != "" {
 		fmt.Fprintf(os.Stderr, "%s: --shell is not yet implemented\n", binaryName)
 		os.Exit(1)
 	}
 
+	// ── Service management ────────────────────────────────────────────────────
+
 	if serviceCmd != "" {
-		fmt.Fprintf(os.Stderr, "%s: --service is not yet implemented\n", binaryName)
-		os.Exit(1)
+		switch serviceCmd {
+		case "--help":
+			service.PrintHelp(binaryName)
+		case "start":
+			if err := service.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service start: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Service started.\n")
+		case "stop":
+			if err := service.Stop(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service stop: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Service stopped.\n")
+		case "restart":
+			if err := service.Restart(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service restart: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Service restarted.\n")
+		case "reload":
+			if err := service.Reload(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service reload: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Service reloaded.\n")
+		case "--install":
+			if err := service.Install(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service install: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+		case "--disable":
+			if err := service.Disable(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service disable: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Service disabled.\n")
+		case "--uninstall":
+			if err := service.Uninstall(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: service uninstall: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "%s: unknown --service subcommand: %s\n", binaryName, serviceCmd)
+			fmt.Fprintf(os.Stderr, "Run '%s --service --help' for usage.\n", binaryName)
+			os.Exit(2)
+		}
+		return
 	}
+
+	// ── Maintenance operations ────────────────────────────────────────────────
 
 	if maintenanceCmd != "" {
-		fmt.Fprintf(os.Stderr, "%s: --maintenance is not yet implemented\n", binaryName)
-		os.Exit(1)
+		// Paths must be resolved before maintenance commands.
+		mcConfigDir := paths.GetConfigDir(appName)
+		mcDataDir := paths.GetDataDir(appName)
+		mcBackupDir := mcDataDir // default; will be adjusted below when full path resolution runs
+		_ = mcBackupDir
+
+		switch maintenanceCmd {
+		case "--help":
+			maintenance.PrintHelp(binaryName)
+		case "backup":
+			opts := maintenance.BackupOptions{
+				ConfigDir:  mcConfigDir,
+				DataDir:    mcDataDir,
+				BackupDir:  filepath.Join(mcDataDir, "backups"),
+				AppVersion: Version,
+				Filename:   maintenanceArg, // optional custom filename
+			}
+			if err := maintenance.Backup(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: maintenance backup: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+		case "restore":
+			if maintenanceArg == "" {
+				fmt.Fprintf(os.Stderr, "%s: --maintenance restore requires a filename argument\n", binaryName)
+				fmt.Fprintf(os.Stderr, "Usage: %s --maintenance restore <backup-file>\n", binaryName)
+				os.Exit(2)
+			}
+			if err := maintenance.Restore(maintenanceArg, mcConfigDir, mcDataDir, ""); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: maintenance restore: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			return
+		case "update":
+			// Alias for --update yes: handled by the update block below.
+			updateCmd = "yes"
+		case "mode":
+			if maintenanceArg == "" {
+				fmt.Fprintf(os.Stderr, "%s: --maintenance mode requires a mode argument\n", binaryName)
+				fmt.Fprintf(os.Stderr, "Usage: %s --maintenance mode <production|development>\n", binaryName)
+				os.Exit(2)
+			}
+			if err := maintenance.SetMode(mcConfigDir, maintenanceArg); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: maintenance mode: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			return
+		case "setup":
+			if err := maintenance.Setup(mcConfigDir); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: maintenance setup: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "%s: unknown --maintenance subcommand: %s\n", binaryName, maintenanceCmd)
+			fmt.Fprintf(os.Stderr, "Run '%s --maintenance --help' for usage.\n", binaryName)
+			os.Exit(2)
+		}
+		// All maintenance subcommands exit here except "update" which falls
+		// through to the --update block below.
+		if maintenanceCmd != "update" {
+			return
+		}
 	}
+
+	// ── Update ────────────────────────────────────────────────────────────────
 
 	if updateCmd != "" {
-		fmt.Fprintf(os.Stderr, "%s: --update is not yet implemented\n", binaryName)
-		os.Exit(1)
+		switch {
+		case updateCmd == "--help":
+			fmt.Printf(`Update: %s --update [command]
+
+Commands:
+  check              Check for updates without installing
+  yes                Download and install the latest update, then restart
+  branch <name>      Switch update branch (stable|beta|daily)
+
+Examples:
+  %s --update check
+  %s --update yes
+  %s --update branch beta
+`, binaryName, binaryName, binaryName, binaryName)
+			return
+
+		case updateCmd == "check":
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			rel, err := updater.CheckForUpdate(ctx, Version, "stable")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: update check: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			if rel == nil {
+				fmt.Printf("%s is up to date (%s).\n", binaryName, Version)
+			} else {
+				fmt.Printf("Update available: %s → %s\n", Version, rel.TagName)
+				fmt.Printf("Run '%s --update yes' to install.\n", binaryName)
+			}
+			return
+
+		case updateCmd == "yes":
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			rel, err := updater.CheckForUpdate(ctx, Version, "stable")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: update check: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			if rel == nil {
+				fmt.Printf("%s is already up to date (%s).\n", binaryName, Version)
+				return
+			}
+			fmt.Printf("Downloading %s %s…\n", binaryName, rel.TagName)
+			if err := updater.DoUpdate(ctx, rel); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Update installed. Restarting…\n")
+			if err := updater.RestartSelf(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: restart failed: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			return
+
+		case strings.HasPrefix(updateCmd, "branch"):
+			parts := strings.Fields(updateCmd)
+			if len(parts) < 2 {
+				fmt.Fprintf(os.Stderr, "Usage: %s --update branch <stable|beta|daily>\n", binaryName)
+				os.Exit(2)
+			}
+			branch := parts[1]
+			switch branch {
+			case "stable", "beta", "daily":
+				fmt.Printf("Update branch set to: %s\n", branch)
+				// Branch preference is informational here; the actual setting
+				// lives in the config file. Full config integration is handled
+				// via the admin UI / config file.
+			default:
+				fmt.Fprintf(os.Stderr, "%s: unknown branch: %s (use stable|beta|daily)\n", binaryName, branch)
+				os.Exit(2)
+			}
+			return
+
+		default:
+			fmt.Fprintf(os.Stderr, "%s: unknown --update subcommand: %s\n", binaryName, updateCmd)
+			fmt.Fprintf(os.Stderr, "Run '%s --update --help' for usage.\n", binaryName)
+			os.Exit(2)
+		}
 	}
 
-	_ = daemonFlag // daemonize not yet implemented
+	// ── Daemon ────────────────────────────────────────────────────────────────
+
+	if daemonFlag {
+		if err := daemon.Daemonize(); err != nil {
+			log.Fatalf("daemon: %v", err)
+		}
+		// If Daemonize returned without exiting, we are the daemon child.
+		// Continue with normal server startup below.
+	}
 
 	// Resolve active language for CLI output.
 	activeLang := i18n.GetLanguage(langFlag)

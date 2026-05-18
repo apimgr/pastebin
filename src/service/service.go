@@ -559,3 +559,57 @@ func Reload() error {
 		return Restart()
 	}
 }
+
+// Disable stops the service and prevents it from starting on boot, but does
+// not remove the service files (unlike Uninstall).
+func Disable() error {
+	serviceType := DetectServiceManager()
+
+	switch serviceType {
+	case ServiceSystemd:
+		exec.Command("systemctl", "stop", appName).Run()
+		return exec.Command("systemctl", "disable", appName).Run()
+	case ServiceRunit:
+		svDir := fmt.Sprintf("/etc/sv/%s", appName)
+		enabledDir := fmt.Sprintf("/var/service/%s", appName)
+		exec.Command("sv", "stop", appName).Run()
+		// Remove the symlink from the active service directory.
+		os.Remove(enabledDir)
+		_ = svDir
+		return nil
+	case ServiceLaunchd:
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+		exec.Command("launchctl", "unload", plistPath).Run()
+		return exec.Command("launchctl", "disable", fmt.Sprintf("system/com.%s.%s", orgName, appName)).Run()
+	case ServiceWindows:
+		exec.Command("sc.exe", "stop", appName).Run()
+		return exec.Command("sc.exe", "config", appName, "start=", "disabled").Run()
+	case ServiceBSDRC:
+		exec.Command("service", appName, "stop").Run()
+		return exec.Command("sysrc", fmt.Sprintf("%s_enable=NO", appName)).Run()
+	default:
+		return fmt.Errorf("unsupported service manager")
+	}
+}
+
+// PrintHelp prints service subcommand help to stdout.
+func PrintHelp(binaryName string) {
+	fmt.Printf(`Service management: %s --service <command>
+
+Commands:
+  start        Start the service via the system service manager
+  stop         Stop the service
+  restart      Restart the service
+  reload       Reload service configuration (SIGHUP)
+  --install    Install service file, enable on boot, and start
+  --disable    Stop the service and disable it from starting on boot
+  --uninstall  Stop, disable, and remove all service files
+  --help       Show this help
+
+Examples:
+  sudo %s --service --install
+  sudo %s --service start
+  sudo %s --service stop
+  sudo %s --service --uninstall
+`, binaryName, binaryName, binaryName, binaryName, binaryName)
+}
