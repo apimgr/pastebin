@@ -318,7 +318,7 @@ func main() {
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 
-	srv := server.New(db, cfg, Version, CommitID, BuildDate)
+	srv := server.New(db, cfg, Version, CommitID, BuildDate, configDir, dataDir)
 
 	// Weekly GeoIP database refresh (Sunday 03:00 cadence approximated as 7 days).
 	if srv.GeoIPEnabled() {

@@ -25,7 +25,37 @@ type ServerConfig struct {
 	BaseURL string        `yaml:"base_url"` // override for URL generation
 	Metrics MetricsConfig `yaml:"metrics"`
 	GeoIP   GeoIPConfig   `yaml:"geoip"`
+	Tor     TorConfig     `yaml:"tor"`
 	Logging LoggingConfig `yaml:"logging"`
+}
+
+// TorConfig configures the Tor hidden service and optional outbound network.
+type TorConfig struct {
+	// Binary path; empty = auto-detect in PATH and common locations.
+	Binary string `yaml:"binary"`
+
+	// Outbound network settings.
+	UseNetwork          bool `yaml:"use_network"`
+	AllowUserPreference bool `yaml:"allow_user_preference"`
+
+	// Performance.
+	MaxCircuits      int `yaml:"max_circuits"`
+	CircuitTimeout   int `yaml:"circuit_timeout"`
+	BootstrapTimeout int `yaml:"bootstrap_timeout"`
+
+	// Security.
+	SafeLogging               bool `yaml:"safe_logging"`
+	MaxStreamsPerCircuit       int  `yaml:"max_streams_per_circuit"`
+	CloseCircuitOnStreamLimit bool `yaml:"close_circuit_on_stream_limit"`
+
+	// Bandwidth.
+	BandwidthRate       string `yaml:"bandwidth_rate"`
+	BandwidthBurst      string `yaml:"bandwidth_burst"`
+	MaxMonthlyBandwidth string `yaml:"max_monthly_bandwidth"`
+
+	// Hidden service.
+	NumIntroPoints int `yaml:"num_intro_points"`
+	VirtualPort    int `yaml:"virtual_port"`
 }
 
 // GeoIPConfig configures GeoIP detection and country blocking.
@@ -124,6 +154,22 @@ func DefaultConfig() *Config {
 					City:    true,
 					WHOIS:   true,
 				},
+			},
+			Tor: TorConfig{
+				Binary:                    "",
+				UseNetwork:                false,
+				AllowUserPreference:       true,
+				MaxCircuits:               32,
+				CircuitTimeout:            60,
+				BootstrapTimeout:          180,
+				SafeLogging:               true,
+				MaxStreamsPerCircuit:       100,
+				CloseCircuitOnStreamLimit: true,
+				BandwidthRate:             "1 MB",
+				BandwidthBurst:            "2 MB",
+				MaxMonthlyBandwidth:       "100 GB",
+				NumIntroPoints:            3,
+				VirtualPort:               80,
 			},
 			Logging: LoggingConfig{
 				AccessFormat: "apache",

@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.24.1
+	github.com/cretz/bine v0.2.0
 	github.com/go-chi/chi/v5 v5.0.11
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/prometheus/client_golang v1.23.2

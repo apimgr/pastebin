@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/metrics"
 	"github.com/apimgr/pastebin/src/swagger"
+	"github.com/apimgr/pastebin/src/tor"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -141,6 +143,7 @@ type Server struct {
 	graphqlHandler   *graphql.Handler
 	metricsCollector *metrics.Collector
 	geoipDB          *geoip.DB
+	torManager       *tor.Manager
 	createLimiter    *rateLimiter
 	version          string
 	commitID         string
@@ -150,7 +153,7 @@ type Server struct {
 }
 
 // New constructs a Server and wires all routes.
-func New(db database.DB, cfg *config.Config, version, commitID, buildDate string) *Server {
+func New(db database.DB, cfg *config.Config, version, commitID, buildDate, configDir, dataDir string) *Server {
 	s := &Server{
 		router:    chi.NewRouter(),
 		db:        db,
@@ -185,6 +188,31 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate string
 		}
 	}
 
+	// Tor hidden service — auto-enabled when Tor binary is found.
+	torCfg := tor.Config{
+		Binary:                    cfg.Server.Tor.Binary,
+		UseNetwork:                cfg.Server.Tor.UseNetwork,
+		AllowUserPreference:       cfg.Server.Tor.AllowUserPreference,
+		MaxCircuits:               cfg.Server.Tor.MaxCircuits,
+		CircuitTimeout:            cfg.Server.Tor.CircuitTimeout,
+		BootstrapTimeout:          cfg.Server.Tor.BootstrapTimeout,
+		SafeLogging:               cfg.Server.Tor.SafeLogging,
+		MaxStreamsPerCircuit:       cfg.Server.Tor.MaxStreamsPerCircuit,
+		CloseCircuitOnStreamLimit: cfg.Server.Tor.CloseCircuitOnStreamLimit,
+		BandwidthRate:             cfg.Server.Tor.BandwidthRate,
+		BandwidthBurst:            cfg.Server.Tor.BandwidthBurst,
+		MaxMonthlyBandwidth:       cfg.Server.Tor.MaxMonthlyBandwidth,
+		NumIntroPoints:            cfg.Server.Tor.NumIntroPoints,
+		VirtualPort:               cfg.Server.Tor.VirtualPort,
+		ConfigDir:                 configDir,
+		DataDir:                   dataDir,
+	}
+	serverPort, _ := strconv.Atoi(cfg.Server.Port)
+	if serverPort == 0 {
+		serverPort = 3010
+	}
+	s.torManager = tor.NewManager(context.Background(), serverPort, torCfg)
+
 	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
 	createLimit := cfg.RateLimit.CreatePerM
 	if createLimit <= 0 {
@@ -215,6 +243,22 @@ func (s *Server) UpdateGeoIP() error {
 		return nil
 	}
 	return s.geoipDB.Update()
+}
+
+// TorRunning returns true when the Tor hidden service is active.
+func (s *Server) TorRunning() bool {
+	if s.torManager == nil {
+		return false
+	}
+	return s.torManager.Running()
+}
+
+// TorOnionAddress returns the .onion address, or empty string if not running.
+func (s *Server) TorOnionAddress() string {
+	if s.torManager == nil {
+		return ""
+	}
+	return s.torManager.OnionAddress()
 }
 
 // maybeRateLimit wraps h with the create rate limiter if enabled.
@@ -429,6 +473,16 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.geoipDB != nil {
 		defer s.geoipDB.Close()
 	}
+
+	// Start Tor hidden service (non-fatal if Tor binary not found).
+	if s.torManager != nil {
+		if err := s.torManager.Start(); err != nil {
+			log.Printf("tor: start failed: %v", err)
+		} else if s.torManager.Running() {
+			go s.torManager.Monitor()
+		}
+		defer s.torManager.Close()
+	}
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.router,
@@ -511,7 +565,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 			Enabled: false,
 		},
 		Features: FeaturesInfo{
-			Tor:   TorInfo{Enabled: false, Running: false, Status: "disabled", Hostname: ""},
+			Tor:   s.buildTorInfo(),
 			GeoIP: s.geoipDB != nil,
 		},
 		Checks: checks,
@@ -524,6 +578,25 @@ func (s *Server) buildHealthResponse() HealthResponse {
 	return hr
 }
 
+
+// buildTorInfo returns the TorInfo block for health responses.
+func (s *Server) buildTorInfo() TorInfo {
+	if s.torManager == nil {
+		return TorInfo{Enabled: false, Running: false, Status: "disabled", Hostname: ""}
+	}
+	running := s.torManager.Running()
+	onion := s.torManager.OnionAddress()
+	status := "starting"
+	if running {
+		status = "running"
+	}
+	return TorInfo{
+		Enabled:  true,
+		Running:  running,
+		Status:   status,
+		Hostname: onion,
+	}
+}
 
 // formatUptime converts a duration to a human-readable string like "2d 5h 30m".
 func formatUptime(d time.Duration) string {

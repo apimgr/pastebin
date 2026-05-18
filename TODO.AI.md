@@ -28,8 +28,3 @@ All packages have 0% coverage. Add unit tests for database, handler, and server 
 
 Read: AI.md PART 28
 
-## [ ] Implement Tor hidden service support
-
-Tor is installed in the container (PART 31). Auto-enable when Tor binary found. Currently not implemented.
-
-Read: AI.md PART 31
