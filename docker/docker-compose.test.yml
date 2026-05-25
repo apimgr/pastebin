@@ -1,0 +1,35 @@
+name: pastebin-test
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pastebin:
+    image: ghcr.io/apimgr/pastebin:devel
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    container_name: pastebin-test
+    restart: "no"
+    logging: *default-logging
+    environment:
+      - MODE=development
+      - DEBUG=true
+      - TZ=America/New_York
+    ports:
+      - "172.17.0.1:64582:80"
+    volumes:
+      - ./volumes/config:/config:z
+      # Use tmpfs for test data so it never persists between runs.
+      - type: tmpfs
+        target: /data
+    networks:
+      - pastebin-test
+
+networks:
+  pastebin-test:
+    name: pastebin-test
+    external: false

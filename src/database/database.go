@@ -13,7 +13,31 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// DB is the database interface for paste operations.
+// TaskState holds the persistent state for a single scheduler task.
+type TaskState struct {
+	TaskID     string
+	TaskName   string
+	Schedule   string
+	LastRun    time.Time
+	LastStatus string // "pending" | "success" | "failed" | "skipped"
+	LastError  string
+	NextRun    time.Time
+	RunCount   int64
+	FailCount  int64
+	Enabled    bool
+}
+
+// TaskHistory records a single execution event.
+type TaskHistory struct {
+	TaskID     string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Status     string
+	ErrorMsg   string
+	DurationMS int64
+}
+
+// DB is the database interface for paste and scheduler operations.
 type DB interface {
 	Close() error
 	Type() string
@@ -28,6 +52,13 @@ type DB interface {
 	DeletePasteByToken(id, deleteTokenHash string) error
 	DeleteExpiredPastes() (int64, error)
 	DeleteBurnedPastes() (int64, error)
+
+	// Scheduler operations (PART 18)
+	UpsertSchedulerTask(t *TaskState) error
+	GetSchedulerTask(taskID string) (*TaskState, error)
+	ListSchedulerTasks() ([]*TaskState, error)
+	UpdateTaskRun(taskID string, lastRun time.Time, status, lastError string, runCount, failCount int64, nextRun time.Time) error
+	RecordTaskHistory(h *TaskHistory) error
 }
 
 // SQLiteDB implements DB for SQLite.
@@ -82,6 +113,31 @@ func ensureSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_pastes_created_at   ON pastes(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_pastes_expires_at   ON pastes(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_pastes_burn_after   ON pastes(burn_after)`,
+
+		// Scheduler persistent state (PART 18).
+		`CREATE TABLE IF NOT EXISTS scheduler_tasks (
+			task_id      TEXT PRIMARY KEY,
+			task_name    TEXT NOT NULL,
+			schedule     TEXT NOT NULL,
+			last_run     DATETIME,
+			last_status  TEXT NOT NULL DEFAULT 'pending',
+			last_error   TEXT NOT NULL DEFAULT '',
+			next_run     DATETIME,
+			run_count    INTEGER NOT NULL DEFAULT 0,
+			fail_count   INTEGER NOT NULL DEFAULT 0,
+			enabled      INTEGER NOT NULL DEFAULT 1
+		)`,
+		`CREATE TABLE IF NOT EXISTS scheduler_history (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id      TEXT NOT NULL,
+			started_at   DATETIME NOT NULL,
+			finished_at  DATETIME,
+			status       TEXT NOT NULL,
+			error_msg    TEXT NOT NULL DEFAULT '',
+			duration_ms  INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sched_history_task ON scheduler_history(task_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sched_history_started ON scheduler_history(started_at)`,
 	}
 
 	// Schema updates — idempotent; ignore "already exists" errors.
@@ -275,4 +331,129 @@ func (s *SQLiteDB) DeleteBurnedPastes() (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// ── Scheduler operations (PART 18) ──────────────────────────────────────────
+
+// UpsertSchedulerTask inserts or replaces a task's persistent state.
+func (s *SQLiteDB) UpsertSchedulerTask(t *TaskState) error {
+	var lastRun *time.Time
+	if !t.LastRun.IsZero() {
+		lastRun = &t.LastRun
+	}
+	var nextRun *time.Time
+	if !t.NextRun.IsZero() {
+		nextRun = &t.NextRun
+	}
+	enabled := 0
+	if t.Enabled {
+		enabled = 1
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO scheduler_tasks
+			(task_id, task_name, schedule, last_run, last_status, last_error,
+			 next_run, run_count, fail_count, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id) DO UPDATE SET
+			task_name   = excluded.task_name,
+			schedule    = excluded.schedule,
+			last_run    = COALESCE(scheduler_tasks.last_run, excluded.last_run),
+			last_status = COALESCE(NULLIF(scheduler_tasks.last_status,''), excluded.last_status),
+			last_error  = COALESCE(NULLIF(scheduler_tasks.last_error,''),  excluded.last_error),
+			next_run    = COALESCE(scheduler_tasks.next_run, excluded.next_run),
+			run_count   = scheduler_tasks.run_count,
+			fail_count  = scheduler_tasks.fail_count,
+			enabled     = excluded.enabled`,
+		t.TaskID, t.TaskName, t.Schedule, lastRun, t.LastStatus, t.LastError,
+		nextRun, t.RunCount, t.FailCount, enabled,
+	)
+	return err
+}
+
+// GetSchedulerTask retrieves the persistent state for a single task.
+func (s *SQLiteDB) GetSchedulerTask(taskID string) (*TaskState, error) {
+	row := s.db.QueryRow(`
+		SELECT task_id, task_name, schedule, last_run, last_status, last_error,
+		       next_run, run_count, fail_count, enabled
+		FROM   scheduler_tasks WHERE task_id = ?`, taskID)
+	return scanTaskState(row)
+}
+
+// ListSchedulerTasks returns all registered tasks ordered by task_id.
+func (s *SQLiteDB) ListSchedulerTasks() ([]*TaskState, error) {
+	rows, err := s.db.Query(`
+		SELECT task_id, task_name, schedule, last_run, last_status, last_error,
+		       next_run, run_count, fail_count, enabled
+		FROM   scheduler_tasks ORDER BY task_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []*TaskState
+	for rows.Next() {
+		t, err := scanTaskState(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+// UpdateTaskRun records the outcome of a completed task execution.
+func (s *SQLiteDB) UpdateTaskRun(
+	taskID string, lastRun time.Time, status, lastError string,
+	runCount, failCount int64, nextRun time.Time,
+) error {
+	var nextRunPtr *time.Time
+	if !nextRun.IsZero() {
+		nextRunPtr = &nextRun
+	}
+	_, err := s.db.Exec(`
+		UPDATE scheduler_tasks
+		SET last_run = ?, last_status = ?, last_error = ?,
+		    run_count = ?, fail_count = ?, next_run = ?
+		WHERE task_id = ?`,
+		lastRun, status, lastError, runCount, failCount, nextRunPtr, taskID,
+	)
+	return err
+}
+
+// RecordTaskHistory appends a history entry for a task execution.
+func (s *SQLiteDB) RecordTaskHistory(h *TaskHistory) error {
+	_, err := s.db.Exec(`
+		INSERT INTO scheduler_history
+			(task_id, started_at, finished_at, status, error_msg, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		h.TaskID, h.StartedAt, h.FinishedAt, h.Status, h.ErrorMsg, h.DurationMS,
+	)
+	return err
+}
+
+// scanTaskState scans a row into a TaskState.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTaskState(row rowScanner) (*TaskState, error) {
+	t := &TaskState{}
+	var lastRun, nextRun *time.Time
+	var enabled int
+	err := row.Scan(
+		&t.TaskID, &t.TaskName, &t.Schedule,
+		&lastRun, &t.LastStatus, &t.LastError,
+		&nextRun, &t.RunCount, &t.FailCount, &enabled,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if lastRun != nil {
+		t.LastRun = *lastRun
+	}
+	if nextRun != nil {
+		t.NextRun = *nextRun
+	}
+	t.Enabled = enabled != 0
+	return t, nil
 }

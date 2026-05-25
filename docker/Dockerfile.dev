@@ -1,0 +1,49 @@
+# =============================================================================
+# Development Image (:devel)
+# Runs the binary in development mode with live source mounted.
+# All OCI metadata is applied via --annotation at build time; no LABEL blocks.
+# =============================================================================
+FROM golang:alpine AS builder
+
+ARG VERSION=devel
+ARG BUILD_DATE
+ARG COMMIT_ID
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X 'main.Version=${VERSION}' \
+              -X 'main.CommitID=${COMMIT_ID}' \
+              -X 'main.BuildDate=${BUILD_DATE}'" \
+    -o /app/pastebin ./src
+
+# =============================================================================
+FROM alpine:latest
+
+RUN apk add --no-cache \
+    git \
+    curl \
+    bash \
+    tini \
+    tor
+
+COPY --from=builder /app/pastebin /usr/local/bin/pastebin
+COPY docker/rootfs/ /
+
+RUN chmod 755 /usr/local/bin/pastebin
+
+# Development defaults
+ENV TZ=America/New_York \
+    MODE=development \
+    DEBUG=true
+
+EXPOSE 80
+
+HEALTHCHECK --start-period=2m --interval=1m --timeout=10s --retries=3 \
+    CMD /usr/local/bin/pastebin --status || exit 1
+
+ENTRYPOINT ["tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh"]

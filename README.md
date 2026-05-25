@@ -125,6 +125,45 @@ cat file.txt | curl -X POST https://paste.example.com/api/v1/paste \
 
 The server reads `/etc/apimgr/pastebin/server.yml` on Linux (created automatically on first run). All settings can be overridden via CLI flags.
 
+## Environment Variables
+
+### Server (`pastebin`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONFIG_DIR` | Platform default | Configuration directory path |
+| `DATA_DIR` | Platform default | Data directory path |
+| `LOGS_DIR` | Platform default | Log directory path |
+| `CACHE_DIR` | Platform default | Cache directory path |
+| `BACKUP_DIR` | Platform default | Backup directory path |
+| `PID_FILE` | Platform default | PID file path |
+| `PORT` | Random 64xxx | Listen port (80 in container) |
+| `ADDRESS` | `0.0.0.0` | Listen address |
+| `BASE_URL` | Auto-detected | Public base URL for link generation |
+| `DB_PATH` | `{data_dir}/db/server.db` | SQLite database path |
+| `SITE_TITLE` | `Pastebin` | Site title shown in the web UI |
+| `THEME` | `dark` | UI theme: `dark`, `light`, or `auto` |
+| `MAX_SIZE_BYTES` | `10485760` (10 MiB) | Maximum paste size in bytes |
+| `NO_COLOR` | unset | Set to any value to disable ANSI color output |
+| `_DAEMON_CHILD` | unset | Internal: set by `--daemon` to mark the child process |
+
+Platform default paths:
+
+| Platform | Config | Data | Logs |
+|----------|--------|------|------|
+| Linux (root/service) | `/etc/apimgr/pastebin/` | `/var/lib/apimgr/pastebin/` | `/var/log/apimgr/pastebin/` |
+| Linux (user) | `~/.config/apimgr/pastebin/` | `~/.local/share/apimgr/pastebin/` | `~/.local/log/apimgr/pastebin/` |
+| Container | `/config/pastebin/` | `/data/pastebin/` | `/data/log/pastebin/` |
+| macOS (user) | `~/Library/Application Support/apimgr/pastebin/` | same | `~/Library/Logs/apimgr/pastebin/` |
+| Windows (user) | `%LocalAppData%\apimgr\pastebin\` | same | same |
+
+### Client (`pastebin-cli`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PASTEBIN_SERVER` | (required) | Server base URL — e.g. `https://paste.example.com` |
+| `NO_COLOR` | unset | Set to any value to disable ANSI color output |
+
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md)

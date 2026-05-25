@@ -1,0 +1,35 @@
+name: pastebin-dev
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pastebin:
+    image: ghcr.io/apimgr/pastebin:devel
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    container_name: pastebin-dev
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      - MODE=development
+      - DEBUG=true
+      - TZ=America/New_York
+    ports:
+      - "172.17.0.1:64581:80"
+    volumes:
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
+      # Mount source for easy log inspection
+      - ..:/workspace:ro,z
+    networks:
+      - pastebin-dev
+
+networks:
+  pastebin-dev:
+    name: pastebin-dev
+    external: false

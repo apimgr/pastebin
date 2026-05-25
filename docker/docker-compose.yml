@@ -1,23 +1,35 @@
 name: pastebin
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   pastebin:
     image: ghcr.io/apimgr/pastebin:latest
     container_name: pastebin
     restart: unless-stopped
+    pull_policy: always
+    logging: *default-logging
     environment:
-      # Hardcoded with sane defaults - NO .env files
       - MODE=production
       - TZ=America/New_York
-      # ENABLE_TOR=true is default, no need to specify
     ports:
-      # Production: bound to Docker bridge only
+      # Bound to Docker bridge — put nginx/caddy/traefik in front for TLS.
       - "172.17.0.1:64580:80"
     volumes:
-      - ./rootfs/config/pastebin:/config
-      - ./rootfs/data/pastebin:/data
+      - ./volumes/config:/config:z
+      - ./volumes/data:/data:z
     networks:
       - pastebin
+    healthcheck:
+      test: ["/usr/local/bin/pastebin", "--status"]
+      interval: 5m
+      timeout: 15s
+      retries: 3
+      start_period: 10m
 
 networks:
   pastebin:

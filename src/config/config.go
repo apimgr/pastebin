@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"math/rand/v2"
+	"net"
 	"os"
 	"strconv"
 
@@ -131,10 +134,12 @@ type SecurityConfig struct {
 }
 
 // DefaultConfig returns a config with sensible defaults.
+// Server.Port is intentionally empty so that Load + ResolvePort can apply
+// the "random 64xxx on first run" rule described in PART 5.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:    "3010",
+			Port:    "",
 			Address: "0.0.0.0",
 			FQDN:    "localhost",
 			Mode:    "production",
@@ -263,4 +268,53 @@ func Save(path string, cfg *Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o640)
+}
+
+// ResolvePort finalises cfg.Server.Port according to the PART 5 rules:
+//
+//   - Container environment → "80" (always, regardless of other settings)
+//   - Explicit --port flag / $PORT env / config file value → use as-is
+//   - No port configured (empty) → pick a random unused port in 64000-64999,
+//     persist it to cfgPath so subsequent restarts use the same port
+//
+// The caller must apply CLI flag overrides to cfg BEFORE calling this function
+// so that an explicit --port value takes precedence over the persisted value.
+// cfgPath is the path used to save the selected random port.
+func ResolvePort(cfgPath string, cfg *Config, inContainer bool) error {
+	if inContainer {
+		cfg.Server.Port = "80"
+		return nil
+	}
+	if cfg.Server.Port != "" {
+		return nil
+	}
+
+	// First run: no port configured — pick a random unused port in 64000-64999.
+	port, err := randomUnusedPort(64000, 64999)
+	if err != nil {
+		return fmt.Errorf("port allocator: %w", err)
+	}
+	cfg.Server.Port = strconv.Itoa(port)
+
+	// Persist so subsequent restarts use the same port.
+	if saveErr := Save(cfgPath, cfg); saveErr != nil {
+		// Non-fatal: log at the call site; the server can still start.
+		return fmt.Errorf("port allocator: could not persist port to %s: %w", cfgPath, saveErr)
+	}
+	return nil
+}
+
+// randomUnusedPort picks a random port in [lo, hi] that can be bound.
+func randomUnusedPort(lo, hi int) (int, error) {
+	ports := rand.Perm(hi - lo + 1)
+	for _, offset := range ports {
+		port := lo + offset
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		return port, nil
+	}
+	return 0, fmt.Errorf("no unused port found in %d-%d", lo, hi)
 }

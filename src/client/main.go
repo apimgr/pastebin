@@ -35,7 +35,10 @@ var (
 	OfficialSite = ""
 )
 
-const defaultServer = "http://localhost:8080"
+// defaultServer is intentionally empty — PART 32 requires that no compiled-in
+// server URL exists unless IDEA.md specifies one (which it does not for this
+// project). The user MUST supply a server via --server or $PASTEBIN_SERVER.
+const defaultServer = ""
 
 func main() {
 	log.SetFlags(0)
@@ -81,6 +84,10 @@ func main() {
 	if len(args) == 0 {
 		printUsage()
 		os.Exit(1)
+	}
+
+	if *server == "" {
+		log.Fatal("no server URL set — use --server <url> or set $PASTEBIN_SERVER")
 	}
 
 	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON}
@@ -396,19 +403,18 @@ LIST FLAGS
     --page <n>           Page number (default: 1)
 
 GLOBAL FLAGS
-    --server <url>       Server base URL (default: %s or $PASTEBIN_SERVER)
+    --server <url>       Server base URL (required; or set $PASTEBIN_SERVER)
     --json               Output machine-readable JSON
     --color <when>       Color output: always, never, auto (default: auto; honors NO_COLOR)
     --debug              Enable debug output
     --version            Print version
 
 EXAMPLES
-    echo "Hello World" | pastebin-cli create --lang text
-    cat myfile.go | pastebin-cli create --lang go --expiry 1d
-    pastebin-cli create --burn 1 --expiry 1h secret.txt
-    pastebin-cli get abc12345
-    pastebin-cli delete abc12345 <delete-token>
-    pastebin-cli list --limit 10
+    PASTEBIN_SERVER=https://paste.example.com pastebin-cli create --lang text < file.txt
+    pastebin-cli --server https://paste.example.com create --lang go myfile.go
+    pastebin-cli --server https://paste.example.com get abc12345
+    pastebin-cli --server https://paste.example.com delete abc12345 <delete-token>
+    pastebin-cli --server https://paste.example.com list --limit 10
 
-`, Version, defaultServer)
+`, Version)
 }

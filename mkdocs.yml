@@ -15,20 +15,26 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+      custom_dir: docs/
   features:
     - navigation.tabs
     - navigation.instant
     - search.highlight
     - content.code.copy
 
+extra_css:
+  - stylesheets/dark.css
+
 nav:
   - Home: index.md
-  - Installation: install.md
-  - Configuration: config.md
+  - Installation: installation.md
+  - Configuration: configuration.md
   - API Reference: api.md
   - CLI Reference: cli.md
   - Compatibility: compat.md
+  - Integrations: integrations.md
   - Security: security.md
+  - Development: development.md
 
 markdown_extensions:
   - admonition

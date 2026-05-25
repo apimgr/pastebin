@@ -86,7 +86,11 @@ func printStartupBannerFull(cfg BannerConfig, size terminal.TerminalSize) {
 
 	// URLs
 	for _, url := range cfg.URLs {
-		urlLine := fmt.Sprintf(" ➜  %s", url)
+		arrow := "➜"
+		if !colorEnabled() {
+			arrow = "->"
+		}
+		urlLine := fmt.Sprintf(" %s  %s", arrow, url)
 		padding := width - 2 - len(urlLine)
 		if padding < 0 {
 			padding = 0

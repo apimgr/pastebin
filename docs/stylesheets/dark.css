@@ -1,0 +1,9 @@
+/* Dark theme overrides for MkDocs Material */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #7c4dff;
+  --md-accent-fg-color: #b388ff;
+  --md-default-bg-color: #0d1117;
+  --md-default-fg-color: #e6edf3;
+  --md-code-bg-color: #161b22;
+  --md-code-fg-color: #e6edf3;
+}

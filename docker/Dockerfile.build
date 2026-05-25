@@ -1,0 +1,29 @@
+# =============================================================================
+# Build Toolchain Image (:build)
+# Rebuilt monthly by the build-toolchain.yml CI workflow.
+# All CI build/test/lint/scan steps use this image — never install tools inline.
+# All OCI metadata is applied via --annotation at build time; no LABEL blocks.
+# =============================================================================
+FROM golang:alpine
+
+RUN apk add --no-cache \
+    git \
+    curl \
+    bash \
+    make \
+    gcc \
+    musl-dev \
+    ca-certificates \
+    tar \
+    gzip
+
+# Install Go tooling used by CI (pinned to specific versions for reproducibility).
+RUN CGO_ENABLED=0 go install golang.org/x/vuln/cmd/govulncheck@latest && \
+    CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && \
+    CGO_ENABLED=0 go install github.com/google/go-licenses@latest
+
+# Verify tools are in PATH.
+RUN govulncheck -version && staticcheck -version
+
+ENV CGO_ENABLED=0 \
+    GOPROXY=https://proxy.golang.org,direct
