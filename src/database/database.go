@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"fmt"
 	"os"
@@ -295,19 +296,21 @@ func (s *SQLiteDB) DeletePaste(id string) error {
 }
 
 // DeletePasteByToken removes a paste only when the delete token hash matches.
+// The comparison is performed in constant time to prevent timing-based token oracle attacks.
 func (s *SQLiteDB) DeletePasteByToken(id, deleteTokenHash string) error {
-	result, err := s.db.Exec(
-		`DELETE FROM pastes WHERE id = ? AND delete_token_hash = ?`,
-		id, deleteTokenHash,
-	)
+	var storedHash string
+	err := s.db.QueryRow(`SELECT delete_token_hash FROM pastes WHERE id = ?`, id).Scan(&storedHash)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("paste not found or invalid token")
+	}
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
+	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(deleteTokenHash)) != 1 {
 		return fmt.Errorf("paste not found or invalid token")
 	}
-	return nil
+	_, err = s.db.Exec(`DELETE FROM pastes WHERE id = ?`, id)
+	return err
 }
 
 // DeleteExpiredPastes removes all pastes whose expiry has passed.

@@ -111,6 +111,7 @@ type RateLimitConfig struct {
 	Enabled    bool `yaml:"enabled"`
 	CreatePerM int  `yaml:"create_per_minute"` // paste creates per IP per minute
 	ReadPerM   int  `yaml:"read_per_minute"`   // paste reads per IP per minute
+	DeletePerM int  `yaml:"delete_per_minute"` // paste deletes per IP per minute
 }
 
 // WebConfig holds web-UI settings.
@@ -196,6 +197,7 @@ func DefaultConfig() *Config {
 			Enabled:    true,
 			CreatePerM: 10,
 			ReadPerM:   120,
+			DeletePerM: 10,
 		},
 		Web: WebConfig{
 			SiteTitle: "Pastebin",

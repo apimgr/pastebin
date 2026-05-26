@@ -20,9 +20,10 @@ import (
 	"github.com/apimgr/pastebin/src/paths"
 	"github.com/apimgr/pastebin/src/pid"
 	"github.com/apimgr/pastebin/src/scheduler"
-	"github.com/apimgr/pastebin/src/shell"
 	"github.com/apimgr/pastebin/src/server"
 	"github.com/apimgr/pastebin/src/service"
+	"github.com/apimgr/pastebin/src/shell"
+	"github.com/apimgr/pastebin/src/task"
 	"github.com/apimgr/pastebin/src/updater"
 )
 
@@ -565,42 +566,25 @@ Examples:
 		return nil
 	}))
 
-	// Required PART 18 tasks. Implementations are stubs for now — each does
-	// the minimum necessary to satisfy the task contract.
-	logSchedErr(sched.Register("ssl_renewal", "SSL Renewal", "0 3 * * *", true, func() error {
-		log.Printf("scheduler: ssl_renewal: checking certificate expiry")
-		return nil // TODO: implement cert renewal
-	}))
-	logSchedErr(sched.Register("blocklist_update", "Blocklist Update", "0 4 * * *", true, func() error {
-		log.Printf("scheduler: blocklist_update: checking for blocklist updates")
-		return nil // TODO: implement blocklist download
-	}))
-	logSchedErr(sched.Register("cve_update", "CVE Update", "0 5 * * *", true, func() error {
-		log.Printf("scheduler: cve_update: checking for CVE database updates")
-		return nil // TODO: implement CVE database download
-	}))
+	// Required PART 18 tasks — full implementations in src/task/task.go.
+	logSchedErr(sched.Register("ssl_renewal", "SSL Renewal", "0 3 * * *", true,
+		task.SSLRenewal(configDir, cfg.Server.FQDN)))
+	logSchedErr(sched.Register("blocklist_update", "Blocklist Update", "0 4 * * *", true,
+		task.BlocklistUpdate(dataDir)))
+	logSchedErr(sched.Register("cve_update", "CVE Update", "0 5 * * *", true,
+		task.CVEUpdate(dataDir)))
 	logSchedErr(sched.Register("token_cleanup", "Token Cleanup", "@every 15m", true, func() error {
-		// This project has no API tokens; this task is a no-op but must be registered.
+		// This project has no API tokens; task is registered per PART 18 but is a no-op.
 		return nil
 	}))
-	logSchedErr(sched.Register("log_rotation", "Log Rotation", "0 0 * * *", true, func() error {
-		log.Printf("scheduler: log_rotation: rotating logs")
-		return nil // TODO: implement log rotation
-	}))
-	logSchedErr(sched.Register("backup_daily", "Backup Daily", "0 2 * * *", true, func() error {
-		log.Printf("scheduler: backup_daily: running daily backup")
-		return nil // TODO: implement daily backup
-	}))
-	logSchedErr(sched.Register("backup_hourly", "Backup Hourly", "@hourly", false, func() error {
-		log.Printf("scheduler: backup_hourly: running hourly backup")
-		return nil // TODO: implement hourly backup
-	}))
+	logSchedErr(sched.Register("log_rotation", "Log Rotation", "0 0 * * *", true,
+		task.LogRotation(logsDir, 30*24*time.Hour)))
+	logSchedErr(sched.Register("backup_daily", "Backup Daily", "0 2 * * *", true,
+		task.BackupDaily(appName, dataDir, backupDir, 1)))
+	logSchedErr(sched.Register("backup_hourly", "Backup Hourly", "@hourly", false,
+		task.BackupHourly(appName, dataDir, backupDir)))
 	logSchedErr(sched.Register("healthcheck_self", "Health Check", "@every 5m", true, func() error {
 		return nil // server is healthy if we're running this task
-	}))
-	logSchedErr(sched.Register("tor_health", "Tor Health", "@every 10m", true, func() error {
-		log.Printf("scheduler: tor_health: checking Tor connectivity")
-		return nil // TODO: implement Tor health check
 	}))
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
@@ -615,6 +599,10 @@ Examples:
 		log.Printf("scheduler: geoip databases updated")
 		return nil
 	}))
+
+	// Tor health check — registered after srv so it can query srv.TorRunning().
+	logSchedErr(sched.Register("tor_health", "Tor Health", "@every 10m", true,
+		task.TorHealth(srv.TorRunning)))
 
 	sched.Start()
 	defer sched.Stop()

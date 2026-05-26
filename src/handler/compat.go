@@ -44,12 +44,32 @@ func NewCompatHandler(ph *PasteHandler, db database.DB) *CompatHandler {
 //   api_paste_expire_date — N/A/10M/1H/1D/1W/2W/1M/6M/1Y → expiry
 //   api_dev_key          — silently ignored
 //   api_user_key         — silently ignored
+// PastebinPost handles POST /api/api_post.php — dispatches on api_option.
+//
+//   api_option=paste        — create paste (default when field absent)
+//   api_option=list         — list recent public pastes as XML
+//   api_option=delete       — delete paste by api_paste_key using api_user_key as token
+//   api_option=userdetails  — return stub XML user record
 func (c *CompatHandler) PastebinPost(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad Request | invalid form", http.StatusBadRequest)
 		return
 	}
 
+	switch r.FormValue("api_option") {
+	case "list":
+		c.pastebinList(w, r)
+	case "delete":
+		c.pastebinDelete(w, r)
+	case "userdetails":
+		c.pastebinUserDetails(w, r)
+	default: // "paste" or empty
+		c.pastebinCreate(w, r)
+	}
+}
+
+// pastebinCreate handles api_option=paste.
+func (c *CompatHandler) pastebinCreate(w http.ResponseWriter, r *http.Request) {
 	content := r.FormValue("api_paste_code")
 	if strings.TrimSpace(content) == "" {
 		http.Error(w, "Bad API request, the value you use for 'api_paste_code' is empty.", http.StatusBadRequest)
@@ -78,6 +98,93 @@ func (c *CompatHandler) PastebinPost(w http.ResponseWriter, r *http.Request) {
 	link := c.ph.pasteURL(r, pasteID)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprint(w, link)
+}
+
+// pastebinList handles api_option=list — returns XML paste list.
+// Honours api_results_limit (1-1000, default 50).
+func (c *CompatHandler) pastebinList(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.FormValue("api_results_limit"))
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	pastes, _, err := c.db.GetPublicPastes(1, limit)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	fmt.Fprint(w, "<pastes>")
+	for _, p := range pastes {
+		expireDate := "0"
+		if p.ExpiresAt != nil {
+			expireDate = strconv.FormatInt(p.ExpiresAt.Unix(), 10)
+		}
+		fmt.Fprintf(w,
+			"<paste><paste_key>%s</paste_key><paste_title>%s</paste_title>"+
+				"<paste_date>%d</paste_date><paste_expire_date>%s</paste_expire_date>"+
+				"<paste_hits>%d</paste_hits><paste_private>0</paste_private></paste>",
+			xmlEscape(p.ID), xmlEscape(p.Title), p.CreatedAt.Unix(), expireDate,
+			p.Views,
+		)
+	}
+	fmt.Fprint(w, "</pastes>")
+}
+
+// pastebinDelete handles api_option=delete.
+// api_paste_key is the paste ID; api_user_key is treated as the delete token
+// when non-empty and not "ANONYMOUS".
+func (c *CompatHandler) pastebinDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.FormValue("api_paste_key")
+	if id == "" {
+		http.Error(w, "Bad API request, you need to be logged in to delete a paste.", http.StatusBadRequest)
+		return
+	}
+
+	token := r.FormValue("api_user_key")
+	if token == "" || token == "ANONYMOUS" {
+		http.Error(w, "Bad API request, you are not authorized to delete this paste.", http.StatusForbidden)
+		return
+	}
+
+	if err := c.db.DeletePasteByToken(id, HashToken(token)); err != nil {
+		http.Error(w, "Bad API request, invalid paste ID.", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprint(w, "Paste Removed")
+}
+
+// pastebinUserDetails handles api_option=userdetails — returns stub XML.
+func (c *CompatHandler) pastebinUserDetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	fmt.Fprint(w, `<user>`+
+		`<user_name>anonymous</user_name>`+
+		`<user_email></user_email>`+
+		`<user_website></user_website>`+
+		`<user_avatar_url></user_avatar_url>`+
+		`<user_location></user_location>`+
+		`<user_account_type>0</user_account_type>`+
+		`<user_private>0</user_private>`+
+		`<user_format_short>text</user_format_short>`+
+		`<user_expiration>N</user_expiration>`+
+		`</user>`,
+	)
+}
+
+// xmlEscape replaces the five XML special characters.
+func xmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	s = strings.ReplaceAll(s, "'", "&#39;")
+	return s
 }
 
 // PastebinRaw handles GET /api/api_raw.php?i={id}
@@ -223,7 +330,11 @@ func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// LenGet handles GET /api/get?id={id}
+// LenGet handles GET /api/get?id={id}&openOneUse=true
+//
+// When a paste has burn_after==1 and openOneUse is NOT set to "true", only
+// {"id":"...","oneUse":true} is returned (body withheld), consistent with
+// lenpaste behaviour for one-time pastes.
 func (c *CompatHandler) LenGet(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -242,6 +353,16 @@ func (c *CompatHandler) LenGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Withhold body for one-time pastes unless the caller explicitly
+	// acknowledges they want to consume it (openOneUse=true).
+	if paste.BurnAfter == 1 && r.URL.Query().Get("openOneUse") != "true" {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"id":     paste.ID,
+			"oneUse": true,
+		})
+		return
+	}
+
 	c.db.IncrementPasteViews(id)
 	paste.Views++
 
@@ -251,14 +372,14 @@ func (c *CompatHandler) LenGet(w http.ResponseWriter, r *http.Request) {
 
 	paste.DeleteTokenHash = ""
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":       paste.ID,
-		"title":    paste.Title,
-		"body":     paste.Content,
-		"syntax":   paste.Language,
-		"oneUse":   paste.BurnAfter == 1,
+		"id":         paste.ID,
+		"title":      paste.Title,
+		"body":       paste.Content,
+		"syntax":     paste.Language,
+		"oneUse":     paste.BurnAfter == 1,
 		"createTime": paste.CreatedAt.Unix(),
 		"deleteTime": expiryUnix(paste.ExpiresAt),
-		"views":    paste.Views,
+		"views":      paste.Views,
 	})
 }
 

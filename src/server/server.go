@@ -145,6 +145,7 @@ type Server struct {
 	geoipDB          *geoip.DB
 	torManager       *tor.Manager
 	createLimiter    *rateLimiter
+	deleteLimiter    *rateLimiter
 	version          string
 	commitID         string
 	buildDate        string
@@ -218,8 +219,14 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate, confi
 	if createLimit <= 0 {
 		createLimit = 30
 	}
+	// Default: 10 deletes per IP per minute (stricter than creates to prevent enumeration).
+	deleteLimit := cfg.RateLimit.DeletePerM
+	if deleteLimit <= 0 {
+		deleteLimit = 10
+	}
 	if cfg.RateLimit.Enabled {
 		s.createLimiter = newRateLimiter(createLimit, time.Minute)
+		s.deleteLimiter = newRateLimiter(deleteLimit, time.Minute)
 	}
 
 	tmpl, err := template.New("").ParseFS(templatesFS, "templates/*.html")
@@ -267,6 +274,15 @@ func (s *Server) maybeRateLimit(h http.HandlerFunc) http.HandlerFunc {
 		return h
 	}
 	mw := rateLimitMiddleware(s.createLimiter)
+	return mw(h).ServeHTTP
+}
+
+// maybeDeleteRateLimit wraps h with the delete rate limiter if enabled.
+func (s *Server) maybeDeleteRateLimit(h http.HandlerFunc) http.HandlerFunc {
+	if s.deleteLimiter == nil {
+		return h
+	}
+	mw := rateLimitMiddleware(s.deleteLimiter)
 	return mw(h).ServeHTTP
 }
 
@@ -341,8 +357,8 @@ func (s *Server) setupRoutes() {
 	// ── lenpaste API compatibility ───────────────────────────────────────────
 	r.Post("/api/new", s.maybeRateLimit(s.compatHandler.LenCreate))
 	r.Get("/api/get", s.compatHandler.LenGet)
-	r.Delete("/api/remove", s.compatHandler.LenRemove)
-	r.Get("/api/remove", s.compatHandler.LenRemove) // some clients use GET
+	r.Delete("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove))
+	r.Get("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove)) // some clients use GET
 	r.Get("/api/list", s.compatHandler.LenList)
 
 	// ── Versioned API (native) ───────────────────────────────────────────────
@@ -361,21 +377,21 @@ func (s *Server) setupRoutes() {
 		r.Route("/paste", func(r chi.Router) {
 			r.Post("/", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 			r.Get("/{id}", s.pasteHandler.GetPaste)
-			r.Delete("/{id}", s.pasteHandler.DeletePaste)
+			r.Delete("/{id}", s.maybeDeleteRateLimit(s.pasteHandler.DeletePaste))
 			r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)
 		})
 
 		// Legacy plural-noun aliases so existing integrations keep working.
 		r.Post("/pastes", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 		r.Get("/pastes/{id}", s.pasteHandler.GetPaste)
-		r.Delete("/pastes/{id}", s.pasteHandler.DeletePaste)
+		r.Delete("/pastes/{id}", s.maybeDeleteRateLimit(s.pasteHandler.DeletePaste))
 		r.Get("/pastes/{id}/raw", s.pasteHandler.GetRawPaste)
 
 		// microbin-style /pasta alias
 		r.Get("/pasta", s.compatHandler.MicrobinList)
 		r.Post("/pasta", s.compatHandler.MicrobinCreate)
 		r.Get("/pasta/{id}", s.compatHandler.MicrobinGet)
-		r.Delete("/pasta/{id}", s.compatHandler.MicrobinDelete)
+		r.Delete("/pasta/{id}", s.maybeDeleteRateLimit(s.compatHandler.MicrobinDelete))
 
 		// lenpaste v1 versioned aliases
 		r.Post("/new", s.compatHandler.LenCreate)
@@ -423,7 +439,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/emb/{id}", s.handleEmbed)
 	r.Get("/qr/{id}", s.handleQR)
 	r.Get("/remove/{id}", s.handleRemovePage)
-	r.Post("/remove/{id}", s.handleRemoveSubmit)
+	r.Post("/remove/{id}", s.maybeDeleteRateLimit(s.handleRemoveSubmit))
 	r.Post("/upload", s.maybeRateLimit(s.pasteHandler.CreatePaste)) // microbin upload
 	r.Get("/upload/{id}", s.handleViewPaste)          // microbin upload alias
 	r.Get("/p/{id}", s.handleViewPaste)               // microbin short URL
