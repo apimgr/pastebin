@@ -1,7 +1,7 @@
 # Project Audit
 
 Started: 2026-05-24
-Last reconciled: 2026-05-28 (full-project audit pass)
+Last reconciled: 2026-05-28 (config hot-reload + route audit pass)
 Scope: ALL PARTs of AI.md EXCEPT PART 27/CI workflows under `.github/workflows/` (out of scope).
 
 ## Pass 1: Security
@@ -49,17 +49,27 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 ### GeoIP (features-rules.md) — RESOLVED
 `src/geoip/geoip.go` uses `github.com/oschwald/maxminddb-golang`. No `geoip2-golang` dependency.
 
-### Client (PART 32)
-- [ ] `src/client/main.go` hardcoded `defaultServer` still needs IDEA.md reconciliation — open.
+### Client (PART 32) — RESOLVED
+`src/client/main.go` `defaultServer` is intentionally empty `""` per PART 32: "no compiled-in default server". User must supply `--server` or `$PASTEBIN_SERVER`. Comment documents this explicitly.
 
-### Live config reload (PART 5/PART 8)
-- [ ] `fsnotify` hot-reload not wired up — open.
+### Live config reload (PART 5/PART 8) — RESOLVED THIS PASS
+`config.ConfigManager` implemented in `src/config/config.go`:
+- 5-second ticker polling `os.Stat` modtime (NOT fsnotify — spec uses ticker)
+- Hot-reload: `RateLimit.*`, `Web.Security.CORS`, `Web.SiteTitle`, `Web.Theme`, `Server.Logging.Level`
+- Restart-required: `Server.Port`, `Server.Address`, `Database.*`, `Server.Tor.*` (logged as warnings)
+- `Server.OnConfigChange` callback updates rate limiter limits live
+- `Server.liveCfg()` returns manager's current config for per-request hot-reload
 
-## Pass 6: Code Flow Trace
+## Pass 6: Code Flow Trace — RESOLVED THIS PASS
 
-- [ ] `src/server/server.go`: native route shape mismatch with IDEA.md (singular vs. plural noun for CRUD) — open.
-- [ ] lenpaste / pastebin.com compat dispatch paths in `src/server/server.go` need verification — open.
-- [ ] Environment-variable audit in README.md — open.
+- [x] `src/server/server.go`: native routes use singular `/api/v1/paste/{id}` for CRUD and plural `/api/v1/pastes` for list — matches IDEA.md spec exactly.
+- [x] lenpaste (`/api/new`, `/api/get`, `/api/remove`, `/api/list`, `/api/v1/new`, `/api/v1/get`, `/api/v1/getServerInfo`) and pastebin.com (`/api/api_post.php`, `/api/api_raw.php`, `/api/api_login.php`) compat routes verified present and wired to `CompatHandler`.
+- [x] README.md `## Environment Variables` section present — covers all server and client env vars with platform defaults table.
+
+## Notes
+
+- `man/pastebin.1` — NOT required by spec; removed from open list.
+- LICENSE.md third-party attributions: spec PART 2 table covers all go.mod deps — resolved in prior pass.
 
 ## Completed (this pass)
 

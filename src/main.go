@@ -509,6 +509,10 @@ Examples:
 		}
 	}
 
+	// ── Config hot-reload watcher ─────────────────────────────────────────────
+
+	cfgMgr := config.NewConfigManager(cfgFile, cfg)
+
 	// ── GeoIP directory ───────────────────────────────────────────────────────
 
 	if cfg.Server.GeoIP.Dir == "" {
@@ -593,7 +597,7 @@ Examples:
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 
-	srv := server.New(db, cfg, Version, CommitID, BuildDate, configDir, dataDir)
+	srv := server.New(db, cfg, cfgMgr, Version, CommitID, BuildDate, configDir, dataDir)
 
 	// Weekly GeoIP database refresh (Sunday 03:00).
 	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func() error {
@@ -625,10 +629,15 @@ Examples:
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
+	stopCfgMgr := make(chan struct{})
+	cfgMgr.Start(stopCfgMgr, srv.OnConfigChange)
+
 	go func() {
 		<-sig
 		log.Printf("shutting down…")
 		pid.RemovePIDFile(pidFile) //nolint:errcheck
+		close(stopCfgMgr)
 		cancel()
 	}()
 

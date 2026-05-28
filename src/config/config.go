@@ -2,10 +2,13 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"math/rand/v2"
 	"net"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -320,3 +323,136 @@ func randomUnusedPort(lo, hi int) (int, error) {
 	}
 	return 0, fmt.Errorf("no unused port found in %d-%d", lo, hi)
 }
+
+// ConfigManager watches a config file and hot-reloads eligible settings.
+// Restart-required settings are logged as warnings but not applied.
+type ConfigManager struct {
+	configPath  string
+	current     *Config
+	lastModTime time.Time
+	mu          sync.RWMutex
+}
+
+// NewConfigManager constructs a ConfigManager for configPath with the already-loaded cfg as its initial state.
+func NewConfigManager(configPath string, cfg *Config) *ConfigManager {
+	var modTime time.Time
+	if info, err := os.Stat(configPath); err == nil {
+		modTime = info.ModTime()
+	}
+	return &ConfigManager{
+		configPath:  configPath,
+		current:     cfg,
+		lastModTime: modTime,
+	}
+}
+
+// Get returns the current active config. Safe for concurrent use.
+func (m *ConfigManager) Get() *Config {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.current
+}
+
+// Start launches the background polling goroutine; it runs until stop is closed.
+// Optional onChange callbacks are called after each successful hot-reload with the new config.
+func (m *ConfigManager) Start(stop <-chan struct{}, onChange ...func(*Config)) {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if next := m.checkFileChanges(); next != nil {
+					for _, fn := range onChange {
+						fn(next)
+					}
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
+// checkFileChanges stat-checks the config file and reloads if the modtime changed.
+// Returns the new config on a successful reload, nil otherwise.
+func (m *ConfigManager) checkFileChanges() *Config {
+	info, err := os.Stat(m.configPath)
+	if err != nil {
+		return nil
+	}
+	if !info.ModTime().After(m.lastModTime) {
+		return nil
+	}
+
+	next, err := Load(m.configPath)
+	if err != nil {
+		log.Printf("[config] reload error: %v", err)
+		return nil
+	}
+
+	m.mu.Lock()
+	prev := m.current
+	m.applyHotSettings(prev, next)
+	m.current = next
+	m.lastModTime = info.ModTime()
+	m.mu.Unlock()
+
+	log.Printf("[config] reloaded from %s", m.configPath)
+	return next
+}
+
+// applyHotSettings logs warnings for restart-required changes and applies
+// hot-reloadable settings from next into next (they are always applied on swap).
+// The separate prev reference allows detecting which restart-required keys changed.
+func (m *ConfigManager) applyHotSettings(prev, next *Config) {
+	if prev.Server.Port != next.Server.Port {
+		log.Printf("[config] WARNING: server.port changed from %s to %s — restart required",
+			prev.Server.Port, next.Server.Port)
+	}
+	if prev.Server.Address != next.Server.Address {
+		log.Printf("[config] WARNING: server.address changed (%s → %s) — restart required",
+			prev.Server.Address, next.Server.Address)
+	}
+	if prev.Database.Type != next.Database.Type || prev.Database.Path != next.Database.Path {
+		log.Printf("[config] WARNING: database settings changed — restart required")
+	}
+	if prev.Server.Tor.Binary != next.Server.Tor.Binary ||
+		prev.Server.Tor.VirtualPort != next.Server.Tor.VirtualPort {
+		log.Printf("[config] WARNING: tor settings changed — restart required")
+	}
+
+	// Hot-reloadable settings are applied by replacing the entire current pointer
+	// on the outer swap. Log what changed for operator visibility.
+	if prev.Server.Logging.Level != next.Server.Logging.Level {
+		log.Printf("[config] hot-reload: logging.level %s → %s",
+			prev.Server.Logging.Level, next.Server.Logging.Level)
+	}
+	if prev.RateLimit.Enabled != next.RateLimit.Enabled ||
+		prev.RateLimit.CreatePerM != next.RateLimit.CreatePerM ||
+		prev.RateLimit.ReadPerM != next.RateLimit.ReadPerM ||
+		prev.RateLimit.DeletePerM != next.RateLimit.DeletePerM {
+		log.Printf("[config] hot-reload: rate_limit settings updated")
+	}
+	if prev.Web.Security.CORS != next.Web.Security.CORS {
+		log.Printf("[config] hot-reload: cors policy updated")
+	}
+	if prev.Web.SiteTitle != next.Web.SiteTitle || prev.Web.Theme != next.Web.Theme {
+		log.Printf("[config] hot-reload: branding settings updated")
+	}
+}
+
+// ParseBool converts common boolean string representations to bool.
+// Accepts: "true", "1", "yes", "on" → true; "false", "0", "no", "off" → false.
+// Returns an error for any unrecognised value.
+func ParseBool(s string) (bool, error) {
+	switch s {
+	case "true", "1", "yes", "on":
+		return true, nil
+	case "false", "0", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("config: unrecognised boolean value %q", s)
+	}
+}
+

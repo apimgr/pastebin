@@ -63,9 +63,18 @@ func (rl *rateLimiter) allow(ip string) bool {
 		b = &ipBucket{}
 		rl.buckets[ip] = b
 	}
+	limit := rl.limit
 	rl.mu.Unlock()
 
-	return b.allow(rl.limit, rl.window)
+	return b.allow(limit, rl.window)
+}
+
+// UpdateLimit replaces the per-window request limit without restarting the limiter.
+// Existing buckets are not flushed; the new limit takes effect on the next request.
+func (rl *rateLimiter) UpdateLimit(newLimit int) {
+	rl.mu.Lock()
+	rl.limit = newLimit
+	rl.mu.Unlock()
 }
 
 // gc periodically removes IP buckets that have no recent requests.

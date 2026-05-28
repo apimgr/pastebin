@@ -137,6 +137,7 @@ type Server struct {
 	router           *chi.Mux
 	db               database.DB
 	cfg              *config.Config
+	cfgMgr           *config.ConfigManager
 	templates        *template.Template
 	pasteHandler     *handler.PasteHandler
 	compatHandler    *handler.CompatHandler
@@ -154,12 +155,22 @@ type Server struct {
 	stats            requestStats
 }
 
+// liveCfg returns the most current config, applying hot-reloaded values if available.
+func (s *Server) liveCfg() *config.Config {
+	if s.cfgMgr != nil {
+		return s.cfgMgr.Get()
+	}
+	return s.cfg
+}
+
 // New constructs a Server and wires all routes.
-func New(db database.DB, cfg *config.Config, version, commitID, buildDate, configDir, dataDir string) *Server {
+// cfgMgr may be nil (e.g. in tests); when set, hot-reloadable settings are read live.
+func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, version, commitID, buildDate, configDir, dataDir string) *Server {
 	s := &Server{
 		router:    chi.NewRouter(),
 		db:        db,
 		cfg:       cfg,
+		cfgMgr:    cfgMgr,
 		version:   version,
 		commitID:  commitID,
 		buildDate: buildDate,
@@ -242,6 +253,17 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate, confi
 
 	s.setupRoutes()
 	return s
+}
+
+// OnConfigChange is called by the ConfigManager after each successful hot-reload.
+// It updates rate limiter thresholds so they take effect on the next request.
+func (s *Server) OnConfigChange(next *config.Config) {
+	if s.createLimiter != nil && next.RateLimit.CreatePerM > 0 {
+		s.createLimiter.UpdateLimit(next.RateLimit.CreatePerM)
+	}
+	if s.deleteLimiter != nil && next.RateLimit.DeletePerM > 0 {
+		s.deleteLimiter.UpdateLimit(next.RateLimit.DeletePerM)
+	}
 }
 
 // GeoIPEnabled returns true when the GeoIP database was successfully opened.
@@ -477,7 +499,7 @@ func (s *Server) countRequests(next http.Handler) http.Handler {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cors := s.cfg.Web.Security.CORS
+		cors := s.liveCfg().Web.Security.CORS
 		if cors == "" {
 			cors = "*"
 		}
@@ -584,7 +606,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 
 	hr := HealthResponse{
 		Project: ProjectInfo{
-			Name:        s.cfg.Web.SiteTitle,
+			Name:        s.liveCfg().Web.SiteTitle,
 			Tagline:     "Simple, fast paste service",
 			Description: "A self-hosted pastebin with syntax highlighting and burn-after-read support.",
 		},
@@ -660,8 +682,8 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	hr := s.buildHealthResponse()
 	s.renderTemplate(w, r, "healthz.html", map[string]interface{}{
 		"Health":    hr,
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 	})
 }
 
@@ -731,8 +753,8 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	pastes, _, _ := s.db.GetPublicPastes(1, 5)
 	s.renderTemplate(w, r, "home.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"BaseURL":   s.baseURL(r),
 		"Recent":    pastes,
 	})
@@ -740,8 +762,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, r, "create.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 	})
 }
 
@@ -749,8 +771,8 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	page := 1
 	pastes, total, _ := s.db.GetPublicPastes(page, 20)
 	s.renderTemplate(w, r, "recent.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"Pastes":    pastes,
 		"Total":     total,
 	})
@@ -770,8 +792,8 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"Paste":     paste,
 		"ID":        id,
 		"Content":   handler.HighlightedContent(paste),
@@ -798,8 +820,8 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	link := s.baseURL(r) + "/" + id
 	// Render a simple page that generates a QR code client-side (or redirect to QR API).
 	s.renderTemplate(w, r, "qr.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"ID":        id,
 		"Link":      link,
 	})
@@ -808,8 +830,8 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRemovePage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	s.renderTemplate(w, r, "remove.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"ID":        id,
 		"Error":     "",
 		"Success":   false,
@@ -825,8 +847,8 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	if token == "" {
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
-			"SiteTitle": s.cfg.Web.SiteTitle,
-			"Theme":     s.cfg.Web.Theme,
+			"SiteTitle": s.liveCfg().Web.SiteTitle,
+			"Theme":     s.liveCfg().Web.Theme,
 			"ID":        id,
 			"Error":     "delete token is required",
 			"Success":   false,
@@ -836,8 +858,8 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.db.DeletePasteByToken(id, handler.HashToken(token)); err != nil {
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
-			"SiteTitle": s.cfg.Web.SiteTitle,
-			"Theme":     s.cfg.Web.Theme,
+			"SiteTitle": s.liveCfg().Web.SiteTitle,
+			"Theme":     s.liveCfg().Web.Theme,
 			"ID":        id,
 			"Error":     "paste not found or invalid token",
 			"Success":   false,
@@ -846,8 +868,8 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderTemplate(w, r, "remove.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"ID":        id,
 		"Error":     "",
 		"Success":   true,
@@ -889,8 +911,8 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 	// Fall back to normal paste view.
 	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"Paste":     paste,
 		"ID":        id,
 		"Content":   handler.HighlightedContent(paste),
@@ -906,8 +928,8 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, r, "help.html", map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 		"BaseURL":   s.baseURL(r),
 	})
 }
@@ -925,7 +947,7 @@ func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/manifest+json")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"name":             s.cfg.Web.SiteTitle,
+		"name":             s.liveCfg().Web.SiteTitle,
 		"short_name":       "Paste",
 		"description":      "A fast, public pastebin service",
 		"start_url":        "/",
@@ -950,10 +972,10 @@ self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("User-agent: *\n")
-	for _, p := range s.cfg.Web.Robots.Allow {
+	for _, p := range s.liveCfg().Web.Robots.Allow {
 		b.WriteString("Allow: " + p + "\n")
 	}
-	for _, p := range s.cfg.Web.Robots.Deny {
+	for _, p := range s.liveCfg().Web.Robots.Deny {
 		b.WriteString("Disallow: " + p + "\n")
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -962,7 +984,7 @@ func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte("Contact: " + s.cfg.Web.Security.Contact + "\nPreferred-Languages: en\n"))
+	w.Write([]byte("Contact: " + s.liveCfg().Web.Security.Contact + "\nPreferred-Languages: en\n"))
 }
 
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
@@ -989,8 +1011,8 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 
 func (s *Server) pageData() map[string]interface{} {
 	return map[string]interface{}{
-		"SiteTitle": s.cfg.Web.SiteTitle,
-		"Theme":     s.cfg.Web.Theme,
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
 	}
 }
 
