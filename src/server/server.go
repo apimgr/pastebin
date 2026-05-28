@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/geoip"
@@ -167,7 +168,7 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate, confi
 	s.stats.lastHour = time.Now().Hour()
 
 	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL)
-	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db)
+	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
 	s.metricsCollector = metrics.New(version, commitID, buildDate, s.startTime, cfg.Server.Metrics.Token)
@@ -229,7 +230,11 @@ func New(db database.DB, cfg *config.Config, version, commitID, buildDate, confi
 		s.deleteLimiter = newRateLimiter(deleteLimit, time.Minute)
 	}
 
-	tmpl, err := template.New("").ParseFS(templatesFS, "templates/*.html")
+	tmpl, err := template.New("").Funcs(template.FuncMap{
+		"t": func(lang, key string) string {
+			return i18n.Translate(lang, key)
+		},
+	}).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		log.Printf("warning: could not parse templates: %v", err)
 	}
@@ -971,6 +976,11 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		http.Error(w, "templates not loaded", http.StatusInternalServerError)
 		return
 	}
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	// Inject language for i18n — templates access it as .Lang
+	data["Lang"] = i18n.LangFromRequest(r)
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("template %s error: %v", name, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

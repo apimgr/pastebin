@@ -18,10 +18,10 @@
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">Home</a>
-                <a href="/create" class="nav-link">Create</a>
-                <a href="/recent" class="nav-link">Recent</a>
-                <a href="/api" class="nav-link">API</a>
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
             </div>
         </nav>
     </header>
@@ -34,17 +34,17 @@
                         <h1>{{.Paste.Title}}</h1>
                         <div class="paste-meta">
                             <span class="language">{{.Paste.Language}}</span>
-                            <span>{{.Paste.Views}} views</span>
-                            <span>Created: {{.Paste.CreatedAt}}</span>
+                            <span>{{.Paste.Views}} {{t .Lang "paste.views"}}</span>
+                            <span>{{t .Lang "paste.created"}} {{.Paste.CreatedAt}}</span>
                         </div>
                         <div class="paste-actions">
-                            <a href="/raw/{{.ID}}" class="btn btn-secondary">Raw</a>
-                            <a href="/dl/{{.ID}}" class="btn btn-secondary">Download</a>
-                            <a href="/emb/{{.ID}}" class="btn btn-secondary" target="_blank">Embed</a>
-                            <a href="/qr/{{.ID}}" class="btn btn-secondary">QR</a>
-                            <a href="/remove/{{.ID}}" class="btn btn-danger">Delete</a>
+                            <a href="/raw/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.raw"}}</a>
+                            <a href="/dl/{{.ID}}" class="btn btn-secondary">{{t .Lang "common.download"}}</a>
+                            <a href="/emb/{{.ID}}" class="btn btn-secondary" target="_blank">{{t .Lang "paste.embed"}}</a>
+                            <a href="/qr/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.qr"}}</a>
+                            <a href="/remove/{{.ID}}" class="btn btn-danger">{{t .Lang "common.delete"}}</a>
                             <button onclick="copyToClipboard()" class="btn btn-primary" id="copyBtn">
-                                Copy
+                                {{t .Lang "paste.copy"}}
                             </button>
                         </div>
                     </div>
@@ -64,8 +64,8 @@
                 <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
             </div>
             <div class="footer-links">
-                <a href="/api" class="footer-link">API Docs</a>
-                <a href="/healthz" class="footer-link">Status</a>
+                <a href="/api" class="footer-link">{{t .Lang "footer.api_docs"}}</a>
+                <a href="/healthz" class="footer-link">{{t .Lang "footer.status"}}</a>
                 <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
             </div>
         </div>

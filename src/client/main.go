@@ -25,6 +25,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/apimgr/pastebin/src/shell"
 )
 
 // Version, CommitID, BuildDate, and OfficialSite are injected at build time via -ldflags.
@@ -81,6 +83,42 @@ func main() {
 	}
 
 	args := flag.Args()
+
+	// --shell completions / --shell init — handle before server check.
+	if len(args) >= 1 && args[0] == "--shell" {
+		shellArg := ""
+		if len(args) >= 2 {
+			shellArg = args[1]
+		}
+		switch shellArg {
+		case "--help", "help", "":
+			shell.PrintHelp("pastebin-cli")
+		case "init":
+			shellShell := ""
+			if len(args) >= 3 {
+				shellShell = args[2]
+			}
+			if err := shell.PrintInit("pastebin-cli", shellShell); err != nil {
+				fmt.Fprintf(os.Stderr, "pastebin-cli: --shell init: %v\n", err)
+				os.Exit(1)
+			}
+		case "completions":
+			shellShell := ""
+			if len(args) >= 3 {
+				shellShell = args[2]
+			}
+			if err := shell.PrintClientCompletions("pastebin-cli", shellShell); err != nil {
+				fmt.Fprintf(os.Stderr, "pastebin-cli: --shell completions: %v\n", err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "pastebin-cli: --shell: unknown subcommand %q\n", shellArg)
+			fmt.Fprintf(os.Stderr, "Run 'pastebin-cli --shell --help' for usage.\n")
+			os.Exit(1)
+		}
+		return
+	}
+
 	if len(args) == 0 {
 		printUsage()
 		os.Exit(1)
@@ -408,6 +446,9 @@ GLOBAL FLAGS
     --color <when>       Color output: always, never, auto (default: auto; honors NO_COLOR)
     --debug              Enable debug output
     --version            Print version
+    --shell completions [SHELL]  Print shell completions
+    --shell init [SHELL]         Print shell init command (eval-able)
+    --shell --help               Show shell integration help
 
 EXAMPLES
     PASTEBIN_SERVER=https://paste.example.com pastebin-cli create --lang text < file.txt

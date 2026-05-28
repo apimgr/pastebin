@@ -584,7 +584,11 @@ Examples:
 	logSchedErr(sched.Register("backup_hourly", "Backup Hourly", "@hourly", false,
 		task.BackupHourly(appName, dataDir, backupDir)))
 	logSchedErr(sched.Register("healthcheck_self", "Health Check", "@every 5m", true, func() error {
-		return nil // server is healthy if we're running this task
+		if err := db.Ping(); err != nil {
+			return fmt.Errorf("healthcheck_self: database ping failed: %w", err)
+		}
+		log.Printf("healthcheck_self: ok")
+		return nil
 	}))
 
 	// ── HTTP server ───────────────────────────────────────────────────────────

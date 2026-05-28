@@ -15,10 +15,10 @@
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">Home</a>
-                <a href="/create" class="nav-link">Create</a>
-                <a href="/recent" class="nav-link">Recent</a>
-                <a href="/api" class="nav-link">API</a>
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
             </div>
         </nav>
     </header>
@@ -27,7 +27,7 @@
         <section class="search-section">
             <div class="container container-sm" style="text-align:center;">
                 <div class="section-header">
-                    <h1 class="section-title">QR Code</h1>
+                    <h1 class="section-title">{{t .Lang "qr.title"}}</h1>
                     <p class="section-description">Scan to open paste <code>{{.ID}}</code></p>
                 </div>
 
@@ -41,8 +41,8 @@
                         {{.Link}}
                     </p>
                     <div class="form-actions" style="justify-content:center; margin-top:var(--space-4);">
-                        <a href="/{{.ID}}" class="btn btn-primary">View Paste</a>
-                        <button id="dl-btn" class="btn btn-secondary">Download QR</button>
+                        <a href="/{{.ID}}" class="btn btn-primary">{{t .Lang "qr.view_paste"}}</a>
+                        <button id="dl-btn" class="btn btn-secondary">{{t .Lang "qr.download_qr"}}</button>
                     </div>
                 </div>
             </div>
@@ -56,8 +56,8 @@
                 <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
             </div>
             <div class="footer-links">
-                <a href="/api" class="footer-link">API Docs</a>
-                <a href="/healthz" class="footer-link">Status</a>
+                <a href="/api" class="footer-link">{{t .Lang "footer.api_docs"}}</a>
+                <a href="/healthz" class="footer-link">{{t .Lang "footer.status"}}</a>
                 <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
             </div>
         </div>

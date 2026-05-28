@@ -18,10 +18,10 @@
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link active">Home</a>
-                <a href="/create" class="nav-link">Create</a>
-                <a href="/recent" class="nav-link">Recent</a>
-                <a href="/api" class="nav-link">API</a>
+                <a href="/" class="nav-link active">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
             </div>
         </nav>
     </header>
@@ -43,10 +43,10 @@
                     </p>
                     <div class="hero-actions">
                         <a href="/create" class="btn btn-primary btn-lg">
-                            Create Paste
+                            {{t .Lang "home.create_paste"}}
                         </a>
                         <a href="/recent" class="btn btn-secondary btn-lg">
-                            Browse Recent
+                            {{t .Lang "home.browse_recent"}}
                         </a>
                     </div>
                     <div class="hero-stats">
@@ -71,24 +71,24 @@
         <section class="features">
             <div class="container">
                 <div class="section-header">
-                    <h2 class="section-title">Features</h2>
-                    <p class="section-description">Everything you need for code sharing</p>
+                    <h2 class="section-title">{{t .Lang "home.features_title"}}</h2>
+                    <p class="section-description">{{t .Lang "home.features_desc"}}</p>
                 </div>
                 <div class="features-grid">
                     <a href="/create" class="feature-card">
                         <div class="feature-icon">📝</div>
-                        <h3 class="feature-title">Create Paste</h3>
-                        <p class="feature-description">Share code snippets and text instantly with syntax highlighting for 15+ languages.</p>
+                        <h3 class="feature-title">{{t .Lang "home.feature_create_title"}}</h3>
+                        <p class="feature-description">{{t .Lang "home.feature_create_desc"}}</p>
                     </a>
                     <a href="/recent" class="feature-card">
                         <div class="feature-icon">📋</div>
-                        <h3 class="feature-title">Recent Pastes</h3>
-                        <p class="feature-description">Browse recent public pastes shared by the community.</p>
+                        <h3 class="feature-title">{{t .Lang "home.feature_recent_title"}}</h3>
+                        <p class="feature-description">{{t .Lang "home.feature_recent_desc"}}</p>
                     </a>
                     <a href="/api" class="feature-card">
                         <div class="feature-icon">⚡</div>
-                        <h3 class="feature-title">REST API</h3>
-                        <p class="feature-description">Full-featured REST API for automation and integration with your tools.</p>
+                        <h3 class="feature-title">{{t .Lang "home.feature_api_title"}}</h3>
+                        <p class="feature-description">{{t .Lang "home.feature_api_desc"}}</p>
                     </a>
                 </div>
             </div>
@@ -98,8 +98,8 @@
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
-                    <h2 class="section-title">Quick Start</h2>
-                    <p class="section-description">Upload pastes from the command line</p>
+                    <h2 class="section-title">{{t .Lang "home.quickstart_title"}}</h2>
+                    <p class="section-description">{{t .Lang "home.quickstart_desc"}}</p>
                 </div>
 
                 <div class="code-block">
@@ -156,8 +156,8 @@
                 <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
             </div>
             <div class="footer-links">
-                <a href="/api" class="footer-link">API Docs</a>
-                <a href="/healthz" class="footer-link">Status</a>
+                <a href="/api" class="footer-link">{{t .Lang "footer.api_docs"}}</a>
+                <a href="/healthz" class="footer-link">{{t .Lang "footer.status"}}</a>
                 <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
             </div>
         </div>

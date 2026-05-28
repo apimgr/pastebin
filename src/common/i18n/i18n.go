@@ -20,7 +20,7 @@ var supportedLangs = map[string]bool{
 	"fr": true,
 	"de": true,
 	"zh": true,
-	"ar": true,
+	"pt": true,
 	"ja": true,
 }
 
@@ -109,21 +109,12 @@ func TranslatePlural(lang, key string, count int) string {
 // pluralForm returns the CLDR plural category for a count in a given language.
 func pluralForm(lang string, count int) string {
 	switch lang {
-	case "ar":
-		switch {
-		case count == 0:
-			return "zero"
-		case count == 1:
+	case "pt":
+		// Portuguese: 0 and 1 use singular, 2+ use plural (same as English)
+		if count == 1 {
 			return "one"
-		case count == 2:
-			return "two"
-		case count%100 >= 3 && count%100 <= 10:
-			return "few"
-		case count%100 >= 11 && count%100 <= 99:
-			return "many"
-		default:
-			return "other"
 		}
+		return "other"
 	case "fr":
 		// French: 0 and 1 are "one"
 		if count <= 1 {

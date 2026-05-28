@@ -18,10 +18,10 @@
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">Home</a>
-                <a href="/create" class="nav-link">Create</a>
-                <a href="/recent" class="nav-link active">Recent</a>
-                <a href="/api" class="nav-link">API</a>
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link active">{{t .Lang "nav.recent"}}</a>
+                <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
             </div>
         </nav>
     </header>
@@ -30,14 +30,14 @@
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
-                    <h1 class="section-title">Recent Pastes</h1>
-                    <p class="section-description">Browse recent public pastes shared by the community</p>
+                    <h1 class="section-title">{{t .Lang "recent.title"}}</h1>
+                    <p class="section-description">{{t .Lang "recent.description"}}</p>
                 </div>
 
                 <!-- Loading State -->
                 <div id="loading" class="loading-state">
                     <div class="loading-spinner"></div>
-                    <p>Loading pastes...</p>
+                    <p>{{t .Lang "recent.loading"}}</p>
                 </div>
 
                 <!-- Pastes List -->
@@ -46,9 +46,9 @@
                 <!-- Empty State -->
                 <div id="emptyState" class="empty-state" style="display: none;">
                     <div class="empty-state-icon">📋</div>
-                    <h3 class="empty-state-title">No pastes yet</h3>
-                    <p class="empty-state-description">Be the first to create a paste!</p>
-                    <a href="/create" class="btn btn-primary">Create Paste</a>
+                    <h3 class="empty-state-title">{{t .Lang "recent.empty_title"}}</h3>
+                    <p class="empty-state-description">{{t .Lang "recent.empty_desc"}}</p>
+                    <a href="/create" class="btn btn-primary">{{t .Lang "recent.create_paste"}}</a>
                 </div>
 
                 <!-- Pagination -->
@@ -65,8 +65,8 @@
                 <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
             </div>
             <div class="footer-links">
-                <a href="/api" class="footer-link">API Docs</a>
-                <a href="/healthz" class="footer-link">Status</a>
+                <a href="/api" class="footer-link">{{t .Lang "footer.api_docs"}}</a>
+                <a href="/healthz" class="footer-link">{{t .Lang "footer.status"}}</a>
                 <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
             </div>
         </div>

@@ -23,13 +23,14 @@ import (
 
 // CompatHandler handles compatibility routes.
 type CompatHandler struct {
-	ph *PasteHandler
-	db database.DB
+	ph      *PasteHandler
+	db      database.DB
+	version string
 }
 
 // NewCompatHandler creates a new CompatHandler.
-func NewCompatHandler(ph *PasteHandler, db database.DB) *CompatHandler {
-	return &CompatHandler{ph: ph, db: db}
+func NewCompatHandler(ph *PasteHandler, db database.DB, version string) *CompatHandler {
+	return &CompatHandler{ph: ph, db: db, version: version}
 }
 
 // ─── pastebin.com compatibility ───────────────────────────────────────────────
@@ -505,7 +506,7 @@ func (c *PasteHandler) createPasteInternal(
 // LenServerInfo handles GET /api/v1/getServerInfo (lenpaste compat).
 func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"version":        "1.0.0",
+		"version":        c.version,
 		"titleMaxlength": 100,
 		"bodyMaxlength":  10 * 1024 * 1024,
 		"maxLifeTime":    -1,

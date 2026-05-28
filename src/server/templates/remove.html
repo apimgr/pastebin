@@ -15,10 +15,10 @@
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">Home</a>
-                <a href="/create" class="nav-link">Create</a>
-                <a href="/recent" class="nav-link">Recent</a>
-                <a href="/api" class="nav-link">API</a>
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
             </div>
         </nav>
     </header>
@@ -27,19 +27,19 @@
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
-                    <h1 class="section-title">Delete Paste</h1>
-                    <p class="section-description">Enter your delete token to permanently remove this paste.</p>
+                    <h1 class="section-title">{{t .Lang "paste.delete_title"}}</h1>
+                    <p class="section-description">{{t .Lang "paste.delete_desc"}}</p>
                 </div>
 
                 {{if .Success}}
                 <div class="paste-view" style="text-align:center; padding:var(--space-8);">
                     <div style="font-size:3rem; margin-bottom:var(--space-4);">🗑️</div>
-                    <h2>Paste Deleted</h2>
+                    <h2>{{t .Lang "paste.deleted_title"}}</h2>
                     <p style="color:var(--color-text-muted); margin-bottom:var(--space-6);">
                         Paste <code>{{.ID}}</code> has been permanently deleted.
                     </p>
-                    <a href="/" class="btn btn-primary">Go Home</a>
-                    <a href="/create" class="btn btn-secondary">Create New Paste</a>
+                    <a href="/" class="btn btn-primary">{{t .Lang "paste.go_home"}}</a>
+                    <a href="/create" class="btn btn-secondary">{{t .Lang "paste.create_new_paste"}}</a>
                 </div>
                 {{else}}
                 <div class="paste-view">
@@ -51,7 +51,7 @@
 
                     <form action="/remove/{{.ID}}" method="POST" class="paste-form">
                         <div class="form-group">
-                            <label for="token" class="form-label">Delete Token</label>
+                            <label for="token" class="form-label">{{t .Lang "paste.delete_token_label"}}</label>
                             <input
                                 type="text"
                                 id="token"
@@ -67,8 +67,8 @@
                             </p>
                         </div>
                         <div class="form-actions">
-                            <a href="/{{.ID}}" class="btn btn-secondary">Cancel</a>
-                            <button type="submit" class="btn btn-danger">Delete Paste</button>
+                            <a href="/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.cancel"}}</a>
+                            <button type="submit" class="btn btn-danger">{{t .Lang "paste.delete_btn"}}</button>
                         </div>
                     </form>
                 </div>
@@ -84,8 +84,8 @@
                 <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
             </div>
             <div class="footer-links">
-                <a href="/api" class="footer-link">API Docs</a>
-                <a href="/healthz" class="footer-link">Status</a>
+                <a href="/api" class="footer-link">{{t .Lang "footer.api_docs"}}</a>
+                <a href="/healthz" class="footer-link">{{t .Lang "footer.status"}}</a>
                 <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
             </div>
         </div>
