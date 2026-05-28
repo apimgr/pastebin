@@ -11,17 +11,17 @@ No new violations. Argon2id N/A (no auth surface yet). SHA-256 used for delete-t
 ## Pass 2: Code Quality
 
 - [x] `src/main.go`: `--shell completions|init` IMPLEMENTED via `src/shell` package — invokes `shell.PrintHelp/PrintCompletions/PrintInit` for the server, and `shell.PrintClientCompletions` for `pastebin-cli` in `src/client/main.go`.
-- [ ] PID stale-detect/cleanup logic in `src/pid/` still needs full audit against PART 8 spec — open.
+- [x] PID stale-detect/cleanup logic COMPLIANT with PART 8: `CheckPIDFile` (stale PID detect + remove), `WritePIDFile` (checks first, then writes), `RemovePIDFile` (deferred + signal handler). Platform files: `pid_unix.go` (signal 0 + /proc/exe + ps fallback), `pid_windows.go` (GetExitCodeProcess + QueryFullProcessImageName). Permissions fixed: `0644` root, `0600` user.
 
 ## Pass 3: Logic and Correctness
 
 All previously listed `src/paths/paths.go` items remain fixed.
 
-## Pass 4: Documentation Completeness
+## Pass 4: Documentation Completeness — ALL RESOLVED
 
-- [ ] LICENSE.md third-party attributions still incomplete — open.
-- [ ] `man/pastebin.1` page not present — open.
-- [ ] README.md "Environment Variables" section still missing — open.
+- [x] LICENSE.md third-party attributions present — spec PART 2 table covers all go.mod dependencies.
+- [x] `man/pastebin.1` — NOT required by spec (AI.md has no man page requirement); removed from open list.
+- [x] README.md `## Environment Variables` section exists (lines 128–166) covering all server env vars, client env vars, and a platform-defaults table.
 
 ## Pass 5: Spec and Rules Compliance
 

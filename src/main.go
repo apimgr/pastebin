@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/daemon"
@@ -73,6 +74,8 @@ func main() {
 		maintenanceCmd string
 		maintenanceArg string // second positional arg after --maintenance subcommand
 		updateCmd      string
+		emailCmd       string // --email <subcommand>
+		emailTo        string // --email test <address>
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -143,6 +146,16 @@ func main() {
 				}
 			} else {
 				updateCmd = "yes"
+			}
+		case "--email":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				emailCmd = args[i]
+				// For "test <address>", consume optional recipient address.
+				if emailCmd == "test" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+					i++
+					emailTo = args[i]
+				}
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
@@ -402,6 +415,38 @@ Examples:
 		}
 	}
 
+	// ── Email command ─────────────────────────────────────────────────────────
+
+	if emailCmd != "" {
+		cfgFile2 := filepath.Join(paths.GetConfigDir(appName), "server.yml")
+		cfg2, _ := config.Load(cfgFile2)
+		baseURL2 := cfg2.Server.BaseURL
+		if baseURL2 == "" {
+			baseURL2 = "http://localhost"
+		}
+		m := email.New(&cfg2.Server.Notifications.Email, cfg2.Web.SiteTitle, baseURL2, cfg2.Server.FQDN)
+		switch emailCmd {
+		case "test":
+			if emailTo == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s --email test <address>\n", binaryName)
+				os.Exit(2)
+			}
+			if err := m.TestSMTP(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: SMTP test failed: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			if err := m.Send(emailTo, "test", nil); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: send failed: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Test email sent to %s\n", emailTo)
+		default:
+			fmt.Fprintf(os.Stderr, "%s: unknown --email subcommand: %s\n", binaryName, emailCmd)
+			os.Exit(2)
+		}
+		return
+	}
+
 	// ── Daemon ────────────────────────────────────────────────────────────────
 
 	if daemonFlag {
@@ -506,6 +551,19 @@ Examples:
 		log.Printf("warning: %v", err)
 		if cfg.Server.Port == "" {
 			cfg.Server.Port = "64080" // last-resort fallback
+		}
+	}
+
+	// ── SMTP auto-detect (first run, host not yet configured) ─────────────────
+
+	if cfg.Server.Notifications.Email.SMTP.Host == "" {
+		if host, port, ok := email.AutoDetect(cfg.Server.FQDN); ok {
+			cfg.Server.Notifications.Email.SMTP.Host = host
+			cfg.Server.Notifications.Email.SMTP.Port = port
+			cfg.Server.Notifications.Email.Enabled = true
+			if saveErr := config.Save(cfgFile, cfg); saveErr != nil {
+				log.Printf("warning: could not persist SMTP config: %v", saveErr)
+			}
 		}
 	}
 

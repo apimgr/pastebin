@@ -1,0 +1,331 @@
+// Package email handles outbound SMTP notifications for the pastebin server.
+// When no SMTP server is configured or reachable, all email features are silently
+// disabled — no queuing, no retry, no "would have sent" logging.
+package email
+
+import (
+	"crypto/tls"
+	"embed"
+	"fmt"
+	"log"
+	"net"
+	"net/smtp"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/apimgr/pastebin/src/config"
+)
+
+//go:embed templates/*.txt
+var defaultTemplatesFS embed.FS
+
+// Mailer sends notification emails using configured SMTP settings.
+type Mailer struct {
+	cfg     *config.EmailConfig
+	appName string
+	appURL  string
+	fqdn    string
+}
+
+// New creates a Mailer from the provided email config, app name, and base URL.
+func New(cfg *config.EmailConfig, appName, appURL, fqdn string) *Mailer {
+	return &Mailer{
+		cfg:     cfg,
+		appName: appName,
+		appURL:  appURL,
+		fqdn:    fqdn,
+	}
+}
+
+// Enabled returns true if SMTP is configured and email sending is enabled.
+func (m *Mailer) Enabled() bool {
+	return m.cfg.Enabled && m.cfg.SMTP.Host != ""
+}
+
+// Send renders template tmplName with the provided variables and sends the email.
+// If SMTP is not configured, it returns nil silently without attempting delivery.
+func (m *Mailer) Send(to, tmplName string, vars map[string]string) error {
+	if !m.Enabled() {
+		return nil
+	}
+
+	body, err := m.renderTemplate(tmplName, vars)
+	if err != nil {
+		return fmt.Errorf("email: render %s: %w", tmplName, err)
+	}
+
+	subject, bodyText, ok := parseTemplate(body)
+	if !ok {
+		return fmt.Errorf("email: template %s missing Subject: line", tmplName)
+	}
+
+	fromAddr := m.cfg.From.Email
+	if fromAddr == "" {
+		fromAddr = "no-reply@" + m.fqdn
+	}
+	fromName := m.cfg.From.Name
+	if fromName == "" {
+		fromName = m.appName
+	}
+
+	msg := buildMessage(fromName, fromAddr, to, subject, bodyText, m.cfg.ReplyTo)
+	return m.sendSMTP(fromAddr, to, msg)
+}
+
+// TestSMTP attempts an SMTP EHLO handshake to verify connectivity.
+// Returns nil when the connection succeeds, an error otherwise.
+func (m *Mailer) TestSMTP() error {
+	if m.cfg.SMTP.Host == "" {
+		return fmt.Errorf("smtp: no host configured")
+	}
+	addr := fmt.Sprintf("%s:%d", m.cfg.SMTP.Host, m.cfg.SMTP.Port)
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return fmt.Errorf("smtp: connect %s: %w", addr, err)
+	}
+	conn.Close()
+	return nil
+}
+
+// AutoDetect probes common SMTP host/port combinations in priority order and
+// returns the first reachable config. Returns false if none are reachable.
+func AutoDetect(fqdn string) (host string, port int, ok bool) {
+	gatewayIP := defaultGatewayIP()
+	globalIP := globalIPv4()
+
+	candidates := []struct {
+		host string
+		port int
+	}{
+		{"127.0.0.1", 587},
+		{"127.0.0.1", 465},
+		{"127.0.0.1", 25},
+		{"172.17.0.1", 587},
+		{"172.17.0.1", 465},
+		{"172.17.0.1", 25},
+	}
+
+	if gatewayIP != "" {
+		candidates = append(candidates,
+			struct{ host string; port int }{gatewayIP, 587},
+			struct{ host string; port int }{gatewayIP, 465},
+			struct{ host string; port int }{gatewayIP, 25},
+		)
+	}
+	if globalIP != "" {
+		candidates = append(candidates,
+			struct{ host string; port int }{globalIP, 587},
+			struct{ host string; port int }{globalIP, 465},
+			struct{ host string; port int }{globalIP, 25},
+		)
+	}
+	if fqdn != "" && fqdn != "localhost" {
+		for _, prefix := range []string{"", "mail.", "smtp."} {
+			h := prefix + fqdn
+			candidates = append(candidates,
+				struct{ host string; port int }{h, 587},
+				struct{ host string; port int }{h, 465},
+				struct{ host string; port int }{h, 25},
+			)
+		}
+	}
+
+	for _, c := range candidates {
+		addr := fmt.Sprintf("%s:%d", c.host, c.port)
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+		log.Printf("[email] SMTP auto-detected: %s:%d", c.host, c.port)
+		return c.host, c.port, true
+	}
+	return "", 0, false
+}
+
+// renderTemplate loads the named template (custom override or embedded default),
+// substitutes global and caller-provided variables, and returns the full text.
+func (m *Mailer) renderTemplate(name string, vars map[string]string) (string, error) {
+	raw, err := m.loadTemplate(name)
+	if err != nil {
+		return "", err
+	}
+
+	global := map[string]string{
+		"app_name":  m.appName,
+		"app_url":   m.appURL,
+		"fqdn":      m.fqdn,
+		"timestamp": time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
+		"year":      time.Now().UTC().Format("2006"),
+	}
+
+	s := raw
+	for k, v := range global {
+		s = strings.ReplaceAll(s, "{"+k+"}", v)
+	}
+	for k, v := range vars {
+		s = strings.ReplaceAll(s, "{"+k+"}", v)
+	}
+	return s, nil
+}
+
+// loadTemplate reads the template content. Custom override wins over embedded default.
+func (m *Mailer) loadTemplate(name string) (string, error) {
+	if m.cfg.TemplateDir != "" {
+		path := m.cfg.TemplateDir + "/" + name + ".txt"
+		if data, err := os.ReadFile(path); err == nil {
+			return string(data), nil
+		}
+	}
+
+	data, err := defaultTemplatesFS.ReadFile("templates/" + name + ".txt")
+	if err != nil {
+		return "", fmt.Errorf("email: no template %q (embedded or custom)", name)
+	}
+	return string(data), nil
+}
+
+// parseTemplate splits a rendered template into subject and body.
+// Expected format: first line "Subject: ...", then "---", then body.
+func parseTemplate(text string) (subject, body string, ok bool) {
+	lines := strings.SplitN(text, "\n", -1)
+	if len(lines) < 3 {
+		return "", "", false
+	}
+	if !strings.HasPrefix(lines[0], "Subject: ") {
+		return "", "", false
+	}
+	subject = strings.TrimPrefix(lines[0], "Subject: ")
+	subject = strings.TrimSpace(subject)
+
+	sepIdx := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "---" {
+			sepIdx = i
+			break
+		}
+	}
+	if sepIdx < 0 {
+		return "", "", false
+	}
+	body = strings.Join(lines[sepIdx+1:], "\n")
+	return subject, strings.TrimSpace(body), true
+}
+
+// buildMessage builds an RFC 2822 email message.
+func buildMessage(fromName, fromAddr, to, subject, body, replyTo string) []byte {
+	var sb strings.Builder
+	sb.WriteString("From: " + fromName + " <" + fromAddr + ">\r\n")
+	sb.WriteString("To: " + to + "\r\n")
+	sb.WriteString("Subject: " + subject + "\r\n")
+	if replyTo != "" {
+		sb.WriteString("Reply-To: " + replyTo + "\r\n")
+	}
+	sb.WriteString("MIME-Version: 1.0\r\n")
+	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	sb.WriteString("\r\n")
+	sb.WriteString(body)
+	return []byte(sb.String())
+}
+
+// sendSMTP delivers the message via the configured SMTP server.
+func (m *Mailer) sendSMTP(from, to string, msg []byte) error {
+	addr := fmt.Sprintf("%s:%d", m.cfg.SMTP.Host, m.cfg.SMTP.Port)
+	tlsMode := strings.ToLower(m.cfg.SMTP.TLS)
+	if tlsMode == "" {
+		tlsMode = "auto"
+	}
+
+	var auth smtp.Auth
+	if m.cfg.SMTP.Username != "" {
+		auth = smtp.PlainAuth("", m.cfg.SMTP.Username, m.cfg.SMTP.Password, m.cfg.SMTP.Host)
+	}
+
+	switch tlsMode {
+	case "tls":
+		tlsCfg := &tls.Config{ServerName: m.cfg.SMTP.Host, MinVersion: tls.VersionTLS12}
+		conn, err := tls.Dial("tcp", addr, tlsCfg)
+		if err != nil {
+			return fmt.Errorf("smtp tls dial: %w", err)
+		}
+		defer conn.Close()
+		c, err := smtp.NewClient(conn, m.cfg.SMTP.Host)
+		if err != nil {
+			return fmt.Errorf("smtp new client: %w", err)
+		}
+		defer c.Close()
+		if auth != nil {
+			if err := c.Auth(auth); err != nil {
+				return fmt.Errorf("smtp auth: %w", err)
+			}
+		}
+		return sendViaClient(c, from, to, msg)
+
+	default:
+		// "auto" and "starttls" — use smtp.SendMail which negotiates STARTTLS.
+		return smtp.SendMail(addr, auth, from, []string{to}, msg)
+	}
+}
+
+// sendViaClient sends through an already-connected smtp.Client.
+func sendViaClient(c *smtp.Client, from, to string, msg []byte) error {
+	if err := c.Mail(from); err != nil {
+		return fmt.Errorf("smtp MAIL: %w", err)
+	}
+	if err := c.Rcpt(to); err != nil {
+		return fmt.Errorf("smtp RCPT: %w", err)
+	}
+	wc, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("smtp DATA: %w", err)
+	}
+	if _, err := wc.Write(msg); err != nil {
+		return fmt.Errorf("smtp write: %w", err)
+	}
+	return wc.Close()
+}
+
+// defaultGatewayIP attempts to determine the system default gateway IP.
+func defaultGatewayIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	addr := conn.LocalAddr().(*net.UDPAddr)
+	return addr.IP.String()
+}
+
+// globalIPv4 returns the first globally routable IPv4 address found.
+func globalIPv4() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() {
+				continue
+			}
+			if v4 := ip.To4(); v4 != nil {
+				return v4.String()
+			}
+		}
+	}
+	return ""
+}

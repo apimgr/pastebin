@@ -55,8 +55,12 @@ func WritePIDFile(pidPath string) error {
 		return fmt.Errorf("already running (pid %d)", existingPID)
 	}
 
+	perm := os.FileMode(0600)
+	if os.Geteuid() == 0 {
+		perm = 0644
+	}
 	pid := os.Getpid()
-	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0644)
+	return os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), perm)
 }
 
 // RemovePIDFile removes the PID file on graceful shutdown.

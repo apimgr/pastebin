@@ -24,15 +24,16 @@ type Config struct {
 
 // ServerConfig holds listener and runtime settings.
 type ServerConfig struct {
-	Port    string        `yaml:"port"`
-	Address string        `yaml:"address"`
-	FQDN    string        `yaml:"fqdn"`
-	Mode    string        `yaml:"mode"`
-	BaseURL string        `yaml:"base_url"` // override for URL generation
-	Metrics MetricsConfig `yaml:"metrics"`
-	GeoIP   GeoIPConfig   `yaml:"geoip"`
-	Tor     TorConfig     `yaml:"tor"`
-	Logging LoggingConfig `yaml:"logging"`
+	Port          string              `yaml:"port"`
+	Address       string              `yaml:"address"`
+	FQDN          string              `yaml:"fqdn"`
+	Mode          string              `yaml:"mode"`
+	BaseURL       string              `yaml:"base_url"` // override for URL generation
+	Metrics       MetricsConfig       `yaml:"metrics"`
+	GeoIP         GeoIPConfig         `yaml:"geoip"`
+	Tor           TorConfig           `yaml:"tor"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	Notifications NotificationsConfig `yaml:"notifications"`
 }
 
 // TorConfig configures the Tor hidden service and optional outbound network.
@@ -125,6 +126,39 @@ type WebConfig struct {
 	Security  SecurityConfig `yaml:"security"`
 }
 
+// NotificationsConfig holds email notification settings.
+type NotificationsConfig struct {
+	Email EmailConfig `yaml:"email"`
+}
+
+// EmailConfig holds SMTP and sender settings for outbound email.
+type EmailConfig struct {
+	Enabled     bool       `yaml:"enabled"`
+	SMTP        SMTPConfig `yaml:"smtp"`
+	From        EmailFrom  `yaml:"from"`
+	ReplyTo     string     `yaml:"reply_to"`
+	TemplateDir string     `yaml:"template_dir"` // custom override dir; empty = use embedded defaults
+}
+
+// SMTPConfig holds connection settings for the outbound SMTP server.
+type SMTPConfig struct {
+	// Host is the SMTP server hostname or IP. Empty = auto-detect on first run.
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`     // default 587
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	// TLS controls connection security: "auto", "starttls", "tls", "none"
+	TLS string `yaml:"tls"`
+}
+
+// EmailFrom holds sender identity fields.
+type EmailFrom struct {
+	// Name defaults to the site title when empty.
+	Name string `yaml:"name"`
+	// Email defaults to no-reply@{fqdn} when empty.
+	Email string `yaml:"email"`
+}
+
 // RobotsConfig sets robots.txt allow/deny lists.
 type RobotsConfig struct {
 	Allow []string `yaml:"allow"`
@@ -183,6 +217,16 @@ func DefaultConfig() *Config {
 			Logging: LoggingConfig{
 				AccessFormat: "apache",
 				Level:        "info",
+			},
+			Notifications: NotificationsConfig{
+				Email: EmailConfig{
+					Enabled: false,
+					SMTP: SMTPConfig{
+						Host: "",
+						Port: 587,
+						TLS:  "auto",
+					},
+				},
 			},
 		},
 		Database: DatabaseConfig{
@@ -263,6 +307,29 @@ func (c *Config) loadEnv() {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 			c.Paste.MaxSizeBytes = n
 		}
+	}
+	if v := os.Getenv("SMTP_HOST"); v != "" {
+		c.Server.Notifications.Email.SMTP.Host = v
+	}
+	if v := os.Getenv("SMTP_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Server.Notifications.Email.SMTP.Port = n
+		}
+	}
+	if v := os.Getenv("SMTP_USERNAME"); v != "" {
+		c.Server.Notifications.Email.SMTP.Username = v
+	}
+	if v := os.Getenv("SMTP_PASSWORD"); v != "" {
+		c.Server.Notifications.Email.SMTP.Password = v
+	}
+	if v := os.Getenv("SMTP_TLS"); v != "" {
+		c.Server.Notifications.Email.SMTP.TLS = v
+	}
+	if v := os.Getenv("SMTP_FROM_NAME"); v != "" {
+		c.Server.Notifications.Email.From.Name = v
+	}
+	if v := os.Getenv("SMTP_FROM_EMAIL"); v != "" {
+		c.Server.Notifications.Email.From.Email = v
 	}
 }
 

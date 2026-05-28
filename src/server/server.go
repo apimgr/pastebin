@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	crand "crypto/rand"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -320,6 +321,7 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.CleanPath)
+	r.Use(s.securityHeadersMiddleware)
 	r.Use(s.corsMiddleware)
 	r.Use(s.noTrailingSlash)
 	r.Use(s.countRequests)
@@ -512,6 +514,39 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// securityHeadersMiddleware sets all mandatory security response headers per PART 11.
+func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+
+		// Mandatory security headers (PART 11).
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("X-XSS-Protection", "1; mode=block")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("X-Permitted-Cross-Domain-Policies", "none")
+		h.Set("Origin-Agent-Cluster", "?1")
+
+		// Per-request ID — use existing if forwarded, otherwise generate.
+		reqID := r.Header.Get("X-Request-ID")
+		if reqID == "" {
+			reqID = newRequestID()
+		}
+		h.Set("X-Request-ID", reqID)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newRequestID generates a compact hex request ID from 8 random bytes.
+func newRequestID() string {
+	var b [8]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		return "00000000"
+	}
+	return fmt.Sprintf("%x", b)
 }
 
 func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
