@@ -112,7 +112,10 @@
     "status": "ステータス",
     "skip_to_content": "メインコンテンツへスキップ",
     "skip_to_navigation": "ナビゲーションへスキップ",
-    "main_navigation": "メインナビゲーション"
+    "main_navigation": "メインナビゲーション",
+    "api": "API",
+    "create": "作成",
+    "recent": "最近"
   },
   "health": {
     "title": "システム状態",
@@ -142,7 +145,22 @@
     "connected": "接続済み",
     "disconnected": "切断",
     "production": "本番",
-    "development": "開発"
+    "development": "開発",
+    "build_commit": "ビルドコミット",
+    "build_date": "ビルド日",
+    "cache": "キャッシュ",
+    "checks": "チェック",
+    "cluster_enabled": "クラスタ有効",
+    "cluster_single": "単一インスタンス",
+    "component": "コンポーネント",
+    "database": "データベース",
+    "disk": "ディスク",
+    "error": "エラー",
+    "geoip": "GeoIP",
+    "runtime": "ランタイム",
+    "syntax_hl": "シンタックスハイライト",
+    "timestamp": "タイムスタンプ",
+    "tor_hidden": "Tor 秘匿サービス"
   },
   "status_values": {
     "online": "オンライン",
@@ -287,22 +305,31 @@
   },
   "plurals": {
     "items": {
-      "other": "{count}件"
+      "other": "{count}件",
+      "one": "件",
+      "zero": "件"
     },
     "results": {
-      "other": "{count}件の結果"
+      "other": "{count}件の結果",
+      "one": "結果",
+      "zero": "結果"
     },
     "users": {
-      "other": "{count}人のユーザー"
+      "other": "{count}人のユーザー",
+      "one": "ユーザー",
+      "zero": "ユーザー"
     },
     "days": {
-      "other": "{count}日"
+      "other": "{count}日",
+      "one": "日"
     },
     "hours": {
-      "other": "{count}時間"
+      "other": "{count}時間",
+      "one": "時間"
     },
     "minutes": {
-      "other": "{count}分"
+      "other": "{count}分",
+      "one": "分"
     }
   },
   "swagger": {
@@ -427,5 +454,79 @@
     "loading": "読み込み中...",
     "item_saved": "アイテムが正常に保存されました",
     "search_results": "{count}件の検索結果が見つかりました"
+  },
+  "footer": {
+    "api_docs": "API ドキュメント",
+    "status": "ステータス"
+  },
+  "home": {
+    "browse_recent": "最近のペースト",
+    "create_paste": "ペースト作成",
+    "feature_api_desc": "自動化とツール連携のためのフル機能REST API。",
+    "feature_api_title": "REST API",
+    "feature_create_desc": "15以上の言語のシンタックスハイライト付きでコードやテキストを即座に共有。",
+    "feature_create_title": "ペースト作成",
+    "feature_recent_desc": "コミュニティが共有した最近の公開ペーストを閲覧。",
+    "feature_recent_title": "最近のペースト",
+    "features_desc": "コード共有に必要なすべて",
+    "features_title": "機能",
+    "quickstart_desc": "コマンドラインからペーストをアップロード",
+    "quickstart_title": "クイックスタート"
+  },
+  "paste": {
+    "burn_after_label": "閲覧後に削除 (0=オフ)",
+    "cancel": "キャンセル",
+    "content_label": "内容",
+    "content_placeholder": "ここにコードまたはテキストを貼り付け...",
+    "copy": "コピー",
+    "copy_code": "コードをコピー",
+    "create_btn": "ペースト作成",
+    "create_desc": "シンタックスハイライト付きでコードやテキストを共有",
+    "create_new": "新規ペースト作成",
+    "create_new_paste": "新規ペースト作成",
+    "created": "作成:",
+    "delete_btn": "ペーストを削除",
+    "delete_desc": "削除トークンを入力してペーストを完全に削除します。",
+    "delete_title": "ペーストを削除",
+    "delete_token_hint": "これはペースト作成時に受け取ったトークンです。この操作は取り消せません。",
+    "delete_token_label": "削除トークン",
+    "delete_token_placeholder": "削除トークンをここに貼り付け",
+    "deleted_title": "ペースト削除完了",
+    "embed": "埋め込み",
+    "expires_label": "期限",
+    "expiry_1d": "1日",
+    "expiry_1h": "1時間",
+    "expiry_1m": "1ヶ月",
+    "expiry_1w": "1週間",
+    "expiry_1y": "1年",
+    "expiry_2y": "2年",
+    "expiry_3m": "3ヶ月",
+    "expiry_6m": "6ヶ月",
+    "expiry_never": "なし",
+    "go_home": "ホームへ",
+    "language_label": "言語",
+    "qr": "QR",
+    "raw": "Raw",
+    "title_optional": "タイトル (任意)",
+    "views": "閲覧",
+    "visibility_label": "公開範囲",
+    "visibility_public": "公開 (一覧表示)",
+    "visibility_unlisted": "非公開 (リンクのみ)"
+  },
+  "qr": {
+    "download_qr": "QRをダウンロード",
+    "title": "QRコード",
+    "view_paste": "ペーストを表示"
+  },
+  "recent": {
+    "create_paste": "ペースト作成",
+    "description": "コミュニティが共有した最近の公開ペーストを閲覧",
+    "empty_desc": "最初のペーストを作成しましょう!",
+    "empty_title": "まだペーストがありません",
+    "loading": "ペーストを読み込み中...",
+    "next": "次へ",
+    "previous": "前へ",
+    "title": "最近のペースト",
+    "views": "閲覧"
   }
 }
