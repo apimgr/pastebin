@@ -24,6 +24,7 @@ import (
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/ssl"
 	"github.com/apimgr/pastebin/src/swagger"
 	"github.com/apimgr/pastebin/src/tor"
 	"github.com/go-chi/chi/v5"
@@ -152,6 +153,7 @@ type Server struct {
 	version          string
 	commitID         string
 	buildDate        string
+	configDir        string
 	startTime        time.Time
 	stats            requestStats
 }
@@ -175,6 +177,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		version:   version,
 		commitID:  commitID,
 		buildDate: buildDate,
+		configDir: configDir,
 		startTime: time.Now(),
 	}
 	s.stats.lastHour = time.Now().Hour()
@@ -516,18 +519,166 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// permissionsPolicy is the default Permissions-Policy header value built from
+// the PART 11 spec defaults at package init time.
+var permissionsPolicy = strings.Join([]string{
+	"accelerometer=()", "ambient-light-sensor=()", "battery=()", "camera=()",
+	"display-capture=()", "geolocation=()", "gyroscope=()", "hid=()",
+	"idle-detection=()", "magnetometer=()", "microphone=()", "midi=()",
+	"screen-wake-lock=()", "serial=()", "usb=()", "xr-spatial-tracking=()",
+	"attribution-reporting=()", "browsing-topics=()", "interest-cohort=()",
+	"autoplay=(self)", "encrypted-media=(self)", "fullscreen=(self)",
+	"payment=(self)", "picture-in-picture=(self)",
+	"publickey-credentials-get=(self)", "storage-access=(self)", "web-share=(self)",
+}, ", ")
+
+// buildCSP returns the Content-Security-Policy header value for a request,
+// using the server config's CSP settings.  When TLS is off, upgrade-insecure-requests
+// is omitted.  In development mode, report-only mode is used.
+func (s *Server) buildCSP(r *http.Request) (header string, reportOnly bool) {
+	cfg := s.liveCfg()
+	if !cfg.Web.CSP.Enabled {
+		return "", false
+	}
+
+	fqdn := cfg.Server.FQDN
+	apiVer := "v1"
+	reportURI := "/api/" + apiVer + "/server/reports/csp"
+
+	csp := cfg.Web.CSP
+	scriptSrc := "'self' 'unsafe-inline'"
+	if csp.ScriptSrcOverride != "" {
+		scriptSrc = csp.ScriptSrcOverride
+	} else if csp.ScriptSrcExtra != "" {
+		scriptSrc += " " + csp.ScriptSrcExtra
+	}
+	styleSrc := "'self' 'unsafe-inline'"
+	if csp.StyleSrcExtra != "" {
+		styleSrc += " " + csp.StyleSrcExtra
+	}
+	imgSrc := "'self' data: blob: https:"
+	if csp.ImgSrcExtra != "" {
+		imgSrc += " " + csp.ImgSrcExtra
+	}
+	fontSrc := "'self' https:"
+	if csp.FontSrcExtra != "" {
+		fontSrc += " " + csp.FontSrcExtra
+	}
+	connectSrc := "'self'"
+	if fqdn != "" && fqdn != "localhost" {
+		connectSrc += " https://" + fqdn
+	}
+	if csp.ConnectSrcExtra != "" {
+		connectSrc += " " + csp.ConnectSrcExtra
+	}
+	frameSrc := "'self'"
+	if csp.FrameSrcExtra != "" {
+		frameSrc += " " + csp.FrameSrcExtra
+	}
+	formAction := "'self'"
+	if csp.FormActionExtra != "" {
+		formAction += " " + csp.FormActionExtra
+	}
+
+	directives := []string{
+		"default-src 'self'",
+		"script-src " + scriptSrc,
+		"style-src " + styleSrc,
+		"img-src " + imgSrc,
+		"font-src " + fontSrc,
+		"connect-src " + connectSrc,
+		"media-src 'self' blob:",
+		"worker-src 'self' blob:",
+		"manifest-src 'self'",
+		"frame-src " + frameSrc,
+		"frame-ancestors 'self'",
+		"base-uri 'self'",
+		"form-action " + formAction,
+		"object-src 'none'",
+	}
+
+	// Only include upgrade-insecure-requests when TLS is enabled.
+	if cfg.Server.TLS.Enabled {
+		directives = append(directives, "upgrade-insecure-requests")
+	}
+
+	directives = append(directives,
+		"report-to default",
+		"report-uri "+reportURI,
+	)
+
+	policy := strings.Join(directives, "; ")
+	isReportOnly := csp.Mode == "report-only" || cfg.Server.Mode == "development"
+	return policy, isReportOnly
+}
+
+// buildReportingHeaders returns the Reporting-Endpoints, Report-To, and NEL header values.
+func (s *Server) buildReportingHeaders() (endpoints, reportTo, nel string) {
+	cfg := s.liveCfg()
+	fqdn := cfg.Server.FQDN
+	if fqdn == "" || fqdn == "localhost" || !cfg.Server.TLS.Enabled {
+		return "", "", ""
+	}
+	apiVer := "v1"
+	base := "https://" + fqdn + "/api/" + apiVer + "/server/reports"
+	endpoints = `default="` + base + `/default"`
+	reportTo = `{"group":"default","max_age":10886400,"endpoints":[{"url":"` + base + `/default"}]}`
+	nel = `{"report_to":"default","max_age":2592000,"include_subdomains":true}`
+	return endpoints, reportTo, nel
+}
+
 // securityHeadersMiddleware sets all mandatory security response headers per PART 11.
 func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.liveCfg()
 		h := w.Header()
 
-		// Mandatory security headers (PART 11).
+		// Mandatory legacy security headers (PART 11).
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("X-XSS-Protection", "1; mode=block")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("X-Permitted-Cross-Domain-Policies", "none")
 		h.Set("Origin-Agent-Cluster", "?1")
+
+		// Cross-origin isolation headers — defaults keep broad compatibility (PART 11).
+		h.Set("Cross-Origin-Opener-Policy", "unsafe-none")
+		h.Set("Cross-Origin-Embedder-Policy", "unsafe-none")
+		h.Set("Cross-Origin-Resource-Policy", "cross-origin")
+
+		// Content-Security-Policy.
+		if policy, reportOnly := s.buildCSP(r); policy != "" {
+			if reportOnly {
+				h.Set("Content-Security-Policy-Report-Only", policy)
+			} else {
+				h.Set("Content-Security-Policy", policy)
+			}
+		}
+
+		// Permissions-Policy.
+		h.Set("Permissions-Policy", permissionsPolicy)
+
+		// Strict-Transport-Security — only when TLS is active (RFC 6797).
+		if cfg.Server.TLS.Enabled {
+			hsts := cfg.Web.HSTS
+			if hsts.Enabled {
+				hstsVal := fmt.Sprintf("max-age=%d", hsts.MaxAgeSeconds)
+				if hsts.IncludeSubdomains {
+					hstsVal += "; includeSubDomains"
+				}
+				if hsts.Preload {
+					hstsVal += "; preload"
+				}
+				h.Set("Strict-Transport-Security", hstsVal)
+			}
+		}
+
+		// Reporting API (modern + legacy NEL) — only when TLS is enabled.
+		if endpoints, reportTo, nel := s.buildReportingHeaders(); endpoints != "" {
+			h.Set("Reporting-Endpoints", endpoints)
+			h.Set("Report-To", reportTo)
+			h.Set("NEL", nel)
+		}
 
 		// Per-request ID — use existing if forwarded, otherwise generate.
 		reqID := r.Header.Get("X-Request-ID")
@@ -577,6 +728,8 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		}
 		defer s.torManager.Close()
 	}
+
+	cfg := s.liveCfg()
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.router,
@@ -586,6 +739,50 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	}
 
 	errCh := make(chan error, 1)
+
+	// When TLS is configured, set up SSL manager and serve HTTPS.
+	if cfg.Server.TLS.Enabled {
+		fqdn := cfg.Server.FQDN
+		sslMgr := ssl.NewManager(ssl.Config{
+			Enabled: true,
+			CertDir: s.configDir + "/ssl",
+			FQDN:    fqdn,
+			LetsEncrypt: ssl.LetsEncryptConfig{
+				Enabled:         true,
+				Email:           cfg.Server.TLS.Email,
+				Challenge:       ssl.ParseChallenge(cfg.Server.TLS.Challenge),
+				DNSProviderType: cfg.Server.TLS.DNSProvider,
+				Staging:         cfg.Server.TLS.Staging,
+			},
+		})
+
+		domains := []string{fqdn}
+		tlsCfg, err := sslMgr.GetTLSConfig(domains)
+		if err != nil {
+			log.Printf("ssl: TLS setup failed: %v — falling back to HTTP", err)
+			// Fall through to plain HTTP so the server still starts.
+		} else if tlsCfg != nil {
+			srv.TLSConfig = tlsCfg
+			// Wrap the router so autocert HTTP-01 challenges are handled on port 80.
+			srv.Handler = sslMgr.GetHTTPHandler(s.router)
+			go func() {
+				if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+					errCh <- err
+				}
+			}()
+
+			select {
+			case <-ctx.Done():
+				shut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				return srv.Shutdown(shut)
+			case err := <-errCh:
+				return err
+			}
+		}
+	}
+
+	// Plain HTTP (no TLS, or TLS setup failed).
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err

@@ -1,6 +1,8 @@
 package config
 
 import (
+	crand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -34,6 +36,7 @@ type ServerConfig struct {
 	Tor           TorConfig           `yaml:"tor"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Notifications NotificationsConfig `yaml:"notifications"`
+	TLS           TLSConfig           `yaml:"tls"`
 }
 
 // TorConfig configures the Tor hidden service and optional outbound network.
@@ -120,10 +123,12 @@ type RateLimitConfig struct {
 
 // WebConfig holds web-UI settings.
 type WebConfig struct {
-	SiteTitle string    `yaml:"site_title"`
-	Theme     string    `yaml:"theme"` // "dark" | "light" | "auto"
-	Robots    RobotsConfig `yaml:"robots"`
+	SiteTitle string         `yaml:"site_title"`
+	Theme     string         `yaml:"theme"` // "dark" | "light" | "auto"
+	Robots    RobotsConfig   `yaml:"robots"`
 	Security  SecurityConfig `yaml:"security"`
+	HSTS      HSTSConfig     `yaml:"hsts"`
+	CSP       CSPConfig      `yaml:"csp"`
 }
 
 // NotificationsConfig holds email notification settings.
@@ -165,10 +170,49 @@ type RobotsConfig struct {
 	Deny  []string `yaml:"deny"`
 }
 
-// SecurityConfig holds security.txt contact info.
+// SecurityConfig holds security.txt contact info and server-wide encryption keys.
 type SecurityConfig struct {
 	Contact string `yaml:"contact"`
 	CORS    string `yaml:"cors"`
+	// EncryptionKey is the 32-byte AES-256-GCM key (hex-encoded) used for at-rest
+	// encryption of sensitive server data (DNS credentials, security reports, etc.).
+	// Auto-generated on first run; stored in server.yml; included in every backup.
+	EncryptionKey string `yaml:"encryption_key"`
+}
+
+// TLSConfig holds Let's Encrypt and manual certificate settings (PART 15).
+type TLSConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Email   string `yaml:"email"`    // ACME account email for expiry notices
+	// Challenge selects the ACME challenge type: http-01, tls-alpn-01, dns-01.
+	Challenge   string `yaml:"challenge"`
+	DNSProvider string `yaml:"dns_provider"` // dns-01: provider name (e.g. cloudflare, rfc2136)
+	// DNSCredentialsEncrypted stores AES-256-GCM encrypted JSON of provider credentials.
+	// Encrypted using web.security.encryption_key. Never store plaintext credentials here.
+	DNSCredentialsEncrypted string `yaml:"dns_credentials_encrypted"`
+	Staging                 bool   `yaml:"staging"` // use LE staging CA (for testing)
+}
+
+// HSTSConfig controls Strict-Transport-Security emission.
+type HSTSConfig struct {
+	Enabled           bool  `yaml:"enabled"`
+	MaxAgeSeconds     int64 `yaml:"max_age_seconds"`   // default 63072000 (2 years)
+	IncludeSubdomains bool  `yaml:"include_subdomains"` // default true
+	Preload           bool  `yaml:"preload"`            // default true
+}
+
+// CSPConfig controls Content-Security-Policy emission.
+type CSPConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	Mode             string `yaml:"mode"`               // enforce | report-only
+	ScriptSrcExtra   string `yaml:"script_src_extra"`
+	StyleSrcExtra    string `yaml:"style_src_extra"`
+	ImgSrcExtra      string `yaml:"img_src_extra"`
+	FontSrcExtra     string `yaml:"font_src_extra"`
+	ConnectSrcExtra  string `yaml:"connect_src_extra"`
+	FrameSrcExtra    string `yaml:"frame_src_extra"`
+	FormActionExtra  string `yaml:"form_action_extra"`
+	ScriptSrcOverride string `yaml:"script_src_override"`
 }
 
 // DefaultConfig returns a config with sensible defaults.
@@ -254,14 +298,27 @@ func DefaultConfig() *Config {
 				Deny:  []string{},
 			},
 			Security: SecurityConfig{
-				Contact: "mailto:admin@example.com",
-				CORS:    "*",
+				Contact:       "mailto:admin@example.com",
+				CORS:          "*",
+				EncryptionKey: "", // auto-generated on first run
+			},
+			HSTS: HSTSConfig{
+				Enabled:           true,
+				MaxAgeSeconds:     63072000, // 2 years (preload-list eligible)
+				IncludeSubdomains: true,
+				Preload:           true,
+			},
+			CSP: CSPConfig{
+				Enabled: true,
+				Mode:    "enforce",
 			},
 		},
 	}
 }
 
 // Load reads config from path, creating it with defaults if absent.
+// On first run (or when encryption_key is empty) an AES-256-GCM key is
+// auto-generated and persisted to server.yml immediately.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
 	cfg.loadEnv()
@@ -269,6 +326,9 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if genErr := cfg.ensureEncryptionKey(); genErr != nil {
+				log.Printf("config: warning: could not generate encryption key: %v", genErr)
+			}
 			_ = Save(path, cfg)
 			return cfg, nil
 		}
@@ -281,7 +341,48 @@ func Load(path string) (*Config, error) {
 
 	// Env always wins over file.
 	cfg.loadEnv()
+
+	// Generate and persist encryption key if missing (upgrade path for older configs).
+	if cfg.Web.Security.EncryptionKey == "" {
+		if genErr := cfg.ensureEncryptionKey(); genErr != nil {
+			log.Printf("config: warning: could not generate encryption key: %v", genErr)
+		} else {
+			_ = Save(path, cfg)
+		}
+	}
+
 	return cfg, nil
+}
+
+// ensureEncryptionKey generates a 32-byte AES-256-GCM key and stores it
+// hex-encoded in Web.Security.EncryptionKey. Idempotent — no-ops if already set.
+func (c *Config) ensureEncryptionKey() error {
+	if c.Web.Security.EncryptionKey != "" {
+		return nil
+	}
+	var key [32]byte
+	if _, err := crand.Read(key[:]); err != nil {
+		return err
+	}
+	c.Web.Security.EncryptionKey = fmt.Sprintf("%x", key)
+	return nil
+}
+
+// EncryptionKey returns the decoded 32-byte AES-256-GCM key, or an error if
+// the key is absent or malformed.
+func (c *Config) EncryptionKey() ([]byte, error) {
+	s := c.Web.Security.EncryptionKey
+	if s == "" {
+		return nil, fmt.Errorf("encryption_key not configured")
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("encryption_key is not valid hex: %w", err)
+	}
+	if len(b) != 32 {
+		return nil, fmt.Errorf("encryption_key must be 32 bytes (got %d)", len(b))
+	}
+	return b, nil
 }
 
 func (c *Config) loadEnv() {
