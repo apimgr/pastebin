@@ -10,8 +10,13 @@ import (
 )
 
 const (
-	appName = "pastebin"
-	orgName = "apimgr"
+	appName     = "pastebin"
+	orgName     = "apimgr"
+	serviceUser = "pastebin"
+	// launchdLabel is the reverse-DNS identifier for the macOS launchd plist.
+	launchdLabel = "io." + orgName + "." + appName
+	// serviceUID is the numeric UID/GID for the service user (must be 200-899).
+	serviceUID = 300
 )
 
 // ok returns "✅ " when color/emoji output is enabled, or "[ok] " when NO_COLOR is set.
@@ -116,36 +121,38 @@ func GetBinaryPath() string {
 	}
 }
 
-// installSystemd creates systemd service file
+// installSystemd creates the systemd service file (PART 24 compliant).
+// The binary starts as root, binds ports, then drops privileges to the service
+// user itself — no User= directive needed in the unit file.
 func installSystemd() error {
 	binaryPath := GetBinaryPath()
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Pastebin API Server
-Documentation=https://pastebin.apimgr.us
+Documentation=https://apimgr.github.io/pastebin
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-Group=root
 ExecStart=%s
-ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-RestartSec=5s
-LimitNOFILE=65535
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
-# Security hardening
-NoNewPrivileges=true
+# Security hardening (binary drops privileges after port binding)
 ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-ReadWritePaths=/var/lib/%s/%s /var/log/%s/%s /etc/%s/%s
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/%s/%s
+ReadWritePaths=/var/lib/%s/%s
+ReadWritePaths=/var/cache/%s/%s
+ReadWritePaths=/var/log/%s/%s
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath, orgName, appName, orgName, appName, orgName, appName)
+`, binaryPath, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
@@ -279,14 +286,14 @@ func uninstallRunit() error {
 // installLaunchd creates macOS launchd plist
 func installLaunchd() error {
 	binaryPath := GetBinaryPath()
-	plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+	plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
 
 	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.%s.%s</string>
+    <string>%s</string>
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
@@ -295,18 +302,18 @@ func installLaunchd() error {
     <true/>
     <key>KeepAlive</key>
     <true/>
-    <key>StandardErrorPath</key>
-    <string>/Library/Logs/%s/%s/error.log</string>
     <key>StandardOutPath</key>
-    <string>/Library/Logs/%s/%s/output.log</string>
+    <string>/var/log/%s/%s/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/%s/%s/stderr.log</string>
 </dict>
 </plist>
-`, orgName, appName, binaryPath, orgName, appName, orgName, appName)
+`, launchdLabel, binaryPath, orgName, appName, orgName, appName)
 
 	// Create directories
 	dirs := []string{
 		fmt.Sprintf("/Library/Application Support/%s/%s", orgName, appName),
-		fmt.Sprintf("/Library/Logs/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -336,7 +343,7 @@ func installLaunchd() error {
 
 // uninstallLaunchd removes macOS launchd plist
 func uninstallLaunchd() error {
-	plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+	plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
 
 	// Unload if running
 	exec.Command("launchctl", "unload", plistPath).Run()
@@ -367,7 +374,7 @@ func installWindows() error {
 	}
 
 	// Create service using sc.exe
-	displayName := strings.Title(appName) + " API"
+	displayName := strings.ToUpper(appName[:1]) + appName[1:] + " API"
 	cmd := exec.Command("sc.exe", "create", appName,
 		"binPath=", binaryPath,
 		"DisplayName=", displayName,
@@ -491,7 +498,7 @@ func Start() error {
 	case ServiceRunit:
 		return exec.Command("sv", "start", appName).Run()
 	case ServiceLaunchd:
-		plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
 		return exec.Command("launchctl", "load", plistPath).Run()
 	case ServiceWindows:
 		return exec.Command("sc.exe", "start", appName).Run()
@@ -512,7 +519,7 @@ func Stop() error {
 	case ServiceRunit:
 		return exec.Command("sv", "stop", appName).Run()
 	case ServiceLaunchd:
-		plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
 		return exec.Command("launchctl", "unload", plistPath).Run()
 	case ServiceWindows:
 		return exec.Command("sc.exe", "stop", appName).Run()
@@ -578,9 +585,9 @@ func Disable() error {
 		_ = svDir
 		return nil
 	case ServiceLaunchd:
-		plistPath := fmt.Sprintf("/Library/LaunchDaemons/com.%s.%s.plist", orgName, appName)
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
 		exec.Command("launchctl", "unload", plistPath).Run()
-		return exec.Command("launchctl", "disable", fmt.Sprintf("system/com.%s.%s", orgName, appName)).Run()
+		return exec.Command("launchctl", "disable", fmt.Sprintf("system/%s", launchdLabel)).Run()
 	case ServiceWindows:
 		exec.Command("sc.exe", "stop", appName).Run()
 		return exec.Command("sc.exe", "config", appName, "start=", "disabled").Run()
