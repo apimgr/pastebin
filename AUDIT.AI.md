@@ -71,6 +71,34 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - `man/pastebin.1` — NOT required by spec; removed from open list.
 - LICENSE.md third-party attributions: spec PART 2 table covers all go.mod deps — resolved in prior pass.
 
+## Pass 7: PART 15 (SSL/TLS) — RESOLVED
+
+- [x] `src/ssl/ssl.go` completely rewritten: implements exact 4-path cert lookup order from PART 15 (system certbot literal, system certbot FQDN, app-managed LE, user-provided local)
+- [x] `validateCertFile`: PEM decode loop, expiry check, `x509.VerifyHostname`
+- [x] `getLetsEncryptTLSConfig`: autocert with DirCache at `{cert_dir}/letsencrypt/{fqdn}/`; staging CA via `acme.Client{DirectoryURL: LetsEncryptStagingURL}`
+- [x] `ParseChallenge`: normalises http-01/tls-alpn-01/dns-01 variants
+- [x] `server.go` Run(): ssl.Manager wired when TLS enabled; falls through to HTTP on error
+
+## Pass 8: PART 23/24 (Service) — RESOLVED
+
+- [x] `src/service/service.go`: systemd unit follows PART 24 template exactly — no User=/Group= (binary drops privileges), StandardOutput/StandardError=journal, ProtectHome=yes, PrivateTmp=yes, 4 ReadWritePaths including /var/cache, correct RestartSec=5
+- [x] All launchd paths updated to `io.apimgr.pastebin` (launchdLabel constant) — Start, Stop, Disable, installLaunchd, uninstallLaunchd
+- [x] launchd log paths: `/var/log/apimgr/pastebin/stdout.log` + `stderr.log` per PART 24
+- [x] `strings.Title` deprecation fixed: `strings.ToUpper(appName[:1]) + appName[1:]`
+- [x] PART 23 compliance: service install does NOT create service user (binary handles on startup per spec)
+- [x] serviceUser, launchdLabel (io.apimgr.pastebin), serviceUID=300 constants documented
+
+## Pass 9: PART 11 App Secrets + Sec-Fetch Validation — RESOLVED
+
+- [x] `database/database.go`: `app_secrets` table (CREATE TABLE IF NOT EXISTS); `EnsureAppSecret(key)` method generates 32 crypto/rand bytes on first call, stores base64-encoded, race-safe
+- [x] `server.go New()`: initialises `installation_secret`, `cookie_signing_key`, `csrf_token_secret` at startup before any request
+- [x] `secFetchMiddleware`: rejects Sec-Fetch-Site=cross-site on POST/PUT/PATCH/DELETE when no Bearer; rejects Sec-Fetch-Mode=navigate on /api/*; absence = pass-through (legacy compat); gated by `web.headers.sec_fetch_validation` (default: true)
+- [x] `config/config.go`: `HeadersConfig{SecFetchValidation}`, `CSRFConfig{Enabled, TokenLength, CookieName, HeaderName, Secure, ExemptPaths}` added to WebConfig with spec defaults
+- [ ] CSRF token validation middleware — deferred until session/auth surface is implemented (no cookie auth exists yet)
+
 ## Completed (this pass)
 
 - All 6 non-English locales brought to full key parity with `en.json`; build verified inside `golang:alpine` with `CGO_ENABLED=0`.
+- PART 15 SSL/TLS cert lookup and ACME autocert implementation
+- PART 23/24 service.go compliance: systemd unit, launchd label/paths, privilege-drop pattern
+- PART 11: app_secrets table + generation, Sec-Fetch middleware, CSRF config structs
