@@ -129,6 +129,35 @@ type WebConfig struct {
 	Security  SecurityConfig `yaml:"security"`
 	HSTS      HSTSConfig     `yaml:"hsts"`
 	CSP       CSPConfig      `yaml:"csp"`
+	// Headers controls which advanced security headers are emitted.
+	Headers HeadersConfig `yaml:"headers"`
+	// CSRF controls double-submit cookie CSRF protection (PART 16).
+	CSRF CSRFConfig `yaml:"csrf"`
+}
+
+// HeadersConfig controls which advanced security headers the server emits (PART 11).
+type HeadersConfig struct {
+	// SecFetchValidation rejects cross-site state-changing requests when
+	// Sec-Fetch-Site: cross-site is present and no Bearer token is provided.
+	// Absence of the header is treated as pass-through for legacy-browser compat.
+	SecFetchValidation bool `yaml:"sec_fetch_validation"`
+}
+
+// CSRFConfig controls CSRF double-submit cookie protection (PART 16).
+// CSRF only applies to cookie-authenticated browser forms; Bearer/API-token
+// requests and public endpoints are always exempt.
+type CSRFConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// TokenLength is the CSRF token size in bytes. Default: 32.
+	TokenLength int    `yaml:"token_length"`
+	CookieName  string `yaml:"cookie_name"`
+	HeaderName  string `yaml:"header_name"`
+	// Secure controls the Secure cookie flag: "auto" | "true" | "false".
+	// "auto" sets Secure when the request was received over HTTPS.
+	Secure string `yaml:"secure"`
+	// ExemptPaths lists paths that bypass CSRF validation.
+	// Glob patterns are supported (e.g., /api/v1/webhooks/*).
+	ExemptPaths []string `yaml:"exempt_paths"`
 }
 
 // NotificationsConfig holds email notification settings.
@@ -311,6 +340,17 @@ func DefaultConfig() *Config {
 			CSP: CSPConfig{
 				Enabled: true,
 				Mode:    "enforce",
+			},
+			Headers: HeadersConfig{
+				SecFetchValidation: true,
+			},
+			CSRF: CSRFConfig{
+				Enabled:     true,
+				TokenLength: 32,
+				CookieName:  "csrf_token",
+				HeaderName:  "X-CSRF-Token",
+				Secure:      "auto",
+				ExemptPaths: []string{},
 			},
 		},
 	}

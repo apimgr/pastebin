@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	crand "crypto/rand"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,6 +62,11 @@ type DB interface {
 	ListSchedulerTasks() ([]*TaskState, error)
 	UpdateTaskRun(taskID string, lastRun time.Time, status, lastError string, runCount, failCount int64, nextRun time.Time) error
 	RecordTaskHistory(h *TaskHistory) error
+
+	// App secrets — server-wide HMAC / signing keys stored in the DB (PART 11).
+	// EnsureAppSecret returns the raw bytes for key, generating 32 random bytes on
+	// first call. The value is stored base64-encoded and never returned in API responses.
+	EnsureAppSecret(key string) ([]byte, error)
 }
 
 // SQLiteDB implements DB for SQLite.
@@ -139,6 +146,16 @@ func ensureSchema(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sched_history_task ON scheduler_history(task_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sched_history_started ON scheduler_history(started_at)`,
+
+		// App-level server secrets (PART 11): installation_secret, cookie_signing_key,
+		// csrf_token_secret. 32 bytes each, stored base64-encoded. Never returned
+		// in any API response; always included in backups.
+		`CREATE TABLE IF NOT EXISTS app_secrets (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 
 	// Schema updates — idempotent; ignore "already exists" errors.
@@ -432,6 +449,57 @@ func (s *SQLiteDB) RecordTaskHistory(h *TaskHistory) error {
 		h.TaskID, h.StartedAt, h.FinishedAt, h.Status, h.ErrorMsg, h.DurationMS,
 	)
 	return err
+}
+
+// ── App secrets (PART 11) ────────────────────────────────────────────────────
+
+// EnsureAppSecret returns the raw bytes for key.
+// On first call for a given key, 32 random bytes are generated, stored
+// base64-encoded in app_secrets, and returned. On subsequent calls the stored
+// value is decoded and returned unchanged.
+func (s *SQLiteDB) EnsureAppSecret(key string) ([]byte, error) {
+	// Attempt to fetch existing value.
+	var encoded string
+	err := s.db.QueryRow(
+		`SELECT value FROM app_secrets WHERE key = ?`, key,
+	).Scan(&encoded)
+	if err == nil {
+		raw, decErr := base64.StdEncoding.DecodeString(encoded)
+		if decErr != nil {
+			return nil, fmt.Errorf("app_secrets: decode %q: %w", key, decErr)
+		}
+		return raw, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("app_secrets: query %q: %w", key, err)
+	}
+
+	// Not found — generate 32 random bytes.
+	var buf [32]byte
+	if _, err := crand.Read(buf[:]); err != nil {
+		return nil, fmt.Errorf("app_secrets: generate %q: %w", key, err)
+	}
+	encoded = base64.StdEncoding.EncodeToString(buf[:])
+	now := time.Now()
+	_, err = s.db.Exec(
+		`INSERT INTO app_secrets (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+		key, encoded, now, now,
+	)
+	if err != nil {
+		// Race: another goroutine may have inserted simultaneously.
+		var existing string
+		if qErr := s.db.QueryRow(
+			`SELECT value FROM app_secrets WHERE key = ?`, key,
+		).Scan(&existing); qErr == nil {
+			raw, decErr := base64.StdEncoding.DecodeString(existing)
+			if decErr != nil {
+				return nil, fmt.Errorf("app_secrets: decode %q after race: %w", key, decErr)
+			}
+			return raw, nil
+		}
+		return nil, fmt.Errorf("app_secrets: insert %q: %w", key, err)
+	}
+	return buf[:], nil
 }
 
 // scanTaskState scans a row into a TaskState.

@@ -255,6 +255,14 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	}
 	s.templates = tmpl
 
+	// Ensure all project-level secrets exist in the DB (PART 11).
+	// These are generated on first start and never returned in API responses.
+	for _, secretKey := range []string{"installation_secret", "cookie_signing_key", "csrf_token_secret"} {
+		if _, err := db.EnsureAppSecret(secretKey); err != nil {
+			log.Printf("warning: could not initialize app secret %q: %v", secretKey, err)
+		}
+	}
+
 	s.setupRoutes()
 	return s
 }
@@ -325,6 +333,7 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.CleanPath)
 	r.Use(s.securityHeadersMiddleware)
+	r.Use(s.secFetchMiddleware)
 	r.Use(s.corsMiddleware)
 	r.Use(s.noTrailingSlash)
 	r.Use(s.countRequests)
@@ -698,6 +707,61 @@ func newRequestID() string {
 		return "00000000"
 	}
 	return fmt.Sprintf("%x", b)
+}
+
+// secFetchMiddleware rejects cross-site state-changing requests per PART 11.
+// Validation rules (when sec_fetch_validation=true):
+//   - Reject POST/PUT/PATCH/DELETE where Sec-Fetch-Site: cross-site AND no Bearer/API token.
+//   - Reject GET/HEAD to /api/* where Sec-Fetch-Mode: navigate (unintended top-level nav).
+//   - Absence of Sec-Fetch-* is treated as pass-through (legacy-browser compat).
+func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.liveCfg()
+		if !cfg.Web.Headers.SecFetchValidation {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check Sec-Fetch-Site: cross-site on state-changing methods.
+		fetchSite := r.Header.Get("Sec-Fetch-Site")
+		if fetchSite == "cross-site" {
+			switch r.Method {
+			case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+				// Allow if Bearer or API-token auth is present — Bearer is not auto-attached
+				// by browsers, so no CSRF risk.
+				if r.Header.Get("Authorization") == "" && r.Header.Get("X-API-Token") == "" {
+					// Check CSRF exempt paths.
+					if !isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) {
+						http.Error(w, `{"ok":false,"error":"SEC_FETCH_BLOCKED","message":"cross-site state-changing request blocked"}`, http.StatusForbidden)
+						return
+					}
+				}
+			}
+		}
+
+		// Reject API endpoints navigated to directly (Sec-Fetch-Mode: navigate on /api/*).
+		if r.Header.Get("Sec-Fetch-Mode") == "navigate" && strings.HasPrefix(r.URL.Path, "/api/") {
+			http.Error(w, `{"ok":false,"error":"SEC_FETCH_BLOCKED","message":"direct navigation to API endpoint blocked"}`, http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isCSRFExempt reports whether path matches any of the exempt glob patterns.
+// Only simple prefix and wildcard-suffix patterns are supported (e.g., /foo/*, /foo/bar).
+func isCSRFExempt(path string, patterns []string) bool {
+	for _, p := range patterns {
+		if strings.HasSuffix(p, "/*") {
+			if strings.HasPrefix(path, strings.TrimSuffix(p, "/*")+"/") || path == strings.TrimSuffix(p, "/*") {
+				return true
+			}
+		} else if p == path {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
