@@ -782,6 +782,69 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// reservedSlugs is the set of names that must not resolve to paste IDs (PART 16).
+// These are system routes, common paths, and technical endpoints.
+var reservedSlugs = map[string]struct{}{
+	"api":           {},
+	"server":        {},
+	"static":        {},
+	"assets":        {},
+	"healthz":       {},
+	"metrics":       {},
+	"webhook":       {},
+	"webhooks":      {},
+	"search":        {},
+	"explore":       {},
+	"discover":      {},
+	"trending":      {},
+	"help":          {},
+	"support":       {},
+	"docs":          {},
+	"documentation": {},
+	"about":         {},
+	"contact":       {},
+	"terms":         {},
+	"privacy":       {},
+	"legal":         {},
+	"security":      {},
+	"graphql":       {},
+	"swagger":       {},
+	"rest":          {},
+	"rpc":           {},
+	"ws":            {},
+	"websocket":     {},
+	"cdn":           {},
+	"media":         {},
+	"uploads":       {},
+	"files":         {},
+	"images":        {},
+	"robots.txt":    {},
+	"sitemap.xml":   {},
+	"favicon.ico":   {},
+	".well-known":   {},
+	"raw":           {},
+	"dl":            {},
+	"download":      {},
+	"file":          {},
+	"r":             {},
+	"emb":           {},
+	"qr":            {},
+	"remove":        {},
+	"upload":        {},
+	"p":             {},
+	"u":             {},
+	"url":           {},
+	"auth":          {},
+	"recent":        {},
+}
+
+// isReservedSlug reports whether id is a reserved system name and must not
+// be treated as a paste identifier.
+func isReservedSlug(id string) bool {
+	_, ok := reservedSlugs[strings.ToLower(id)]
+	return ok
+}
+
 // isCSRFExempt reports whether path matches any of the exempt glob patterns.
 // Only simple prefix and wildcard-suffix patterns are supported (e.g., /foo/*, /foo/bar).
 func isCSRFExempt(path string, patterns []string) bool {
@@ -1112,6 +1175,12 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Reject reserved system slugs — these are never valid paste IDs.
+	if isReservedSlug(id) {
+		http.NotFound(w, r)
+		return
+	}
 
 	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil {
