@@ -138,17 +138,43 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 22 updater: ✓ stable/beta/daily branches, checksum verify, platform replace — already compliant
 - PART 31 Tor: ✓ bine, ControlPort auto, ADD_ONION v3, auto-enable on binary found — already compliant
 
-## Completed (this pass)
+## Pass 13: PART 10 Database + PART 14 API Structure + PART 21 Backup — RESOLVED
 
-- All 6 non-English locales brought to full key parity with `en.json`; build verified inside `golang:alpine` with `CGO_ENABLED=0`.
+### PART 10 (Database) — RESOLVED
+- [x] `src/database/database.go`: connection pool settings added to `newSQLiteDB` — `SetMaxOpenConns(5)`, `SetMaxIdleConns(2)`, `SetConnMaxLifetime(5m)`, `SetConnMaxIdleTime(1m)` (SQLite WAL mode)
+- [x] Query timeouts: `dbReadTimeout=5s`, `dbWriteTimeout=10s`, `dbComplexTimeout=15s`, `dbBulkTimeout=60s`; `dbCtx()` helper; all methods converted to `*Context` variants
+- [x] Schema: `CREATE TABLE IF NOT EXISTS` with idempotent `ALTER TABLE` updates — compliant with PART 10 schema rules
+
+### PART 14 (API Structure) — VERIFIED COMPLIANT
+- Routes: plural nouns (IDEA.md spec explicitly uses singular `/api/v1/paste/{id}` for CRUD + plural `/api/v1/pastes` for list — IDEA.md overrides convention per project spec; Pass 6 already confirmed)
+- JSON responses: `writeJSON()` uses `json.MarshalIndent(v, "", "  ")` + `w.Write([]byte("\n"))` — 2-space indent + single trailing newline per spec
+- API types: REST, Swagger, GraphQL — all present
+
+### PART 21 (Backup & Restore) — RESOLVED
+- [x] `src/maintenance/maintenance.go`: `VerifyBackup(path, password)` — 6 post-creation checks: file exists, size>0, decrypt test, manifest present/parseable, all entries extractable to temp dir, SQLite magic header check on `.db` files
+- [x] `src/task/task.go`: `BackupDaily(BackupConfig)` — uses `maintenance.Backup` for full dated archive AND daily incremental (`{project}-daily.tar.gz[.enc]`); verifies both immediately after creation; applies `applyRetention()` with priority-ordered tiers (yearly > monthly > weekly > daily)
+- [x] `BackupHourly(BackupConfig)` — uses `maintenance.Backup` + `VerifyBackup`; atomic rename
+- [x] `BackupConfig` struct: ProjectName, ConfigDir, DataDir, BackupDir, AppVersion, Password, Retention
+- [x] `BackupRetention` struct: MaxBackups, KeepWeekly, KeepMonthly, KeepYearly
+- [x] `applyRetention()`: newest-first sort, classify by tier, keep counts per tier, delete excess oldest-first
+- [x] `main.go` wired to pass `configDir`, `Version`, and `BackupRetention{MaxBackups:1}` to both tasks
+- [ ] Backup checksum in manifest cannot self-verify (archive2 has different bytes than archive1 whose checksum is in manifest) — tracking as deferred; all other 6 verification checks pass
+- [ ] CSRF token validation middleware — deferred (no auth surface yet)
+
+## Completed (cumulative)
+
+- All 6 non-English locales brought to full key parity with `en.json`
 - PART 15 SSL/TLS cert lookup and ACME autocert implementation
-- PART 23/24 service.go compliance: systemd unit, launchd label/paths, privilege-drop pattern
+- PART 23/24 service.go: systemd unit, launchd label/paths, privilege-drop pattern
 - PART 11: app_secrets table + generation, Sec-Fetch middleware, CSRF config structs
-- PART 9/12: cache layer — memory/noop/redis drivers, config integration, server init/close
-- PART 24: Windows service (winsvc_windows.go / winsvc_other.go) + main.go integration
+- PART 9/12: cache layer (memory/noop/redis), config integration, server init/close
+- PART 24: Windows service (winsvc_windows.go / winsvc_other.go)
 - PART 9: all 13 error codes in httpErrCode/mapAPIErrorCodeToHTTPStatus/sendAPIError
 - PART 16: reservedSlugs guard in handleViewPaste()
-- PART 12: response compression + full base URL resolution priority chain + trusted proxies + LimitsConfig + Validate()
-- Healthz: live cache ping + real PastesTotal + scheduler/Tor checks + pending restart tracking
-- PART 6: debug endpoints gated on IsDebug() flag + pprof/expvar routes
-- PART 25: Makefile lint + help targets added
+- PART 12: response compression + full base URL + trusted proxies + LimitsConfig + Validate()
+- PART 13: scheduler/Tor healthz checks + pending restart tracking
+- PART 6: debug endpoints gated on IsDebug() + pprof/expvar routes
+- PART 25: Makefile lint + help targets
+- PART 10: connection pool + query timeouts on all DB methods
+- PART 14: API response formatting verified (writeJSON: indent + newline)
+- PART 21: VerifyBackup (6 checks) + BackupDaily/BackupHourly with maintenance.Backup + retention policy
