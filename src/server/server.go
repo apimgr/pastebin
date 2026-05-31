@@ -5,12 +5,14 @@ import (
 	crand "crypto/rand"
 	"embed"
 	"encoding/json"
+	"expvar"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof" // side-effect: registers pprof handlers on DefaultServeMux
 	"runtime"
 	"strconv"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
+	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/geoip"
 	"github.com/apimgr/pastebin/src/graphql"
@@ -461,6 +464,13 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/healthz", s.handleHealthz)
 	r.Get("/healthz", s.handleHealthz)
 	r.Get("/health", s.handleHealthz)
+
+	// ── Debug endpoints (only when --debug flag is active) (PART 6) ──────────
+	if mode.ShouldShowDebugEndpoints() {
+		r.Mount("/debug/pprof", http.DefaultServeMux)
+		r.Get("/debug/vars", expvar.Handler().ServeHTTP)
+		log.Printf("debug: /debug/pprof and /debug/vars endpoints enabled")
+	}
 
 	// ── Auth stubs (no user accounts — redirect to home) ─────────────────────
 	for _, path := range []string{

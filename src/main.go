@@ -468,6 +468,7 @@ Examples:
 	}
 
 	if debugFlag {
+		mode.SetDebug(true)
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 		log.Printf("debug mode enabled")
 	}

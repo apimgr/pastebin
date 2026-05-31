@@ -23,7 +23,9 @@ const (
 var (
 	// currentMode stores the active application mode
 	currentMode Mode = Production
-	// mu protects concurrent access to currentMode
+	// debugEnabled tracks whether --debug / DEBUG=true was set (PART 6).
+	debugEnabled bool
+	// mu protects concurrent access to currentMode and debugEnabled
 	mu sync.RWMutex
 )
 
@@ -92,6 +94,21 @@ func Initialize(cliMode string) error {
 	return nil
 }
 
+// SetDebug enables or disables debug mode (--debug flag / DEBUG env var).
+// Debug enables pprof, /debug/* endpoints, and full error detail regardless of mode.
+func SetDebug(enabled bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	debugEnabled = enabled
+}
+
+// IsDebug returns true when debug mode is active (--debug was passed or DEBUG env truthy).
+func IsDebug() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return debugEnabled
+}
+
 // GetErrorDetail returns error details based on the current mode
 // In development mode: returns full error details with stack traces
 // In production mode: returns generic error message without internal details
@@ -109,10 +126,11 @@ func GetErrorDetail(err error) string {
 	return "An internal error occurred. Please contact support if the problem persists."
 }
 
-// ShouldShowDebugEndpoints returns true if debug endpoints should be enabled
-// Debug endpoints include /debug/pprof/* and /debug/vars
+// ShouldShowDebugEndpoints returns true when debug endpoints (/debug/pprof/*,
+// /debug/vars) should be registered. Enabled only when --debug / DEBUG=true is
+// set — NOT simply because the mode is development (PART 6).
 func ShouldShowDebugEndpoints() bool {
-	return IsDevelopment()
+	return IsDebug()
 }
 
 // CacheHeaders represents HTTP cache control headers
@@ -161,9 +179,10 @@ func ShouldEnableAutoReload() bool {
 	return IsDevelopment()
 }
 
-// ShouldEnableProfiling returns true if profiling endpoints should be enabled
+// ShouldEnableProfiling returns true if pprof profiling endpoints should be enabled.
+// Requires --debug flag — not just development mode (PART 6).
 func ShouldEnableProfiling() bool {
-	return IsDevelopment()
+	return IsDebug()
 }
 
 // GetPanicRecoveryMode returns the panic recovery behavior for the current mode

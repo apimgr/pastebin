@@ -43,7 +43,7 @@ GO_DOCKER := docker run --rm \
 	-e CGO_ENABLED=0 \
 	golang:alpine
 
-.PHONY: build local release docker test dev clean
+.PHONY: build local release docker test dev clean lint help
 .DEFAULT_GOAL := build
 
 # =============================================================================
@@ -216,6 +216,32 @@ dev:
 			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-agent"; \
 		fi && \
 		echo "Test:  docker run --rm -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
+
+# =============================================================================
+# LINT - Run golangci-lint (via Docker)
+# =============================================================================
+lint:
+	@mkdir -p $(GOCACHE) $(GODIR)
+	@$(GO_DOCKER) sh -c "which golangci-lint > /dev/null 2>&1 || \
+		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+		golangci-lint run ./..."
+	@echo "✓ Lint passed"
+
+# =============================================================================
+# HELP - Print available targets and descriptions
+# =============================================================================
+help:
+	@echo "Available targets:"
+	@echo "  build    — Full release build for all 8 platforms (via Docker)"
+	@echo "  local    — Fast host-platform build into binaries/"
+	@echo "  release  — Create GitHub release with binaries and source archive"
+	@echo "  docker   — Build and push multi-platform Docker image"
+	@echo "  test     — Run unit tests with coverage (via Docker)"
+	@echo "  dev      — Quick development build into a temp directory"
+	@echo "  lint     — Run golangci-lint (via Docker)"
+	@echo "  clean    — Remove build artifacts"
+	@echo ""
+	@echo "Version: $(VERSION)  Commit: $(COMMIT_ID)"
 
 # =============================================================================
 # CLEAN - Remove build artifacts
