@@ -121,6 +121,23 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] PART 12: `isTrustedPeer(r)` — gates X-Forwarded-* headers on loopback/private/additional list; `baseURL()` only trusts forwarded headers from trusted peers
 - [x] PART 12: HTTP server timeouts read from `cfg.Server.Limits` with safe fallbacks in `Run()`
 
+## Pass 12: PART 13 Healthz Completeness + PART 6 Debug Endpoints + PART 25 Makefile — RESOLVED
+
+- [x] PART 13: `scheduler.Running()` method added; `schedHealthFn` callback + `SetSchedulerHealthFn()` wired into Server
+- [x] PART 13: `MarkPendingRestart(key)` + `pendingRestartKeys` added to Server; `OnConfigChange()` calls it for TLS/DB/address/Tor changes
+- [x] PART 13: `HealthResponse` — `PendingRestart bool`, `RestartReason []string` fields added
+- [x] PART 13: `ChecksInfo` — `Scheduler string`, `Tor string (omitempty)` fields added; `buildHealthResponse()` populates them
+- [x] PART 13: `buildHealthResponse()` emits `"degraded"` when cache/scheduler/Tor fail (non-fatal), `"unhealthy"` only for DB/disk
+- [x] PART 6: `mode.SetDebug(bool)` + `mode.IsDebug()` added; `ShouldShowDebugEndpoints()` and `ShouldEnableProfiling()` fixed to use `IsDebug()` (not `IsDevelopment()`)
+- [x] PART 6: `src/server/server.go` mounts `/debug/pprof` (net/http/pprof) and `/debug/vars` (expvar) when `mode.ShouldShowDebugEndpoints()`
+- [x] PART 6: `src/main.go` calls `mode.SetDebug(true)` when `--debug` flag is set
+- [x] PART 25: `Makefile` — `lint` (golangci-lint via Docker) and `help` (print targets) targets added; both in `.PHONY`
+- [ ] CSRF token validation middleware — deferred until session/auth surface implemented
+- PART 17 email: ✓ auto-detect SMTP, template override, silent disable — already compliant
+- PART 20 metrics: ✓ Prometheus `pastebin_` prefix, token auth, all metric categories — already compliant
+- PART 22 updater: ✓ stable/beta/daily branches, checksum verify, platform replace — already compliant
+- PART 31 Tor: ✓ bine, ControlPort auto, ADD_ONION v3, auto-enable on binary found — already compliant
+
 ## Completed (this pass)
 
 - All 6 non-English locales brought to full key parity with `en.json`; build verified inside `golang:alpine` with `CGO_ENABLED=0`.
@@ -131,5 +148,7 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 24: Windows service (winsvc_windows.go / winsvc_other.go) + main.go integration
 - PART 9: all 13 error codes in httpErrCode/mapAPIErrorCodeToHTTPStatus/sendAPIError
 - PART 16: reservedSlugs guard in handleViewPaste()
-- PART 12: response compression + full base URL resolution priority chain
-- Healthz: live cache ping + real PastesTotal from CountPastes()
+- PART 12: response compression + full base URL resolution priority chain + trusted proxies + LimitsConfig + Validate()
+- Healthz: live cache ping + real PastesTotal + scheduler/Tor checks + pending restart tracking
+- PART 6: debug endpoints gated on IsDebug() flag + pprof/expvar routes
+- PART 25: Makefile lint + help targets added
