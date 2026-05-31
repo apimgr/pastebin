@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -903,12 +904,27 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	}
 
 	cfg := s.liveCfg()
+
+	// Parse HTTP server timeouts from config, falling back to safe defaults.
+	readTimeout := 30 * time.Second
+	if d, err := time.ParseDuration(cfg.Server.Limits.ReadTimeout); err == nil && d > 0 {
+		readTimeout = d
+	}
+	writeTimeout := 30 * time.Second
+	if d, err := time.ParseDuration(cfg.Server.Limits.WriteTimeout); err == nil && d > 0 {
+		writeTimeout = d
+	}
+	idleTimeout := 120 * time.Second
+	if d, err := time.ParseDuration(cfg.Server.Limits.IdleTimeout); err == nil && d > 0 {
+		idleTimeout = d
+	}
+
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.router,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
 	errCh := make(chan error, 1)
@@ -1450,28 +1466,95 @@ func (s *Server) pageData() map[string]interface{} {
 //  3. X-Forwarded-Path header (alternative prefix header)
 //  4. X-Script-Name header (WSGI-style)
 //  5. Default: scheme://host derived from TLS state and X-Forwarded-Proto
+//
+// X-Forwarded-* headers are only honored when the immediate peer is a trusted
+// proxy (loopback, private ranges, or server.trusted_proxies.additional).
 func (s *Server) baseURL(r *http.Request) string {
 	if s.cfg.Server.BaseURL != "" {
 		return s.cfg.Server.BaseURL
 	}
+
+	trusted := s.isTrustedPeer(r)
+
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil {
+		scheme = "https"
+	} else if trusted && r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
+
 	host := r.Host
-	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
-		host = fh
+	if trusted {
+		if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+			host = fh
+		}
 	}
+
 	base := scheme + "://" + host
-	// Append reverse-proxy path prefix when present (trailing slash stripped).
-	for _, hdr := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
-		if prefix := r.Header.Get(hdr); prefix != "" {
-			prefix = strings.TrimRight(prefix, "/")
-			if prefix != "" {
-				base += prefix
+
+	if trusted {
+		// Append reverse-proxy path prefix when present (trailing slash stripped).
+		for _, hdr := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
+			if prefix := r.Header.Get(hdr); prefix != "" {
+				prefix = strings.TrimRight(prefix, "/")
+				if prefix != "" {
+					base += prefix
+				}
+				break
 			}
-			break
 		}
 	}
 	return base
+}
+
+// privateNets contains the CIDR ranges that are always treated as trusted proxies
+// (loopback, RFC 1918 IPv4 private, RFC 4193 IPv6 unique-local, link-local).
+var privateNets = func() []*net.IPNet {
+	cidrs := []string{
+		"127.0.0.0/8",
+		"::1/128",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+		"169.254.0.0/16",
+		"fe80::/10",
+	}
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err == nil {
+			nets = append(nets, ipNet)
+		}
+	}
+	return nets
+}()
+
+// isTrustedPeer returns true when the immediate peer's IP is a loopback,
+// private-range address, or in server.trusted_proxies.additional (PART 12).
+func (s *Server) isTrustedPeer(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range privateNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	// Check server.trusted_proxies.additional entries (IPs and CIDRs; DNS not resolved here).
+	for _, entry := range s.cfg.Server.TrustedProxies.Additional {
+		if strings.Contains(entry, "/") {
+			if _, ipNet, err := net.ParseCIDR(entry); err == nil && ipNet.Contains(ip) {
+				return true
+			}
+		} else if net.ParseIP(entry) != nil && net.ParseIP(entry).Equal(ip) {
+			return true
+		}
+	}
+	return false
 }

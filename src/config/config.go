@@ -39,6 +39,28 @@ type ServerConfig struct {
 	TLS           TLSConfig           `yaml:"tls"`
 	// Cache configures the in-process or remote cache driver (PART 9/12).
 	Cache CacheConfig `yaml:"cache"`
+	// Limits controls HTTP server request and body limits (PART 12).
+	Limits LimitsConfig `yaml:"limits"`
+	// TrustedProxies lists additional proxy IPs/CIDRs beyond the private ranges
+	// that are always trusted (loopback, RFC 1918, etc.) (PART 12).
+	TrustedProxies TrustedProxiesConfig `yaml:"trusted_proxies"`
+}
+
+// LimitsConfig controls HTTP server timeouts and body size limits (PART 12).
+type LimitsConfig struct {
+	// MaxBodySize is the maximum request body in bytes. Accepts "10MB", "1MiB", or plain integer.
+	MaxBodySize   int64  `yaml:"max_body_size"`
+	ReadTimeout   string `yaml:"read_timeout"`  // e.g. "30s"
+	WriteTimeout  string `yaml:"write_timeout"` // e.g. "30s"
+	IdleTimeout   string `yaml:"idle_timeout"`  // e.g. "120s"
+}
+
+// TrustedProxiesConfig lists additional proxy IPs/CIDRs/DNS names beyond the
+// private ranges that are always trusted (PART 12).
+// Private ranges (127/8, 10/8, 172.16/12, 192.168/16, fc00::/7, etc.) are
+// always trusted without config. Add public proxy IPs here only.
+type TrustedProxiesConfig struct {
+	Additional []string `yaml:"additional"`
 }
 
 // CacheConfig selects and configures the cache driver (PART 9/12).
@@ -340,6 +362,15 @@ func DefaultConfig() *Config {
 				Prefix:   "pastebin:",
 				TTL:      "1h",
 			},
+			Limits: LimitsConfig{
+				MaxBodySize:  10 << 20, // 10 MiB
+				ReadTimeout:  "30s",
+				WriteTimeout: "30s",
+				IdleTimeout:  "120s",
+			},
+			TrustedProxies: TrustedProxiesConfig{
+				Additional: []string{},
+			},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -420,6 +451,9 @@ func Load(path string) (*Config, error) {
 
 	// Env always wins over file.
 	cfg.loadEnv()
+
+	// Validate and sanitize — replace invalid values with defaults, never crash.
+	Validate(cfg)
 
 	// Generate and persist encryption key if missing (upgrade path for older configs).
 	if cfg.Web.Security.EncryptionKey == "" {
@@ -510,6 +544,91 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("SMTP_FROM_EMAIL"); v != "" {
 		c.Server.Notifications.Email.From.Email = v
+	}
+}
+
+// Validate checks all config values, replaces invalid ones with defaults, and
+// logs a warning for each replacement. It never returns an error; the server
+// must always start with sane defaults even if the config file is malformed (PART 12).
+func Validate(cfg *Config) {
+	d := DefaultConfig()
+
+	// Limits: timeouts must be parseable and positive.
+	for _, pair := range []struct {
+		name *string
+		def  string
+	}{
+		{&cfg.Server.Limits.ReadTimeout, d.Server.Limits.ReadTimeout},
+		{&cfg.Server.Limits.WriteTimeout, d.Server.Limits.WriteTimeout},
+		{&cfg.Server.Limits.IdleTimeout, d.Server.Limits.IdleTimeout},
+	} {
+		if dur, err := time.ParseDuration(*pair.name); err != nil || dur <= 0 {
+			log.Printf("[config] WARNING: invalid timeout %q, using default %s", *pair.name, pair.def)
+			*pair.name = pair.def
+		}
+	}
+
+	// Limits: max body size must be positive.
+	if cfg.Server.Limits.MaxBodySize <= 0 {
+		log.Printf("[config] WARNING: invalid max_body_size %d, using default %d",
+			cfg.Server.Limits.MaxBodySize, d.Server.Limits.MaxBodySize)
+		cfg.Server.Limits.MaxBodySize = d.Server.Limits.MaxBodySize
+	}
+
+	// Web theme must be one of the valid values.
+	switch cfg.Web.Theme {
+	case "dark", "light", "auto":
+	default:
+		log.Printf("[config] WARNING: invalid web.theme %q, using default \"dark\"", cfg.Web.Theme)
+		cfg.Web.Theme = "dark"
+	}
+
+	// Rate limit counts must be non-negative.
+	if cfg.RateLimit.CreatePerM < 0 {
+		log.Printf("[config] WARNING: rate_limit.create_per_minute < 0, using default %d",
+			d.RateLimit.CreatePerM)
+		cfg.RateLimit.CreatePerM = d.RateLimit.CreatePerM
+	}
+	if cfg.RateLimit.ReadPerM < 0 {
+		log.Printf("[config] WARNING: rate_limit.read_per_minute < 0, using default %d",
+			d.RateLimit.ReadPerM)
+		cfg.RateLimit.ReadPerM = d.RateLimit.ReadPerM
+	}
+	if cfg.RateLimit.DeletePerM < 0 {
+		log.Printf("[config] WARNING: rate_limit.delete_per_minute < 0, using default %d",
+			d.RateLimit.DeletePerM)
+		cfg.RateLimit.DeletePerM = d.RateLimit.DeletePerM
+	}
+
+	// Paste size must be positive.
+	if cfg.Paste.MaxSizeBytes <= 0 {
+		log.Printf("[config] WARNING: paste.max_size_bytes <= 0, using default %d",
+			d.Paste.MaxSizeBytes)
+		cfg.Paste.MaxSizeBytes = d.Paste.MaxSizeBytes
+	}
+
+	// Cache TTL and timeout must be parseable.
+	for _, pair := range []struct {
+		name *string
+		def  string
+	}{
+		{&cfg.Server.Cache.Timeout, d.Server.Cache.Timeout},
+		{&cfg.Server.Cache.TTL, d.Server.Cache.TTL},
+	} {
+		if dur, err := time.ParseDuration(*pair.name); err != nil || dur <= 0 {
+			log.Printf("[config] WARNING: invalid cache duration %q, using default %s",
+				*pair.name, pair.def)
+			*pair.name = pair.def
+		}
+	}
+
+	// Logging level must be a known value.
+	switch cfg.Server.Logging.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		log.Printf("[config] WARNING: invalid logging.level %q, using default \"info\"",
+			cfg.Server.Logging.Level)
+		cfg.Server.Logging.Level = "info"
 	}
 }
 
