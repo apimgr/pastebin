@@ -96,9 +96,19 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] `config/config.go`: `HeadersConfig{SecFetchValidation}`, `CSRFConfig{Enabled, TokenLength, CookieName, HeaderName, Secure, ExemptPaths}` added to WebConfig with spec defaults
 - [ ] CSRF token validation middleware — deferred until session/auth surface is implemented (no cookie auth exists yet)
 
+## Pass 10: PART 9/12 Cache Layer — RESOLVED
+
+- [x] `src/cache/cache.go`: Cache interface, ErrCacheMiss sentinel, Config/DefaultConfig, New() factory
+- [x] Three drivers: memoryCache (sync.RWMutex + 5-min background reaper), noopCache, redisCache (go-redis/v9, ping on construction)
+- [x] `config/config.go`: CacheConfig added to ServerConfig — YAML-friendly string durations; DefaultConfig type=memory prefix=pastebin: TTL=1h
+- [x] `server.go New()`: cache initialisation after torManager — maps string durations to time.Duration, falls back to memory on remote error
+- [x] `server.go Run()`: defer s.cacheStore.Close()
+- [x] go.mod: github.com/redis/go-redis/v9 v9.7.0 + transitive deps
+
 ## Completed (this pass)
 
 - All 6 non-English locales brought to full key parity with `en.json`; build verified inside `golang:alpine` with `CGO_ENABLED=0`.
 - PART 15 SSL/TLS cert lookup and ACME autocert implementation
 - PART 23/24 service.go compliance: systemd unit, launchd label/paths, privilege-drop pattern
 - PART 11: app_secrets table + generation, Sec-Fetch middleware, CSRF config structs
+- PART 9/12: cache layer — memory/noop/redis drivers, config integration, server init/close

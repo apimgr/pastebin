@@ -682,29 +682,45 @@ Examples:
 	}
 	defer pid.RemovePIDFile(pidFile) //nolint:errcheck
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-
-	stopCfgMgr := make(chan struct{})
-	cfgMgr.Start(stopCfgMgr, srv.OnConfigChange)
-
-	go func() {
-		<-sig
-		log.Printf("shutting down…")
-		pid.RemovePIDFile(pidFile) //nolint:errcheck
-		close(stopCfgMgr)
-		cancel()
-	}()
-
 	addr := cfg.Server.Address + ":" + cfg.Server.Port
-	log.Printf("listening on %s", addr)
 
-	if err := srv.Run(ctx, addr); err != nil {
-		log.Fatalf("server: %v", err)
+	// runServer is the shared startup closure used both for interactive mode
+	// and for the Windows Service Control Manager path.
+	runServer := func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
+		stopCfgMgr := make(chan struct{})
+		cfgMgr.Start(stopCfgMgr, srv.OnConfigChange)
+
+		go func() {
+			<-sig
+			log.Printf("shutting down…")
+			pid.RemovePIDFile(pidFile) //nolint:errcheck
+			close(stopCfgMgr)
+			cancel()
+		}()
+
+		log.Printf("listening on %s", addr)
+
+		if err := srv.Run(ctx, addr); err != nil {
+			log.Fatalf("server: %v", err)
+		}
 	}
+
+	// On Windows, if we were started by the SCM, hand control to the service
+	// handler. On all other platforms (and interactive Windows), run directly.
+	if service.IsWindowsService() {
+		if err := service.RunAsWindowsService(appName, runServer); err != nil {
+			log.Fatalf("windows service: %v", err)
+		}
+		return
+	}
+
+	runServer()
 }
 
 // normalizeArgs converts single-dash long flags (-flag) to double-dash (--flag)
