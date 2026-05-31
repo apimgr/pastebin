@@ -467,7 +467,7 @@ func (h *PasteHandler) errJSON(w http.ResponseWriter, msg string, status int) {
 	})
 }
 
-// httpErrCode maps HTTP status to a canonical error code string.
+// httpErrCode maps HTTP status to a canonical error code string (PART 9).
 func httpErrCode(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -478,13 +478,51 @@ func httpErrCode(status int) string {
 		return "FORBIDDEN"
 	case http.StatusNotFound:
 		return "NOT_FOUND"
+	case http.StatusMethodNotAllowed:
+		return "METHOD_NOT_ALLOWED"
 	case http.StatusConflict:
 		return "CONFLICT"
 	case http.StatusTooManyRequests:
 		return "RATE_LIMITED"
+	case http.StatusServiceUnavailable:
+		return "MAINTENANCE"
 	default:
 		return "SERVER_ERROR"
 	}
+}
+
+// mapAPIErrorCodeToHTTPStatus maps a canonical error code to its HTTP status (PART 9).
+func mapAPIErrorCodeToHTTPStatus(code string) int {
+	switch code {
+	case "BAD_REQUEST", "VALIDATION_FAILED":
+		return http.StatusBadRequest
+	case "UNAUTHORIZED", "TOKEN_EXPIRED", "TOKEN_INVALID":
+		return http.StatusUnauthorized
+	case "FORBIDDEN", "ACCOUNT_LOCKED":
+		return http.StatusForbidden
+	case "NOT_FOUND":
+		return http.StatusNotFound
+	case "METHOD_NOT_ALLOWED":
+		return http.StatusMethodNotAllowed
+	case "CONFLICT":
+		return http.StatusConflict
+	case "RATE_LIMITED":
+		return http.StatusTooManyRequests
+	case "MAINTENANCE":
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// sendAPIError writes a canonical error response using the error code (PART 9).
+func sendAPIError(w http.ResponseWriter, code, message string) {
+	status := mapAPIErrorCodeToHTTPStatus(code)
+	writeJSON(w, status, map[string]interface{}{
+		"ok":      false,
+		"error":   code,
+		"message": message,
+	})
 }
 
 // ─── Expiry parsing ───────────────────────────────────────────────────────────
