@@ -37,6 +37,35 @@ type ServerConfig struct {
 	Logging       LoggingConfig       `yaml:"logging"`
 	Notifications NotificationsConfig `yaml:"notifications"`
 	TLS           TLSConfig           `yaml:"tls"`
+	// Cache configures the in-process or remote cache driver (PART 9/12).
+	Cache CacheConfig `yaml:"cache"`
+}
+
+// CacheConfig selects and configures the cache driver (PART 9/12).
+// Defaults to "memory" (in-process, lost on restart).
+// Valkey/Redis is recommended for production to persist counters across restarts.
+type CacheConfig struct {
+	// Type selects the driver: "none", "memory" (default), "valkey", "redis".
+	Type string `yaml:"type"`
+	// URL is the connection string. Takes precedence over individual fields.
+	// Format: redis://user:pass@host:port/db  or  valkey://...
+	URL      string `yaml:"url"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
+	// TLS enables TLS for the connection.
+	TLS           bool   `yaml:"tls"`
+	TLSSkipVerify bool   `yaml:"tls_skip_verify"`
+	PoolSize      int    `yaml:"pool_size"`
+	MinIdle       int    `yaml:"min_idle"`
+	// Timeout is the dial/read/write timeout for remote drivers.
+	Timeout string `yaml:"timeout"` // e.g. "5s"
+	// Prefix is prepended to every key to avoid namespace collisions.
+	Prefix string `yaml:"prefix"`
+	// TTL is the default time-to-live. e.g. "1h", "30m".
+	TTL string `yaml:"ttl"`
 }
 
 // TorConfig configures the Tor hidden service and optional outbound network.
@@ -300,6 +329,16 @@ func DefaultConfig() *Config {
 						TLS:  "auto",
 					},
 				},
+			},
+			Cache: CacheConfig{
+				Type:     "memory",
+				Host:     "localhost",
+				Port:     6379,
+				PoolSize: 10,
+				MinIdle:  2,
+				Timeout:  "5s",
+				Prefix:   "pastebin:",
+				TTL:      "1h",
 			},
 		},
 		Database: DatabaseConfig{

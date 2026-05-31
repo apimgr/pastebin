@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
@@ -138,6 +139,7 @@ type StatsInfo struct {
 type Server struct {
 	router           *chi.Mux
 	db               database.DB
+	cacheStore       cache.Cache
 	cfg              *config.Config
 	cfgMgr           *config.ConfigManager
 	templates        *template.Template
@@ -229,6 +231,37 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		serverPort = 3010
 	}
 	s.torManager = tor.NewManager(context.Background(), serverPort, torCfg)
+
+	// Initialize cache driver (PART 9/12). Falls back to in-process memory on error.
+	cacheCfg := cache.Config{
+		Type:          cfg.Server.Cache.Type,
+		URL:           cfg.Server.Cache.URL,
+		Host:          cfg.Server.Cache.Host,
+		Port:          cfg.Server.Cache.Port,
+		Username:      cfg.Server.Cache.Username,
+		Password:      cfg.Server.Cache.Password,
+		DB:            cfg.Server.Cache.DB,
+		TLS:           cfg.Server.Cache.TLS,
+		TLSSkipVerify: cfg.Server.Cache.TLSSkipVerify,
+		PoolSize:      cfg.Server.Cache.PoolSize,
+		MinIdle:       cfg.Server.Cache.MinIdle,
+		Prefix:        cfg.Server.Cache.Prefix,
+	}
+	if d, err := time.ParseDuration(cfg.Server.Cache.Timeout); err == nil {
+		cacheCfg.Timeout = d
+	}
+	if d, err := time.ParseDuration(cfg.Server.Cache.TTL); err == nil {
+		cacheCfg.TTL = d
+	}
+	if cs, err := cache.New(cacheCfg); err != nil {
+		log.Printf("warning: cache init failed (%v); falling back to memory", err)
+		fallback := cache.DefaultConfig()
+		fallback.Prefix = cacheCfg.Prefix
+		fallback.TTL = cacheCfg.TTL
+		s.cacheStore, _ = cache.New(fallback)
+	} else {
+		s.cacheStore = cs
+	}
 
 	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
 	createLimit := cfg.RateLimit.CreatePerM
@@ -781,6 +814,9 @@ func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
 func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.geoipDB != nil {
 		defer s.geoipDB.Close()
+	}
+	if s.cacheStore != nil {
+		defer s.cacheStore.Close()
 	}
 
 	// Start Tor hidden service (non-fatal if Tor binary not found).
