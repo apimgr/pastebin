@@ -105,6 +105,20 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] `server.go Run()`: defer s.cacheStore.Close()
 - [x] go.mod: github.com/redis/go-redis/v9 v9.7.0 + transitive deps
 
+## Pass 11: PART 24 Windows Service + PART 9 Error Codes + PART 16 Reserved Slugs + PART 12 Compression/Base URL + Healthz Accuracy — RESOLVED
+
+- [x] `src/service/winsvc_windows.go`: Windows service via golang.org/x/sys/windows/svc; `IsWindowsService()`, `RunAsWindowsService()`, `windowsService.Execute()` — START_PENDING→RUNNING→STOP_PENDING lifecycle; AcceptStop|AcceptShutdown
+- [x] `src/service/winsvc_other.go`: stub build tag `!windows` — `IsWindowsService()` returns false, `RunAsWindowsService` is no-op
+- [x] `src/main.go`: `runServer` closure extracted; `service.IsWindowsService()` check before `runServer()`
+- [x] `src/handler/paste.go`: `httpErrCode()` covers METHOD_NOT_ALLOWED(405) and MAINTENANCE(503); `mapAPIErrorCodeToHTTPStatus()` maps all 13 PART 9 error codes; `sendAPIError()` convenience wrapper added
+- [x] `src/server/server.go`: `reservedSlugs` map + `isReservedSlug()` (PART 16 guard); `handleViewPaste()` returns 404 for reserved slugs before DB lookup
+- [x] `src/server/server.go`: `middleware.Compress(5, ...)` added to setupRoutes(); `baseURL()` expanded to PART 12 full priority chain (X-Forwarded-Prefix > X-Forwarded-Path > X-Script-Name)
+- [x] `src/database/database.go`: `CountPastes() (int64, error)` added to DB interface + implemented on SQLiteDB
+- [x] `src/server/server.go buildHealthResponse()`: real cache ping with 2s timeout (`checks.Cache="error"` on failure); `PastesTotal` populated from `db.CountPastes()`
+- [ ] CSRF token validation middleware — deferred until session/auth surface is implemented
+- [ ] PART 12: trusted_proxies config struct not yet added (spec requires `server.trusted_proxies.additional`)
+- [ ] PART 12: config validation function (warn-and-default, never crash startup) not yet added
+
 ## Completed (this pass)
 
 - All 6 non-English locales brought to full key parity with `en.json`; build verified inside `golang:alpine` with `CGO_ENABLED=0`.
@@ -112,3 +126,8 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 23/24 service.go compliance: systemd unit, launchd label/paths, privilege-drop pattern
 - PART 11: app_secrets table + generation, Sec-Fetch middleware, CSRF config structs
 - PART 9/12: cache layer — memory/noop/redis drivers, config integration, server init/close
+- PART 24: Windows service (winsvc_windows.go / winsvc_other.go) + main.go integration
+- PART 9: all 13 error codes in httpErrCode/mapAPIErrorCodeToHTTPStatus/sendAPIError
+- PART 16: reservedSlugs guard in handleViewPaste()
+- PART 12: response compression + full base URL resolution priority chain
+- Healthz: live cache ping + real PastesTotal from CountPastes()
