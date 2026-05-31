@@ -70,6 +70,29 @@ func TestGetCacheDir_EnvOverride(t *testing.T) {
 	}
 }
 
+// TestGetDBPath_EnvOverride verifies that DB_PATH overrides the computed path.
+func TestGetDBPath_EnvOverride(t *testing.T) {
+	t.Setenv("DB_PATH", "/tmp/test.db")
+	got := paths.GetDBPath("pastebin")
+	if got != "/tmp/test.db" {
+		t.Errorf("GetDBPath: got %q, want %q", got, "/tmp/test.db")
+	}
+}
+
+// TestGetDBPath_NativeHost verifies that outside a container GetDBPath derives
+// the path from GetDataDir.
+func TestGetDBPath_NativeHost(t *testing.T) {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		t.Skip("running inside Docker — container path applies")
+	}
+	os.Unsetenv("DB_PATH")
+	got := paths.GetDBPath("pastebin")
+	want := filepath.Join(paths.GetDataDir("pastebin"), "db", "server.db")
+	if got != want {
+		t.Errorf("GetDBPath: got %q, want %q", got, want)
+	}
+}
+
 // ─── IsContainer ──────────────────────────────────────────────────────────────
 
 // TestIsContainer verifies that a normal test host (no /.dockerenv, no docker

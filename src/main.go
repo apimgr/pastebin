@@ -586,7 +586,7 @@ Examples:
 	// ── Database ──────────────────────────────────────────────────────────────
 
 	if cfg.Database.Path == "" {
-		cfg.Database.Path = filepath.Join(dataDir, "db", "server.db")
+		cfg.Database.Path = paths.GetDBPath(appName)
 	}
 	if err := paths.EnsureDir(filepath.Dir(cfg.Database.Path)); err != nil {
 		log.Printf("warning: db dir: %v", err)

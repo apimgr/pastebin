@@ -31,7 +31,14 @@ func GetConfigDir(appName string) string {
 	}
 
 	if isRoot() {
-		return filepath.Join("/etc", orgName, appName)
+		switch runtime.GOOS {
+		case "darwin":
+			return filepath.Join("/Library", "Application Support", orgName, appName)
+		case "freebsd", "openbsd", "netbsd":
+			return filepath.Join("/usr/local/etc", orgName, appName)
+		default:
+			return filepath.Join("/etc", orgName, appName)
+		}
 	}
 
 	switch runtime.GOOS {
@@ -61,16 +68,25 @@ func GetDataDir(appName string) string {
 	}
 
 	if isRoot() {
-		return filepath.Join("/var/lib", orgName, appName)
+		switch runtime.GOOS {
+		case "darwin":
+			// PART 4 macOS root: /Library/Application Support/{org}/{app}/data/
+			return filepath.Join("/Library", "Application Support", orgName, appName, "data")
+		case "freebsd", "openbsd", "netbsd":
+			// PART 4 BSD root: /var/db/{org}/{app}/
+			return filepath.Join("/var/db", orgName, appName)
+		default:
+			return filepath.Join("/var/lib", orgName, appName)
+		}
 	}
 
 	switch runtime.GOOS {
 	case "darwin":
-		// PART 4 macOS user: ~/Library/Application Support/{project_org}/{internal_name}/
+		// PART 4 macOS user: ~/Library/Application Support/{org}/{app}/
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library", "Application Support", orgName, appName)
 	case "windows":
-		// PART 4 Windows user: %LocalAppData%\{project_org}\{internal_name}\
+		// PART 4 Windows user: %LocalAppData%\{org}\{app}\
 		return filepath.Join(os.Getenv("LOCALAPPDATA"), orgName, appName)
 	default:
 		if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
@@ -154,7 +170,13 @@ func GetLogsDir(appName string) string {
 	}
 
 	if isRoot() {
-		return filepath.Join("/var/log", orgName, appName)
+		switch runtime.GOOS {
+		case "darwin":
+			// PART 4 macOS root: /Library/Logs/{org}/{app}/
+			return filepath.Join("/Library", "Logs", orgName, appName)
+		default:
+			return filepath.Join("/var/log", orgName, appName)
+		}
 	}
 
 	switch runtime.GOOS {
@@ -164,7 +186,7 @@ func GetLogsDir(appName string) string {
 	case "windows":
 		return filepath.Join(os.Getenv("LOCALAPPDATA"), orgName, appName, "logs")
 	default:
-		// PART 4 (Linux user): ~/.local/log/{project_org}/{internal_name}/
+		// PART 4 (Linux/BSD user): ~/.local/log/{org}/{app}/
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".local", "log", orgName, appName)
 	}
@@ -182,7 +204,13 @@ func GetCacheDir(appName string) string {
 	}
 
 	if isRoot() {
-		return filepath.Join("/var/cache", orgName, appName)
+		switch runtime.GOOS {
+		case "darwin":
+			// PART 4 macOS root: /Library/Caches/{org}/{app}/
+			return filepath.Join("/Library", "Caches", orgName, appName)
+		default:
+			return filepath.Join("/var/cache", orgName, appName)
+		}
 	}
 
 	switch runtime.GOOS {
@@ -198,6 +226,22 @@ func GetCacheDir(appName string) string {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".cache", orgName, appName)
 	}
+}
+
+// GetDBPath returns the platform-correct SQLite database file path for appName.
+// Container path is /data/db/sqlite/server.db per PART 4; all other platforms
+// use {dataDir}/db/server.db.
+func GetDBPath(appName string) string {
+	if p := os.Getenv("DB_PATH"); p != "" {
+		return p
+	}
+
+	// Container: PART 4 says /data/db/sqlite/server.db
+	if isContainer() {
+		return "/data/db/sqlite/server.db"
+	}
+
+	return filepath.Join(GetDataDir(appName), "db", "server.db")
 }
 
 // EnsureDir creates path with sensible default permissions for the running user.
