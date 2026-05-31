@@ -116,8 +116,10 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] `src/database/database.go`: `CountPastes() (int64, error)` added to DB interface + implemented on SQLiteDB
 - [x] `src/server/server.go buildHealthResponse()`: real cache ping with 2s timeout (`checks.Cache="error"` on failure); `PastesTotal` populated from `db.CountPastes()`
 - [ ] CSRF token validation middleware — deferred until session/auth surface is implemented
-- [ ] PART 12: trusted_proxies config struct not yet added (spec requires `server.trusted_proxies.additional`)
-- [ ] PART 12: config validation function (warn-and-default, never crash startup) not yet added
+- [x] PART 12: `LimitsConfig` (max_body_size, read/write/idle timeouts) + `TrustedProxiesConfig` (additional IPs/CIDRs) added to ServerConfig and DefaultConfig()
+- [x] PART 12: `Validate(cfg)` — warns and replaces invalid values with defaults, called in `Load()`; never crashes startup
+- [x] PART 12: `isTrustedPeer(r)` — gates X-Forwarded-* headers on loopback/private/additional list; `baseURL()` only trusts forwarded headers from trusted peers
+- [x] PART 12: HTTP server timeouts read from `cfg.Server.Limits` with safe fallbacks in `Run()`
 
 ## Completed (this pass)
 
