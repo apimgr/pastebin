@@ -5,7 +5,6 @@
 package task
 
 import (
-	"archive/tar"
 	"compress/gzip"
 	"crypto/tls"
 	"crypto/x509"
@@ -14,10 +13,37 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/apimgr/pastebin/src/maintenance"
 )
+
+// BackupRetention controls how many old backups to keep for each period.
+type BackupRetention struct {
+	// MaxBackups is the number of dated full backups to keep (≥1, default 1).
+	MaxBackups int
+	// KeepWeekly keeps Sunday backups; 0 = disabled.
+	KeepWeekly int
+	// KeepMonthly keeps 1st-of-month backups; 0 = disabled.
+	KeepMonthly int
+	// KeepYearly keeps Jan 1st backups; 0 = disabled.
+	KeepYearly int
+}
+
+// BackupConfig is the configuration passed to BackupDaily and BackupHourly.
+type BackupConfig struct {
+	ProjectName string
+	ConfigDir   string
+	DataDir     string
+	BackupDir   string
+	AppVersion  string
+	// Password is the AES-256-GCM encryption password; empty = no encryption.
+	Password  string
+	Retention BackupRetention
+}
 
 // SSLRenewal returns a task that checks certificates in
 // {configDir}/ssl/letsencrypt/{fqdn}/ and logs a warning for any cert that
@@ -213,178 +239,235 @@ func gzipFile(src string) error {
 	return os.Remove(src)
 }
 
-// BackupDaily returns a task that creates a full tar.gz backup of dataDir in
-// backupDir, then trims old backups to keep at most maxBackups copies.
-// The archive is named {project}_{date}.tar.gz.  A maxBackups of 0 defaults
-// to 1.
-func BackupDaily(projectName, dataDir, backupDir string, maxBackups int) func() error {
-	if maxBackups < 1 {
-		maxBackups = 1
+// BackupDaily returns a task that runs the PART 21 backup protocol:
+//  1. Create a dated full backup using maintenance.Backup (with encryption if configured).
+//  2. Verify the backup immediately (6 checks per spec).
+//  3. Create/replace the rolling daily incremental ({project}-daily.tar.gz[.enc]).
+//  4. Verify the daily incremental.
+//  5. Apply retention policy (daily + optional weekly/monthly/yearly).
+//
+// If any verification step fails the failed file is deleted, existing backups
+// are preserved, and an error is returned for the scheduler to log.
+func BackupDaily(cfg BackupConfig) func() error {
+	if cfg.Retention.MaxBackups < 1 {
+		cfg.Retention.MaxBackups = 1
 	}
 	return func() error {
-		if err := os.MkdirAll(backupDir, 0o750); err != nil {
+		if err := os.MkdirAll(cfg.BackupDir, 0o750); err != nil {
 			return fmt.Errorf("backup_daily: mkdir: %w", err)
 		}
 
-		date := time.Now().Format("2006-01-02")
-		dst := filepath.Join(backupDir, fmt.Sprintf("%s_backup_%s.tar.gz", projectName, date))
-
-		if err := createTarGz(dst, dataDir); err != nil {
-			return fmt.Errorf("backup_daily: create archive: %w", err)
+		ext := ".tar.gz"
+		if cfg.Password != "" {
+			ext = ".tar.gz.enc"
 		}
 
-		info, _ := os.Stat(dst)
+		// Step 1: full dated backup.
+		date := time.Now().Format("2006-01-02")
+		fullName := fmt.Sprintf("%s_backup_%s%s", cfg.ProjectName, date, ext)
+		fullPath := filepath.Join(cfg.BackupDir, fullName)
+
+		if err := maintenance.Backup(maintenance.BackupOptions{
+			ConfigDir:  cfg.ConfigDir,
+			DataDir:    cfg.DataDir,
+			BackupDir:  cfg.BackupDir,
+			AppVersion: cfg.AppVersion,
+			Password:   cfg.Password,
+			Filename:   fullName,
+		}); err != nil {
+			os.Remove(fullPath)
+			return fmt.Errorf("backup_daily: create full backup: %w", err)
+		}
+
+		// Step 2: verify the full backup immediately.
+		if err := maintenance.VerifyBackup(fullPath, cfg.Password); err != nil {
+			os.Remove(fullPath)
+			return fmt.Errorf("backup_daily: verification failed for %s: %w", fullName, err)
+		}
+
+		info, _ := os.Stat(fullPath)
 		sizeKB := int64(0)
 		if info != nil {
 			sizeKB = info.Size() / 1024
 		}
-		log.Printf("backup_daily: created %s (%d KB)", filepath.Base(dst), sizeKB)
+		log.Printf("backup_daily: full backup verified: %s (%d KB)", fullName, sizeKB)
 
-		if err := trimBackups(backupDir, projectName+"_backup_", maxBackups); err != nil {
-			log.Printf("backup_daily: trim warning: %v", err)
+		// Step 3: create/replace the daily incremental.
+		dailyName := fmt.Sprintf("%s-daily%s", cfg.ProjectName, ext)
+		dailyPath := filepath.Join(cfg.BackupDir, dailyName)
+		dailyTmp := dailyPath + ".tmp"
+
+		if err := maintenance.Backup(maintenance.BackupOptions{
+			ConfigDir:  cfg.ConfigDir,
+			DataDir:    cfg.DataDir,
+			BackupDir:  cfg.BackupDir,
+			AppVersion: cfg.AppVersion,
+			Password:   cfg.Password,
+			Filename:   dailyName + ".tmp",
+		}); err != nil {
+			os.Remove(dailyTmp)
+			log.Printf("backup_daily: daily incremental create warning: %v", err)
+		} else {
+			// Step 4: verify the daily incremental before replacing the existing one.
+			if err := maintenance.VerifyBackup(dailyTmp, cfg.Password); err != nil {
+				os.Remove(dailyTmp)
+				log.Printf("backup_daily: daily incremental verification warning: %v", err)
+			} else {
+				if err := os.Rename(dailyTmp, dailyPath); err != nil {
+					os.Remove(dailyTmp)
+					log.Printf("backup_daily: daily incremental rename warning: %v", err)
+				} else {
+					log.Printf("backup_daily: daily incremental updated: %s", dailyName)
+				}
+			}
 		}
+
+		// Step 5: apply retention policy.
+		if err := applyRetention(cfg.BackupDir, cfg.ProjectName, cfg.Retention); err != nil {
+			log.Printf("backup_daily: retention warning: %v", err)
+		}
+
 		return nil
 	}
 }
 
-// BackupHourly returns a task that replaces a single rolling backup archive
-// {project}-hourly.tar.gz in backupDir with a fresh snapshot of dataDir.
-func BackupHourly(projectName, dataDir, backupDir string) func() error {
+// BackupHourly returns a task that replaces the rolling hourly incremental
+// ({project}-hourly.tar.gz[.enc]) with a fresh snapshot, then verifies it.
+func BackupHourly(cfg BackupConfig) func() error {
 	return func() error {
-		if err := os.MkdirAll(backupDir, 0o750); err != nil {
+		if err := os.MkdirAll(cfg.BackupDir, 0o750); err != nil {
 			return fmt.Errorf("backup_hourly: mkdir: %w", err)
 		}
 
-		dst := filepath.Join(backupDir, projectName+"-hourly.tar.gz")
-		tmp := dst + ".tmp"
+		ext := ".tar.gz"
+		if cfg.Password != "" {
+			ext = ".tar.gz.enc"
+		}
 
-		if err := createTarGz(tmp, dataDir); err != nil {
-			os.Remove(tmp)
+		hourlyName := fmt.Sprintf("%s-hourly%s", cfg.ProjectName, ext)
+		hourlyPath := filepath.Join(cfg.BackupDir, hourlyName)
+		tmpName := hourlyName + ".tmp"
+		tmpPath := filepath.Join(cfg.BackupDir, tmpName)
+
+		if err := maintenance.Backup(maintenance.BackupOptions{
+			ConfigDir:  cfg.ConfigDir,
+			DataDir:    cfg.DataDir,
+			BackupDir:  cfg.BackupDir,
+			AppVersion: cfg.AppVersion,
+			Password:   cfg.Password,
+			Filename:   tmpName,
+		}); err != nil {
+			os.Remove(tmpPath)
 			return fmt.Errorf("backup_hourly: create archive: %w", err)
 		}
 
-		if err := os.Rename(tmp, dst); err != nil {
-			os.Remove(tmp)
+		if err := maintenance.VerifyBackup(tmpPath, cfg.Password); err != nil {
+			os.Remove(tmpPath)
+			return fmt.Errorf("backup_hourly: verification failed: %w", err)
+		}
+
+		if err := os.Rename(tmpPath, hourlyPath); err != nil {
+			os.Remove(tmpPath)
 			return fmt.Errorf("backup_hourly: rename: %w", err)
 		}
 
-		log.Printf("backup_hourly: updated %s", filepath.Base(dst))
+		log.Printf("backup_hourly: updated %s", hourlyName)
 		return nil
 	}
 }
 
-// createTarGz writes a tar.gz archive of src (a directory) to dst (a file).
-func createTarGz(dst, src string) error {
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
-	if err != nil {
-		return err
-	}
+// backupFileRE matches dated backup filenames like project_backup_2025-01-15.tar.gz[.enc].
+var backupFileRE = regexp.MustCompile(`_backup_(\d{4}-\d{2}-\d{2})\.tar\.gz(\.enc)?$`)
 
-	gz, err := gzip.NewWriterLevel(out, gzip.BestSpeed)
-	if err != nil {
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-	tw := tar.NewWriter(gz)
-
-	base := filepath.Base(src)
-	err = filepath.WalkDir(src, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		name := filepath.Join(base, rel)
-
-		hdr, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return err
-		}
-		hdr.Name = name
-		if info.IsDir() {
-			hdr.Name += "/"
-		}
-
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		_, err = io.Copy(tw, f)
-		return err
-	})
-
-	if err != nil {
-		tw.Close()
-		gz.Close()
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-
-	if err := tw.Close(); err != nil {
-		gz.Close()
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-	if err := gz.Close(); err != nil {
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-	return out.Close()
-}
-
-// trimBackups removes the oldest backup files with the given prefix so that
-// at most keep files remain.
-func trimBackups(dir, prefix string, keep int) error {
+// applyRetention removes old backups according to the retention policy (PART 21).
+// Priority order: yearly > monthly > weekly > daily.
+// The daily incremental (*-daily.*) and hourly (*-hourly.*) are never deleted here.
+func applyRetention(dir, project string, ret BackupRetention) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 
-	var files []os.FileInfo
+	// Collect dated full backup files.
+	type backupEntry struct {
+		name string
+		date time.Time
+	}
+	var backups []backupEntry
+	prefix := project + "_backup_"
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
 			continue
 		}
-		info, err := e.Info()
+		m := backupFileRE.FindStringSubmatch(e.Name())
+		if m == nil {
+			continue
+		}
+		t, err := time.Parse("2006-01-02", m[1])
 		if err != nil {
 			continue
 		}
-		files = append(files, info)
+		backups = append(backups, backupEntry{name: e.Name(), date: t})
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].ModTime().Before(files[j].ModTime())
+	// Sort newest first.
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].date.After(backups[j].date)
 	})
 
-	for len(files) > keep {
-		oldest := filepath.Join(dir, files[0].Name())
-		if err := os.Remove(oldest); err != nil {
-			return err
+	// Classify each backup by its highest-priority retention tier.
+	type tier int
+	const (
+		tierYearly  tier = iota // highest priority
+		tierMonthly tier = iota
+		tierWeekly  tier = iota
+		tierDaily   tier = iota
+	)
+
+	classify := func(t time.Time) tier {
+		if t.Month() == time.January && t.Day() == 1 && ret.KeepYearly > 0 {
+			return tierYearly
 		}
-		log.Printf("backup: removed old archive %s", files[0].Name())
-		files = files[1:]
+		if t.Day() == 1 && ret.KeepMonthly > 0 {
+			return tierMonthly
+		}
+		if t.Weekday() == time.Sunday && ret.KeepWeekly > 0 {
+			return tierWeekly
+		}
+		return tierDaily
+	}
+
+	// Count how many of each tier we have seen (newest first).
+	countYearly, countMonthly, countWeekly, countDaily := 0, 0, 0, 0
+	for _, b := range backups {
+		t := classify(b.date)
+		keep := false
+		switch t {
+		case tierYearly:
+			countYearly++
+			keep = countYearly <= ret.KeepYearly
+		case tierMonthly:
+			countMonthly++
+			keep = countMonthly <= ret.KeepMonthly
+		case tierWeekly:
+			countWeekly++
+			keep = countWeekly <= ret.KeepWeekly
+		case tierDaily:
+			countDaily++
+			keep = countDaily <= ret.MaxBackups
+		}
+		if !keep {
+			p := filepath.Join(dir, b.name)
+			if err := os.Remove(p); err != nil {
+				log.Printf("backup: retention: remove %s: %v", b.name, err)
+			} else {
+				log.Printf("backup: retention: removed %s", b.name)
+			}
+		}
 	}
 	return nil
 }
+
 
 // TorHealth returns a task that checks whether Tor is running and logs the
 // result.  torRunning is a function that reports the current Tor state; it is

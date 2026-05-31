@@ -72,6 +72,23 @@ type DB interface {
 	CountPastes() (int64, error)
 }
 
+// Query timeout constants per PART 10.
+const (
+	// dbReadTimeout is for simple SELECT queries.
+	dbReadTimeout = 5 * time.Second
+	// dbWriteTimeout is for INSERT, UPDATE, DELETE.
+	dbWriteTimeout = 10 * time.Second
+	// dbComplexTimeout is for multi-step or JOIN queries.
+	dbComplexTimeout = 15 * time.Second
+	// dbBulkTimeout is for bulk delete / migration operations.
+	dbBulkTimeout = 60 * time.Second
+)
+
+// dbCtx returns a context with the given timeout rooted at Background.
+func dbCtx(timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), timeout)
+}
+
 // SQLiteDB implements DB for SQLite.
 type SQLiteDB struct {
 	db *sql.DB
@@ -96,6 +113,13 @@ func newSQLiteDB(path string) (*SQLiteDB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+
+	// Connection pool settings (PART 10).
+	// SQLite WAL mode supports 1 writer + concurrent readers; 5 open conns is safe.
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
 	if err := ensureSchema(db); err != nil {
 		db.Close()
@@ -219,7 +243,9 @@ func (s *SQLiteDB) CreatePaste(p *model.Paste) error {
 		p.Language = "text"
 	}
 
-	_, err := s.db.Exec(
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO pastes
 			(id, title, content, language, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -234,7 +260,9 @@ func (s *SQLiteDB) GetPasteByID(id string) (*model.Paste, error) {
 	p := &model.Paste{}
 	var expiresAt sql.NullTime
 
-	err := s.db.QueryRow(
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	err := s.db.QueryRowContext(ctx,
 		`SELECT id, title, content, language, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at
 		 FROM pastes WHERE id = ?`, id,
 	).Scan(&p.ID, &p.Title, &p.Content, &p.Language, &p.Visibility,
@@ -260,8 +288,11 @@ func (s *SQLiteDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int,
 	offset := (page - 1) * limit
 	now := time.Now()
 
+	ctx, cancel := dbCtx(dbComplexTimeout)
+	defer cancel()
+
 	var total int
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM pastes WHERE visibility = 0 AND (expires_at IS NULL OR expires_at > ?)`,
 		now,
 	).Scan(&total)
@@ -269,7 +300,7 @@ func (s *SQLiteDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int,
 		return nil, 0, err
 	}
 
-	rows, err := s.db.Query(
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, title, language, views, expires_at, burn_after, created_at
 		 FROM pastes
 		 WHERE visibility = 0 AND (expires_at IS NULL OR expires_at > ?)
@@ -298,13 +329,17 @@ func (s *SQLiteDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int,
 
 // IncrementPasteViews atomically increments the view counter.
 func (s *SQLiteDB) IncrementPasteViews(id string) error {
-	_, err := s.db.Exec(`UPDATE pastes SET views = views + 1, updated_at = ? WHERE id = ?`, time.Now(), id)
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx, `UPDATE pastes SET views = views + 1, updated_at = ? WHERE id = ?`, time.Now(), id)
 	return err
 }
 
 // DeletePaste removes a paste by ID with no token check (admin / internal use).
 func (s *SQLiteDB) DeletePaste(id string) error {
-	result, err := s.db.Exec(`DELETE FROM pastes WHERE id = ?`, id)
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `DELETE FROM pastes WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
@@ -318,8 +353,10 @@ func (s *SQLiteDB) DeletePaste(id string) error {
 // DeletePasteByToken removes a paste only when the delete token hash matches.
 // The comparison is performed in constant time to prevent timing-based token oracle attacks.
 func (s *SQLiteDB) DeletePasteByToken(id, deleteTokenHash string) error {
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
 	var storedHash string
-	err := s.db.QueryRow(`SELECT delete_token_hash FROM pastes WHERE id = ?`, id).Scan(&storedHash)
+	err := s.db.QueryRowContext(ctx, `SELECT delete_token_hash FROM pastes WHERE id = ?`, id).Scan(&storedHash)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("paste not found or invalid token")
 	}
@@ -329,13 +366,17 @@ func (s *SQLiteDB) DeletePasteByToken(id, deleteTokenHash string) error {
 	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(deleteTokenHash)) != 1 {
 		return fmt.Errorf("paste not found or invalid token")
 	}
-	_, err = s.db.Exec(`DELETE FROM pastes WHERE id = ?`, id)
+	ctx2, cancel2 := dbCtx(dbWriteTimeout)
+	defer cancel2()
+	_, err = s.db.ExecContext(ctx2, `DELETE FROM pastes WHERE id = ?`, id)
 	return err
 }
 
 // DeleteExpiredPastes removes all pastes whose expiry has passed.
 func (s *SQLiteDB) DeleteExpiredPastes() (int64, error) {
-	result, err := s.db.Exec(
+	ctx, cancel := dbCtx(dbBulkTimeout)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM pastes WHERE expires_at IS NOT NULL AND expires_at <= ?`,
 		time.Now(),
 	)
@@ -347,7 +388,9 @@ func (s *SQLiteDB) DeleteExpiredPastes() (int64, error) {
 
 // DeleteBurnedPastes removes pastes whose view count has reached their burn_after limit.
 func (s *SQLiteDB) DeleteBurnedPastes() (int64, error) {
-	result, err := s.db.Exec(
+	ctx, cancel := dbCtx(dbBulkTimeout)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM pastes WHERE burn_after > 0 AND views >= burn_after`,
 	)
 	if err != nil {
@@ -372,7 +415,9 @@ func (s *SQLiteDB) UpsertSchedulerTask(t *TaskState) error {
 	if t.Enabled {
 		enabled = 1
 	}
-	_, err := s.db.Exec(`
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO scheduler_tasks
 			(task_id, task_name, schedule, last_run, last_status, last_error,
 			 next_run, run_count, fail_count, enabled)
@@ -395,7 +440,9 @@ func (s *SQLiteDB) UpsertSchedulerTask(t *TaskState) error {
 
 // GetSchedulerTask retrieves the persistent state for a single task.
 func (s *SQLiteDB) GetSchedulerTask(taskID string) (*TaskState, error) {
-	row := s.db.QueryRow(`
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	row := s.db.QueryRowContext(ctx, `
 		SELECT task_id, task_name, schedule, last_run, last_status, last_error,
 		       next_run, run_count, fail_count, enabled
 		FROM   scheduler_tasks WHERE task_id = ?`, taskID)
@@ -404,7 +451,9 @@ func (s *SQLiteDB) GetSchedulerTask(taskID string) (*TaskState, error) {
 
 // ListSchedulerTasks returns all registered tasks ordered by task_id.
 func (s *SQLiteDB) ListSchedulerTasks() ([]*TaskState, error) {
-	rows, err := s.db.Query(`
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT task_id, task_name, schedule, last_run, last_status, last_error,
 		       next_run, run_count, fail_count, enabled
 		FROM   scheduler_tasks ORDER BY task_id`)
@@ -433,7 +482,9 @@ func (s *SQLiteDB) UpdateTaskRun(
 	if !nextRun.IsZero() {
 		nextRunPtr = &nextRun
 	}
-	_, err := s.db.Exec(`
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE scheduler_tasks
 		SET last_run = ?, last_status = ?, last_error = ?,
 		    run_count = ?, fail_count = ?, next_run = ?
@@ -445,7 +496,9 @@ func (s *SQLiteDB) UpdateTaskRun(
 
 // RecordTaskHistory appends a history entry for a task execution.
 func (s *SQLiteDB) RecordTaskHistory(h *TaskHistory) error {
-	_, err := s.db.Exec(`
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO scheduler_history
 			(task_id, started_at, finished_at, status, error_msg, duration_ms)
 		VALUES (?, ?, ?, ?, ?, ?)`,
@@ -463,7 +516,9 @@ func (s *SQLiteDB) RecordTaskHistory(h *TaskHistory) error {
 func (s *SQLiteDB) EnsureAppSecret(key string) ([]byte, error) {
 	// Attempt to fetch existing value.
 	var encoded string
-	err := s.db.QueryRow(
+	rCtx, rCancel := dbCtx(dbReadTimeout)
+	defer rCancel()
+	err := s.db.QueryRowContext(rCtx,
 		`SELECT value FROM app_secrets WHERE key = ?`, key,
 	).Scan(&encoded)
 	if err == nil {
@@ -484,14 +539,18 @@ func (s *SQLiteDB) EnsureAppSecret(key string) ([]byte, error) {
 	}
 	encoded = base64.StdEncoding.EncodeToString(buf[:])
 	now := time.Now()
-	_, err = s.db.Exec(
+	wCtx, wCancel := dbCtx(dbWriteTimeout)
+	defer wCancel()
+	_, err = s.db.ExecContext(wCtx,
 		`INSERT INTO app_secrets (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)`,
 		key, encoded, now, now,
 	)
 	if err != nil {
 		// Race: another goroutine may have inserted simultaneously.
 		var existing string
-		if qErr := s.db.QueryRow(
+		rCtx2, rCancel2 := dbCtx(dbReadTimeout)
+		defer rCancel2()
+		if qErr := s.db.QueryRowContext(rCtx2,
 			`SELECT value FROM app_secrets WHERE key = ?`, key,
 		).Scan(&existing); qErr == nil {
 			raw, decErr := base64.StdEncoding.DecodeString(existing)
@@ -507,8 +566,10 @@ func (s *SQLiteDB) EnsureAppSecret(key string) ([]byte, error) {
 
 // CountPastes returns the total number of rows in the paste table.
 func (s *SQLiteDB) CountPastes() (int64, error) {
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
 	var count int64
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM pastes`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pastes`).Scan(&count)
 	return count, err
 }
 

@@ -294,6 +294,125 @@ Examples:
 `, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
+// VerifyBackup performs the post-creation checks required by PART 21:
+//  1. File exists
+//  2. Size > 0
+//  3. Decrypt (if encrypted, password must work)
+//  4. Manifest present and parseable
+//  5. All archive entries extractable to temp dir
+//  6. Any *.db entries have a valid SQLite magic header
+//
+// Returns nil when all checks pass. The caller must delete the file and abort
+// retention on any error.
+func VerifyBackup(path, password string) error {
+	// Check 1 + 2: file exists and non-empty.
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("verify: file not found: %w", err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("verify: file is empty: %s", path)
+	}
+
+	// Read the raw bytes.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("verify: cannot read: %w", err)
+	}
+
+	// Check 3: decrypt if encrypted.
+	if strings.HasSuffix(path, ".enc") {
+		if password == "" {
+			return fmt.Errorf("verify: encrypted backup requires password")
+		}
+		data, err = decrypt(data, password)
+		if err != nil {
+			return fmt.Errorf("verify: decrypt failed: %w", err)
+		}
+	}
+
+	// Open the gzip+tar archive.
+	gr, err := gzip.NewReader(strings.NewReader(string(data)))
+	if err != nil {
+		return fmt.Errorf("verify: not a valid gzip archive: %w", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+
+	// Check 4 + 5 + 6: walk entries.
+	var manifestFound bool
+	tmpDir, err := os.MkdirTemp("", "pastebin-verify-*")
+	if err != nil {
+		return fmt.Errorf("verify: temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("verify: reading archive entry: %w", err)
+		}
+
+		if hdr.Name == "manifest.json" {
+			manifestFound = true
+			// Check 4: parse the manifest.
+			var m Manifest
+			if jsonErr := json.NewDecoder(tr).Decode(&m); jsonErr != nil {
+				return fmt.Errorf("verify: invalid manifest: %w", jsonErr)
+			}
+			continue
+		}
+
+		// Check 5: extract entry to temp dir.
+		dest := filepath.Join(tmpDir, filepath.Base(hdr.Name))
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			return fmt.Errorf("verify: extract %s: %w", hdr.Name, err)
+		}
+		if _, err := io.Copy(f, tr); err != nil {
+			f.Close()
+			return fmt.Errorf("verify: read entry %s: %w", hdr.Name, err)
+		}
+		f.Close()
+
+		// Check 6: SQLite magic header for .db files.
+		if strings.HasSuffix(hdr.Name, ".db") {
+			if err := verifySQLiteMagic(dest); err != nil {
+				return fmt.Errorf("verify: db integrity %s: %w", hdr.Name, err)
+			}
+		}
+	}
+
+	if !manifestFound {
+		return fmt.Errorf("verify: manifest.json missing from archive")
+	}
+
+	return nil
+}
+
+// verifySQLiteMagic checks that a file begins with the SQLite3 magic header.
+func verifySQLiteMagic(path string) error {
+	const sqliteMagic = "SQLite format 3\x00"
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	buf := make([]byte, len(sqliteMagic))
+	if _, err := io.ReadFull(f, buf); err != nil {
+		return fmt.Errorf("cannot read header: %w", err)
+	}
+	if string(buf) != sqliteMagic {
+		return fmt.Errorf("not a valid SQLite3 file")
+	}
+	return nil
+}
+
 // ── internal helpers ─────────────────────────────────────────────────────────
 
 type memBuf struct {

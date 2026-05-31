@@ -642,10 +642,18 @@ Examples:
 	}))
 	logSchedErr(sched.Register("log_rotation", "Log Rotation", "0 0 * * *", true,
 		task.LogRotation(logsDir, 30*24*time.Hour)))
+	backupCfg := task.BackupConfig{
+		ProjectName: appName,
+		ConfigDir:   configDir,
+		DataDir:     dataDir,
+		BackupDir:   backupDir,
+		AppVersion:  Version,
+		Retention:   task.BackupRetention{MaxBackups: 1},
+	}
 	logSchedErr(sched.Register("backup_daily", "Backup Daily", "0 2 * * *", true,
-		task.BackupDaily(appName, dataDir, backupDir, 1)))
+		task.BackupDaily(backupCfg)))
 	logSchedErr(sched.Register("backup_hourly", "Backup Hourly", "@hourly", false,
-		task.BackupHourly(appName, dataDir, backupDir)))
+		task.BackupHourly(backupCfg)))
 	logSchedErr(sched.Register("healthcheck_self", "Health Check", "@every 5m", true, func() error {
 		if err := db.Ping(); err != nil {
 			return fmt.Errorf("healthcheck_self: database ping failed: %w", err)
