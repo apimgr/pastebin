@@ -365,6 +365,16 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.CleanPath)
+	// Response compression (PART 12) — compresses text/html, text/css, text/javascript,
+	// application/json, and application/xml at level 5.
+	r.Use(middleware.Compress(5,
+		"text/html",
+		"text/css",
+		"text/javascript",
+		"application/json",
+		"application/xml",
+		"text/plain",
+	))
 	r.Use(s.securityHeadersMiddleware)
 	r.Use(s.secFetchMiddleware)
 	r.Use(s.corsMiddleware)
@@ -1417,6 +1427,13 @@ func (s *Server) pageData() map[string]interface{} {
 	}
 }
 
+// baseURL constructs the base URL for the current request (PART 12).
+// Resolution order (highest priority first):
+//  1. Config/CLI: server.base_url
+//  2. X-Forwarded-Prefix header (from trusted reverse proxy)
+//  3. X-Forwarded-Path header (alternative prefix header)
+//  4. X-Script-Name header (WSGI-style)
+//  5. Default: scheme://host derived from TLS state and X-Forwarded-Proto
 func (s *Server) baseURL(r *http.Request) string {
 	if s.cfg.Server.BaseURL != "" {
 		return s.cfg.Server.BaseURL
@@ -1425,5 +1442,20 @@ func (s *Server) baseURL(r *http.Request) string {
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	return scheme + "://" + r.Host
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		host = fh
+	}
+	base := scheme + "://" + host
+	// Append reverse-proxy path prefix when present (trailing slash stripped).
+	for _, hdr := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
+		if prefix := r.Header.Get(hdr); prefix != "" {
+			prefix = strings.TrimRight(prefix, "/")
+			if prefix != "" {
+				base += prefix
+			}
+			break
+		}
+	}
+	return base
 }
