@@ -673,6 +673,9 @@ Examples:
 	sched.Start()
 	defer sched.Stop()
 
+	// Register scheduler health callback with the server for /server/healthz.
+	srv.SetSchedulerHealthFn(sched.Running)
+
 	// ── PID file ──────────────────────────────────────────────────────────────
 	// WritePIDFile also calls CheckPIDFile; it exits non-zero if another
 	// instance of our binary is already running.

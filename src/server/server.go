@@ -73,20 +73,22 @@ func (rs *requestStats) last24h() int64 {
 
 // ─── Health types (PART 13) ──────────────────────────────────────────────────
 
-// HealthResponse is the canonical /server/healthz response structure.
+// HealthResponse is the canonical /server/healthz response structure (PART 13).
 type HealthResponse struct {
-	Project   ProjectInfo  `json:"project"`
-	Status    string       `json:"status"`
-	Version   string       `json:"version"`
-	GoVersion string       `json:"go_version"`
-	Build     BuildInfo    `json:"build"`
-	Uptime    string       `json:"uptime"`
-	Mode      string       `json:"mode"`
-	Timestamp time.Time    `json:"timestamp"`
-	Cluster   ClusterInfo  `json:"cluster"`
-	Features  FeaturesInfo `json:"features"`
-	Checks    ChecksInfo   `json:"checks"`
-	Stats     StatsInfo    `json:"stats"`
+	Project        ProjectInfo  `json:"project"`
+	Status         string       `json:"status"`
+	PendingRestart bool         `json:"pending_restart,omitempty"`
+	RestartReason  []string     `json:"restart_reason,omitempty"`
+	Version        string       `json:"version"`
+	GoVersion      string       `json:"go_version"`
+	Build          BuildInfo    `json:"build"`
+	Uptime         string       `json:"uptime"`
+	Mode           string       `json:"mode"`
+	Timestamp      time.Time    `json:"timestamp"`
+	Cluster        ClusterInfo  `json:"cluster"`
+	Features       FeaturesInfo `json:"features"`
+	Checks         ChecksInfo   `json:"checks"`
+	Stats          StatsInfo    `json:"stats"`
 }
 
 // ProjectInfo holds public branding fields.
@@ -123,9 +125,11 @@ type TorInfo struct {
 
 // ChecksInfo reports component health as "ok" or "error".
 type ChecksInfo struct {
-	Database string `json:"database"`
-	Cache    string `json:"cache"`
-	Disk     string `json:"disk"`
+	Database  string `json:"database"`
+	Cache     string `json:"cache"`
+	Disk      string `json:"disk"`
+	Scheduler string `json:"scheduler"`
+	Tor       string `json:"tor,omitempty"`
 }
 
 // StatsInfo holds public-safe aggregate statistics.
@@ -159,6 +163,31 @@ type Server struct {
 	configDir        string
 	startTime        time.Time
 	stats            requestStats
+	// schedHealthFn is an optional callback that reports whether the scheduler
+	// is running — set by main after constructing the server.
+	schedHealthFn func() bool
+	// pendingRestartMu guards pendingRestartKeys.
+	pendingRestartMu   sync.Mutex
+	pendingRestartKeys []string
+}
+
+// SetSchedulerHealthFn registers a callback that reports whether the scheduler is running.
+// Call this from main after constructing the server, before calling Run.
+func (s *Server) SetSchedulerHealthFn(fn func() bool) {
+	s.schedHealthFn = fn
+}
+
+// MarkPendingRestart records a config key that requires a restart to take effect.
+// The key is surfaced in the healthz pending_restart / restart_reason fields.
+func (s *Server) MarkPendingRestart(key string) {
+	s.pendingRestartMu.Lock()
+	defer s.pendingRestartMu.Unlock()
+	for _, k := range s.pendingRestartKeys {
+		if k == key {
+			return
+		}
+	}
+	s.pendingRestartKeys = append(s.pendingRestartKeys, key)
 }
 
 // liveCfg returns the most current config, applying hot-reloaded values if available.
@@ -302,13 +331,33 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 }
 
 // OnConfigChange is called by the ConfigManager after each successful hot-reload.
-// It updates rate limiter thresholds so they take effect on the next request.
+// It updates rate limiter thresholds and tracks restart-required key changes.
 func (s *Server) OnConfigChange(next *config.Config) {
 	if s.createLimiter != nil && next.RateLimit.CreatePerM > 0 {
 		s.createLimiter.UpdateLimit(next.RateLimit.CreatePerM)
 	}
 	if s.deleteLimiter != nil && next.RateLimit.DeletePerM > 0 {
 		s.deleteLimiter.UpdateLimit(next.RateLimit.DeletePerM)
+	}
+
+	// Detect restart-required changes and record them for healthz.
+	prev := s.liveCfg()
+	if prev.Server.Port != next.Server.Port {
+		s.MarkPendingRestart("server.port")
+	}
+	if prev.Server.Address != next.Server.Address {
+		s.MarkPendingRestart("server.address")
+	}
+	if prev.Database.Type != next.Database.Type || prev.Database.Path != next.Database.Path {
+		s.MarkPendingRestart("database")
+	}
+	if prev.Server.Tor.Binary != next.Server.Tor.Binary ||
+		prev.Server.Tor.VirtualPort != next.Server.Tor.VirtualPort {
+		s.MarkPendingRestart("server.tor")
+	}
+	if prev.Server.TLS.Enabled != next.Server.TLS.Enabled ||
+		prev.Server.TLS.Email != next.Server.TLS.Email {
+		s.MarkPendingRestart("server.tls")
 	}
 }
 
@@ -1007,9 +1056,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (s *Server) buildHealthResponse() HealthResponse {
 	checks := ChecksInfo{
-		Database: "ok",
-		Cache:    "ok",
-		Disk:     "ok",
+		Database:  "ok",
+		Cache:     "ok",
+		Disk:      "ok",
+		Scheduler: "ok",
 	}
 
 	if err := s.db.Ping(); err != nil {
@@ -1029,9 +1079,26 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		checks.Disk = "error"
 	}
 
+	// Scheduler health check via optional callback registered by main.
+	if s.schedHealthFn != nil && !s.schedHealthFn() {
+		checks.Scheduler = "error"
+	}
+
+	// Tor health check — report only when Tor is enabled.
+	torInfo := s.buildTorInfo()
+	if torInfo.Enabled {
+		if torInfo.Running {
+			checks.Tor = "ok"
+		} else {
+			checks.Tor = "error"
+		}
+	}
+
 	status := "healthy"
 	if checks.Database == "error" || checks.Disk == "error" {
 		status = "unhealthy"
+	} else if checks.Cache == "error" || checks.Scheduler == "error" || checks.Tor == "error" {
+		status = "degraded"
 	}
 
 	// Fetch total paste count for stats (best-effort — zero on error).
@@ -1040,15 +1107,23 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		pastesTotal = n
 	}
 
+	// Collect pending-restart keys under the lock.
+	s.pendingRestartMu.Lock()
+	pendingKeys := make([]string, len(s.pendingRestartKeys))
+	copy(pendingKeys, s.pendingRestartKeys)
+	s.pendingRestartMu.Unlock()
+
 	hr := HealthResponse{
 		Project: ProjectInfo{
 			Name:        s.liveCfg().Web.SiteTitle,
 			Tagline:     "Simple, fast paste service",
 			Description: "A self-hosted pastebin with syntax highlighting and burn-after-read support.",
 		},
-		Status:    status,
-		Version:   s.version,
-		GoVersion: runtime.Version(),
+		Status:         status,
+		PendingRestart: len(pendingKeys) > 0,
+		RestartReason:  pendingKeys,
+		Version:        s.version,
+		GoVersion:      runtime.Version(),
 		Build: BuildInfo{
 			Commit: s.commitID,
 			Date:   s.buildDate,
@@ -1060,7 +1135,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 			Enabled: false,
 		},
 		Features: FeaturesInfo{
-			Tor:   s.buildTorInfo(),
+			Tor:   torInfo,
 			GeoIP: s.geoipDB != nil,
 		},
 		Checks: checks,

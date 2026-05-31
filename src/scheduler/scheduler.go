@@ -112,6 +112,13 @@ func (s *Scheduler) Start() {
 	go s.loop()
 }
 
+// Running reports whether the scheduler loop is currently active.
+func (s *Scheduler) Running() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
+}
+
 // Stop signals the scheduler loop to exit. It waits for the current tick to
 // finish but does not wait for running task goroutines.
 func (s *Scheduler) Stop() {
