@@ -1000,6 +1000,15 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		checks.Database = "error"
 	}
 
+	// Ping the cache driver (non-fatal for health status but surfaced in checks).
+	if s.cacheStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := s.cacheStore.Ping(ctx); err != nil {
+			checks.Cache = "error"
+		}
+		cancel()
+	}
+
 	if !s.checkDisk() {
 		checks.Disk = "error"
 	}
@@ -1007,6 +1016,12 @@ func (s *Server) buildHealthResponse() HealthResponse {
 	status := "healthy"
 	if checks.Database == "error" || checks.Disk == "error" {
 		status = "unhealthy"
+	}
+
+	// Fetch total paste count for stats (best-effort — zero on error).
+	var pastesTotal int64
+	if n, err := s.db.CountPastes(); err == nil {
+		pastesTotal = n
 	}
 
 	hr := HealthResponse{
@@ -1037,6 +1052,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 			RequestsTotal: s.stats.total.Load(),
 			Requests24h:   s.stats.last24h(),
 			ActiveConns:   int(s.stats.activeConn.Load()),
+			PastesTotal:   pastesTotal,
 		},
 	}
 	return hr

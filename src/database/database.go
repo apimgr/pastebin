@@ -67,6 +67,9 @@ type DB interface {
 	// EnsureAppSecret returns the raw bytes for key, generating 32 random bytes on
 	// first call. The value is stored base64-encoded and never returned in API responses.
 	EnsureAppSecret(key string) ([]byte, error)
+
+	// CountPastes returns the total number of pastes stored (for healthz stats).
+	CountPastes() (int64, error)
 }
 
 // SQLiteDB implements DB for SQLite.
@@ -500,6 +503,13 @@ func (s *SQLiteDB) EnsureAppSecret(key string) ([]byte, error) {
 		return nil, fmt.Errorf("app_secrets: insert %q: %w", key, err)
 	}
 	return buf[:], nil
+}
+
+// CountPastes returns the total number of rows in the paste table.
+func (s *SQLiteDB) CountPastes() (int64, error) {
+	var count int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM pastes`).Scan(&count)
+	return count, err
 }
 
 // scanTaskState scans a row into a TaskState.
