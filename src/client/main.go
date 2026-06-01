@@ -10,6 +10,7 @@
 //	get <id>                  Fetch raw paste content
 //	delete <id> <token>       Delete paste using delete token
 //	list [--limit N]          List recent public pastes
+//	update                    Check for and apply CLI updates
 package main
 
 import (
@@ -22,11 +23,16 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/apimgr/pastebin/src/paths"
 	"github.com/apimgr/pastebin/src/shell"
+	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 // Version, CommitID, BuildDate, and OfficialSite are injected at build time via -ldflags.
@@ -42,16 +48,223 @@ var (
 // project). The user MUST supply a server via --server or $PASTEBIN_SERVER.
 const defaultServer = ""
 
+// projectName is the hardcoded internal name used for User-Agent and config paths.
+// Display uses filepath.Base(os.Args[0]) per PART 32.
+const projectName = "pastebin"
+
+// ─── CLI config (cli.yml) ─────────────────────────────────────────────────────
+
+// cliConfig mirrors the structure of cli.yml.
+type cliConfig struct {
+	Server  string `yaml:"server"`
+	Update  struct {
+		Auto          bool   `yaml:"auto"`
+		CheckInterval string `yaml:"check_interval"`
+		Channel       string `yaml:"channel"`
+	} `yaml:"update"`
+	Display struct {
+		Mode string `yaml:"mode"`
+	} `yaml:"display"`
+}
+
+// cliConfigPath returns the platform-correct path to cli.yml.
+func cliConfigPath() string {
+	if p := os.Getenv("CLI_CONFIG"); p != "" {
+		return p
+	}
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("APPDATA"), "apimgr", projectName, "cli.yml")
+	}
+	return filepath.Join(paths.GetConfigDir(projectName), "cli.yml")
+}
+
+// loadCLIConfig reads cli.yml; returns zero-value config if absent.
+func loadCLIConfig() (cliConfig, error) {
+	var cfg cliConfig
+	cfg.Update.Channel = "stable"
+	cfg.Update.CheckInterval = "per_invocation"
+	cfg.Display.Mode = "auto"
+
+	data, err := os.ReadFile(cliConfigPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return cfg, err
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("parse cli.yml: %w", err)
+	}
+	return cfg, nil
+}
+
+// saveCLIConfig writes cfg to cli.yml, creating parent dirs as needed.
+func saveCLIConfig(cfg cliConfig) error {
+	p := cliConfigPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p, data, 0o644)
+}
+
+// saveIfEmptyOrInvalid updates dst with src when dst is empty or invalid, and
+// returns both the resolved value and whether it should be persisted.
+// Implements PART 32 Flag-to-Config Save Rules.
+func saveIfEmptyOrInvalid(current, flagValue string, validate func(string) bool) (resolved string, persist bool) {
+	if flagValue == "" {
+		return current, false
+	}
+	if !validate(flagValue) {
+		log.Printf("warning: invalid server URL %q, keeping current config", flagValue)
+		return current, false
+	}
+	if current == "" {
+		return flagValue, true
+	}
+	if !validate(current) {
+		return flagValue, true
+	}
+	return flagValue, false
+}
+
+// isValidURL is the validate function for server URLs.
+func isValidURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// ─── Display mode detection ───────────────────────────────────────────────────
+
+// detectMode returns "tui", "cli", or "plain" based on environment and args.
+// Implements PART 32 Automatic Mode Detection rules.
+func detectMode(args []string) string {
+	// Exit-immediately flags — never TUI.
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help", "-v", "--version":
+			return "cli"
+		}
+	}
+
+	// Not a terminal → plain output (piped, cron, scripts).
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		return "plain"
+	}
+
+	// Config-only flags that still allow TUI launch.
+	configFlags := map[string]bool{
+		"--config": true, "--server": true, "--token": true, "--debug": true,
+		"--color": true, "--json": true,
+	}
+
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			return "cli"
+		}
+		parts := strings.SplitN(arg, "=", 2)
+		if !configFlags[parts[0]] {
+			return "cli"
+		}
+	}
+
+	return "tui"
+}
+
+// ─── Auto-update via autodiscover ────────────────────────────────────────────
+
+// autodiscoverResponse is the subset of /api/autodiscover we need.
+type autodiscoverResponse struct {
+	CLIVersions   map[string]cliVersionInfo `json:"cli_versions"`
+	CLIMinVersion string                    `json:"cli_min_version"`
+}
+
+type cliVersionInfo struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+}
+
+// checkCLIUpdate queries /api/autodiscover and enforces cli_min_version.
+// It logs a notice when a newer version is available but does not auto-update
+// (cli.yml update.auto defaults to false for the CLI per PART 32).
+// Returns an error only when Version < cli_min_version (must refuse further requests).
+func checkCLIUpdate(serverURL string) error {
+	if serverURL == "" || Version == "dev" {
+		return nil
+	}
+
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(serverURL, "/")+"/api/autodiscover", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var disc autodiscoverResponse
+	if err := json.NewDecoder(resp.Body).Decode(&disc); err != nil {
+		return nil
+	}
+
+	// Enforce minimum version requirement.
+	if disc.CLIMinVersion != "" && versionLessThan(Version, disc.CLIMinVersion) {
+		return fmt.Errorf(
+			"this CLI is too old; the server requires %s — run 'pastebin-cli --update yes' to upgrade",
+			disc.CLIMinVersion,
+		)
+	}
+
+	// Notify when a newer version is available.
+	osArch := runtime.GOOS + "-" + runtime.GOARCH
+	if info, ok := disc.CLIVersions[osArch]; ok {
+		if versionLessThan(Version, info.Version) {
+			fmt.Fprintf(os.Stderr, "notice: pastebin-cli %s is available (you have %s); run 'pastebin-cli --update yes' to upgrade\n",
+				info.Version, Version)
+		}
+	}
+
+	return nil
+}
+
+// versionLessThan returns true when a < b (simple semver string comparison).
+// Only correct for x.y.z style versions without pre-release suffixes.
+func versionLessThan(a, b string) bool {
+	if a == "dev" || b == "dev" || a == "unknown" || b == "unknown" {
+		return false
+	}
+	return strings.Compare(a, b) < 0
+}
+
+// ─── Entry point ─────────────────────────────────────────────────────────────
+
 func main() {
 	log.SetFlags(0)
-	log.SetPrefix("pastebin-cli: ")
+	log.SetPrefix(filepath.Base(os.Args[0]) + ": ")
 
-	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", defaultServer), "server base URL")
+	// Load cli.yml.
+	fileCfg, err := loadCLIConfig()
+	if err != nil {
+		log.Printf("warning: could not load cli.yml: %v", err)
+	}
+
+	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", fileCfg.Server), "server base URL")
 	asJSON := flag.Bool("json", false, "machine-readable JSON output")
 	colorFlag := flag.String("color", "auto", "color output: always, never, auto")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	showHelp := flag.Bool("help", false, "show help and exit")
 	debugFlag := flag.Bool("debug", false, "enable debug output")
+	doUpdate := flag.String("update", "", "check for CLI updates: 'check' or 'yes'")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -74,7 +287,8 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, CommitID, BuildDate)
+		binaryName := filepath.Base(os.Args[0])
+		fmt.Printf("%s %s (commit %s, built %s)\n", binaryName, Version, CommitID, BuildDate)
 		return
 	}
 
@@ -92,14 +306,14 @@ func main() {
 		}
 		switch shellArg {
 		case "--help", "help", "":
-			shell.PrintHelp("pastebin-cli")
+			shell.PrintHelp(filepath.Base(os.Args[0]))
 		case "init":
 			shellShell := ""
 			if len(args) >= 3 {
 				shellShell = args[2]
 			}
-			if err := shell.PrintInit("pastebin-cli", shellShell); err != nil {
-				fmt.Fprintf(os.Stderr, "pastebin-cli: --shell init: %v\n", err)
+			if err := shell.PrintInit(filepath.Base(os.Args[0]), shellShell); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: --shell init: %v\n", filepath.Base(os.Args[0]), err)
 				os.Exit(1)
 			}
 		case "completions":
@@ -107,15 +321,42 @@ func main() {
 			if len(args) >= 3 {
 				shellShell = args[2]
 			}
-			if err := shell.PrintClientCompletions("pastebin-cli", shellShell); err != nil {
-				fmt.Fprintf(os.Stderr, "pastebin-cli: --shell completions: %v\n", err)
+			if err := shell.PrintClientCompletions(filepath.Base(os.Args[0]), shellShell); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: --shell completions: %v\n", filepath.Base(os.Args[0]), err)
 				os.Exit(1)
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "pastebin-cli: --shell: unknown subcommand %q\n", shellArg)
-			fmt.Fprintf(os.Stderr, "Run 'pastebin-cli --shell --help' for usage.\n")
+			fmt.Fprintf(os.Stderr, "%s: --shell: unknown subcommand %q\n", filepath.Base(os.Args[0]), shellArg)
+			fmt.Fprintf(os.Stderr, "Run '%s --shell --help' for usage.\n", filepath.Base(os.Args[0]))
 			os.Exit(1)
 		}
+		return
+	}
+
+	// Apply SaveIfEmptyOrInvalid: persist server to cli.yml when config was empty.
+	// Use the current parsed value of --server as the flagValue.
+	resolved, shouldPersist := saveIfEmptyOrInvalid(fileCfg.Server, *server, isValidURL)
+	if shouldPersist && resolved != "" {
+		fileCfg.Server = resolved
+		if err := saveCLIConfig(fileCfg); err != nil {
+			log.Printf("warning: could not save cli.yml: %v", err)
+		}
+	}
+	if resolved != "" {
+		*server = resolved
+	}
+
+	// Handle --update flag.
+	if *doUpdate != "" {
+		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON}
+		c.cmdUpdate(*doUpdate)
+		return
+	}
+
+	// Auto-detect display mode per PART 32.
+	mode := detectMode(args)
+	if mode == "tui" {
+		runTUI(*server, fileCfg)
 		return
 	}
 
@@ -126,6 +367,11 @@ func main() {
 
 	if *server == "" {
 		log.Fatal("no server URL set — use --server <url> or set $PASTEBIN_SERVER")
+	}
+
+	// Check for CLI updates (non-blocking; only blocks on min_version violation).
+	if err := checkCLIUpdate(*server); err != nil {
+		log.Fatal(err)
 	}
 
 	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON}
@@ -140,10 +386,37 @@ func main() {
 	case "list", "ls":
 		c.cmdList(args[1:])
 	case "version":
-		fmt.Printf("pastebin-cli %s (commit %s, built %s)\n", Version, CommitID, BuildDate)
+		binaryName := filepath.Base(os.Args[0])
+		fmt.Printf("%s %s (commit %s, built %s)\n", binaryName, Version, CommitID, BuildDate)
 	default:
 		log.Fatalf("unknown command %q (try: create, get, delete, list)", args[0])
 	}
+}
+
+// runTUI launches the interactive TUI mode.
+// When no server is configured it acts as a setup wizard.
+// NOTE: full bubbletea TUI implementation is tracked in AUDIT.AI.md.
+func runTUI(server string, cfg cliConfig) {
+	binaryName := filepath.Base(os.Args[0])
+	if server == "" {
+		fmt.Printf("%s: interactive setup\n", binaryName)
+		fmt.Printf("No server configured. Set one with:\n")
+		fmt.Printf("  %s --server https://your-server.example.com list\n", binaryName)
+		fmt.Printf("  or export PASTEBIN_SERVER=https://your-server.example.com\n")
+		fmt.Printf("  or edit %s\n", cliConfigPath())
+		os.Exit(0)
+	}
+
+	// Auto-update check in TUI mode.
+	if err := checkCLIUpdate(server); err != nil {
+		log.Fatal(err)
+	}
+
+	// TUI not yet implemented — fall back to help.
+	fmt.Fprintf(os.Stderr, "%s: TUI mode detected but not yet implemented.\n", binaryName)
+	fmt.Fprintf(os.Stderr, "Use command-line mode: %s <command> [args]\n", binaryName)
+	printUsage()
+	os.Exit(1)
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -278,6 +551,7 @@ func (c *client) cmdDelete(args []string) {
 	if err != nil {
 		log.Fatalf("build request: %v", err)
 	}
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
@@ -360,6 +634,52 @@ func (c *client) cmdList(args []string) {
 		result.Pagination.Total, *page, result.Pagination.TotalPages)
 }
 
+// cmdUpdate handles 'pastebin-cli --update check|yes'.
+func (c *client) cmdUpdate(action string) {
+	if c.server == "" {
+		log.Fatal("no server URL set — use --server <url> or set $PASTEBIN_SERVER")
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, c.url("/api/autodiscover"), nil)
+	if err != nil {
+		log.Fatalf("update: build request: %v", err)
+	}
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Fatalf("update: autodiscover: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var disc autodiscoverResponse
+	if err := json.NewDecoder(resp.Body).Decode(&disc); err != nil {
+		log.Fatalf("update: decode: %v", err)
+	}
+
+	osArch := runtime.GOOS + "-" + runtime.GOARCH
+	info, ok := disc.CLIVersions[osArch]
+	if !ok {
+		fmt.Printf("no CLI binary available for %s\n", osArch)
+		return
+	}
+
+	if !versionLessThan(Version, info.Version) {
+		fmt.Printf("pastebin-cli is up to date (%s)\n", Version)
+		return
+	}
+
+	fmt.Printf("update available: %s → %s\n", Version, info.Version)
+	if action != "yes" {
+		fmt.Printf("run 'pastebin-cli --update yes' to install\n")
+		return
+	}
+
+	fmt.Printf("downloading pastebin-cli %s for %s…\n", info.Version, osArch)
+	log.Fatal("auto-install not yet implemented; download manually from server")
+}
+
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
 func (c *client) url(path string) string {
@@ -368,7 +688,13 @@ func (c *client) url(path string) string {
 
 func (c *client) get(path string) (*http.Response, error) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	return httpClient.Get(c.url(path))
+	req, err := http.NewRequest(http.MethodGet, c.url(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+	req.Header.Set("Accept", "application/json")
+	return httpClient.Do(req)
 }
 
 func (c *client) postJSON(path string, body interface{}) (*http.Response, error) {
@@ -383,6 +709,7 @@ func (c *client) postJSON(path string, body interface{}) (*http.Response, error)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
 	return httpClient.Do(req)
 }
 
@@ -418,10 +745,11 @@ func envOrDefault(key, def string) string {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, `pastebin-cli %s — command-line client for the pastebin service
+	binaryName := filepath.Base(os.Args[0])
+	fmt.Fprintf(os.Stderr, `%s %s — command-line client for the pastebin service
 
 USAGE
-    pastebin-cli [--server URL] [--json] <command> [flags] [args]
+    %s [--server URL] [--json] <command> [flags] [args]
 
 COMMANDS
     create [file]        Create paste from stdin or file; prints URL and delete token
@@ -445,17 +773,18 @@ GLOBAL FLAGS
     --json               Output machine-readable JSON
     --color <when>       Color output: always, never, auto (default: auto; honors NO_COLOR)
     --debug              Enable debug output
+    --update check|yes   Check for or apply CLI updates
     --version            Print version
     --shell completions [SHELL]  Print shell completions
     --shell init [SHELL]         Print shell init command (eval-able)
     --shell --help               Show shell integration help
 
 EXAMPLES
-    PASTEBIN_SERVER=https://paste.example.com pastebin-cli create --lang text < file.txt
-    pastebin-cli --server https://paste.example.com create --lang go myfile.go
-    pastebin-cli --server https://paste.example.com get abc12345
-    pastebin-cli --server https://paste.example.com delete abc12345 <delete-token>
-    pastebin-cli --server https://paste.example.com list --limit 10
+    PASTEBIN_SERVER=https://paste.example.com %s create --lang text < file.txt
+    %s --server https://paste.example.com create --lang go myfile.go
+    %s --server https://paste.example.com get abc12345
+    %s --server https://paste.example.com delete abc12345 <delete-token>
+    %s --server https://paste.example.com list --limit 10
 
-`, Version)
+`, binaryName, Version, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }

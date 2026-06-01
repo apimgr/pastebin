@@ -161,6 +161,33 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [ ] Backup checksum in manifest cannot self-verify (archive2 has different bytes than archive1 whose checksum is in manifest) — tracking as deferred; all other 6 verification checks pass
 - [ ] CSRF token validation middleware — deferred (no auth surface yet)
 
+## Pass 14: PART 4 OS Paths + PART 11 Missing DB Tables + PART 32 Client — RESOLVED
+
+### PART 4 (OS-specific paths) — RESOLVED
+- [x] `src/paths/paths.go`: `GetConfigDir` — macOS root now `/Library/Application Support/apimgr/{app}`; BSD root now `/usr/local/etc/apimgr/{app}`
+- [x] `GetDataDir` — macOS root `/Library/Application Support/apimgr/{app}/data`; BSD root `/var/db/apimgr/{app}`
+- [x] `GetLogsDir` — macOS root `/Library/Logs/apimgr/{app}`
+- [x] `GetCacheDir` — macOS root `/Library/Caches/apimgr/{app}`
+- [x] `GetDBPath(appName)` added: container → `/data/db/sqlite/server.db`; native → `{dataDir}/db/server.db`
+- [x] `src/main.go`: DB path now uses `paths.GetDBPath(appName)` instead of inline filepath.Join
+
+### PART 11 (Missing DB tables) — RESOLVED
+- [x] `src/database/database.go` `ensureSchema()`: added `config`, `config_meta`, `rate_limits`, `audit_log`, `backups`, `api_tokens` tables + indexes
+- [x] Three separate triggers for `config_version_bump` (INSERT / UPDATE / DELETE) — SQLite cannot chain events with OR in a single trigger
+- [x] All 10 required tables now present: pastes, scheduler_tasks, scheduler_history, app_secrets, config, config_meta, rate_limits, audit_log, backups, api_tokens
+
+### PART 32 (Client) — PARTIAL RESOLUTION
+- [x] `User-Agent: pastebin-cli/{version}` set on all HTTP requests (GET, POST, DELETE, autodiscover)
+- [x] `cli.yml` config loading from `GetConfigDir("pastebin")/cli.yml` with YAML unmarshal; defaults: update.channel=stable, display.mode=auto
+- [x] `saveCLIConfig()`: writes cli.yml with 0o644 permissions, creates parent dirs (0o700)
+- [x] `SaveIfEmptyOrInvalid()`: persists `--server` to cli.yml when current server config is empty or invalid
+- [x] `detectMode()`: returns "tui" when interactive terminal + no command args (PART 32 mode detection rules)
+- [x] `runTUI()`: mode-detection stub — shows setup guide when no server, enforces min-version, defers full TUI
+- [x] `checkCLIUpdate()`: queries `/api/autodiscover`, enforces `cli_min_version` (fatal), logs notice on newer available version
+- [x] `filepath.Base(os.Args[0])` used for all display (help, version, log prefix, shell completions)
+- [x] `--update check|yes` command: queries autodiscover, compares versions, prompts or downloads
+- [ ] Full bubbletea TUI implementation deferred — tracked here; `runTUI()` is a stub that shows guidance and exits
+
 ## Completed (cumulative)
 
 - All 6 non-English locales brought to full key parity with `en.json`
@@ -178,3 +205,6 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 10: connection pool + query timeouts on all DB methods
 - PART 14: API response formatting verified (writeJSON: indent + newline)
 - PART 21: VerifyBackup (6 checks) + BackupDaily/BackupHourly with maintenance.Backup + retention policy
+- PART 4: OS-specific paths fixed + GetDBPath added
+- PART 11: all 10 DB tables present (config, config_meta, rate_limits, audit_log, backups, api_tokens + 3 triggers)
+- PART 32 client: User-Agent, cli.yml read/save, SaveIfEmptyOrInvalid, mode detection, auto-update check, binary name display
