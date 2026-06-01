@@ -444,6 +444,8 @@ func (s *Server) setupRoutes() {
 	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 	r.Get("/robots.txt", s.handleRobots)
+	r.Get("/static/icons/icon-192.png", s.handlePWAIcon192)
+	r.Get("/static/icons/icon-512.png", s.handlePWAIcon512)
 	r.Get("/security.txt", s.handleSecurity)
 	r.Get("/favicon.ico", s.handleFavicon)
 
@@ -1483,8 +1485,8 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 		"background_color": "#0d1117",
 		"theme_color":      "#238636",
 		"icons": []map[string]interface{}{
-			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
-			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable"},
+			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable"},
 		},
 	})
 }
@@ -1492,9 +1494,30 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
 	w.Write([]byte(`const CACHE='paste-v1';
-const FILES=['/','/ create','/static/css/main.css','/static/js/main.js'];
+const FILES=['/','/create','/recent','/static/css/main.css','/static/js/main.js'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
 self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`))
+}
+
+// pwaIconSVG returns an SVG icon for the PWA manifest at the given size.
+// The icon is a rounded-rect with the accent colour and a clipboard emoji.
+func pwaIconSVG(size int) string {
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="%d" fill="#6366f1"/>
+  <text x="50%%" y="55%%" dominant-baseline="middle" text-anchor="middle" font-size="%d" font-family="serif">📋</text>
+</svg>`, size, size, size, size, size, size, size/6, size*2/3)
+}
+
+func (s *Server) handlePWAIcon192(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write([]byte(pwaIconSVG(192)))
+}
+
+func (s *Server) handlePWAIcon512(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write([]byte(pwaIconSVG(512)))
 }
 
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
