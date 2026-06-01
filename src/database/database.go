@@ -183,6 +183,90 @@ func ensureSchema(db *sql.DB) error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+
+		// Config key-value storage (PART 11 / PART 5): mirrors YAML structure as flat keys.
+		`CREATE TABLE IF NOT EXISTS config (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL,
+			type       TEXT NOT NULL DEFAULT 'string',
+			updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_config_key ON config(key)`,
+
+		// Config metadata: single-row version counter, incremented by trigger on change.
+		`CREATE TABLE IF NOT EXISTS config_meta (
+			id         INTEGER PRIMARY KEY CHECK (id = 1),
+			version    INTEGER NOT NULL DEFAULT 1,
+			updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+		)`,
+		`INSERT OR IGNORE INTO config_meta (id, version) VALUES (1, 1)`,
+		`CREATE TRIGGER IF NOT EXISTS config_version_bump
+			AFTER INSERT OR UPDATE OR DELETE ON config
+			BEGIN
+				UPDATE config_meta SET
+					version    = version + 1,
+					updated_at = strftime('%s', 'now')
+				WHERE id = 1;
+			END`,
+
+		// Rate limiting: sliding-window counters per IP/key (PART 11).
+		`CREATE TABLE IF NOT EXISTS rate_limits (
+			key          TEXT PRIMARY KEY,
+			count        INTEGER NOT NULL DEFAULT 1,
+			window_start INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+			updated_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits(window_start)`,
+
+		// Audit log: config changes, security events, request log (PART 11).
+		`CREATE TABLE IF NOT EXISTS audit_log (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp   INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+			level       TEXT NOT NULL DEFAULT 'info',
+			category    TEXT NOT NULL,
+			action      TEXT NOT NULL,
+			actor_ip    TEXT,
+			target_type TEXT,
+			target_id   TEXT,
+			details     TEXT,
+			success     INTEGER NOT NULL DEFAULT 1
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_category  ON audit_log(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_actor_ip  ON audit_log(actor_ip)`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_target    ON audit_log(target_type, target_id)`,
+
+		// Backup history and metadata (PART 21).
+		`CREATE TABLE IF NOT EXISTS backups (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			filename   TEXT NOT NULL UNIQUE,
+			filepath   TEXT NOT NULL,
+			size_bytes INTEGER NOT NULL,
+			type       TEXT NOT NULL DEFAULT 'auto',
+			created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+			checksum   TEXT,
+			notes      TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at)`,
+
+		// API tokens: server-generated resource-owner tokens (PART 11).
+		// The server.token (server.yml) is NOT stored here — validated directly from config.
+		`CREATE TABLE IF NOT EXISTS api_tokens (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			token_hash    TEXT NOT NULL UNIQUE,
+			token_prefix  TEXT NOT NULL,
+			resource_type TEXT NOT NULL,
+			resource_id   TEXT NOT NULL,
+			created_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+			expires_at    INTEGER,
+			last_used_at  INTEGER,
+			revoked_at    INTEGER,
+			revoked_reason TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_hash     ON api_tokens(token_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix   ON api_tokens(token_prefix)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_resource ON api_tokens(resource_type, resource_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
 	}
 
 	// Schema updates — idempotent; ignore "already exists" errors.
