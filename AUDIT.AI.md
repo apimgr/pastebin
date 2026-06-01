@@ -208,3 +208,4 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 4: OS-specific paths fixed + GetDBPath added
 - PART 11: all 10 DB tables present (config, config_meta, rate_limits, audit_log, backups, api_tokens + 3 triggers)
 - PART 32 client: User-Agent, cli.yml read/save, SaveIfEmptyOrInvalid, mode detection, auto-update check, binary name display
+- PART 16 web frontend: mobile-first CSS (min-width queries), prefers-color-scheme auto theme, PWA icon handlers, service worker fix, content negotiation in handleViewPaste/handleHome/handleRecent

@@ -1276,6 +1276,17 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	pastes, _, _ := s.db.GetPublicPastes(1, 5)
+
+	// Content negotiation per PART 16.
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "%s\nPOST %s/api/v1/pastes to create a paste.\n", s.liveCfg().Web.SiteTitle, s.baseURL(r))
+		for _, p := range pastes {
+			fmt.Fprintf(w, "%s/%s\t%s\n", s.baseURL(r), p.ID, p.Title)
+		}
+		return
+	}
+
 	s.renderTemplate(w, r, "home.html", map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
@@ -1294,12 +1305,54 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	page := 1
 	pastes, total, _ := s.db.GetPublicPastes(page, 20)
+
+	// Content negotiation per PART 16.
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "# Recent pastes (%d total)\n", total)
+		for _, p := range pastes {
+			fmt.Fprintf(w, "%s/%s\t%s\t%s\n", s.baseURL(r), p.ID, p.Language, p.Title)
+		}
+		return
+	}
+
 	s.renderTemplate(w, r, "recent.html", map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
 		"Pastes":    pastes,
 		"Total":     total,
 	})
+}
+
+// detectClientType returns "html", "json", or "text" based on Accept header
+// and User-Agent per PART 16 content negotiation rules.
+func detectClientType(r *http.Request) string {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "text/html") {
+		return "html"
+	}
+	if strings.Contains(accept, "text/plain") {
+		return "text"
+	}
+	if strings.Contains(accept, "application/json") {
+		return "json"
+	}
+
+	ua := r.Header.Get("User-Agent")
+	for _, browser := range []string{"Mozilla/", "Chrome/", "Safari/", "Edge/", "Firefox/", "Opera/", "MSIE", "Trident/"} {
+		if strings.Contains(ua, browser) {
+			return "html"
+		}
+	}
+	for _, cli := range []string{"curl/", "Wget/", "HTTPie/", "python-requests/", "Go-http-client/", "node-fetch/", "pastebin-cli/"} {
+		if strings.Contains(ua, cli) {
+			return "text"
+		}
+	}
+	if ua == "" {
+		return "text"
+	}
+	return "html"
 }
 
 func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
@@ -1318,6 +1371,20 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	}
 	if paste == nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	// Content negotiation per PART 16: CLI tools get raw text, browsers get HTML.
+	switch detectClientType(r) {
+	case "text":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write([]byte(paste.Content))
+		return
+	case "json":
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"ok":   true,
+			"data": paste,
+		})
 		return
 	}
 
