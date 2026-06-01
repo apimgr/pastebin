@@ -200,13 +200,21 @@ func ensureSchema(db *sql.DB) error {
 			updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 		)`,
 		`INSERT OR IGNORE INTO config_meta (id, version) VALUES (1, 1)`,
-		`CREATE TRIGGER IF NOT EXISTS config_version_bump
-			AFTER INSERT OR UPDATE OR DELETE ON config
+		// SQLite requires one event per trigger — one each for INSERT, UPDATE, DELETE.
+		`CREATE TRIGGER IF NOT EXISTS config_version_bump_ins
+			AFTER INSERT ON config
 			BEGIN
-				UPDATE config_meta SET
-					version    = version + 1,
-					updated_at = strftime('%s', 'now')
-				WHERE id = 1;
+				UPDATE config_meta SET version = version + 1, updated_at = strftime('%s','now') WHERE id = 1;
+			END`,
+		`CREATE TRIGGER IF NOT EXISTS config_version_bump_upd
+			AFTER UPDATE ON config
+			BEGIN
+				UPDATE config_meta SET version = version + 1, updated_at = strftime('%s','now') WHERE id = 1;
+			END`,
+		`CREATE TRIGGER IF NOT EXISTS config_version_bump_del
+			AFTER DELETE ON config
+			BEGIN
+				UPDATE config_meta SET version = version + 1, updated_at = strftime('%s','now') WHERE id = 1;
 			END`,
 
 		// Rate limiting: sliding-window counters per IP/key (PART 11).
