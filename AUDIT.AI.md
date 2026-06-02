@@ -188,6 +188,14 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] `--update check|yes` command: queries autodiscover, compares versions, prompts or downloads
 - [ ] Full bubbletea TUI implementation deferred — tracked here; `runTUI()` is a stub that shows guidance and exits
 
+## Pass 15: PART 16 JavaScript — RESOLVED
+
+- [x] `src/server/static/js/main.js`: theme load applies only explicit `dark`/`light` localStorage values; `auto` is not written — CSS `prefers-color-scheme` handles auto mode at CSS level without JS intervention
+- [x] Copy-to-clipboard handler: `[data-copy]` buttons use `navigator.clipboard.writeText`; fallback selects text via `document.createRange` when clipboard API unavailable
+- [x] Submit-button loading state: disables on submit, preserves `minWidth`, maps verb labels (`create→Creating…`, `save→Saving…`, etc.), re-enables when response arrives (browser restores on page load)
+- [x] Service worker registration: silent `.catch(() => {})` — no console noise on unsupported browsers
+- [x] `fetchAPI` error parsing: reads RFC 7807 `detail` field first, falls back to `error`, then generic message
+
 ## Completed (cumulative)
 
 - All 6 non-English locales brought to full key parity with `en.json`
@@ -209,3 +217,4 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 11: all 10 DB tables present (config, config_meta, rate_limits, audit_log, backups, api_tokens + 3 triggers)
 - PART 32 client: User-Agent, cli.yml read/save, SaveIfEmptyOrInvalid, mode detection, auto-update check, binary name display
 - PART 16 web frontend: mobile-first CSS (min-width queries), prefers-color-scheme auto theme, PWA icon handlers, service worker fix, content negotiation in handleViewPaste/handleHome/handleRecent
+- PART 16 JS: theme load (explicit only), copy-to-clipboard with fallback, submit loading state, fetchAPI RFC 7807 error parsing
