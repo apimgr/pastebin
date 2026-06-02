@@ -511,7 +511,9 @@
     "views": "次浏览",
     "visibility_label": "可见性",
     "visibility_public": "公开 (列出)",
-    "visibility_unlisted": "未列出 (仅链接)"
+    "visibility_unlisted": "未列出 (仅链接)",
+    "owner_token_label": "所有者令牌",
+    "owner_token_hint": "重用之前粘贴或API的令牌，自动保存到浏览器中。"
   },
   "qr": {
     "download_qr": "下载二维码",

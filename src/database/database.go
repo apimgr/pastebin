@@ -88,6 +88,9 @@ type DB interface {
 	// VerifyAPIToken checks that tokenHash is active and belongs to the given
 	// resource, then updates last_used_at. Returns an error if invalid/revoked.
 	VerifyAPIToken(tokenHash [32]byte, resourceType, resourceID string) error
+	// ValidateAPIToken checks that tokenHash is active for the given resource_type
+	// (any resource_id). Used when reusing a token on paste creation.
+	ValidateAPIToken(tokenHash [32]byte, resourceType string) error
 	// RevokeAPIToken marks the token with the given prefix as revoked.
 	RevokeAPIToken(prefix, reason string) error
 	// ListAPITokens returns all non-revoked token records (token_hash omitted).
@@ -804,6 +807,43 @@ func (s *SQLiteDB) VerifyAPIToken(tokenHash [32]byte, resourceType, resourceID s
 	_, _ = s.db.ExecContext(wCtx,
 		`UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, now, id,
 	)
+	return nil
+}
+
+// ValidateAPIToken checks that the token hash is active and not expired for
+// any row with the given resource_type. Used to verify a reusable owner token
+// before linking it to a new paste via CreateAPIToken.
+func (s *SQLiteDB) ValidateAPIToken(tokenHash [32]byte, resourceType string) error {
+	hashHex := hex.EncodeToString(tokenHash[:])
+	now := time.Now().Unix()
+
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	var storedHash string
+	var expiresAt sql.NullInt64
+	var revokedAt sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT token_hash, expires_at, revoked_at
+		 FROM api_tokens
+		 WHERE token_hash = ? AND resource_type = ?
+		 ORDER BY created_at DESC LIMIT 1`,
+		hashHex, resourceType,
+	).Scan(&storedHash, &expiresAt, &revokedAt)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("token not found")
+	}
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(hashHex)) != 1 {
+		return fmt.Errorf("token not found")
+	}
+	if revokedAt.Valid {
+		return fmt.Errorf("token has been revoked")
+	}
+	if expiresAt.Valid && expiresAt.Int64 <= now {
+		return fmt.Errorf("token has expired")
+	}
 	return nil
 }
 

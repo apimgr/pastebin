@@ -173,7 +173,9 @@
     "expiry_1y": "1 Year",
     "expiry_2y": "2 Years",
     "visibility_public": "Public (listed)",
-    "visibility_unlisted": "Unlisted (link only)"
+    "visibility_unlisted": "Unlisted (link only)",
+    "owner_token_label": "Owner Token",
+    "owner_token_hint": "Reuse a token from a previous paste or the API. Saved automatically in your browser."
   },
   "recent": {
     "title": "Recent Pastes",

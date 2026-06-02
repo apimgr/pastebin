@@ -117,6 +117,19 @@
                         </div>
                     </div>
                     <div class="form-group">
+                        <label for="owner_token" class="form-label">{{t .Lang "paste.owner_token_label"}}</label>
+                        <input
+                            type="text"
+                            id="owner_token"
+                            name="owner_token"
+                            class="form-input"
+                            placeholder="tok_... (optional — saved automatically after first paste)"
+                            autocomplete="off"
+                            spellcheck="false"
+                        >
+                        <small class="form-hint">{{t .Lang "paste.owner_token_hint"}}</small>
+                    </div>
+                    <div class="form-group">
                         <label for="content" class="form-label">{{t .Lang "paste.content_label"}}</label>
                         <textarea
                             id="content"
@@ -157,6 +170,19 @@
 
     <script src="/static/js/main.js"></script>
     <script>
+        // Load saved owner token from localStorage (set by a previous paste creation
+        // or manually entered by the user after using the API via CLI/curl).
+        const TOKEN_KEY = 'pastebin_owner_token';
+        const savedToken = localStorage.getItem(TOKEN_KEY) || '';
+
+        // Pre-fill the token field if one is saved.
+        window.addEventListener('DOMContentLoaded', () => {
+            const tokenField = document.getElementById('owner_token');
+            if (tokenField && savedToken) {
+                tokenField.value = savedToken;
+            }
+        });
+
         document.getElementById('paste-form').addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -166,18 +192,26 @@
             const expiresIn = document.getElementById('expires').value;
             const visibility = parseInt(document.getElementById('visibility').value, 10);
             const burnAfter = parseInt(document.getElementById('burn_after').value, 10) || 0;
+            const manualToken = (document.getElementById('owner_token').value || '').trim();
 
             const resultDiv = document.getElementById('result');
             resultDiv.classList.remove('hidden');
             resultDiv.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><p>Creating paste...</p></div>';
 
+            // Build request headers; include token if available.
+            const headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            };
+            const activeToken = manualToken || savedToken;
+            if (activeToken) {
+                headers['Authorization'] = 'Bearer ' + activeToken;
+            }
+
             try {
-                const response = await fetch('/api/v1/pastes', {
+                const response = await fetch('/api/v1/paste', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
+                    headers,
                     body: JSON.stringify({
                         content,
                         title: title || 'Untitled',
@@ -188,35 +222,48 @@
                     })
                 });
 
-                const data = await response.json();
+                const envelope = await response.json();
+                const paste = envelope.data || {};
 
-                if (response.ok) {
-                    const deleteSection = data.delete_token
-                        ? `<div class="alert alert-warning" style="margin-top: var(--space-3);">
-                               <strong>Save your delete token — it will not be shown again:</strong><br>
-                               <code style="word-break:break-all;">${data.delete_token}</code>
-                           </div>`
-                        : '';
+                if (response.ok && envelope.ok) {
+                    // Persist the returned token — may be the same one or a newly generated one.
+                    if (paste.owner_token) {
+                        localStorage.setItem(TOKEN_KEY, paste.owner_token);
+                        document.getElementById('owner_token').value = paste.owner_token;
+                    }
+
+                    const isReused = activeToken && paste.owner_token === activeToken;
+                    const tokenNote = isReused
+                        ? '<span style="color:var(--color-success)">✓ Your existing token was reused for this paste.</span>'
+                        : '<span style="color:var(--color-warning)">Save this token — it controls deletion of your pastes.</span>';
 
                     resultDiv.innerHTML = `
                         <div class="success">
                             <h3>Paste Created!</h3>
-                            <p>View: <a href="${data.link}" target="_blank">${data.link}</a></p>
-                            <p>Raw: <a href="/raw/${data.id}" target="_blank">/raw/${data.id}</a></p>
-                            <p>Download: <a href="/dl/${data.id}" target="_blank">/dl/${data.id}</a></p>
-                            ${deleteSection}
+                            <p>View: <a href="${paste.link}" target="_blank">${paste.link}</a></p>
+                            <p>Raw: <a href="/raw/${paste.id}" target="_blank">/raw/${paste.id}</a></p>
+                            <p>Download: <a href="/dl/${paste.id}" target="_blank">/dl/${paste.id}</a></p>
+                            <div class="alert alert-warning" style="margin-top: var(--space-3);">
+                                <p style="margin:0 0 var(--space-2)">${tokenNote}</p>
+                                <code style="word-break:break-all;">${paste.owner_token || ''}</code>
+                                <button
+                                    onclick="navigator.clipboard.writeText('${paste.owner_token || ''}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Token',1500)"
+                                    class="btn btn-secondary"
+                                    style="margin-top: var(--space-2); display:block;"
+                                >Copy Token</button>
+                            </div>
                             <div class="form-actions" style="margin-top: var(--space-4);">
-                                <button onclick="navigator.clipboard.writeText('${data.link}')" class="btn btn-secondary">
+                                <button onclick="navigator.clipboard.writeText('${paste.link}')" class="btn btn-secondary">
                                     Copy Link
                                 </button>
-                                <a href="${data.link}" class="btn btn-primary">
+                                <a href="${paste.link}" class="btn btn-primary">
                                     View Paste
                                 </a>
                             </div>
                         </div>
                     `;
                 } else {
-                    resultDiv.innerHTML = `<p class="error">Error: ${data.error || 'Unknown error'}</p>`;
+                    resultDiv.innerHTML = `<p class="error">Error: ${envelope.message || envelope.error || 'Unknown error'}</p>`;
                 }
             } catch (error) {
                 resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;

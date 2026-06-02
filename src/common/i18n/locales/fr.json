@@ -511,7 +511,9 @@
     "views": "vues",
     "visibility_label": "Visibilité",
     "visibility_public": "Public (listé)",
-    "visibility_unlisted": "Non listé (lien uniquement)"
+    "visibility_unlisted": "Non listé (lien uniquement)",
+    "owner_token_label": "Jeton propriétaire",
+    "owner_token_hint": "Réutilisez un jeton d'une création précédente ou de l'API. Sauvegardé automatiquement dans votre navigateur."
   },
   "qr": {
     "download_qr": "Télécharger le QR",

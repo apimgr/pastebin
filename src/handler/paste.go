@@ -85,6 +85,44 @@ func HashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// extractToken pulls a bearer/owner token from the request using all accepted
+// delivery mechanisms (in priority order):
+//  1. Authorization: Bearer tok_...
+//  2. Authorization: tok_...   (bare, no scheme prefix)
+//  3. X-Api-Token: tok_...
+//  4. X-Token: tok_...
+//  5. X-Delete-Token: tok_...  (legacy compat header)
+//  6. ?token= query param
+//  7. JSON body {"token":"tok_..."}
+func extractToken(r *http.Request) string {
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		if strings.HasPrefix(auth, "Bearer ") {
+			return auth[len("Bearer "):]
+		}
+		// Bare token — no scheme prefix.
+		return auth
+	}
+	for _, h := range []string{"X-Api-Token", "X-Token", "X-Delete-Token"} {
+		if v := r.Header.Get(h); v != "" {
+			return v
+		}
+	}
+	if v := r.URL.Query().Get("token"); v != "" {
+		return v
+	}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Token string `json:"token"`
+		}
+		// Peek without consuming — clone the body via a bytes buffer.
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<10))
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		json.Unmarshal(raw, &body)
+		return body.Token
+	}
+	return ""
+}
+
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 // CreateRequest is the JSON body for paste creation.
@@ -213,11 +251,26 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate owner token (PART 11): tok_ + 32 base62 chars, store SHA-256 in api_tokens.
-	plainToken, tokenHash, err := generateOwnerToken()
-	if err != nil {
-		h.errJSON(w, "failed to generate token", http.StatusInternalServerError)
-		return
+	// Resolve owner token: reuse an existing valid token if the caller provides one,
+	// otherwise generate a fresh tok_+32base62 token (PART 11).
+	// An invalid/unknown provided token is non-fatal — a new token is generated instead,
+	// so web-UI users who paste a stale token from CLI still get a working paste.
+	var plainToken string
+	var tokenHash [32]byte
+	if incoming := extractToken(r); incoming != "" {
+		inHash := sha256.Sum256([]byte(incoming))
+		if err := h.db.ValidateAPIToken(inHash, "paste"); err == nil {
+			plainToken = incoming
+			tokenHash = inHash
+		}
+	}
+	if plainToken == "" {
+		var err error
+		plainToken, tokenHash, err = generateOwnerToken()
+		if err != nil {
+			h.errJSON(w, "failed to generate token", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	paste := &model.Paste{
@@ -375,26 +428,7 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	// Extract token — primary path is Authorization: Bearer.
-	token := ""
-	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		token = auth[len("Bearer "):]
-	}
-	// Legacy fallbacks.
-	if token == "" {
-		token = r.URL.Query().Get("token")
-	}
-	if token == "" {
-		token = r.Header.Get("X-Delete-Token")
-	}
-	if token == "" && strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		var body struct {
-			Token string `json:"token"`
-		}
-		json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&body)
-		token = body.Token
-	}
-
+	token := extractToken(r)
 	if token == "" {
 		h.errJSON(w, "owner token required (Authorization: Bearer tok_...)", http.StatusUnauthorized)
 		return

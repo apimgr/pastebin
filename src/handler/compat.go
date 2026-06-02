@@ -5,9 +5,10 @@ package handler
 //
 // pastebin.com API docs: https://pastebin.com/doc_api
 // microbin: https://github.com/szabodanika/microbin
-// lenpaste: https://github.com/lcomrade/lenpaste (archived; using fork data)
+// lenpaste fork: https://github.com/forksmgr/lcomrade-lenpaste
 
 import (
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -91,7 +92,7 @@ func (c *CompatHandler) pastebinCreate(w http.ResponseWriter, r *http.Request) {
 
 	expiresAt := parsePastebinExpiry(r.FormValue("api_paste_expire_date"))
 
-	pasteID, err := c.ph.createPasteInternal(title, content, lang, vis, 0, expiresAt)
+	pasteID, _, err := c.ph.createPasteInternal(title, content, lang, vis, 0, expiresAt)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -319,7 +320,7 @@ func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
-	pasteID, err := c.ph.createPasteInternal(title, content, lang, model.VisibilityPublic, burn, expiresAt)
+	pasteID, deleteToken, err := c.ph.createPasteInternal(title, content, lang, model.VisibilityPublic, burn, expiresAt)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create paste"})
 		return
@@ -327,8 +328,9 @@ func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
 
 	link := c.ph.pasteURL(r, pasteID)
 	writeJSON(w, http.StatusOK, map[string]string{
-		"id":  pasteID,
-		"url": link,
+		"id":          pasteID,
+		"url":         link,
+		"deleteToken": deleteToken,
 	})
 }
 
@@ -455,12 +457,15 @@ func AuthStubRedirect(w http.ResponseWriter, r *http.Request) {
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 // createPasteInternal is used by compatibility handlers to create pastes without
-// going through HTTP request parsing. Returns the new paste ID.
+// going through HTTP request parsing.
+// Returns the new paste ID and a raw delete token (for compat protocols that
+// need to return it, e.g. lenpaste). The delete token is stored as a SHA-256
+// hash in paste.DeleteTokenHash and is NOT part of the api_tokens system.
 func (c *PasteHandler) createPasteInternal(
 	title, content, lang string,
 	vis, burnAfter int,
 	expiresAt *time.Time,
-) (string, error) {
+) (pasteID, deleteToken string, err error) {
 	if title == "" {
 		title = "Untitled"
 	}
@@ -468,11 +473,10 @@ func (c *PasteHandler) createPasteInternal(
 		lang = "text"
 	}
 
-	var pasteID string
 	for range 10 {
-		id, err := generateID()
-		if err != nil {
-			return "", err
+		id, e := generateID()
+		if e != nil {
+			return "", "", e
 		}
 		existing, _ := c.db.GetPasteByID(id)
 		if existing == nil {
@@ -481,39 +485,33 @@ func (c *PasteHandler) createPasteInternal(
 		}
 	}
 	if pasteID == "" {
-		return "", fmt.Errorf("could not generate unique paste ID")
+		return "", "", fmt.Errorf("could not generate unique paste ID")
 	}
 
-	// Generate owner token (PART 11): tok_ + 32 base62 chars, store SHA-256 in api_tokens.
-	plainToken, tokenHash, err := generateOwnerToken()
-	if err != nil {
-		return "", err
+	// Generate a compat delete token: 16 random bytes hex-encoded.
+	// Store its SHA-256 hash in the paste row; NOT stored in api_tokens.
+	rawBytes := make([]byte, 16)
+	if _, e := rand.Read(rawBytes); e != nil {
+		return "", "", e
 	}
+	deleteToken = hex.EncodeToString(rawBytes)
 
 	paste := &model.Paste{
-		ID:         pasteID,
-		Title:      title,
-		Content:    content,
-		Language:   lang,
-		Visibility: vis,
-		ExpiresAt:  expiresAt,
-		BurnAfter:  burnAfter,
-		Views:      0,
+		ID:              pasteID,
+		Title:           title,
+		Content:         content,
+		Language:        lang,
+		Visibility:      vis,
+		ExpiresAt:       expiresAt,
+		BurnAfter:       burnAfter,
+		Views:           0,
+		DeleteTokenHash: HashToken(deleteToken),
 	}
 
-	if err := c.db.CreatePaste(paste); err != nil {
-		return "", err
+	if e := c.db.CreatePaste(paste); e != nil {
+		return "", "", e
 	}
-
-	// Store the token in api_tokens; token_prefix = first 12 chars of raw token.
-	tokenHashHex := hex.EncodeToString(tokenHash[:])
-	tokenPrefix := plainToken
-	if len(tokenPrefix) > 12 {
-		tokenPrefix = tokenPrefix[:12]
-	}
-	_ = c.db.CreateAPIToken(tokenHashHex, tokenPrefix, "paste", pasteID, expiresAt)
-
-	return pasteID, nil
+	return pasteID, deleteToken, nil
 }
 
 // LenServerInfo handles GET /api/v1/getServerInfo (lenpaste compat).

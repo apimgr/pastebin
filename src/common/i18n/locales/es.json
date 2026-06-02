@@ -511,7 +511,9 @@
     "views": "vistas",
     "visibility_label": "Visibilidad",
     "visibility_public": "Público (listado)",
-    "visibility_unlisted": "No listado (solo enlace)"
+    "visibility_unlisted": "No listado (solo enlace)",
+    "owner_token_label": "Token de propietario",
+    "owner_token_hint": "Reutilice un token de una creación anterior o de la API. Se guarda automáticamente en su navegador."
   },
   "qr": {
     "download_qr": "Descargar QR",
