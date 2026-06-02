@@ -196,6 +196,26 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] Service worker registration: silent `.catch(() => {})` — no console noise on unsupported browsers
 - [x] `fetchAPI` error parsing: reads RFC 7807 `detail` field first, falls back to `error`, then generic message
 
+## Pass 16: PART 4/5 Middleware Compliance — RESOLVED
+
+### Missing middleware (PART 5 middleware order) — RESOLVED
+- [x] `src/server/security_middleware.go`: `pathSecurityMiddleware` — blocks `..` traversal (decoded + %2e), normalizes path via `path.Clean`, preserves trailing slash for later redirect
+- [x] `src/server/security_middleware.go`: `allowlistMiddleware` — parses `cfg.Web.Security.Allowlist` (IPs expanded to /32 or /128, CIDRs accepted), sets `ctxKeyAllowlisted` in request context
+- [x] `src/server/security_middleware.go`: `blocklistMiddleware` — loads all `*.txt` files from `{data_dir}/security/blocklists/`, rejects matched IPs with 403; skips when `isAllowlisted(ctx)` is true
+- [x] `src/server/ratelimit.go`: `rateLimitMiddleware` checks `isAllowlisted(ctx)` and skips rate limiting for allowlisted IPs
+- [x] `src/server/server.go`: geoip config wired with `cfg.Web.Security.Allowlist` so GeoIP also bypasses country-blocking for allowlisted IPs
+
+### Middleware execution order — FIXED
+- Old order: RealIP → Logger → Recoverer → CleanPath → Compress → SecurityHeaders → SecFetch → CORS → noTrailingSlash → GeoIP
+- New order per PART 5: RealIP → Recoverer → CleanPath → noTrailingSlash(URLNormalize) → pathSecurity → SecurityHeaders → SecFetch → CORS → Allowlist → Blocklist → GeoIP → Logger → countRequests → metricsCollector → Compress
+
+### URL normalization — FIXED
+- `noTrailingSlash`: added file-extension exception — paths whose last segment contains `.` are not redirected (e.g. `/static/app.js/` stays as-is per PART 16 spec)
+
+### Config additions
+- [x] `config.ServerConfig.DataDir` added — set at startup from `paths.GetDataDir(appName)`
+- [x] `config.SecurityConfig.Allowlist []string` added — feeds allowlist middleware and geoip config
+
 ## Completed (cumulative)
 
 - All 6 non-English locales brought to full key parity with `en.json`
@@ -218,3 +238,4 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 32 client: User-Agent, cli.yml read/save, SaveIfEmptyOrInvalid, mode detection, auto-update check, binary name display
 - PART 16 web frontend: mobile-first CSS (min-width queries), prefers-color-scheme auto theme, PWA icon handlers, service worker fix, content negotiation in handleViewPaste/handleHome/handleRecent
 - PART 16 JS: theme load (explicit only), copy-to-clipboard with fallback, submit loading state, fetchAPI RFC 7807 error parsing
+- PART 4/5 middleware: PathSecurity, Allowlist, Blocklist middleware added; execution order fixed; noTrailingSlash file-extension exception; DataDir + Allowlist added to config

@@ -572,6 +572,12 @@ Examples:
 
 	cfgMgr := config.NewConfigManager(cfgFile, cfg)
 
+	// ── DataDir in config (used by blocklist middleware and tasks) ───────────
+
+	if cfg.Server.DataDir == "" {
+		cfg.Server.DataDir = dataDir
+	}
+
 	// ── GeoIP directory ───────────────────────────────────────────────────────
 
 	if cfg.Server.GeoIP.Dir == "" {

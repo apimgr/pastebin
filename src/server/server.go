@@ -232,6 +232,9 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 			EnableWHOIS:    cfg.Server.GeoIP.Databases.WHOIS,
 			DenyCountries:  cfg.Server.GeoIP.DenyCountries,
 			AllowCountries: cfg.Server.GeoIP.AllowCountries,
+			// Wire server-wide security allowlist into geoip so GeoIP also
+			// bypasses country-blocking for explicitly allowlisted IPs.
+			Allowlist: cfg.Web.Security.Allowlist,
 		}
 		if gdb, err := geoip.Open(gcfg); err != nil {
 			log.Printf("warning: geoip init: %v", err)
@@ -414,10 +417,32 @@ func (s *Server) maybeDeleteRateLimit(h http.HandlerFunc) http.HandlerFunc {
 func (s *Server) setupRoutes() {
 	r := s.router
 
+	// Middleware execution order per PART 5:
+	// RealIP (chi) — extract real client IP from trusted X-Forwarded-For headers
+	// Recoverer (chi) — panic recovery
+	// 1. URLNormalize — trailing slash redirect (file-extension paths exempt)
+	// 2. PathSecurity — block path traversal, normalize double slashes
+	// 3. SecurityHeaders + SecFetch + CORS — add response headers
+	// 4. Allowlist — flag IPs that bypass blocklist/rate-limit/geoip
+	// 5. Blocklist — reject blocked IPs (unless allowlisted)
+	// 6. GeoIP — country blocking (honours allowlist flag)
+	// 7. Logging + metrics + compression (request recording)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.CleanPath)
+	r.Use(s.noTrailingSlash)
+	r.Use(s.pathSecurityMiddleware)
+	r.Use(s.securityHeadersMiddleware)
+	r.Use(s.secFetchMiddleware)
+	r.Use(s.corsMiddleware)
+	r.Use(s.allowlistMiddleware)
+	r.Use(s.blocklistMiddleware)
+	if s.geoipDB != nil {
+		r.Use(s.geoipDB.Middleware())
+	}
+	r.Use(middleware.Logger)
+	r.Use(s.countRequests)
+	r.Use(s.metricsCollector.Middleware())
 	// Response compression (PART 12) — compresses text/html, text/css, text/javascript,
 	// application/json, and application/xml at level 5.
 	r.Use(middleware.Compress(5,
@@ -428,15 +453,6 @@ func (s *Server) setupRoutes() {
 		"application/xml",
 		"text/plain",
 	))
-	r.Use(s.securityHeadersMiddleware)
-	r.Use(s.secFetchMiddleware)
-	r.Use(s.corsMiddleware)
-	r.Use(s.noTrailingSlash)
-	r.Use(s.countRequests)
-	r.Use(s.metricsCollector.Middleware())
-	if s.geoipDB != nil {
-		r.Use(s.geoipDB.Middleware())
-	}
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -932,12 +948,21 @@ func isCSRFExempt(path string, patterns []string) bool {
 	return false
 }
 
+// noTrailingSlash redirects paths with trailing slashes to the canonical
+// form (no trailing slash). Root "/" is left unchanged. Paths whose last
+// segment contains a "." (explicit file requests, e.g. /static/app.js/) are
+// also left unchanged per PART 16 URL-normalization rules.
 func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && strings.HasSuffix(r.URL.Path, "/") {
-			r.URL.Path = strings.TrimRight(r.URL.Path, "/")
-			http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
-			return
+		p := r.URL.Path
+		if p != "/" && strings.HasSuffix(p, "/") {
+			// Skip redirect for explicit file requests (last segment has a ".").
+			lastSeg := p[strings.LastIndex(p, "/"):]
+			if !strings.Contains(lastSeg, ".") {
+				r.URL.Path = strings.TrimRight(p, "/")
+				http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

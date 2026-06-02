@@ -31,6 +31,9 @@ type ServerConfig struct {
 	FQDN          string              `yaml:"fqdn"`
 	Mode          string              `yaml:"mode"`
 	BaseURL       string              `yaml:"base_url"` // override for URL generation
+	// DataDir is the runtime data directory. Resolved at startup by main from paths.GetDataDir.
+	// Used by middleware (blocklist) and tasks that need access to security databases.
+	DataDir       string              `yaml:"data_dir"`
 	Metrics       MetricsConfig       `yaml:"metrics"`
 	GeoIP         GeoIPConfig         `yaml:"geoip"`
 	Tor           TorConfig           `yaml:"tor"`
@@ -258,6 +261,10 @@ type SecurityConfig struct {
 	// encryption of sensitive server data (DNS credentials, security reports, etc.).
 	// Auto-generated on first run; stored in server.yml; included in every backup.
 	EncryptionKey string `yaml:"encryption_key"`
+	// Allowlist is a list of IP addresses or CIDR ranges that bypass blocklist,
+	// rate limiting, and geoip checks. Auth checks are never bypassed.
+	// Single IPs are automatically expanded to /32 (IPv4) or /128 (IPv6).
+	Allowlist []string `yaml:"allowlist"`
 }
 
 // TLSConfig holds Let's Encrypt and manual certificate settings (PART 15).
