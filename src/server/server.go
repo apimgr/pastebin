@@ -460,6 +460,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 	r.Get("/robots.txt", s.handleRobots)
+	r.Get("/static/icons/icon-180.png", s.handlePWAIcon180)
 	r.Get("/static/icons/icon-192.png", s.handlePWAIcon192)
 	r.Get("/static/icons/icon-512.png", s.handlePWAIcon512)
 	r.Get("/security.txt", s.handleSecurity)
@@ -1694,6 +1695,12 @@ func pwaIconSVG(size int) string {
   <rect width="%d" height="%d" rx="%d" fill="#6366f1"/>
   <text x="50%%" y="55%%" dominant-baseline="middle" text-anchor="middle" font-size="%d" font-family="serif">📋</text>
 </svg>`, size, size, size, size, size, size, size/6, size*2/3)
+}
+
+func (s *Server) handlePWAIcon180(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write([]byte(pwaIconSVG(180)))
 }
 
 func (s *Server) handlePWAIcon192(w http.ResponseWriter, r *http.Request) {

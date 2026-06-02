@@ -261,3 +261,4 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 16 JS: theme load (explicit only), copy-to-clipboard with fallback, submit loading state, fetchAPI RFC 7807 error parsing
 - PART 4/5 middleware: PathSecurity, Allowlist, Blocklist middleware added; execution order fixed; noTrailingSlash file-extension exception; DataDir + Allowlist added to config
 - PART 16 PWA: service worker rewrite (versioned cache, install/activate/fetch/message events), app update banner, offline.html page
+- PART 16 iOS meta tags: manifest link + apple-mobile-web-app meta + apple-touch-icon added to all 12 non-embed templates; icon-180 handler added
