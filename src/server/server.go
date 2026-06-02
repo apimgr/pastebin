@@ -241,7 +241,13 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	}
 	s.stats.lastHour = time.Now().Hour()
 
-	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL)
+	// Cache SHA-256(server.token) early so it can be passed to handlers below.
+	// If the token is empty, operatorTokenHash remains zero — protected routes return 401.
+	if cfg.Server.Token != "" {
+		s.operatorTokenHash = sha256.Sum256([]byte(cfg.Server.Token))
+	}
+
+	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL, s.operatorTokenHash)
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
@@ -354,12 +360,6 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		if _, err := db.EnsureAppSecret(secretKey); err != nil {
 			log.Printf("warning: could not initialize app secret %q: %v", secretKey, err)
 		}
-	}
-
-	// Cache SHA-256(server.token) for constant-time comparison on protected routes.
-	// If the token is empty, operatorTokenHash remains zero — all protected routes return 401.
-	if cfg.Server.Token != "" {
-		s.operatorTokenHash = sha256.Sum256([]byte(cfg.Server.Token))
 	}
 
 	s.setupRoutes()
@@ -1555,18 +1555,42 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 			"SiteTitle": s.liveCfg().Web.SiteTitle,
 			"Theme":     s.liveCfg().Web.Theme,
 			"ID":        id,
-			"Error":     "delete token is required",
+			"Error":     "owner token is required",
 			"Success":   false,
 		})
 		return
 	}
 
-	if err := s.db.DeletePasteByToken(id, handler.HashToken(token)); err != nil {
+	// Two-tier auth (PART 11): operator token bypasses api_tokens lookup.
+	incomingHash := sha256.Sum256([]byte(token))
+	var zeroHash [32]byte
+	if s.operatorTokenHash != zeroHash &&
+		subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) == 1 {
+		if err := s.db.DeletePaste(id); err != nil {
+			s.renderTemplate(w, r, "remove.html", map[string]interface{}{
+				"SiteTitle": s.liveCfg().Web.SiteTitle,
+				"Theme":     s.liveCfg().Web.Theme,
+				"ID":        id,
+				"Error":     "paste not found",
+				"Success":   false,
+			})
+			return
+		}
+	} else if err := s.db.VerifyAPIToken(incomingHash, "paste", id); err != nil {
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
 			"SiteTitle": s.liveCfg().Web.SiteTitle,
 			"Theme":     s.liveCfg().Web.Theme,
 			"ID":        id,
 			"Error":     "paste not found or invalid token",
+			"Success":   false,
+		})
+		return
+	} else if err := s.db.DeletePaste(id); err != nil {
+		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
+			"SiteTitle": s.liveCfg().Web.SiteTitle,
+			"Theme":     s.liveCfg().Web.Theme,
+			"ID":        id,
+			"Error":     "paste not found",
 			"Success":   false,
 		})
 		return

@@ -3,9 +3,11 @@ package database
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +17,20 @@ import (
 	"github.com/apimgr/pastebin/src/model"
 	_ "modernc.org/sqlite"
 )
+
+// APITokenRecord represents a stored resource-owner token row (PART 11).
+// The raw token is never stored — only the SHA-256 hex digest.
+type APITokenRecord struct {
+	ID            int64
+	TokenPrefix   string
+	ResourceType  string
+	ResourceID    string
+	CreatedAt     time.Time
+	ExpiresAt     *time.Time
+	LastUsedAt    *time.Time
+	RevokedAt     *time.Time
+	RevokedReason string
+}
 
 // TaskState holds the persistent state for a single scheduler task.
 type TaskState struct {
@@ -64,6 +80,20 @@ type DB interface {
 	SetTaskEnabled(taskID string, enabled bool) error
 	RecordTaskHistory(h *TaskHistory) error
 	ListTaskHistory(taskID string, limit int) ([]*TaskHistory, error)
+
+	// API token operations (PART 11).
+	// CreateAPIToken stores a new resource-owner token. tokenHash is the
+	// SHA-256 hex digest; tokenPrefix is the first 12 chars of the raw token.
+	CreateAPIToken(tokenHash, tokenPrefix, resourceType, resourceID string, expiresAt *time.Time) error
+	// VerifyAPIToken checks that tokenHash is active and belongs to the given
+	// resource, then updates last_used_at. Returns an error if invalid/revoked.
+	VerifyAPIToken(tokenHash [32]byte, resourceType, resourceID string) error
+	// RevokeAPIToken marks the token with the given prefix as revoked.
+	RevokeAPIToken(prefix, reason string) error
+	// ListAPITokens returns all non-revoked token records (token_hash omitted).
+	ListAPITokens() ([]*APITokenRecord, error)
+	// DeleteExpiredAPITokens removes rows that are expired or revoked.
+	DeleteExpiredAPITokens() (int64, error)
 
 	// App secrets — server-wide HMAC / signing keys stored in the DB (PART 11).
 	// EnsureAppSecret returns the raw bytes for key, generating 32 random bytes on
@@ -709,6 +739,158 @@ func (s *SQLiteDB) CountPastes() (int64, error) {
 	var count int64
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pastes`).Scan(&count)
 	return count, err
+}
+
+// ── API Token operations (PART 11) ──────────────────────────────────────────
+
+// CreateAPIToken inserts a new resource-owner token record.
+// tokenHash must be the SHA-256 hex digest of the raw token.
+// tokenPrefix must be the first 12 characters of the raw token.
+func (s *SQLiteDB) CreateAPIToken(tokenHash, tokenPrefix, resourceType, resourceID string, expiresAt *time.Time) error {
+	now := time.Now().Unix()
+	var expiresUnix *int64
+	if expiresAt != nil {
+		v := expiresAt.Unix()
+		expiresUnix = &v
+	}
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO api_tokens
+			(token_hash, token_prefix, resource_type, resource_id, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+		tokenHash, tokenPrefix, resourceType, resourceID, now, expiresUnix,
+	)
+	return err
+}
+
+// VerifyAPIToken checks that the token hash matches an active, non-expired row for the
+// given resource, then updates last_used_at. Constant-time hash comparison prevents
+// timing oracle attacks.
+func (s *SQLiteDB) VerifyAPIToken(tokenHash [32]byte, resourceType, resourceID string) error {
+	hashHex := hex.EncodeToString(tokenHash[:])
+	now := time.Now().Unix()
+
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	var storedHash string
+	var id int64
+	var expiresAt sql.NullInt64
+	var revokedAt sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, token_hash, expires_at, revoked_at
+		 FROM api_tokens
+		 WHERE token_hash = ? AND resource_type = ? AND resource_id = ?`,
+		hashHex, resourceType, resourceID,
+	).Scan(&id, &storedHash, &expiresAt, &revokedAt)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("paste not found or invalid token")
+	}
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(hashHex)) != 1 {
+		return fmt.Errorf("paste not found or invalid token")
+	}
+	if revokedAt.Valid {
+		return fmt.Errorf("paste not found or invalid token")
+	}
+	if expiresAt.Valid && expiresAt.Int64 <= now {
+		return fmt.Errorf("paste not found or invalid token")
+	}
+
+	wCtx, wCancel := dbCtx(dbWriteTimeout)
+	defer wCancel()
+	_, _ = s.db.ExecContext(wCtx,
+		`UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, now, id,
+	)
+	return nil
+}
+
+// RevokeAPIToken marks the token whose prefix matches as revoked.
+func (s *SQLiteDB) RevokeAPIToken(prefix, reason string) error {
+	now := time.Now().Unix()
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE api_tokens SET revoked_at = ?, revoked_reason = ?
+		 WHERE token_prefix = ? AND revoked_at IS NULL`,
+		now, reason, prefix,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("token not found or already revoked")
+	}
+	return nil
+}
+
+// ListAPITokens returns all non-revoked token records, ordered newest first.
+// The token_hash is intentionally omitted from the returned struct.
+func (s *SQLiteDB) ListAPITokens() ([]*APITokenRecord, error) {
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, token_prefix, resource_type, resource_id,
+		        created_at, expires_at, last_used_at
+		 FROM api_tokens
+		 WHERE revoked_at IS NULL
+		 ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*APITokenRecord
+	for rows.Next() {
+		rec := &APITokenRecord{}
+		var createdAt int64
+		var expiresAt, lastUsedAt sql.NullInt64
+		if err := rows.Scan(
+			&rec.ID, &rec.TokenPrefix, &rec.ResourceType, &rec.ResourceID,
+			&createdAt, &expiresAt, &lastUsedAt,
+		); err != nil {
+			return nil, err
+		}
+		rec.CreatedAt = time.Unix(createdAt, 0)
+		if expiresAt.Valid {
+			t := time.Unix(expiresAt.Int64, 0)
+			rec.ExpiresAt = &t
+		}
+		if lastUsedAt.Valid {
+			t := time.Unix(lastUsedAt.Int64, 0)
+			rec.LastUsedAt = &t
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+// DeleteExpiredAPITokens removes rows that are expired or revoked.
+func (s *SQLiteDB) DeleteExpiredAPITokens() (int64, error) {
+	now := time.Now().Unix()
+	ctx, cancel := dbCtx(dbBulkTimeout)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx,
+		`DELETE FROM api_tokens
+		 WHERE revoked_at IS NOT NULL
+		    OR (expires_at IS NOT NULL AND expires_at <= ?)`,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// hashTokenForStorage returns the SHA-256 hex digest of a raw token string.
+// Used internally when the caller has the raw bytes rather than a [32]byte array.
+func hashTokenForStorage(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 // scanTaskState scans a row into a TaskState.

@@ -511,17 +511,24 @@ func (c *Config) ensureEncryptionKey() error {
 	return nil
 }
 
-// ensureServerToken generates a "tok_" + 32-byte base62 operator token and
+// tokenCharset is the base62 alphabet used for operator and resource-owner tokens (PART 11).
+const tokenCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// ensureServerToken generates a "tok_" + 32 base62 char operator token and
 // stores it in Server.Token. Idempotent — no-ops if already set.
 func (c *Config) ensureServerToken() error {
 	if c.Server.Token != "" {
 		return nil
 	}
-	var raw [32]byte
-	if _, err := crand.Read(raw[:]); err != nil {
+	raw := make([]byte, 32)
+	if _, err := crand.Read(raw); err != nil {
 		return err
 	}
-	c.Server.Token = "tok_" + hex.EncodeToString(raw[:])
+	b := make([]byte, 32)
+	for i, v := range raw {
+		b[i] = tokenCharset[int(v)%len(tokenCharset)]
+	}
+	c.Server.Token = "tok_" + string(b)
 	return nil
 }
 

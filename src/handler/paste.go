@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -30,11 +31,17 @@ const idCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678
 type PasteHandler struct {
 	db      database.DB
 	baseURL string // optional override, e.g. "https://paste.example.com"
+	// operatorTokenHash is SHA-256(server.token), cached at construction time.
+	// A constant-time compare against this lets operator tokens bypass the api_tokens
+	// lookup and delete any paste unconditionally (PART 11).
+	operatorTokenHash [32]byte
 }
 
 // NewPasteHandler constructs a PasteHandler.
-func NewPasteHandler(db database.DB, baseURL string) *PasteHandler {
-	return &PasteHandler{db: db, baseURL: baseURL}
+// operatorTokenHash must be sha256.Sum256([]byte(cfg.Server.Token)); pass a zero
+// array when the server token is not set (all operator paths will return 401).
+func NewPasteHandler(db database.DB, baseURL string, operatorTokenHash [32]byte) *PasteHandler {
+	return &PasteHandler{db: db, baseURL: baseURL, operatorTokenHash: operatorTokenHash}
 }
 
 // ─── ID & token generation ────────────────────────────────────────────────────
@@ -51,19 +58,27 @@ func generateID() (string, error) {
 	return string(b), nil
 }
 
-// generateDeleteToken returns a 64-char hex token and its SHA-256 hash.
-func generateDeleteToken() (plaintext, hash string, err error) {
+// tokenCharset is the base62 alphabet for owner tokens (PART 11).
+const tokenCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// generateOwnerToken generates a spec-compliant resource-owner token.
+// Format: "tok_" prefix + 32 random base62 chars.
+// Returns the raw plaintext token and its SHA-256 [32]byte hash.
+func generateOwnerToken() (plaintext string, tokenHash [32]byte, err error) {
 	raw := make([]byte, 32)
 	if _, err = rand.Read(raw); err != nil {
-		return "", "", err
+		return "", tokenHash, err
 	}
-	plaintext = hex.EncodeToString(raw)
-	sum := sha256.Sum256([]byte(plaintext))
-	hash = hex.EncodeToString(sum[:])
-	return plaintext, hash, nil
+	b := make([]byte, 32)
+	for i, v := range raw {
+		b[i] = tokenCharset[int(v)%len(tokenCharset)]
+	}
+	plaintext = "tok_" + string(b)
+	tokenHash = sha256.Sum256([]byte(plaintext))
+	return plaintext, tokenHash, nil
 }
 
-// HashToken returns the SHA-256 hex digest of a plaintext delete token.
+// HashToken returns the SHA-256 hex digest of a token string.
 // Exported so the server layer can call it for web form submissions.
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
@@ -198,23 +213,22 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete token
-	plainToken, tokenHash, err := generateDeleteToken()
+	// Generate owner token (PART 11): tok_ + 32 base62 chars, store SHA-256 in api_tokens.
+	plainToken, tokenHash, err := generateOwnerToken()
 	if err != nil {
 		h.errJSON(w, "failed to generate token", http.StatusInternalServerError)
 		return
 	}
 
 	paste := &model.Paste{
-		ID:              pasteID,
-		Title:           req.Title,
-		Content:         req.Content,
-		Language:        req.Language,
-		Visibility:      vis,
-		ExpiresAt:       expiresAt,
-		BurnAfter:       burn,
-		DeleteTokenHash: tokenHash,
-		Views:           0,
+		ID:         pasteID,
+		Title:      req.Title,
+		Content:    req.Content,
+		Language:   req.Language,
+		Visibility: vis,
+		ExpiresAt:  expiresAt,
+		BurnAfter:  burn,
+		Views:      0,
 	}
 
 	if err := h.db.CreatePaste(paste); err != nil {
@@ -222,18 +236,30 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Store the token in api_tokens. token_prefix = first 12 chars of raw token.
+	tokenHashHex := hex.EncodeToString(tokenHash[:])
+	tokenPrefix := plainToken
+	if len(tokenPrefix) > 12 {
+		tokenPrefix = tokenPrefix[:12]
+	}
+	if err := h.db.CreateAPIToken(tokenHashHex, tokenPrefix, "paste", pasteID, expiresAt); err != nil {
+		// Non-fatal: paste is already created; log and continue.
+		// The owner token won't work for deletion, but the paste itself is intact.
+		fmt.Printf("warning: create api_token for paste %s: %v\n", pasteID, err)
+	}
+
 	link := h.pasteURL(r, paste.ID)
 	resp := model.CreateResponse{
-		ID:          paste.ID,
-		Title:       paste.Title,
-		Language:    paste.Language,
-		Visibility:  paste.Visibility,
-		BurnAfter:   paste.BurnAfter,
-		ExpiresAt:   paste.ExpiresAt,
-		Views:       0,
-		CreatedAt:   paste.CreatedAt,
-		Link:        link,
-		DeleteToken: plainToken,
+		ID:         paste.ID,
+		Title:      paste.Title,
+		Language:   paste.Language,
+		Visibility: paste.Visibility,
+		BurnAfter:  paste.BurnAfter,
+		ExpiresAt:  paste.ExpiresAt,
+		Views:      0,
+		CreatedAt:  paste.CreatedAt,
+		Link:       link,
+		OwnerToken: plainToken,
 	}
 
 	accept := r.Header.Get("Accept")
@@ -337,12 +363,27 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 
 // ─── Delete ───────────────────────────────────────────────────────────────────
 
-// DeletePaste deletes a paste after verifying the delete token.
+// DeletePaste deletes a paste using two-tier auth (PART 11):
+//  1. Authorization: Bearer <token> — primary delivery
+//  2. If the token matches server.token (operator) → delete unconditionally
+//  3. Otherwise → verify token against api_tokens for this paste
+//
+// Legacy fallbacks accepted for compatibility:
+//   - ?token=tok_... query param
+//   - X-Delete-Token: tok_... header
+//   - JSON body {"token":"tok_..."}
 func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	// Token from query param or JSON body or header.
-	token := r.URL.Query().Get("token")
+	// Extract token — primary path is Authorization: Bearer.
+	token := ""
+	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token = auth[len("Bearer "):]
+	}
+	// Legacy fallbacks.
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
 	if token == "" {
 		token = r.Header.Get("X-Delete-Token")
 	}
@@ -355,12 +396,31 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if token == "" {
-		h.errJSON(w, "delete token required", http.StatusBadRequest)
+		h.errJSON(w, "owner token required (Authorization: Bearer tok_...)", http.StatusUnauthorized)
 		return
 	}
 
-	if err := h.db.DeletePasteByToken(id, HashToken(token)); err != nil {
+	incomingHash := sha256.Sum256([]byte(token))
+
+	// Tier 1: operator token — allows deleting any paste.
+	var zeroHash [32]byte
+	if h.operatorTokenHash != zeroHash &&
+		subtle.ConstantTimeCompare(incomingHash[:], h.operatorTokenHash[:]) == 1 {
+		if err := h.db.DeletePaste(id); err != nil {
+			h.errJSON(w, "paste not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"message": "paste deleted"}})
+		return
+	}
+
+	// Tier 2: resource-owner token — must match api_tokens for this paste.
+	if err := h.db.VerifyAPIToken(incomingHash, "paste", id); err != nil {
 		h.errJSON(w, "paste not found or invalid token", http.StatusNotFound)
+		return
+	}
+	if err := h.db.DeletePaste(id); err != nil {
+		h.errJSON(w, "paste not found", http.StatusNotFound)
 		return
 	}
 

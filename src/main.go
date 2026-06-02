@@ -80,6 +80,8 @@ func main() {
 		emailTo        string // --email test <address>
 		schedulerCmd   string // scheduler <subcommand>
 		schedulerArg   string // scheduler <subcommand> <id>
+		tokenCmd       string // token <subcommand>
+		tokenArg       string // token <subcommand> <prefix>
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -170,6 +172,16 @@ func main() {
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 				i++
 				schedulerArg = args[i]
+			}
+		case "token":
+			// Positional: token <subcommand> [prefix]
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				tokenCmd = args[i]
+			}
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				tokenArg = args[i]
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
@@ -649,6 +661,66 @@ Examples:
 		return
 	}
 
+	// ── Token management CLI ──────────────────────────────────────────────────
+
+	if tokenCmd != "" {
+		tkCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
+		tkCfg, _ := config.Load(tkCfgFile)
+		if tkCfg.Database.Path == "" {
+			tkCfg.Database.Path = paths.GetDBPath(appName)
+		}
+		tkDB, err := database.NewDatabase(tkCfg.Database.Type, tkCfg.Database.Path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: token: database: %v\n", binaryName, err)
+			os.Exit(1)
+		}
+		defer tkDB.Close()
+
+		switch tokenCmd {
+		case "list":
+			tokens, err := tkDB.ListAPITokens()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: token list: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			if len(tokens) == 0 {
+				fmt.Println("No active tokens.")
+			} else {
+				fmt.Printf("%-14s %-8s %-14s %-24s %-24s\n",
+					"PREFIX", "TYPE", "RESOURCE", "CREATED", "EXPIRES")
+				fmt.Printf("%-14s %-8s %-14s %-24s %-24s\n",
+					"--------------", "--------", "--------------",
+					"------------------------", "------------------------")
+				for _, t := range tokens {
+					expires := "never"
+					if t.ExpiresAt != nil {
+						expires = t.ExpiresAt.Format("2006-01-02 15:04:05")
+					}
+					fmt.Printf("%-14s %-8s %-14s %-24s %-24s\n",
+						t.TokenPrefix, t.ResourceType, t.ResourceID,
+						t.CreatedAt.Format("2006-01-02 15:04:05"), expires)
+				}
+			}
+
+		case "revoke":
+			if tokenArg == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s token revoke <prefix>\n", binaryName)
+				os.Exit(2)
+			}
+			if err := tkDB.RevokeAPIToken(tokenArg, "revoked via CLI"); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: token revoke: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("Token %s revoked.\n", tokenArg)
+
+		default:
+			fmt.Fprintf(os.Stderr, "%s: unknown token subcommand: %s\n", binaryName, tokenCmd)
+			fmt.Fprintf(os.Stderr, "Usage: %s token {list|revoke} [prefix]\n", binaryName)
+			os.Exit(2)
+		}
+		return
+	}
+
 	// ── Daemon ────────────────────────────────────────────────────────────────
 
 	if daemonFlag {
@@ -845,7 +917,13 @@ Examples:
 	logSchedErr(sched.Register("cve_update", "CVE Update", "0 5 * * *", true,
 		task.CVEUpdate(dataDir)))
 	logSchedErr(sched.Register("token_cleanup", "Token Cleanup", "@every 15m", true, func() error {
-		// This project has no API tokens; task is registered per PART 18 but is a no-op.
+		n, err := db.DeleteExpiredAPITokens()
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			log.Printf("scheduler: removed %d expired/revoked API tokens", n)
+		}
 		return nil
 	}))
 	logSchedErr(sched.Register("log_rotation", "Log Rotation", "0 0 * * *", true,

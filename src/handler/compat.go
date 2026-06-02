@@ -8,6 +8,7 @@ package handler
 // lenpaste: https://github.com/lcomrade/lenpaste (archived; using fork data)
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -483,24 +484,36 @@ func (c *PasteHandler) createPasteInternal(
 		return "", fmt.Errorf("could not generate unique paste ID")
 	}
 
-	_, tokenHash, err := generateDeleteToken()
+	// Generate owner token (PART 11): tok_ + 32 base62 chars, store SHA-256 in api_tokens.
+	plainToken, tokenHash, err := generateOwnerToken()
 	if err != nil {
 		return "", err
 	}
 
 	paste := &model.Paste{
-		ID:              pasteID,
-		Title:           title,
-		Content:         content,
-		Language:        lang,
-		Visibility:      vis,
-		ExpiresAt:       expiresAt,
-		BurnAfter:       burnAfter,
-		DeleteTokenHash: tokenHash,
-		Views:           0,
+		ID:         pasteID,
+		Title:      title,
+		Content:    content,
+		Language:   lang,
+		Visibility: vis,
+		ExpiresAt:  expiresAt,
+		BurnAfter:  burnAfter,
+		Views:      0,
 	}
 
-	return pasteID, c.db.CreatePaste(paste)
+	if err := c.db.CreatePaste(paste); err != nil {
+		return "", err
+	}
+
+	// Store the token in api_tokens; token_prefix = first 12 chars of raw token.
+	tokenHashHex := hex.EncodeToString(tokenHash[:])
+	tokenPrefix := plainToken
+	if len(tokenPrefix) > 12 {
+		tokenPrefix = tokenPrefix[:12]
+	}
+	_ = c.db.CreateAPIToken(tokenHashHex, tokenPrefix, "paste", pasteID, expiresAt)
+
+	return pasteID, nil
 }
 
 // LenServerInfo handles GET /api/v1/getServerInfo (lenpaste compat).

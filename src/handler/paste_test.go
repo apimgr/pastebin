@@ -50,7 +50,7 @@ func newTestDB(t *testing.T) database.DB {
 func newTestHandler(t *testing.T) (*handler.PasteHandler, database.DB) {
 	t.Helper()
 	db := newTestDB(t)
-	return handler.NewPasteHandler(db, ""), db
+	return handler.NewPasteHandler(db, "", [32]byte{}), db
 }
 
 // withID injects a chi URL param "id" into the request context so that
@@ -254,10 +254,11 @@ func TestDeletePaste(t *testing.T) {
 	m := createViaAPI(t, h, `{"content":"to be deleted"}`)
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
-	token := data["delete_token"].(string)
+	token := data["owner_token"].(string)
 
 	req := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/api/v1/paste/%s?token=%s", id, token), nil)
+		fmt.Sprintf("/api/v1/paste/%s", id), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req = withID(req, id)
 
 	rr := httptest.NewRecorder()
@@ -283,7 +284,8 @@ func TestDeletePaste_WrongToken(t *testing.T) {
 	id := data["id"].(string)
 
 	req := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/api/v1/paste/%s?token=wrongtoken", id), nil)
+		fmt.Sprintf("/api/v1/paste/%s", id), nil)
+	req.Header.Set("Authorization", "Bearer tok_wrongtokenwrongtokenwrongtokenwx")
 	req = withID(req, id)
 
 	rr := httptest.NewRecorder()
@@ -308,8 +310,8 @@ func TestDeletePaste_NoToken(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.DeletePaste(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d, want 400", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status: got %d, want 401", rr.Code)
 	}
 }
 
