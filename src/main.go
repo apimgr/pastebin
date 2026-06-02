@@ -547,7 +547,12 @@ Examples:
 				fmt.Fprintf(os.Stderr, "Usage: %s scheduler run <id>\n", binaryName)
 				os.Exit(2)
 			}
-			// Connect to the running server's scheduler via the API.
+			if scCfg.Server.Token == "" {
+				fmt.Fprintf(os.Stderr, "%s: scheduler run: server.token not set in config; cannot authenticate\n", binaryName)
+				os.Exit(1)
+			}
+			// Triggering a task requires the server to be running — send an
+			// authenticated POST to the scheduler API (PART 18).
 			scBaseURL := scCfg.Server.BaseURL
 			if scBaseURL == "" {
 				addr := scCfg.Server.Address
@@ -568,6 +573,7 @@ Examples:
 				fmt.Fprintf(os.Stderr, "%s: scheduler run: %v\n", binaryName, reqErr)
 				os.Exit(1)
 			}
+			req.Header.Set("Authorization", "Bearer "+scCfg.Server.Token)
 			resp, doErr := doHTTP(req)
 			if doErr != nil {
 				fmt.Fprintf(os.Stderr, "%s: scheduler run: %v\n", binaryName, doErr)
@@ -585,34 +591,9 @@ Examples:
 				fmt.Fprintf(os.Stderr, "Usage: %s scheduler enable <id>\n", binaryName)
 				os.Exit(2)
 			}
-			scBaseURL := scCfg.Server.BaseURL
-			if scBaseURL == "" {
-				addr := scCfg.Server.Address
-				if addr == "" || addr == "0.0.0.0" {
-					addr = "127.0.0.1"
-				}
-				port := scCfg.Server.Port
-				if port == "" {
-					port = "80"
-				}
-				scBaseURL = "http://" + addr + ":" + port
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			req, reqErr := newHTTPRequest(ctx, "POST",
-				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/enable", nil)
-			if reqErr != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler enable: %v\n", binaryName, reqErr)
-				os.Exit(1)
-			}
-			resp, doErr := doHTTP(req)
-			if doErr != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler enable: %v\n", binaryName, doErr)
-				os.Exit(1)
-			}
-			resp.Body.Close()
-			if resp.StatusCode >= 400 {
-				fmt.Fprintf(os.Stderr, "%s: scheduler enable: server returned %s\n", binaryName, resp.Status)
+			// enable/disable write to the DB directly — no running server needed.
+			if err := scDB.SetTaskEnabled(schedulerArg, true); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler enable: %v\n", binaryName, err)
 				os.Exit(1)
 			}
 			fmt.Printf("Task %s enabled.\n", schedulerArg)
@@ -622,34 +603,9 @@ Examples:
 				fmt.Fprintf(os.Stderr, "Usage: %s scheduler disable <id>\n", binaryName)
 				os.Exit(2)
 			}
-			scBaseURL := scCfg.Server.BaseURL
-			if scBaseURL == "" {
-				addr := scCfg.Server.Address
-				if addr == "" || addr == "0.0.0.0" {
-					addr = "127.0.0.1"
-				}
-				port := scCfg.Server.Port
-				if port == "" {
-					port = "80"
-				}
-				scBaseURL = "http://" + addr + ":" + port
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			req, reqErr := newHTTPRequest(ctx, "POST",
-				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/disable", nil)
-			if reqErr != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler disable: %v\n", binaryName, reqErr)
-				os.Exit(1)
-			}
-			resp, doErr := doHTTP(req)
-			if doErr != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler disable: %v\n", binaryName, doErr)
-				os.Exit(1)
-			}
-			resp.Body.Close()
-			if resp.StatusCode >= 400 {
-				fmt.Fprintf(os.Stderr, "%s: scheduler disable: server returned %s\n", binaryName, resp.Status)
+			// enable/disable write to the DB directly — no running server needed.
+			if err := scDB.SetTaskEnabled(schedulerArg, false); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler disable: %v\n", binaryName, err)
 				os.Exit(1)
 			}
 			fmt.Printf("Task %s disabled.\n", schedulerArg)

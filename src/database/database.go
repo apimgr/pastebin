@@ -61,6 +61,7 @@ type DB interface {
 	GetSchedulerTask(taskID string) (*TaskState, error)
 	ListSchedulerTasks() ([]*TaskState, error)
 	UpdateTaskRun(taskID string, lastRun time.Time, status, lastError string, runCount, failCount int64, nextRun time.Time) error
+	SetTaskEnabled(taskID string, enabled bool) error
 	RecordTaskHistory(h *TaskHistory) error
 	ListTaskHistory(taskID string, limit int) ([]*TaskHistory, error)
 
@@ -564,6 +565,21 @@ func (s *SQLiteDB) ListSchedulerTasks() ([]*TaskState, error) {
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
+}
+
+// SetTaskEnabled enables or disables a scheduled task in the persistent store.
+func (s *SQLiteDB) SetTaskEnabled(taskID string, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE scheduler_tasks SET enabled = ? WHERE task_id = ?`,
+		enabledInt, taskID,
+	)
+	return err
 }
 
 // UpdateTaskRun records the outcome of a completed task execution.

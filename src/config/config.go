@@ -31,6 +31,9 @@ type ServerConfig struct {
 	FQDN          string              `yaml:"fqdn"`
 	Mode          string              `yaml:"mode"`
 	BaseURL       string              `yaml:"base_url"` // override for URL generation
+	// Token is the operator token (server.token). Auto-generated on first run.
+	// All operator-protected API endpoints require: Authorization: Bearer <token>
+	Token         string              `yaml:"token"`
 	// DataDir is the runtime data directory. Resolved at startup by main from paths.GetDataDir.
 	// Used by middleware (blocklist) and tasks that need access to security databases.
 	DataDir       string              `yaml:"data_dir"`
@@ -446,6 +449,11 @@ func Load(path string) (*Config, error) {
 			if genErr := cfg.ensureEncryptionKey(); genErr != nil {
 				log.Printf("config: warning: could not generate encryption key: %v", genErr)
 			}
+			if genErr := cfg.ensureServerToken(); genErr != nil {
+				log.Printf("config: warning: could not generate server token: %v", genErr)
+			} else {
+				log.Printf("config: generated server.token — copy it from %s", path)
+			}
 			_ = Save(path, cfg)
 			return cfg, nil
 		}
@@ -463,12 +471,27 @@ func Load(path string) (*Config, error) {
 	Validate(cfg)
 
 	// Generate and persist encryption key if missing (upgrade path for older configs).
+	needSave := false
 	if cfg.Web.Security.EncryptionKey == "" {
 		if genErr := cfg.ensureEncryptionKey(); genErr != nil {
 			log.Printf("config: warning: could not generate encryption key: %v", genErr)
 		} else {
-			_ = Save(path, cfg)
+			needSave = true
 		}
+	}
+
+	// Generate and persist server.token if missing (upgrade path for older configs).
+	if cfg.Server.Token == "" {
+		if genErr := cfg.ensureServerToken(); genErr != nil {
+			log.Printf("config: warning: could not generate server token: %v", genErr)
+		} else {
+			needSave = true
+			log.Printf("config: generated server.token — copy it from %s", path)
+		}
+	}
+
+	if needSave {
+		_ = Save(path, cfg)
 	}
 
 	return cfg, nil
@@ -485,6 +508,20 @@ func (c *Config) ensureEncryptionKey() error {
 		return err
 	}
 	c.Web.Security.EncryptionKey = fmt.Sprintf("%x", key)
+	return nil
+}
+
+// ensureServerToken generates a "tok_" + 32-byte base62 operator token and
+// stores it in Server.Token. Idempotent — no-ops if already set.
+func (c *Config) ensureServerToken() error {
+	if c.Server.Token != "" {
+		return nil
+	}
+	var raw [32]byte
+	if _, err := crand.Read(raw[:]); err != nil {
+		return err
+	}
+	c.Server.Token = "tok_" + hex.EncodeToString(raw[:])
 	return nil
 }
 

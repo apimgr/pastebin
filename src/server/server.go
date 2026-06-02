@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"expvar"
@@ -181,6 +183,9 @@ type Server struct {
 	schedHealthFn func() bool
 	// schedulerAPI provides runtime access to the scheduler for the API handlers.
 	schedulerAPI SchedulerAPI
+	// operatorTokenHash is SHA-256(server.token), cached at construction time.
+	// Constant-time compared against incoming Bearer tokens on protected routes.
+	operatorTokenHash [32]byte
 	// pendingRestartMu guards pendingRestartKeys.
 	pendingRestartMu   sync.Mutex
 	pendingRestartKeys []string
@@ -349,6 +354,12 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		if _, err := db.EnsureAppSecret(secretKey); err != nil {
 			log.Printf("warning: could not initialize app secret %q: %v", secretKey, err)
 		}
+	}
+
+	// Cache SHA-256(server.token) for constant-time comparison on protected routes.
+	// If the token is empty, operatorTokenHash remains zero — all protected routes return 401.
+	if cfg.Server.Token != "" {
+		s.operatorTokenHash = sha256.Sum256([]byte(cfg.Server.Token))
 	}
 
 	s.setupRoutes()
@@ -588,13 +599,14 @@ func (s *Server) setupRoutes() {
 		r.Get("/server/swagger", s.swaggerHandler.ServeSpec)
 
 		// Scheduler API (PART 18)
+		// Read-only status routes are public. Mutating routes require server.token.
 		r.Route("/scheduler", func(r chi.Router) {
 			r.Get("/", s.handleSchedulerList)
 			r.Get("/{id}", s.handleSchedulerShow)
-			r.Post("/{id}/run", s.handleSchedulerRun)
-			r.Post("/{id}/enable", s.handleSchedulerEnable)
-			r.Post("/{id}/disable", s.handleSchedulerDisable)
 			r.Get("/{id}/history", s.handleSchedulerHistory)
+			r.With(s.requireOperatorToken).Post("/{id}/run", s.handleSchedulerRun)
+			r.With(s.requireOperatorToken).Post("/{id}/enable", s.handleSchedulerEnable)
+			r.With(s.requireOperatorToken).Post("/{id}/disable", s.handleSchedulerDisable)
 		})
 	})
 
@@ -654,6 +666,45 @@ func (s *Server) setupRoutes() {
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
+
+// requireOperatorToken is middleware that enforces server.token authentication.
+// It extracts "Authorization: Bearer <token>", SHA-256 hashes it, and compares
+// against the cached hash using constant-time comparison (PART 11).
+// Returns 401 on missing/invalid credentials — always with the same generic message
+// to prevent user enumeration.
+func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		const prefix = "Bearer "
+		if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
+			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+				"type": "about:blank", "title": "Unauthorized", "status": 401,
+				"detail": "operator token required",
+			})
+			return
+		}
+		incoming := authHeader[len(prefix):]
+		incomingHash := sha256.Sum256([]byte(incoming))
+		var zeroHash [32]byte
+		if s.operatorTokenHash == zeroHash {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+				"type": "about:blank", "title": "Service Unavailable", "status": 503,
+				"detail": "server.token not configured",
+			})
+			return
+		}
+		if subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
+			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+				"type": "about:blank", "title": "Unauthorized", "status": 401,
+				"detail": "operator token required",
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) countRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
