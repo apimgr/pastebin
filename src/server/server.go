@@ -482,6 +482,8 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/healthz", s.handleHealthz)
 	r.Get("/healthz", s.handleHealthz)
 	r.Get("/health", s.handleHealthz)
+	// PWA offline fallback page — referenced by service worker cache
+	r.Get("/offline", s.handleOffline)
 
 	// ── Debug endpoints (only when --debug flag is active) (PART 6) ──────────
 	if mode.ShouldShowDebugEndpoints() {
@@ -1585,10 +1587,104 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
-	w.Write([]byte(`const CACHE='paste-v1';
-const FILES=['/','/create','/recent','/static/css/main.css','/static/js/main.js'];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
-self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`))
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	// Inject server version so cache names are tied to the release.
+	version := s.version
+	if version == "" {
+		version = "dev"
+	}
+	sw := fmt.Sprintf(`// Pastebin Service Worker — version %s
+const CACHE_VERSION = %q;
+const CACHE_NAME = 'pastebin-cache-' + CACHE_VERSION;
+const PRECACHE_ASSETS = [
+  '/',
+  '/create',
+  '/recent',
+  '/offline',
+  '/static/css/main.css',
+  '/static/js/main.js',
+  '/static/icons/icon-192.png',
+  '/static/icons/icon-512.png'
+];
+
+// INSTALL — pre-cache assets and activate immediately
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(PRECACHE_ASSETS))
+      .then(() => self.skipWaiting())
+  );
+});
+
+// ACTIVATE — purge stale caches and claim all clients
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys
+          .filter(k => k.startsWith('pastebin-cache-') && k !== CACHE_NAME)
+          .map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+// MESSAGE — allow clients to trigger skipWaiting for instant updates
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// FETCH — tiered caching strategy
+self.addEventListener('fetch', event => {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  // Only intercept same-origin GET requests
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  // API calls: network-only (never cache)
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/graphql')) return;
+
+  // Static assets: cache-first, update cache on network hit
+  if (url.pathname.startsWith('/static/')) {
+    event.respondWith(
+      caches.match(request).then(cached => {
+        if (cached) return cached;
+        return fetch(request).then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // HTML pages: network-first, fall back to cache then offline page
+  if (request.headers.get('accept') && request.headers.get('accept').includes('text/html')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => caches.match(request)
+          .then(cached => cached || caches.match('/offline'))
+        )
+    );
+    return;
+  }
+
+  // Default: network-first with cache fallback
+  event.respondWith(
+    fetch(request).catch(() => caches.match(request))
+  );
+});
+`, version, version)
+	w.Write([]byte(sw))
 }
 
 // pwaIconSVG returns an SVG icon for the PWA manifest at the given size.
@@ -1632,6 +1728,14 @@ func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/static/favicon.ico", http.StatusFound)
+}
+
+// handleOffline serves the PWA offline fallback page.
+// The service worker caches this page and serves it when the user is offline
+// and no cached version of the requested page is available.
+func (s *Server) handleOffline(w http.ResponseWriter, r *http.Request) {
+	d := s.pageData()
+	s.renderTemplate(w, r, "offline.html", d)
 }
 
 // ─── Template helpers ─────────────────────────────────────────────────────────

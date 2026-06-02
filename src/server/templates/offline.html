@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline - {{.SiteTitle}}</title>
+    <meta name="theme-color" content="#6366f1">
+    <link rel="stylesheet" href="/static/css/main.css">
+    <style>
+        .offline-page {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 60vh;
+            text-align: center;
+            padding: var(--spacing-xl, 2rem);
+        }
+        .offline-icon {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+            opacity: 0.7;
+        }
+        .offline-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+        }
+        .offline-message {
+            color: var(--text-muted);
+            max-width: 480px;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+        </nav>
+    </header>
+
+    <main>
+        <div class="offline-page">
+            <div class="offline-icon">📡</div>
+            <h1 class="offline-title">You are offline</h1>
+            <p class="offline-message">
+                This page is not available while you are offline.
+                Check your internet connection and try again.
+            </p>
+            <button class="btn btn-primary" onclick="window.location.reload()">
+                Try Again
+            </button>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>{{.SiteTitle}}</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

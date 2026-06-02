@@ -216,6 +216,27 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [x] `config.ServerConfig.DataDir` added — set at startup from `paths.GetDataDir(appName)`
 - [x] `config.SecurityConfig.Allowlist []string` added — feeds allowlist middleware and geoip config
 
+## Pass 17: PART 16 PWA — RESOLVED
+
+### Service worker (PART 16 spec) — RESOLVED
+- [x] `server.go handleServiceWorker`: version-based cache name (`pastebin-cache-{version}`)
+- [x] INSTALL event: pre-caches `/`, `/create`, `/recent`, `/offline`, CSS/JS/icons + `self.skipWaiting()`
+- [x] ACTIVATE event: deletes stale `pastebin-cache-*` caches + `self.clients.claim()`
+- [x] MESSAGE event: handles `SKIP_WAITING` for instant updates
+- [x] FETCH event: skip non-GET + cross-origin; skip `/api/` and `/graphql` (network-only); static assets cache-first; HTML network-first with offline fallback; default network-first with cache fallback
+- [x] `Cache-Control: no-cache` on sw.js response so browser always checks for new version
+
+### App update notification — RESOLVED
+- [x] `main.js`: SW registration now async with `updatefound` listener → calls `showUpdateBanner()`
+- [x] `showUpdateBanner()`: injects fixed-position banner with "Update Now" / dismiss buttons
+- [x] `applyUpdate()`: posts `SKIP_WAITING` to waiting SW; `controllerchange` listener reloads page
+- [x] Hourly update check via `setInterval(() => registration.update(), 3600000)`
+
+### Offline page — RESOLVED
+- [x] `server.go handleOffline()`: serves offline.html template at `/offline`
+- [x] `templates/offline.html`: minimal offline fallback page with "Try Again" reload button
+- [x] `/offline` route registered in setupRoutes
+
 ## Completed (cumulative)
 
 - All 6 non-English locales brought to full key parity with `en.json`
@@ -239,3 +260,4 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 16 web frontend: mobile-first CSS (min-width queries), prefers-color-scheme auto theme, PWA icon handlers, service worker fix, content negotiation in handleViewPaste/handleHome/handleRecent
 - PART 16 JS: theme load (explicit only), copy-to-clipboard with fallback, submit loading state, fetchAPI RFC 7807 error parsing
 - PART 4/5 middleware: PathSecurity, Allowlist, Blocklist middleware added; execution order fixed; noTrailingSlash file-extension exception; DataDir + Allowlist added to config
+- PART 16 PWA: service worker rewrite (versioned cache, install/activate/fetch/message events), app update banner, offline.html page
