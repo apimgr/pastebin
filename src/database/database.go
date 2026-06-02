@@ -62,6 +62,7 @@ type DB interface {
 	ListSchedulerTasks() ([]*TaskState, error)
 	UpdateTaskRun(taskID string, lastRun time.Time, status, lastError string, runCount, failCount int64, nextRun time.Time) error
 	RecordTaskHistory(h *TaskHistory) error
+	ListTaskHistory(taskID string, limit int) ([]*TaskHistory, error)
 
 	// App secrets — server-wide HMAC / signing keys stored in the DB (PART 11).
 	// EnsureAppSecret returns the raw bytes for key, generating 32 random bytes on
@@ -597,6 +598,35 @@ func (s *SQLiteDB) RecordTaskHistory(h *TaskHistory) error {
 		h.TaskID, h.StartedAt, h.FinishedAt, h.Status, h.ErrorMsg, h.DurationMS,
 	)
 	return err
+}
+
+// ListTaskHistory returns the most recent history entries for a task, newest first.
+// If limit <= 0 it defaults to 20.
+func (s *SQLiteDB) ListTaskHistory(taskID string, limit int) ([]*TaskHistory, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT task_id, started_at, finished_at, status, error_msg, duration_ms
+		FROM   scheduler_history
+		WHERE  task_id = ?
+		ORDER  BY started_at DESC
+		LIMIT  ?`, taskID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*TaskHistory
+	for rows.Next() {
+		h := &TaskHistory{}
+		if err := rows.Scan(&h.TaskID, &h.StartedAt, &h.FinishedAt, &h.Status, &h.ErrorMsg, &h.DurationMS); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 // ── App secrets (PART 11) ────────────────────────────────────────────────────

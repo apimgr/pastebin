@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -76,6 +78,8 @@ func main() {
 		updateCmd      string
 		emailCmd       string // --email <subcommand>
 		emailTo        string // --email test <address>
+		schedulerCmd   string // scheduler <subcommand>
+		schedulerArg   string // scheduler <subcommand> <id>
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -156,6 +160,16 @@ func main() {
 					i++
 					emailTo = args[i]
 				}
+			}
+		case "scheduler":
+			// Positional: scheduler <subcommand> [id]
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				schedulerCmd = args[i]
+			}
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+				schedulerArg = args[i]
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
@@ -442,6 +456,238 @@ Examples:
 			fmt.Printf("Test email sent to %s\n", emailTo)
 		default:
 			fmt.Fprintf(os.Stderr, "%s: unknown --email subcommand: %s\n", binaryName, emailCmd)
+			os.Exit(2)
+		}
+		return
+	}
+
+	// ── Scheduler CLI ─────────────────────────────────────────────────────────
+
+	if schedulerCmd != "" {
+		scCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
+		scCfg, _ := config.Load(scCfgFile)
+		if scCfg.Database.Path == "" {
+			scCfg.Database.Path = paths.GetDBPath(appName)
+		}
+		scDB, err := database.NewDatabase(scCfg.Database.Type, scCfg.Database.Path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: scheduler: database: %v\n", binaryName, err)
+			os.Exit(1)
+		}
+		defer scDB.Close()
+
+		switch schedulerCmd {
+		case "list":
+			tasks, err := scDB.ListSchedulerTasks()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler list: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			fmt.Printf("%-20s %-16s %-12s %-20s %-20s\n", "ID", "SCHEDULE", "STATUS", "LAST RUN", "NEXT RUN")
+			fmt.Printf("%-20s %-16s %-12s %-20s %-20s\n",
+				"--------------------", "----------------", "------------",
+				"--------------------", "--------------------")
+			for _, t := range tasks {
+				enabled := "disabled"
+				if t.Enabled {
+					enabled = t.LastStatus
+					if enabled == "" {
+						enabled = "pending"
+					}
+				}
+				lastRun := "-"
+				if !t.LastRun.IsZero() {
+					lastRun = t.LastRun.Format("2006-01-02 15:04:05")
+				}
+				nextRun := "-"
+				if !t.NextRun.IsZero() && t.Enabled {
+					nextRun = t.NextRun.Format("2006-01-02 15:04:05")
+				}
+				fmt.Printf("%-20s %-16s %-12s %-20s %-20s\n",
+					t.TaskID, t.Schedule, enabled, lastRun, nextRun)
+			}
+
+		case "show":
+			if schedulerArg == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s scheduler show <id>\n", binaryName)
+				os.Exit(2)
+			}
+			t, err := scDB.GetSchedulerTask(schedulerArg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler show: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			enabled := "no"
+			if t.Enabled {
+				enabled = "yes"
+			}
+			lastRun := "-"
+			if !t.LastRun.IsZero() {
+				lastRun = t.LastRun.Format(time.RFC3339)
+			}
+			nextRun := "-"
+			if !t.NextRun.IsZero() {
+				nextRun = t.NextRun.Format(time.RFC3339)
+			}
+			fmt.Printf("ID:          %s\n", t.TaskID)
+			fmt.Printf("Name:        %s\n", t.TaskName)
+			fmt.Printf("Schedule:    %s\n", t.Schedule)
+			fmt.Printf("Enabled:     %s\n", enabled)
+			fmt.Printf("Status:      %s\n", t.LastStatus)
+			fmt.Printf("Last Run:    %s\n", lastRun)
+			fmt.Printf("Next Run:    %s\n", nextRun)
+			fmt.Printf("Run Count:   %d\n", t.RunCount)
+			fmt.Printf("Fail Count:  %d\n", t.FailCount)
+			if t.LastError != "" {
+				fmt.Printf("Last Error:  %s\n", t.LastError)
+			}
+
+		case "run":
+			if schedulerArg == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s scheduler run <id>\n", binaryName)
+				os.Exit(2)
+			}
+			// Connect to the running server's scheduler via the API.
+			scBaseURL := scCfg.Server.BaseURL
+			if scBaseURL == "" {
+				addr := scCfg.Server.Address
+				if addr == "" || addr == "0.0.0.0" {
+					addr = "127.0.0.1"
+				}
+				port := scCfg.Server.Port
+				if port == "" {
+					port = "80"
+				}
+				scBaseURL = "http://" + addr + ":" + port
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			req, reqErr := newHTTPRequest(ctx, "POST",
+				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/run", nil)
+			if reqErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler run: %v\n", binaryName, reqErr)
+				os.Exit(1)
+			}
+			resp, doErr := doHTTP(req)
+			if doErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler run: %v\n", binaryName, doErr)
+				os.Exit(1)
+			}
+			resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				fmt.Fprintf(os.Stderr, "%s: scheduler run: server returned %s\n", binaryName, resp.Status)
+				os.Exit(1)
+			}
+			fmt.Printf("Task %s triggered.\n", schedulerArg)
+
+		case "enable":
+			if schedulerArg == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s scheduler enable <id>\n", binaryName)
+				os.Exit(2)
+			}
+			scBaseURL := scCfg.Server.BaseURL
+			if scBaseURL == "" {
+				addr := scCfg.Server.Address
+				if addr == "" || addr == "0.0.0.0" {
+					addr = "127.0.0.1"
+				}
+				port := scCfg.Server.Port
+				if port == "" {
+					port = "80"
+				}
+				scBaseURL = "http://" + addr + ":" + port
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			req, reqErr := newHTTPRequest(ctx, "POST",
+				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/enable", nil)
+			if reqErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler enable: %v\n", binaryName, reqErr)
+				os.Exit(1)
+			}
+			resp, doErr := doHTTP(req)
+			if doErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler enable: %v\n", binaryName, doErr)
+				os.Exit(1)
+			}
+			resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				fmt.Fprintf(os.Stderr, "%s: scheduler enable: server returned %s\n", binaryName, resp.Status)
+				os.Exit(1)
+			}
+			fmt.Printf("Task %s enabled.\n", schedulerArg)
+
+		case "disable":
+			if schedulerArg == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s scheduler disable <id>\n", binaryName)
+				os.Exit(2)
+			}
+			scBaseURL := scCfg.Server.BaseURL
+			if scBaseURL == "" {
+				addr := scCfg.Server.Address
+				if addr == "" || addr == "0.0.0.0" {
+					addr = "127.0.0.1"
+				}
+				port := scCfg.Server.Port
+				if port == "" {
+					port = "80"
+				}
+				scBaseURL = "http://" + addr + ":" + port
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			req, reqErr := newHTTPRequest(ctx, "POST",
+				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/disable", nil)
+			if reqErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler disable: %v\n", binaryName, reqErr)
+				os.Exit(1)
+			}
+			resp, doErr := doHTTP(req)
+			if doErr != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler disable: %v\n", binaryName, doErr)
+				os.Exit(1)
+			}
+			resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				fmt.Fprintf(os.Stderr, "%s: scheduler disable: server returned %s\n", binaryName, resp.Status)
+				os.Exit(1)
+			}
+			fmt.Printf("Task %s disabled.\n", schedulerArg)
+
+		case "history":
+			if schedulerArg == "" {
+				fmt.Fprintf(os.Stderr, "Usage: %s scheduler history <id>\n", binaryName)
+				os.Exit(2)
+			}
+			history, err := scDB.ListTaskHistory(schedulerArg, 20)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: scheduler history: %v\n", binaryName, err)
+				os.Exit(1)
+			}
+			if len(history) == 0 {
+				fmt.Printf("No history for task %q.\n", schedulerArg)
+			} else {
+				fmt.Printf("%-24s %-24s %-10s %-10s %s\n",
+					"STARTED", "FINISHED", "STATUS", "DURATION", "ERROR")
+				fmt.Printf("%-24s %-24s %-10s %-10s %s\n",
+					"------------------------", "------------------------",
+					"----------", "----------", "-----")
+				for _, h := range history {
+					dur := fmt.Sprintf("%dms", h.DurationMS)
+					errStr := h.ErrorMsg
+					if errStr == "" {
+						errStr = "-"
+					}
+					fmt.Printf("%-24s %-24s %-10s %-10s %s\n",
+						h.StartedAt.Format("2006-01-02 15:04:05"),
+						h.FinishedAt.Format("2006-01-02 15:04:05"),
+						h.Status, dur, errStr)
+				}
+			}
+
+		default:
+			fmt.Fprintf(os.Stderr, "%s: unknown scheduler subcommand: %s\n", binaryName, schedulerCmd)
+			fmt.Fprintf(os.Stderr, "Usage: %s scheduler {list|show|run|enable|disable|history} [id]\n", binaryName)
 			os.Exit(2)
 		}
 		return
@@ -811,6 +1057,14 @@ Service Management:
       --maintenance CMD             Maintenance operations (--maintenance --help for details)
       --update [CMD]                Check/perform updates (--update --help for details)
 
+Scheduler:
+      scheduler list                List all scheduled tasks and their status
+      scheduler show <id>           Show details for a specific task
+      scheduler run <id>            Trigger a task to run immediately
+      scheduler enable <id>         Enable a disabled task
+      scheduler disable <id>        Disable a task
+      scheduler history <id>        Show recent execution history for a task
+
 Maintenance:
       --clean-expired               Delete expired/burned pastes and exit
 
@@ -825,4 +1079,19 @@ func logSchedErr(err error) {
 	if err != nil {
 		log.Printf("warning: scheduler registration: %v", err)
 	}
+}
+
+// newHTTPRequest creates an HTTP request with no body and a User-Agent header.
+func newHTTPRequest(ctx context.Context, method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "pastebin-cli/"+Version)
+	return req, nil
+}
+
+// doHTTP executes an HTTP request using the default client.
+func doHTTP(req *http.Request) (*http.Response, error) {
+	return http.DefaultClient.Do(req)
 }

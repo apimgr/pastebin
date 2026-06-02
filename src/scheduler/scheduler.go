@@ -178,6 +178,17 @@ func (s *Scheduler) DisableTask(id string) {
 	s.mu.Unlock()
 }
 
+// GetTask returns the state for a single task by ID, or false if not found.
+func (s *Scheduler) GetTask(id string) (database.TaskState, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.tasks[id]
+	if !ok {
+		return database.TaskState{}, false
+	}
+	return taskEntryToState(e), true
+}
+
 // GetTasks returns a snapshot of all registered tasks.
 func (s *Scheduler) GetTasks() []database.TaskState {
 	s.mu.Lock()
