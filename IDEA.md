@@ -108,6 +108,12 @@ No external services called at runtime.
 | `GET` | `/api/{api_version}/pastes` | List recent public pastes (paginated: `?page=`, `?limit=`) |
 | `GET` | `/api/{api_version}/server/swagger` | OpenAPI / Swagger documentation |
 | `GET` | `/server/healthz` | Health check |
+| `GET` | `/api/{api_version}/scheduler` | List all registered scheduler tasks |
+| `GET` | `/api/{api_version}/scheduler/{id}` | Show details for a single task |
+| `POST` | `/api/{api_version}/scheduler/{id}/run` | Trigger task to run immediately |
+| `POST` | `/api/{api_version}/scheduler/{id}/enable` | Enable a task |
+| `POST` | `/api/{api_version}/scheduler/{id}/disable` | Disable a task |
+| `GET` | `/api/{api_version}/scheduler/{id}/history` | Recent execution history for a task |
 
 **Create request body fields** (JSON or form):
 

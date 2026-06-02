@@ -936,6 +936,7 @@ Examples:
 
 	// Register scheduler health callback with the server for /server/healthz.
 	srv.SetSchedulerHealthFn(sched.Running)
+	srv.SetSchedulerAPI(sched)
 
 	// ── PID file ──────────────────────────────────────────────────────────────
 	// WritePIDFile also calls CheckPIDFile; it exits non-zero if another

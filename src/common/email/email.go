@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/smtp"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ func (m *Mailer) TestSMTP() error {
 	if m.cfg.SMTP.Host == "" {
 		return fmt.Errorf("smtp: no host configured")
 	}
-	addr := fmt.Sprintf("%s:%d", m.cfg.SMTP.Host, m.cfg.SMTP.Port)
+	addr := net.JoinHostPort(m.cfg.SMTP.Host, strconv.Itoa(m.cfg.SMTP.Port))
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("smtp: connect %s: %w", addr, err)
@@ -132,7 +133,7 @@ func AutoDetect(fqdn string) (host string, port int, ok bool) {
 	}
 
 	for _, c := range candidates {
-		addr := fmt.Sprintf("%s:%d", c.host, c.port)
+		addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err != nil {
 			continue

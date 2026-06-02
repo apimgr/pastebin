@@ -1,7 +1,7 @@
 # Project Audit
 
 Started: 2026-05-24
-Last reconciled: 2026-05-28 (config hot-reload + route audit pass)
+Last reconciled: 2026-06-02 (scheduler API + CLI subcommands + IPv6-safe SMTP)
 Scope: ALL PARTs of AI.md EXCEPT PART 27/CI workflows under `.github/workflows/` (out of scope).
 
 ## Pass 1: Security
@@ -262,3 +262,41 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - PART 4/5 middleware: PathSecurity, Allowlist, Blocklist middleware added; execution order fixed; noTrailingSlash file-extension exception; DataDir + Allowlist added to config
 - PART 16 PWA: service worker rewrite (versioned cache, install/activate/fetch/message events), app update banner, offline.html page
 - PART 16 iOS meta tags: manifest link + apple-mobile-web-app meta + apple-touch-icon added to all 12 non-embed templates; icon-180 handler added
+
+## Pass 18: PART 18 Scheduler API + CLI Subcommands — RESOLVED
+
+### Scheduler REST API (PART 18) — RESOLVED
+- [x] `src/server/server.go`: `SchedulerAPI` interface — `GetTasks/GetTask/RunNow/EnableTask/DisableTask` — satisfied by `*scheduler.Scheduler`
+- [x] `Server.SetSchedulerAPI(api)` injects the scheduler post-construction; called from `main.go` after both server and scheduler are built
+- [x] `/api/v1/scheduler` routes mounted in `setupRoutes()`:
+  - `GET /api/v1/scheduler` — list all tasks
+  - `GET /api/v1/scheduler/{id}` — show one task
+  - `POST /api/v1/scheduler/{id}/run` — trigger run
+  - `POST /api/v1/scheduler/{id}/enable` — enable task
+  - `POST /api/v1/scheduler/{id}/disable` — disable task
+  - `GET /api/v1/scheduler/{id}/history` — recent execution history
+- [x] All handlers return RFC 7807 error bodies on failure and `{"ok":true,"data":...}` on success per PART 14
+- [x] `handleSchedulerHistory` queries `db.ListTaskHistory(id, 20)` — bounded result set
+- [x] All handlers guard on `schedulerAPI == nil` returning 503 (service unavailable)
+
+### Scheduler CLI subcommands (PART 18) — RESOLVED
+- [x] `src/main.go` parses positional `scheduler <subcommand> [id]`:
+  - `scheduler list` — reads `db.ListSchedulerTasks()` directly, tabular print
+  - `scheduler show <id>` — reads `db.GetSchedulerTask(id)`
+  - `scheduler run <id>` — POSTs to running server's `/api/v1/scheduler/{id}/run`
+  - `scheduler enable <id>` — POSTs to `/api/v1/scheduler/{id}/enable`
+  - `scheduler disable <id>` — POSTs to `/api/v1/scheduler/{id}/disable`
+  - `scheduler history <id>` — reads `db.ListTaskHistory(id, 20)` directly
+- [x] `--help` output documents all six subcommands (lines 1062–1067 of `src/main.go`)
+- [x] `database.DB.ListTaskHistory(taskID, limit)` added to interface + `SQLiteDB`
+
+### Other findings this pass
+- [x] `src/common/email/email.go`: `go vet` reported `fmt.Sprintf("%s:%d", host, port)` IPv6-unsafe — replaced with `net.JoinHostPort(host, strconv.Itoa(port))` at L82 and L135
+- [x] `IDEA.md` Native REST API table updated with the six new `scheduler/*` endpoints
+- [x] `go vet ./...` clean; `go test ./...` passes for all packages with tests (`config`, `database`, `handler`, `paths`)
+- [x] No new `TODO`/`FIXME`/`HACK` markers in `src/`; no bcrypt; no `strconv.ParseBool`; no plural source dirs; no Dockerfile in root; no `.env` files in repo; LICENSE.md present
+
+### Still deferred (carry-forwards, unchanged from prior passes)
+- [ ] CSRF token validation middleware — deferred until session/auth surface exists (config structs in place)
+- [ ] Backup checksum self-verification (archive2 differs from archive1) — 6 other verification checks pass
+- [ ] Full bubbletea TUI implementation — `runTUI()` is a guidance stub

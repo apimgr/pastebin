@@ -143,6 +143,16 @@ type StatsInfo struct {
 	PastesTotal    int64 `json:"pastes_total"`
 }
 
+// SchedulerAPI is the interface the server uses to interact with the scheduler.
+// It is satisfied by *scheduler.Scheduler and can be set via SetSchedulerAPI.
+type SchedulerAPI interface {
+	GetTasks() []database.TaskState
+	GetTask(id string) (database.TaskState, bool)
+	RunNow(id string) error
+	EnableTask(id string)
+	DisableTask(id string)
+}
+
 // Server owns the HTTP router and all handler dependencies.
 type Server struct {
 	router           *chi.Mux
@@ -169,6 +179,8 @@ type Server struct {
 	// schedHealthFn is an optional callback that reports whether the scheduler
 	// is running — set by main after constructing the server.
 	schedHealthFn func() bool
+	// schedulerAPI provides runtime access to the scheduler for the API handlers.
+	schedulerAPI SchedulerAPI
 	// pendingRestartMu guards pendingRestartKeys.
 	pendingRestartMu   sync.Mutex
 	pendingRestartKeys []string
@@ -178,6 +190,13 @@ type Server struct {
 // Call this from main after constructing the server, before calling Run.
 func (s *Server) SetSchedulerHealthFn(fn func() bool) {
 	s.schedHealthFn = fn
+}
+
+// SetSchedulerAPI wires the scheduler into the server so scheduler API routes can
+// delegate to it. Call this from main after constructing both the server and the
+// scheduler, before calling Run.
+func (s *Server) SetSchedulerAPI(api SchedulerAPI) {
+	s.schedulerAPI = api
 }
 
 // MarkPendingRestart records a config key that requires a restart to take effect.
@@ -567,6 +586,16 @@ func (s *Server) setupRoutes() {
 		r.Get("/server/healthz", s.handleHealthzJSON)
 		r.Get("/server/version", s.handleVersion)
 		r.Get("/server/swagger", s.swaggerHandler.ServeSpec)
+
+		// Scheduler API (PART 18)
+		r.Route("/scheduler", func(r chi.Router) {
+			r.Get("/", s.handleSchedulerList)
+			r.Get("/{id}", s.handleSchedulerShow)
+			r.Post("/{id}/run", s.handleSchedulerRun)
+			r.Post("/{id}/enable", s.handleSchedulerEnable)
+			r.Post("/{id}/disable", s.handleSchedulerDisable)
+			r.Get("/{id}/history", s.handleSchedulerHistory)
+		})
 	})
 
 	// Unversioned aliases that MUST mount the same handler as the versioned route.
@@ -1743,6 +1772,88 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOffline(w http.ResponseWriter, r *http.Request) {
 	d := s.pageData()
 	s.renderTemplate(w, r, "offline.html", d)
+}
+
+// ─── Scheduler API handlers (PART 18) ────────────────────────────────────────
+
+// handleSchedulerList returns all registered tasks.
+func (s *Server) handleSchedulerList(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerAPI == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		return
+	}
+	tasks := s.schedulerAPI.GetTasks()
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": tasks})
+}
+
+// handleSchedulerShow returns the state for a single task.
+func (s *Server) handleSchedulerShow(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerAPI == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	t, ok := s.schedulerAPI.GetTask(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"type": "about:blank", "title": "Not Found", "status": 404, "detail": "task not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": t})
+}
+
+// handleSchedulerRun triggers a task to run immediately.
+func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerAPI == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := s.schedulerAPI.RunNow(id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"type": "about:blank", "title": "Bad Request", "status": 400, "detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"status": "triggered", "task": id}})
+}
+
+// handleSchedulerEnable enables a task.
+func (s *Server) handleSchedulerEnable(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerAPI == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if _, ok := s.schedulerAPI.GetTask(id); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"type": "about:blank", "title": "Not Found", "status": 404, "detail": "task not found"})
+		return
+	}
+	s.schedulerAPI.EnableTask(id)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"status": "enabled", "task": id}})
+}
+
+// handleSchedulerDisable disables a task.
+func (s *Server) handleSchedulerDisable(w http.ResponseWriter, r *http.Request) {
+	if s.schedulerAPI == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if _, ok := s.schedulerAPI.GetTask(id); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"type": "about:blank", "title": "Not Found", "status": 404, "detail": "task not found"})
+		return
+	}
+	s.schedulerAPI.DisableTask(id)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"status": "disabled", "task": id}})
+}
+
+// handleSchedulerHistory returns recent execution history for a task.
+func (s *Server) handleSchedulerHistory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	history, err := s.db.ListTaskHistory(id, 20)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"type": "about:blank", "title": "Internal Server Error", "status": 500, "detail": "could not retrieve history"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": history})
 }
 
 // ─── Template helpers ─────────────────────────────────────────────────────────
