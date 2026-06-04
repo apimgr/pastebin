@@ -45,6 +45,18 @@ client_binary: pastebin-cli
 - No paid tiers, no rate-limited access tiers, no feature gating
 - No cluster mode, no horizontal scaling, no node election — single instance only
 
+### Compat targets
+
+The server must be 100% wire-compatible with the following services — existing scripts, CLIs, and API integrations targeting these services must work without modification:
+
+| Target | Guarantee |
+|--------|-----------|
+| **pastebin.com public API** | Paste creation, retrieval, and login-stub endpoints match the pastebin.com wire protocol (URL paths, request fields, response fields, HTTP status codes, content types) |
+| **lenpaste** (protocol reference: `forksmgr/lcomrade-lenpaste`) | lenpaste REST API including server info endpoint matches the lenpaste wire protocol |
+| **microbin** | microbin JSON API for paste creation and retrieval matches the microbin wire protocol |
+
+Compatibility is wire-level only: URL paths, request/response field names, HTTP status codes, and content types must match. Internal implementation details (storage, ID format, auth mechanism, delete convention) do not need to match. Compat-created pastes use each target's own deletion convention — not the native owner token system — and the two systems must never be mixed.
+
 ### Roles & permissions
 
 No user roles exist. All native API endpoints are public. The only privilege distinction is the operator token configured server-side.
@@ -95,6 +107,8 @@ No user roles exist. All native API endpoints are public. The only privilege dis
 | Owner token (inbound) | **Untrusted** | Hashed before comparison; constant-time compare enforced |
 | Operator token (inbound) | **Untrusted** | Hashed; constant-time compare against cached hash |
 | Compat delete token (inbound) | **Untrusted** | Hashed before comparison |
+
+| `forksmgr/lcomrade-lenpaste` (protocol reference) | **Untrusted source** — wire protocol spec consulted at development time; no code imported at runtime | Failure mode: compat layer continues to function even if the upstream fork is deleted or unmaintained; the protocol is implemented independently from the published spec |
 
 No external services called at runtime (GeoIP database fetched by scheduled task on operator's initiative, not on request path).
 

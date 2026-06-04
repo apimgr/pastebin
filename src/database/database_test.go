@@ -5,6 +5,10 @@ package database_test
 // external dependencies and tests are safe to run in parallel.
 
 import (
+	crand "crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -402,5 +406,370 @@ func TestRecordTaskHistory(t *testing.T) {
 	}
 	if err := db.RecordTaskHistory(h); err != nil {
 		t.Fatalf("RecordTaskHistory: %v", err)
+	}
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// makeToken generates a random 32-byte token, returning the base64url-encoded
+// raw string, its SHA-256 hash as [32]byte, the hex digest, and the 12-char prefix.
+func makeToken(t *testing.T) (raw string, hashBytes [32]byte, hashHex string, prefix string) {
+	t.Helper()
+	b := make([]byte, 32)
+	if _, err := crand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	raw = base64.URLEncoding.EncodeToString(b)
+	hashBytes = sha256.Sum256([]byte(raw))
+	hashHex = hex.EncodeToString(hashBytes[:])
+	prefix = raw[:12]
+	return raw, hashBytes, hashHex, prefix
+}
+
+// minimalTask returns a TaskState suitable for prerequisite upserts.
+func minimalTask(id string) *database.TaskState {
+	return &database.TaskState{
+		TaskID:     id,
+		TaskName:   id,
+		Schedule:   "* * * * *",
+		LastStatus: "pending",
+		Enabled:    true,
+	}
+}
+
+// ─── Type and Ping ────────────────────────────────────────────────────────────
+
+// TestDB_TypeAndPing verifies Type returns "sqlite" and Ping returns nil.
+func TestDB_TypeAndPing(t *testing.T) {
+	db := newTestDB(t)
+
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{"Type", func() error {
+			if got := db.Type(); got != "sqlite" {
+				t.Errorf("Type: got %q, want %q", got, "sqlite")
+			}
+			return nil
+		}},
+		{"Ping", func() error { return db.Ping() }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn(); err != nil {
+				t.Errorf("%s: unexpected error: %v", tc.name, err)
+			}
+		})
+	}
+}
+
+// ─── CountPastes ──────────────────────────────────────────────────────────────
+
+// TestCountPastes verifies that CountPastes returns 0 on an empty DB and 1 after insert.
+func TestCountPastes(t *testing.T) {
+	db := newTestDB(t)
+
+	cases := []struct {
+		name   string
+		setup  func()
+		want   int64
+	}{
+		{"empty", func() {}, 0},
+		{"after_insert", func() {
+			if err := db.CreatePaste(samplePaste("cnt00001")); err != nil {
+				t.Fatal(err)
+			}
+		}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.setup()
+			got, err := db.CountPastes()
+			if err != nil {
+				t.Fatalf("CountPastes: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── SetTaskEnabled ───────────────────────────────────────────────────────────
+
+// TestSetTaskEnabled upserts a task, disables it, confirms Enabled==false,
+// then re-enables it and confirms Enabled==true.
+func TestSetTaskEnabled(t *testing.T) {
+	db := newTestDB(t)
+
+	if err := db.UpsertSchedulerTask(minimalTask("task-en")); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		enabled bool
+	}{
+		{"disable", false},
+		{"re_enable", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := db.SetTaskEnabled("task-en", tc.enabled); err != nil {
+				t.Fatalf("SetTaskEnabled(%v): %v", tc.enabled, err)
+			}
+			got, err := db.GetSchedulerTask("task-en")
+			if err != nil || got == nil {
+				t.Fatalf("GetSchedulerTask: %v / nil=%v", err, got == nil)
+			}
+			if got.Enabled != tc.enabled {
+				t.Errorf("Enabled: got %v, want %v", got.Enabled, tc.enabled)
+			}
+		})
+	}
+}
+
+// ─── ListTaskHistory ──────────────────────────────────────────────────────────
+
+// TestListTaskHistory_DefaultLimit inserts 25 history entries, then verifies that
+// a limit of 0 returns 20 (the default) and a limit of 5 returns exactly 5.
+func TestListTaskHistory_DefaultLimit(t *testing.T) {
+	db := newTestDB(t)
+
+	if err := db.UpsertSchedulerTask(minimalTask("task-lh")); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	for i := 0; i < 25; i++ {
+		h := &database.TaskHistory{
+			TaskID:     "task-lh",
+			StartedAt:  now.Add(time.Duration(i) * time.Second),
+			FinishedAt: now.Add(time.Duration(i)*time.Second + 100*time.Millisecond),
+			Status:     "success",
+			DurationMS: 100,
+		}
+		if err := db.RecordTaskHistory(h); err != nil {
+			t.Fatalf("RecordTaskHistory #%d: %v", i, err)
+		}
+	}
+
+	cases := []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{"default_zero_gives_20", 0, 20},
+		{"explicit_5", 5, 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := db.ListTaskHistory("task-lh", tc.limit)
+			if err != nil {
+				t.Fatalf("ListTaskHistory(limit=%d): %v", tc.limit, err)
+			}
+			if len(got) != tc.want {
+				t.Errorf("len: got %d, want %d", len(got), tc.want)
+			}
+		})
+	}
+}
+
+// ─── EnsureAppSecret ──────────────────────────────────────────────────────────
+
+// TestEnsureAppSecret_Idempotent verifies that EnsureAppSecret returns 32 bytes
+// on first call and the identical bytes on a second call for the same key.
+func TestEnsureAppSecret_Idempotent(t *testing.T) {
+	db := newTestDB(t)
+
+	first, err := db.EnsureAppSecret("test-secret")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if len(first) != 32 {
+		t.Errorf("first call: got %d bytes, want 32", len(first))
+	}
+
+	second, err := db.EnsureAppSecret("test-secret")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	if string(first) != string(second) {
+		t.Error("second call returned different bytes than the first")
+	}
+}
+
+// TestEnsureAppSecret_DifferentKeys verifies that two different keys each return
+// their own independent 32-byte secret.
+func TestEnsureAppSecret_DifferentKeys(t *testing.T) {
+	db := newTestDB(t)
+
+	a, err := db.EnsureAppSecret("key-alpha")
+	if err != nil {
+		t.Fatalf("key-alpha: %v", err)
+	}
+	b, err := db.EnsureAppSecret("key-beta")
+	if err != nil {
+		t.Fatalf("key-beta: %v", err)
+	}
+	if string(a) == string(b) {
+		t.Error("different keys unexpectedly returned identical secrets")
+	}
+}
+
+// ─── API Tokens ───────────────────────────────────────────────────────────────
+
+// TestCreateAndVerifyAPIToken creates a token then verifies it succeeds.
+func TestCreateAndVerifyAPIToken(t *testing.T) {
+	db := newTestDB(t)
+
+	_, hashBytes, hashHex, prefix := makeToken(t)
+	if err := db.CreateAPIToken(hashHex, prefix, "paste", "paste-001", nil); err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+	if err := db.VerifyAPIToken(hashBytes, "paste", "paste-001"); err != nil {
+		t.Errorf("VerifyAPIToken: unexpected error: %v", err)
+	}
+}
+
+// TestVerifyAPIToken_WrongResource verifies that VerifyAPIToken returns an error
+// when the resource ID does not match the stored row.
+func TestVerifyAPIToken_WrongResource(t *testing.T) {
+	db := newTestDB(t)
+
+	_, hashBytes, hashHex, prefix := makeToken(t)
+	if err := db.CreateAPIToken(hashHex, prefix, "paste", "paste-001", nil); err != nil {
+		t.Fatal(err)
+	}
+	err := db.VerifyAPIToken(hashBytes, "paste", "paste-WRONG")
+	if err == nil {
+		t.Error("expected error for wrong resourceID, got nil")
+	}
+}
+
+// TestValidateAPIToken_Valid creates a token, then validates it by resource type only.
+func TestValidateAPIToken_Valid(t *testing.T) {
+	db := newTestDB(t)
+
+	_, hashBytes, hashHex, prefix := makeToken(t)
+	if err := db.CreateAPIToken(hashHex, prefix, "paste", "paste-001", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ValidateAPIToken(hashBytes, "paste"); err != nil {
+		t.Errorf("ValidateAPIToken: unexpected error: %v", err)
+	}
+}
+
+// TestValidateAPIToken_Unknown confirms ValidateAPIToken returns an error when no
+// matching token exists.
+func TestValidateAPIToken_Unknown(t *testing.T) {
+	db := newTestDB(t)
+
+	_, hashBytes, _, _ := makeToken(t)
+	if err := db.ValidateAPIToken(hashBytes, "paste"); err == nil {
+		t.Error("expected error for unknown token, got nil")
+	}
+}
+
+// TestRevokeAPIToken verifies that a token can be revoked once, and that a second
+// revocation attempt on the same prefix returns an error.
+func TestRevokeAPIToken(t *testing.T) {
+	db := newTestDB(t)
+
+	_, _, hashHex, prefix := makeToken(t)
+	if err := db.CreateAPIToken(hashHex, prefix, "paste", "paste-001", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		wantErr bool
+	}{
+		{"first_revoke", false},
+		{"second_revoke_already_revoked", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := db.RevokeAPIToken(prefix, "test reason")
+			if tc.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestListAPITokens creates 2 tokens, revokes one, and asserts only 1 is returned.
+func TestListAPITokens(t *testing.T) {
+	db := newTestDB(t)
+
+	_, _, hashHex1, prefix1 := makeToken(t)
+	_, _, hashHex2, prefix2 := makeToken(t)
+
+	if err := db.CreateAPIToken(hashHex1, prefix1, "paste", "paste-001", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateAPIToken(hashHex2, prefix2, "paste", "paste-002", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RevokeAPIToken(prefix1, "cleanup"); err != nil {
+		t.Fatal(err)
+	}
+
+	tokens, err := db.ListAPITokens()
+	if err != nil {
+		t.Fatalf("ListAPITokens: %v", err)
+	}
+	if len(tokens) != 1 {
+		t.Errorf("len: got %d, want 1", len(tokens))
+	}
+	if len(tokens) == 1 && tokens[0].TokenPrefix != prefix2 {
+		t.Errorf("remaining token prefix: got %q, want %q", tokens[0].TokenPrefix, prefix2)
+	}
+}
+
+// TestDeleteExpiredAPITokens creates a token with an expiry in the past and
+// verifies DeleteExpiredAPITokens removes it and returns a count of 1.
+func TestDeleteExpiredAPITokens(t *testing.T) {
+	db := newTestDB(t)
+
+	_, _, hashHex, prefix := makeToken(t)
+	past := time.Now().Add(-time.Hour)
+	if err := db.CreateAPIToken(hashHex, prefix, "paste", "paste-001", &past); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := db.DeleteExpiredAPITokens()
+	if err != nil {
+		t.Fatalf("DeleteExpiredAPITokens: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("rows deleted: got %d, want 1", n)
+	}
+}
+
+// ─── NewDatabase default type ─────────────────────────────────────────────────
+
+// TestNewDatabase_DefaultType verifies that passing an empty type string to
+// NewDatabase falls back to SQLite and returns a working DB.
+func TestNewDatabase_DefaultType(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.NewDatabase("", filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewDatabase(\"\", ...): %v", err)
+	}
+	if db == nil {
+		t.Fatal("NewDatabase returned nil")
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if got := db.Type(); got != "sqlite" {
+		t.Errorf("Type: got %q, want %q", got, "sqlite")
+	}
+	if err := db.Ping(); err != nil {
+		t.Errorf("Ping: %v", err)
 	}
 }

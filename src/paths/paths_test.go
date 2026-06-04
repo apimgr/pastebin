@@ -144,3 +144,263 @@ func TestEnsureDir(t *testing.T) {
 		t.Fatalf("EnsureDir second call (idempotent): %v", err)
 	}
 }
+
+// ─── XDG / home-default path tests (non-root, non-container) ─────────────────
+
+// skipIfContainer skips the test when we are inside a Docker container because
+// the expected user-mode paths do not apply there.
+func skipIfContainer(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		t.Skip("running inside Docker — user-mode paths do not apply")
+	}
+}
+
+// skipIfRoot skips the test when running as root because all path branches
+// under test here are the non-root code paths.
+func skipIfRoot(t *testing.T) {
+	t.Helper()
+	// os.Geteuid() is available on all POSIX platforms; always 0 on Windows but
+	// we guard with the build tag below.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — non-root path branches not exercised")
+	}
+}
+
+// TestGetConfigDir_XDG verifies that XDG_CONFIG_HOME is respected when
+// CONFIG_DIR is not set and we are not running as root or in a container.
+func TestGetConfigDir_XDG(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
+	os.Unsetenv("CONFIG_DIR")
+
+	got := paths.GetConfigDir("pastebin")
+	want := "/tmp/xdg-config/apimgr/pastebin"
+	if got != want {
+		t.Errorf("GetConfigDir with XDG: got %q, want %q", got, want)
+	}
+}
+
+// TestGetConfigDir_HomeDefault verifies the ~/.config/apimgr/pastebin fallback
+// on Linux when neither CONFIG_DIR nor XDG_CONFIG_HOME is set.
+func TestGetConfigDir_HomeDefault(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("CONFIG_DIR")
+	os.Unsetenv("XDG_CONFIG_HOME")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("UserHomeDir unavailable: %v", err)
+	}
+
+	got := paths.GetConfigDir("pastebin")
+	want := filepath.Join(home, ".config", "apimgr", "pastebin")
+	if got != want {
+		t.Errorf("GetConfigDir home default: got %q, want %q", got, want)
+	}
+}
+
+// TestGetDataDir_XDG verifies that XDG_DATA_HOME is respected when DATA_DIR is
+// not set and we are not root or in a container.
+func TestGetDataDir_XDG(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")
+	os.Unsetenv("DATA_DIR")
+
+	got := paths.GetDataDir("pastebin")
+	want := "/tmp/xdg-data/apimgr/pastebin"
+	if got != want {
+		t.Errorf("GetDataDir with XDG: got %q, want %q", got, want)
+	}
+}
+
+// TestGetDataDir_HomeDefault verifies the ~/.local/share/apimgr/pastebin
+// fallback on Linux when neither DATA_DIR nor XDG_DATA_HOME is set.
+func TestGetDataDir_HomeDefault(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("DATA_DIR")
+	os.Unsetenv("XDG_DATA_HOME")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("UserHomeDir unavailable: %v", err)
+	}
+
+	got := paths.GetDataDir("pastebin")
+	want := filepath.Join(home, ".local", "share", "apimgr", "pastebin")
+	if got != want {
+		t.Errorf("GetDataDir home default: got %q, want %q", got, want)
+	}
+}
+
+// TestGetLogsDir_HomeDefault verifies the ~/.local/log/apimgr/pastebin path on
+// Linux for a non-root, non-container user when LOGS_DIR is not set.
+func TestGetLogsDir_HomeDefault(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("LOGS_DIR")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("UserHomeDir unavailable: %v", err)
+	}
+
+	got := paths.GetLogsDir("pastebin")
+	want := filepath.Join(home, ".local", "log", "apimgr", "pastebin")
+	if got != want {
+		t.Errorf("GetLogsDir home default: got %q, want %q", got, want)
+	}
+}
+
+// TestGetBackupDir_DataBased verifies that on a normal user host GetBackupDir
+// returns a path under the user's home directory when BACKUP_DIR is not set.
+func TestGetBackupDir_DataBased(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("BACKUP_DIR")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("UserHomeDir unavailable: %v", err)
+	}
+
+	got := paths.GetBackupDir("pastebin")
+	// The backup dir must start with the user home, confirming we are in the
+	// non-root / non-container branch.
+	if !filepath.IsAbs(got) {
+		t.Errorf("GetBackupDir: expected absolute path, got %q", got)
+	}
+	if len(got) < len(home) || got[:len(home)] != home {
+		t.Errorf("GetBackupDir: expected path under %q, got %q", home, got)
+	}
+}
+
+// TestGetPIDFile_UserPath verifies that for a non-root user the PID file path
+// ends in "pastebin.pid" and is located under the data directory.
+func TestGetPIDFile_UserPath(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("PID_FILE")
+
+	got := paths.GetPIDFile("pastebin")
+	if filepath.Base(got) != "pastebin.pid" {
+		t.Errorf("GetPIDFile: base name should be %q, got %q", "pastebin.pid", filepath.Base(got))
+	}
+
+	// Must be under the data directory for user installs.
+	dataDir := paths.GetDataDir("pastebin")
+	if len(got) <= len(dataDir) || got[:len(dataDir)] != dataDir {
+		t.Errorf("GetPIDFile: expected path under %q, got %q", dataDir, got)
+	}
+}
+
+// TestGetCacheDir_XDG verifies that XDG_CACHE_HOME is respected when CACHE_DIR
+// is not set and we are not root or in a container.
+func TestGetCacheDir_XDG(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	t.Setenv("XDG_CACHE_HOME", "/tmp/xdg-cache")
+	os.Unsetenv("CACHE_DIR")
+
+	got := paths.GetCacheDir("pastebin")
+	want := "/tmp/xdg-cache/apimgr/pastebin"
+	if got != want {
+		t.Errorf("GetCacheDir with XDG: got %q, want %q", got, want)
+	}
+}
+
+// TestGetCacheDir_HomeDefault verifies the ~/.cache/apimgr/pastebin fallback on
+// Linux when neither CACHE_DIR nor XDG_CACHE_HOME is set.
+func TestGetCacheDir_HomeDefault(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("CACHE_DIR")
+	os.Unsetenv("XDG_CACHE_HOME")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("UserHomeDir unavailable: %v", err)
+	}
+
+	got := paths.GetCacheDir("pastebin")
+	want := filepath.Join(home, ".cache", "apimgr", "pastebin")
+	if got != want {
+		t.Errorf("GetCacheDir home default: got %q, want %q", got, want)
+	}
+}
+
+// TestIsContainer_Returns_Bool verifies that IsContainer() returns a boolean
+// value without panicking. The actual value is environment-dependent and not
+// asserted here.
+func TestIsContainer_Returns_Bool(t *testing.T) {
+	result := paths.IsContainer()
+	// Confirm we got a bool — the assignment itself is the assertion.
+	_ = result
+}
+
+// TestGetDBPath_NativeUser verifies that GetDBPath under a normal (non-root,
+// non-container) user returns a path rooted in the data directory.
+func TestGetDBPath_NativeUser(t *testing.T) {
+	skipIfContainer(t)
+	skipIfRoot(t)
+
+	os.Unsetenv("DB_PATH")
+
+	got := paths.GetDBPath("pastebin")
+	dataDir := paths.GetDataDir("pastebin")
+	want := filepath.Join(dataDir, "db", "server.db")
+	if got != want {
+		t.Errorf("GetDBPath user: got %q, want %q", got, want)
+	}
+}
+
+// TestAllPathFunctions_ReturnAbsolutePaths verifies that every exported path
+// function returns an absolute path regardless of which branch it follows.
+// This is a regression guard against accidentally returning relative paths.
+func TestAllPathFunctions_ReturnAbsolutePaths(t *testing.T) {
+	skipIfContainer(t)
+
+	// Clear all env overrides so we exercise the computed branches.
+	for _, env := range []string{
+		"CONFIG_DIR", "DATA_DIR", "LOGS_DIR", "BACKUP_DIR",
+		"PID_FILE", "CACHE_DIR", "DB_PATH",
+		"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+	} {
+		os.Unsetenv(env)
+	}
+
+	cases := []struct {
+		name string
+		fn   func() string
+	}{
+		{"GetConfigDir", func() string { return paths.GetConfigDir("pastebin") }},
+		{"GetDataDir", func() string { return paths.GetDataDir("pastebin") }},
+		{"GetLogsDir", func() string { return paths.GetLogsDir("pastebin") }},
+		{"GetBackupDir", func() string { return paths.GetBackupDir("pastebin") }},
+		{"GetPIDFile", func() string { return paths.GetPIDFile("pastebin") }},
+		{"GetCacheDir", func() string { return paths.GetCacheDir("pastebin") }},
+		{"GetDBPath", func() string { return paths.GetDBPath("pastebin") }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.fn()
+			if !filepath.IsAbs(got) {
+				t.Errorf("%s returned non-absolute path: %q", tc.name, got)
+			}
+		})
+	}
+}
