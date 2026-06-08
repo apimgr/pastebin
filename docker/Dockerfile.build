@@ -4,7 +4,7 @@
 # All CI build/test/lint/scan steps use this image — never install tools inline.
 # All OCI metadata is applied via --annotation at build time; no LABEL blocks.
 # =============================================================================
-FROM golang:alpine
+FROM casjaysdev/go:latest
 
 RUN apk add --no-cache \
     git \

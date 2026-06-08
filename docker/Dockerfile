@@ -1,7 +1,7 @@
 # =============================================================================
 # Build Stage
 # =============================================================================
-FROM golang:alpine AS builder
+FROM casjaysdev/go:latest AS builder
 
 ARG TARGETARCH
 ARG VERSION=dev

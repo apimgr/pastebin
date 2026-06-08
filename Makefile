@@ -4,12 +4,11 @@
 PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
-# VERSION can be overridden: make build VERSION=1.2.3
-# Otherwise, read from release.txt or default to 0.1.0
-VERSION   := $(shell [ -f release.txt ] && cat release.txt || echo "$${VERSION:-0.1.0}")
+# Version precedence: release.txt > env/default fallback
+VERSION ?= $(shell cat release.txt 2>/dev/null || echo "devel")
 
 # Build info
-COMMIT_ID  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+COMMIT_ID  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 BUILD_DATE := $(shell date +"%B %-d, %Y at %H:%M:%S")
 
 # Official site URL (OPTIONAL - never guess or assume)
@@ -20,30 +19,30 @@ BUILD_DATE := $(shell date +"%B %-d, %Y at %H:%M:%S")
 OFFICIALSITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIALSITE:-}")
 
 # Linker flags to embed build info
-LDFLAGS := -ldflags "-s -w -X 'main.Version=$(VERSION)' -X 'main.CommitID=$(COMMIT_ID)' -X 'main.BuildDate=$(BUILD_DATE)' -X 'main.OfficialSite=$(OFFICIALSITE)'"
+LDFLAGS := -s -w \
+	-X 'main.Version=$(VERSION)' \
+	-X 'main.CommitID=$(COMMIT_ID)' \
+	-X 'main.BuildDate=$(BUILD_DATE)' \
+	-X 'main.OfficialSite=$(OFFICIALSITE)'
 
 # Directories
 BINDIR := binaries
 RELDIR := releases
 
-# Go directories (persistent across builds)
-GODIR   := $(HOME)/.local/share/go
-GOCACHE := $(HOME)/.local/share/go/build
-
-# Build matrix
+# Build matrix — all 8 required platforms (PART 7)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
 
-# Docker
-REGISTRY ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
-GO_DOCKER := docker run --rm \
-	-v $$(pwd):/build \
-	-v $(GOCACHE):/root/.cache/go-build \
-	-v $(GODIR):/go \
-	-w /build \
+# Docker — Go state in named volume so modules are cached across builds (PART 25)
+REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
+GO_DOCKER := docker run --rm -it \
+	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	-v $(PWD):/app \
+	-v go-state:/usr/local/share/go \
+	-w /app \
 	-e CGO_ENABLED=0 \
-	golang:alpine
+	casjaysdev/go:latest
 
-.PHONY: build local release docker test dev clean lint help
+.PHONY: build local release docker test dev clean
 .DEFAULT_GOAL := build
 
 # =============================================================================
@@ -51,14 +50,13 @@ GO_DOCKER := docker run --rm \
 # =============================================================================
 build: clean
 	@mkdir -p $(BINDIR)
-	@mkdir -p $(GOCACHE) $(GODIR)
 	@echo "Building $(PROJECTNAME) $(VERSION) for all platforms..."
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
 
 	@echo "Building local binary..."
 	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-		go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME) ./src"
+		go build -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME) ./src"
 
 	@for platform in $(PLATFORMS); do \
 		OS=$${platform%/*}; \
@@ -67,13 +65,14 @@ build: clean
 		[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
 		echo "  → server $$OS/$$ARCH"; \
 		$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-			go build $(LDFLAGS) -o $$OUTPUT ./src" || exit 1; \
+			go build -ldflags \"$(LDFLAGS)\" \
+			-o $$OUTPUT ./src" || exit 1; \
 	done
 
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECTNAME)-cli..."; \
 		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
+			go build -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
 		for platform in $(PLATFORMS); do \
 			OS=$${platform%/*}; \
 			ARCH=$${platform#*/}; \
@@ -81,22 +80,8 @@ build: clean
 			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
 			echo "  → cli $$OS/$$ARCH"; \
 			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-				go build $(LDFLAGS) -o $$OUTPUT ./src/client" || exit 1; \
-		done; \
-	fi
-
-	@if [ -d "src/agent" ]; then \
-		echo "Building $(PROJECTNAME)-agent..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-agent ./src/agent"; \
-		for platform in $(PLATFORMS); do \
-			OS=$${platform%/*}; \
-			ARCH=$${platform#*/}; \
-			OUTPUT=$(BINDIR)/$(PROJECTNAME)-agent-$$OS-$$ARCH; \
-			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
-			echo "  → agent $$OS/$$ARCH"; \
-			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
-				go build $(LDFLAGS) -o $$OUTPUT ./src/agent" || exit 1; \
+				go build -ldflags \"$(LDFLAGS)\" \
+				-o $$OUTPUT ./src/client" || exit 1; \
 		done; \
 	fi
 
@@ -109,25 +94,18 @@ build: clean
 # =============================================================================
 local: clean
 	@mkdir -p $(BINDIR)
-	@mkdir -p $(GOCACHE) $(GODIR)
 	@echo "Building local binaries version $(VERSION)..."
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
 
 	@echo "Building $(PROJECTNAME)..."
 	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-		go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME) ./src"
+		go build -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME) ./src"
 
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECTNAME)-cli..."; \
 		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
-	fi
-
-	@if [ -d "src/agent" ]; then \
-		echo "Building $(PROJECTNAME)-agent..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
-			go build $(LDFLAGS) -o $(BINDIR)/$(PROJECTNAME)-agent ./src/agent"; \
+			go build -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
 	fi
 
 	@echo "✓ Local build complete: $(BINDIR)/"
@@ -166,7 +144,7 @@ release: build
 	@echo "✓ Version incremented: $(VERSION) → $$(cat release.txt)"
 
 # =============================================================================
-# DOCKER - Build and push multi-platform Docker images
+# DOCKER - Build multi-platform container image (local build only — CI pushes)
 # =============================================================================
 docker:
 	@echo "Building Docker image $(VERSION)..."
@@ -181,26 +159,27 @@ docker:
 		--build-arg COMMIT_ID="$(COMMIT_ID)" \
 		-t $(REGISTRY):$(VERSION) \
 		-t $(REGISTRY):latest \
-		--push \
 		.
-	@echo "✓ Docker push complete: $(REGISTRY):$(VERSION)"
+	@echo "✓ Docker build complete: $(REGISTRY):$(VERSION)"
 
 # =============================================================================
-# TEST - Run all tests with coverage (via Docker)
+# TEST - Run all tests with ≥80% coverage enforcement (via Docker)
 # =============================================================================
 test:
-	@echo "Running tests..."
-	@mkdir -p $(GOCACHE) $(GODIR)
+	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) go mod download
-	@$(GO_DOCKER) go vet ./...
-	@$(GO_DOCKER) go test -v -timeout 5m -cover -coverprofile=coverage.out ./...
-	@echo "✓ All tests passed"
+	@$(GO_DOCKER) go test -v -cover -coverprofile=coverage.out ./...
+	@COVERAGE=$$($(GO_DOCKER) go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+	if [ $$(echo "$$COVERAGE < 80" | bc -l) -eq 1 ]; then \
+		echo "ERROR: Coverage is $$COVERAGE%, must be >= 80%"; \
+		exit 1; \
+	fi
+	@echo "✓ Tests complete — coverage >= 80%"
 
 # =============================================================================
-# DEV - Quick build for local development (random temp dir, no ldflags)
+# DEV - Quick build for local development (random temp dir, no version info)
 # =============================================================================
 dev:
-	@mkdir -p $(GOCACHE) $(GODIR)
 	@$(GO_DOCKER) go mod tidy
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)" && \
 		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
@@ -211,37 +190,7 @@ dev:
 			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
 			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-cli"; \
 		fi && \
-		if [ -d "src/agent" ]; then \
-			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-agent ./src/agent && \
-			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-agent"; \
-		fi && \
-		echo "Test:  docker run --rm -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
-
-# =============================================================================
-# LINT - Run golangci-lint (via Docker)
-# =============================================================================
-lint:
-	@mkdir -p $(GOCACHE) $(GODIR)
-	@$(GO_DOCKER) sh -c "which golangci-lint > /dev/null 2>&1 || \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
-		golangci-lint run ./..."
-	@echo "✓ Lint passed"
-
-# =============================================================================
-# HELP - Print available targets and descriptions
-# =============================================================================
-help:
-	@echo "Available targets:"
-	@echo "  build    — Full release build for all 8 platforms (via Docker)"
-	@echo "  local    — Fast host-platform build into binaries/"
-	@echo "  release  — Create GitHub release with binaries and source archive"
-	@echo "  docker   — Build and push multi-platform Docker image"
-	@echo "  test     — Run unit tests with coverage (via Docker)"
-	@echo "  dev      — Quick development build into a temp directory"
-	@echo "  lint     — Run golangci-lint (via Docker)"
-	@echo "  clean    — Remove build artifacts"
-	@echo ""
-	@echo "Version: $(VERSION)  Commit: $(COMMIT_ID)"
+		echo "Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
 
 # =============================================================================
 # CLEAN - Remove build artifacts

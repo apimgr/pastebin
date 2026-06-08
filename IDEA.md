@@ -139,3 +139,4 @@ No external services called at runtime (GeoIP database fetched by scheduled task
 - **Paste content not encrypted at rest:** intentional for a public service; operators requiring encryption should use full-disk encryption at the host level.
 - **`Access-Control-Allow-Origin: *` on all responses:** intentional — public API designed for cross-origin browser use.
 - **Single SQLite instance, no cluster:** intentional — single-binary deployment; no external database dependency; see non-goals.
+- **Container runs as root:** intentional — the container binds on port 80 (< 1024), which requires root or `CAP_NET_BIND_SERVICE`. Per PART 26, the exception applies; no non-root user is created in the runtime stage. Operators who wish to use an unprivileged port should set `PORT` and map externally, then add a non-root USER in a derived image.

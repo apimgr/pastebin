@@ -3,7 +3,7 @@
 # Runs the binary in development mode with live source mounted.
 # All OCI metadata is applied via --annotation at build time; no LABEL blocks.
 # =============================================================================
-FROM golang:alpine AS builder
+FROM casjaysdev/go:latest AS builder
 
 ARG VERSION=devel
 ARG BUILD_DATE
