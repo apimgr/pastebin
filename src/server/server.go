@@ -613,6 +613,8 @@ func (s *Server) setupRoutes() {
 	// Unversioned aliases that MUST mount the same handler as the versioned route.
 	r.Get("/api/swagger", s.swaggerHandler.ServeSpec)
 	r.Get("/api/graphql", s.graphqlHandler.ServeHTTP)
+	// autodiscover is non-versioned by design (PART 32/14): clients use it before knowing the version.
+	r.Get("/api/autodiscover", s.handleAutodiscover)
 
 	// ── Web: main pages ──────────────────────────────────────────────────────
 	r.Get("/", s.handleHome)
@@ -1377,6 +1379,45 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
 		},
 	},
+	})
+}
+
+// handleAutodiscover serves /api/autodiscover — returns server info and CLI
+// update metadata (PART 32 / PART 14). Non-versioned by design: clients use it
+// before knowing which API version the server supports.
+func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
+	cfg := s.liveCfg()
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	base := scheme + "://" + r.Host
+	if cfg.Server.BaseURL != "" {
+		base = strings.TrimRight(cfg.Server.BaseURL, "/")
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"ok": true,
+		"data": map[string]interface{}{
+			// Server identity
+			"server":      "pastebin",
+			"version":     s.version,
+			"api_version": "v1",
+			"base_url":    base,
+
+			// CLI update metadata (PART 32).
+			// cli_versions maps os-arch → {version, sha256} for each available binary.
+			// Empty map = no CLI binaries hosted by this server; clients stay on their
+			// installed version. Operators can populate via the release workflow.
+			"cli_versions":    map[string]interface{}{},
+			"cli_min_version": "0.0.0",
+
+			// Feature flags visible to clients
+			"features": map[string]interface{}{
+				"tor":     s.torManager != nil && s.torManager.Running(),
+				"metrics": cfg.Server.Metrics.Enabled,
+			},
+		},
 	})
 }
 
