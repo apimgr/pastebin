@@ -300,3 +300,58 @@ Templates in `src/server/templates/*.html` already use `{{t .Lang "key"}}` — n
 - [ ] CSRF token validation middleware — deferred until session/auth surface exists (config structs in place)
 - [ ] Backup checksum self-verification (archive2 differs from archive1) — 6 other verification checks pass
 - [ ] Full bubbletea TUI implementation — `runTUI()` is a guidance stub
+
+## Pass 19: PART 25/26/28/29/32 Spec Compliance — RESOLVED
+
+Last reconciled: 2026-06-08
+
+### PART 25 Makefile violations — RESOLVED
+- [x] `GO_DOCKER`: `golang:alpine` → `casjaysdev/go:latest`; host-path volume → named `go-state:/usr/local/share/go`; add `-it --name`; workdir `/build` → `/app`
+- [x] Remove extra `lint` and `help` targets (spec: "Six core targets. DO NOT ADD MORE.")
+- [x] `docker` target: remove `--push` (local builds must NOT push; CI pushes)
+- [x] `test` target: add ≥80% coverage enforcement gate (exits 1 if below 80%)
+
+### PART 26 Dockerfile violations — RESOLVED
+- [x] `docker/Dockerfile`: builder stage `golang:alpine` → `casjaysdev/go:latest`
+- [x] `docker/Dockerfile.dev`: builder stage `golang:alpine` → `casjaysdev/go:latest`
+- [x] `docker/Dockerfile.build`: base image `golang:alpine` → `casjaysdev/go:latest`
+- [x] `IDEA.md`: root-user container exception documented (port 80 < 1024)
+
+### PART 3 gitignore — RESOLVED
+- [x] `ignoredirmessage` moved to line 2 (was buried mid-file)
+- [x] Removed Node.js error line `#!! ERROR: nodejs is undefined`
+- [x] Removed Node.js-specific entries (Go project)
+
+### Rule files (.claude/rules/) — UPDATED (local only, gitignored)
+- [x] `makefile-rules.md`: updated to reflect casjaysdev/go:latest, go-state volume, no lint/help, coverage gate, no-push
+- [x] `docker-rules.md`: updated to reflect casjaysdev/go:latest, entrypoint.sh, root-user exception
+- [x] `binary-rules.md`: header updated to PART 7, 8, 32; Client Binary section added
+- [x] `backend-rules.md`: header updated to PART 9, 10, 11, 31; Tor section added (was incorrectly showing 32)
+- [x] `api-rules.md`: header updated to PART 13, 14, 15; SSL/TLS section added
+
+### CLAUDE.md loader — RESOLVED
+- [x] PART assignments corrected: binary=7,8,32; backend=9,10,11,31; api=13,14,15
+- [x] Last AI.md read timestamp updated
+
+### PART 28 Integration tests — RESOLVED
+- [x] `tests/docker.sh`: expanded to full PART 28 coverage — content negotiation (all Accept headers), paste lifecycle, owner token delete, error cases (400/401/404), compat APIs, Swagger/GraphQL endpoints, /robots.txt, /.well-known/security.txt, security headers, --status flag
+- [x] `tests/incus.sh`: fixed `golang:alpine` → `casjaysdev/go:latest`; fixed build path `./build/src` → `./src`; added `mkdir -p` before mktemp; added owner-token delete test; fixed cleanup trap
+
+### PART 29 ReadTheDocs — RESOLVED
+- [x] `mkdocs.yml`: dark mode is now default (slate first); full Material features list; complete markdown_extensions; grouped nav; extra.social; extra.generator: false; site_author; edit_uri
+- [x] `.readthedocs.yaml`: ubuntu-22.04 → ubuntu-24.04; python 3.11 → 3.12
+- [x] `docs/requirements.txt`: complete dependency list (mkdocs>=1.5.0, mkdocs-material>=9.5.0, mkdocs-minify-plugin>=0.7.0, pymdown-extensions>=10.0)
+
+### PART 32/14 autodiscover — RESOLVED
+- [x] `/api/autodiscover` endpoint added to server.go: non-versioned, returns server info, cli_versions (empty until CI publishes), cli_min_version, feature flags (tor, metrics)
+
+### ≥80% test coverage (PART 28) — ACHIEVED (prior passes)
+- config: 90.3% ✓  database: 82.1% ✓  handler: 80.0% ✓
+- metrics: 91.9% ✓  graphql: 92.2% ✓  swagger: 95.5% ✓
+- scheduler: 81.9% ✓  model: 100% ✓  mode: 100% ✓  terminal: 100% ✓
+- banner: 89.7% ✓  i18n: 90.3% ✓
+
+### Still deferred (carry-forward)
+- [ ] CSRF token validation middleware — deferred (no auth surface yet)
+- [ ] Backup checksum self-verification — 6 other checks pass
+- [ ] Full bubbletea TUI — `runTUI()` is a guidance stub
