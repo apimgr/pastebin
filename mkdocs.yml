@@ -1,45 +1,110 @@
 site_name: Pastebin
 site_description: A fast, public pastebin service — drop-in replacement for pastebin.com, microbin, and lenpaste
-site_url: https://github.com/apimgr/pastebin
-repo_url: https://github.com/apimgr/pastebin
+site_url: https://apimgr-pastebin.readthedocs.io
+site_author: apimgr
 repo_name: apimgr/pastebin
+repo_url: https://github.com/apimgr/pastebin
+edit_uri: edit/main/docs/
 
 theme:
   name: material
   palette:
-    - scheme: default
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
+    # Dark/Light/Auto theme toggle — Dark is default (spec PART 29)
     - scheme: slate
+      primary: deep purple
+      accent: pink
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
-      custom_dir: docs/
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to auto mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to dark mode
   features:
-    - navigation.tabs
     - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
     - search.highlight
     - content.code.copy
+    - content.action.edit
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    repo: fontawesome/brands/github
 
 extra_css:
   - stylesheets/dark.css
 
-nav:
-  - Home: index.md
-  - Installation: installation.md
-  - Configuration: configuration.md
-  - API Reference: api.md
-  - CLI Reference: cli.md
-  - Compatibility: compat.md
-  - Integrations: integrations.md
-  - Security: security.md
-  - Development: development.md
+plugins:
+  - search
+  - minify:
+      minify_html: true
 
 markdown_extensions:
+  - abbr
   - admonition
-  - pymdownx.highlight
-  - pymdownx.superfences
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
   - tables
   - toc:
       permalink: true
+      toc_depth: 3
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Configuration: configuration.md
+  - Usage:
+    - API Reference: api.md
+    - CLI Reference: cli.md
+    - Compatibility: compat.md
+    - Security: security.md
+    - Integrations: integrations.md
+  - Development:
+    - Contributing: development.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/apimgr/pastebin
+  generator: false
