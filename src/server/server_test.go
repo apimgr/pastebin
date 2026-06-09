@@ -2604,3 +2604,261 @@ func TestHandleURLRedirect(t *testing.T) {
 		}
 	})
 }
+
+// ─── New + setupRoutes ────────────────────────────────────────────────────────
+
+// TestNew calls the real constructor to cover New and setupRoutes (both 0%).
+// Uses stubDB which satisfies database.DB.
+// Templates are loaded from the embedded FS so renderTemplate works here.
+func TestNew(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	s := New(db, cfg, nil, "1.2.3", "abc1234", "2025-01-01", "", "")
+
+	if s == nil {
+		t.Fatal("New returned nil")
+	}
+	if s.router == nil {
+		t.Error("router should be initialized")
+	}
+	if s.pasteHandler == nil {
+		t.Error("pasteHandler should be initialized")
+	}
+	if s.swaggerHandler == nil {
+		t.Error("swaggerHandler should be initialized")
+	}
+	if s.graphqlHandler == nil {
+		t.Error("graphqlHandler should be initialized")
+	}
+	if s.metricsCollector == nil {
+		t.Error("metricsCollector should be initialized")
+	}
+}
+
+func TestNewWithToken(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	cfg.Server.Token = "mysecrettoken"
+	s := New(db, cfg, nil, "1.0.0", "def5678", "2025-06-01", "", "")
+	var zeroHash [32]byte
+	if s.operatorTokenHash == zeroHash {
+		t.Error("operatorTokenHash should be set when server.token is non-empty")
+	}
+}
+
+func TestNewWithRateLimitEnabled(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	cfg.RateLimit.Enabled = true
+	cfg.RateLimit.CreatePerM = 5
+	cfg.RateLimit.DeletePerM = 3
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	if s.createLimiter == nil {
+		t.Error("createLimiter should be non-nil when rate limiting enabled")
+	}
+	if s.deleteLimiter == nil {
+		t.Error("deleteLimiter should be non-nil when rate limiting enabled")
+	}
+	if s.createLimiter.limit != 5 {
+		t.Errorf("createLimiter.limit = %d, want 5", s.createLimiter.limit)
+	}
+}
+
+// TestNewServeHTTP verifies the router serves common routes after New.
+func TestNewServeHTTP(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+
+	routes := []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/server/healthz", http.StatusOK},
+		{http.MethodGet, "/api/autodiscover", http.StatusOK},
+		{http.MethodGet, "/api/swagger", http.StatusOK},
+		{http.MethodGet, "/robots.txt", http.StatusOK},
+		{http.MethodGet, "/manifest.json", http.StatusOK},
+		{http.MethodGet, "/favicon.ico", http.StatusFound},
+	}
+	for _, tc := range routes {
+		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {
+			r := httptest.NewRequest(tc.method, tc.path, nil)
+			r.Header.Set("Accept", "application/json")
+			r.Host = "localhost"
+			w := httptest.NewRecorder()
+			s.router.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Errorf("%s %s: status = %d, want %d", tc.method, tc.path, w.Code, tc.want)
+			}
+		})
+	}
+}
+
+// TestRun starts the server and cancels immediately.
+func TestRun(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before Run — server should stop immediately after binding
+
+	// Use port 0 so the OS picks a free port.
+	err := s.Run(ctx, "127.0.0.1:0")
+	// Run returns nil or context-related error on clean shutdown.
+	if err != nil && !strings.Contains(err.Error(), "context") &&
+		!strings.Contains(err.Error(), "Server closed") {
+		t.Errorf("Run returned unexpected error: %v", err)
+	}
+}
+
+// TestNewHandlersWithTemplates tests handlers that need real templates
+// (loaded by New via embedded FS) to exercise the renderTemplate non-error path.
+func TestNewHandlersWithTemplates(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+
+	t.Run("handleHome_html", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleHome(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("home HTML status = %d, want 200; body: %s", w.Code, w.Body.String()[:min(len(w.Body.String()), 200)])
+		}
+	})
+
+	t.Run("handleRecent_html", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/recent", nil)
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleRecent(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("recent HTML status = %d, want 200", w.Code)
+		}
+	})
+
+	t.Run("handleHealthz_html", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleHealthz(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("healthz HTML status = %d, want 200", w.Code)
+		}
+	})
+
+	t.Run("handleViewPaste_html_found", func(t *testing.T) {
+		db2 := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "hello world", Language: "text"}, nil
+			},
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s2.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("view paste HTML status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+	})
+
+	t.Run("handleRemoveSubmit_no_token", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/remove/abc", strings.NewReader(""))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		s.handleRemoveSubmit(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("remove submit no-token status = %d, want 200 (template rendered)", w.Code)
+		}
+	})
+}
+
+// ─── maybeDeleteRateLimit with active limiter ─────────────────────────────────
+
+func TestMaybeDeleteRateLimitWithLimiter(t *testing.T) {
+	s := newMinimalServer(&config.Config{})
+	s.deleteLimiter = newRateLimiter(1, time.Minute)
+
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	})
+	wrapped := s.maybeDeleteRateLimit(inner)
+
+	r1 := httptest.NewRequest(http.MethodDelete, "/api/v1/paste/abc", nil)
+	r1.RemoteAddr = "10.1.1.1:1111"
+	w1 := httptest.NewRecorder()
+	wrapped(w1, r1)
+	if w1.Code != http.StatusOK {
+		t.Errorf("first delete status = %d, want 200", w1.Code)
+	}
+
+	r2 := httptest.NewRequest(http.MethodDelete, "/api/v1/paste/abc", nil)
+	r2.RemoteAddr = "10.1.1.1:2222"
+	w2 := httptest.NewRecorder()
+	wrapped(w2, r2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("second delete status = %d, want 429", w2.Code)
+	}
+}
+
+// ─── liveCfg with cfgMgr set ─────────────────────────────────────────────────
+
+func TestLiveCfgWithManager(t *testing.T) {
+	initial := config.DefaultConfig()
+	initial.Web.SiteTitle = "Initial"
+	mgr := config.NewConfigManager("", initial)
+
+	s := &Server{cfg: initial, cfgMgr: mgr}
+	got := s.liveCfg()
+	if got.Web.SiteTitle == "" {
+		t.Error("liveCfg with manager should return non-nil config")
+	}
+}
+
+// ─── buildTorInfo with non-nil torManager ─────────────────────────────────────
+
+type mockTorManager struct{ running bool; onion string }
+
+func (m *mockTorManager) Start() error                      { return nil }
+func (m *mockTorManager) Running() bool                     { return m.running }
+func (m *mockTorManager) OnionAddress() string              { return m.onion }
+func (m *mockTorManager) Close() error                      { return nil }
+func (m *mockTorManager) Monitor()                          {}
+
+// torManagerIface is what buildTorInfo uses internally — since torManager is a
+// concrete *tor.Manager, we test via a real New() server with no Tor binary found.
+// buildTorInfo gets covered by TestNew/TestBuildHealthResponse.
+
+// ─── OnConfigChange TLS restart key ──────────────────────────────────────────
+
+func TestOnConfigChangeTLSRestart(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.TLS.Enabled = false
+	s := newMinimalServer(cfg)
+
+	next := config.DefaultConfig()
+	next.Server.TLS.Enabled = true
+	s.OnConfigChange(next)
+
+	s.pendingRestartMu.Lock()
+	keys := s.pendingRestartKeys
+	s.pendingRestartMu.Unlock()
+
+	found := false
+	for _, k := range keys {
+		if strings.Contains(k, "tls") || strings.Contains(k, "ssl") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("TLS change should mark pending restart, got keys: %v", keys)
+	}
+}
