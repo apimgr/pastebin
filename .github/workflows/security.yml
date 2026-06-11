@@ -1,0 +1,64 @@
+name: Security Scan
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret scan (truffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Run truffleHog
+        uses: trufflesecurity/trufflehog@d03d0879a3d03548a000f6eb2640307f0815c3b3 # v3
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  workflow-pin-check:
+    name: Workflow action SHA policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v4
+
+      - name: Check all actions are pinned to SHA
+        run: |
+          set -euo pipefail
+          FAIL=0
+          for f in .github/workflows/*.yml; do
+            grep -nE 'uses: [^@]+@[^#]+$' "$f" | grep -v '@[0-9a-f]{40}' && FAIL=1 || true
+          done
+          if [ "$FAIL" -eq 1 ]; then
+            echo "ERROR: One or more workflow steps use mutable action refs. Pin to full 40-char SHA."
+            exit 1
+          fi
+          echo "All actions pinned to full SHA."
+
+  vuln-scan:
+    name: Dependency vulnerability scan (govulncheck)
+    runs-on: ubuntu-latest
+    if: hashFiles('go.sum') != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v4
+
+      - name: Run govulncheck inside build image
+        run: |
+          docker run --rm \
+            -v "$PWD:/app" \
+            -w /app \
+            ghcr.io/${{ github.repository }}:build \
+            govulncheck ./...

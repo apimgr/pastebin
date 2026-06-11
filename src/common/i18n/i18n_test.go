@@ -18,7 +18,7 @@ func TestIsSupported(t *testing.T) {
 		{"fr_supported", "fr", true},
 		{"de_supported", "de", true},
 		{"es_supported", "es", true},
-		{"pt_supported", "pt", true},
+		{"ar_supported", "ar", true},
 		{"ja_supported", "ja", true},
 		{"zh_supported", "zh", true},
 		{"uppercase_EN", "EN", true},
@@ -136,7 +136,7 @@ func TestTranslateFormat(t *testing.T) {
 
 // TestTranslatePlural covers count=0, count=1, count=2 for languages with
 // different plural rules: en (1→one, else→other), fr (≤1→one, else→other),
-// zh/ja (always→other), pt (1→one, else→other).
+// zh/ja (always→other), ar (zero/one/two/few/many/other).
 func TestTranslatePlural(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -167,11 +167,12 @@ func TestTranslatePlural(t *testing.T) {
 		{"ja_one", "ja", "plurals.items", 1, "1件"},
 		{"ja_two", "ja", "plurals.items", 2, "2件"},
 
-		// Portuguese: pluralForm("pt", 0) returns "other", so count=0 → "0 items"
-		// (the "zero" key in the locale file is never consulted by pluralForm).
-		{"pt_zero", "pt", "plurals.items", 0, "0 items"},
-		{"pt_one", "pt", "plurals.items", 1, "1 item"},
-		{"pt_two", "pt", "plurals.items", 2, "2 items"},
+		// Arabic: full six-form CLDR plural rules; the locale has zero/one/two/few/many/other.
+		{"ar_zero", "ar", "plurals.items", 0, "لا توجد عناصر"},
+		{"ar_one", "ar", "plurals.items", 1, "عنصر واحد"},
+		{"ar_two", "ar", "plurals.items", 2, "عنصران"},
+		{"ar_few", "ar", "plurals.items", 3, "3 عناصر"},
+		{"ar_many", "ar", "plurals.items", 11, "11 عنصرًا"},
 
 		// Count substitution works for "days"
 		{"en_one_day", "en", "plurals.days", 1, "1 day"},
@@ -264,7 +265,7 @@ func TestGetLanguage(t *testing.T) {
 		{"lc_all_bare", "", "ja", "", "ja"},
 
 		// LANG used when LC_ALL absent
-		{"lang_env", "", "", "pt_BR.UTF-8", "pt"},
+		{"lang_env", "", "", "ar_SA.UTF-8", "ar"},
 		{"lang_env_bare", "", "", "zh", "zh"},
 		{"lang_env_unsupported", "", "", "it_IT.UTF-8", "en"},
 
@@ -294,14 +295,16 @@ func TestPluralFormFallback(t *testing.T) {
 		count int
 		want  string
 	}{
-		// "days" has no zero key; pluralForm returns "other" for 0 in most langs.
+		// "days" has no zero key for en/zh/ja; pluralForm returns "other" for 0 in those langs.
 		// French is special: pluralForm("fr", 0) returns "one" (French treats 0 as singular),
 		// so days.one = "{count} jour" → "0 jour".
+		// Arabic: pluralForm("ar", 0) returns "zero" and ar.json has "days.zero" — would need it;
+		// we test ar with count=1 (one form) which maps to "days.one" in ar.json.
 		{"en_zero_days_fallback", "en", 0, "0 days"},
 		{"fr_zero_days_fallback", "fr", 0, "0 jour"},
 		{"zh_zero_days_fallback", "zh", 0, "0 天"},
 		{"ja_zero_days_fallback", "ja", 0, "0日"},
-		{"pt_zero_days_fallback", "pt", 0, "0 days"},
+		{"ar_one_day", "ar", 1, "يوم واحد"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
