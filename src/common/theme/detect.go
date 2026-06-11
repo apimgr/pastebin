@@ -7,10 +7,14 @@ import (
 	"strings"
 )
 
+// runtimeGOOS holds the current OS identifier — overridable in tests to exercise
+// OS-specific branches without running on the target OS.
+var runtimeGOOS = runtime.GOOS
+
 // IsSystemDarkTheme detects whether the system is using a dark theme.
 // Returns true for dark, false for light. Defaults to dark on failure.
 func IsSystemDarkTheme() bool {
-	switch runtime.GOOS {
+	switch runtimeGOOS {
 	case "linux":
 		return isLinuxDarkTheme()
 	case "darwin":

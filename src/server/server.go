@@ -511,8 +511,10 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/privacy", s.handlePrivacy)
 	r.Get("/server/terms", s.handleTerms)
 	r.Get("/server/healthz", s.handleHealthz)
-	r.Get("/healthz", s.handleHealthz)
-	r.Get("/health", s.handleHealthz)
+	// /healthz root alias — only when server.healthz.root.enabled: true (PART 13).
+	if s.liveCfg().Web.Healthz.Root.Enabled {
+		r.Get("/healthz", s.handleHealthz)
+	}
 	// PWA offline fallback page — referenced by service worker cache
 	r.Get("/offline", s.handleOffline)
 
@@ -597,6 +599,8 @@ func (s *Server) setupRoutes() {
 		r.Get("/server/healthz", s.handleHealthzJSON)
 		r.Get("/server/version", s.handleVersion)
 		r.Get("/server/swagger", s.swaggerHandler.ServeSpec)
+		// /api/v1/server/graphql — versioned GraphQL endpoint (PART 14)
+		r.Handle("/server/graphql", s.graphqlHandler)
 
 		// Scheduler API (PART 18)
 		// Read-only status routes are public. Mutating routes require server.token.
@@ -610,9 +614,10 @@ func (s *Server) setupRoutes() {
 		})
 	})
 
-	// Unversioned aliases that MUST mount the same handler as the versioned route.
+	// Unversioned aliases — same handler as versioned, served directly (no redirect) per PART 14.
 	r.Get("/api/swagger", s.swaggerHandler.ServeSpec)
-	r.Get("/api/graphql", s.graphqlHandler.ServeHTTP)
+	r.Handle("/api/graphql", s.graphqlHandler)
+	r.Get("/api/healthz", s.handleHealthzJSON)
 	// autodiscover is non-versioned by design (PART 32/14): clients use it before knowing the version.
 	r.Get("/api/autodiscover", s.handleAutodiscover)
 
@@ -654,9 +659,6 @@ func (s *Server) setupRoutes() {
 	r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)   // pastebin.com /id/raw
 	r.Get("/url/{id}", s.handleURLRedirect)           // microbin URL-paste redirect
 	r.Get("/u/{id}", s.handleURLRedirect)             // microbin short URL redirect
-
-	// GraphQL endpoint (POST for queries, GET for GraphiQL UI)
-	r.Handle("/graphql", s.graphqlHandler)
 
 	// Swagger UI (human-readable docs page)
 	r.Get("/server/swagger", s.swaggerHandler.ServeUI)

@@ -154,9 +154,13 @@ func (c *memoryCache) Delete(_ context.Context, key string) error {
 func (c *memoryCache) Ping(_ context.Context) error { return nil }
 func (c *memoryCache) Close() error                  { return nil }
 
-// reaper evicts expired entries every 5 minutes to prevent unbounded growth.
+// reaperTickInterval controls how often the reaper sweeps for expired entries.
+// Overridden in tests to avoid waiting 5 minutes.
+var reaperTickInterval = 5 * time.Minute
+
+// reaper evicts expired entries on every reaperTickInterval to prevent unbounded growth.
 func (c *memoryCache) reaper() {
-	t := time.NewTicker(5 * time.Minute)
+	t := time.NewTicker(reaperTickInterval)
 	defer t.Stop()
 	for range t.C {
 		now := time.Now()

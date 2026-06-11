@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -201,13 +202,10 @@ func main() {
 	}
 
 	if showVersion {
-		fmt.Printf("%s %s (%s)\n", binaryName, Version, CommitID)
-		if BuildDate != "unknown" {
-			fmt.Printf("Built: %s\n", BuildDate)
-		}
-		if OfficialSite != "" {
-			fmt.Printf("Site:  %s\n", OfficialSite)
-		}
+		fmt.Printf("%s %s\n", binaryName, Version)
+		fmt.Printf("Built: %s\n", BuildDate)
+		fmt.Printf("Go: %s\n", runtime.Version())
+		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
@@ -783,15 +781,31 @@ Examples:
 		log.Printf("warning: could not create pid file directory: %v", err)
 	}
 
+	// --status probes the live server via HTTP and exits 0=healthy, 1=unhealthy (PART 8).
+	// Must run after paths are resolved but loads config independently.
 	if showStatus {
-		fmt.Printf("%s %s (%s)\n", binaryName, Version, CommitID)
-		fmt.Printf("Mode:   %s\n", mode.Get())
-		fmt.Printf("Config: %s\n", filepath.Join(configDir, "server.yml"))
-		fmt.Printf("Data:   %s\n", dataDir)
-		fmt.Printf("Logs:   %s\n", logsDir)
-		fmt.Printf("Cache:  %s\n", cacheDir)
-		fmt.Printf("Backup: %s\n", backupDir)
-		fmt.Printf("PID:    %s\n", pidFile)
+		cfgPath := filepath.Join(configDir, "server.yml")
+		if configFlag != "" {
+			cfgPath = configFlag
+		}
+		statusCfg, _ := config.Load(cfgPath)
+		port := statusCfg.Server.Port
+		if port == "" {
+			port = "80"
+		}
+		address := statusCfg.Server.Address
+		if address == "" || address == "0.0.0.0" {
+			address = "127.0.0.1"
+		}
+		probeURL := "http://" + address + ":" + port + "/api/v1/server/healthz"
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(probeURL)
+		if err != nil || resp.StatusCode >= 500 {
+			fmt.Fprintf(os.Stderr, "%s: unhealthy — %v\n", binaryName, err)
+			os.Exit(1)
+		}
+		resp.Body.Close()
+		fmt.Printf("%s: healthy (port %s)\n", binaryName, port)
 		return
 	}
 

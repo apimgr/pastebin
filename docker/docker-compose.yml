@@ -1,35 +1,40 @@
+# pastebin - fast, public pastebin service
+# nginx proxy address - http://172.17.0.1:64580
+
 name: pastebin
 
 x-logging: &default-logging
-  driver: "json-file"
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
 
 services:
   pastebin:
     image: ghcr.io/apimgr/pastebin:latest
-    container_name: pastebin
-    restart: unless-stopped
+    container_name: pastebin-app
+    hostname: ${BASE_HOST_NAME:-pastebin}
+    restart: always
     pull_policy: always
     logging: *default-logging
     environment:
       - MODE=production
+      - PORT=80
+      - DEBUG=false
       - TZ=America/New_York
-    ports:
-      # Bound to Docker bridge — put nginx/caddy/traefik in front for TLS.
-      - "172.17.0.1:64580:80"
     volumes:
-      - ./volumes/config:/config:z
-      - ./volumes/data:/data:z
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      - '172.17.0.1:64580:80'
+    healthcheck:
+      test: /usr/local/bin/pastebin --status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     networks:
       - pastebin
-    healthcheck:
-      test: ["/usr/local/bin/pastebin", "--status"]
-      interval: 5m
-      timeout: 15s
-      retries: 3
-      start_period: 10m
 
 networks:
   pastebin:

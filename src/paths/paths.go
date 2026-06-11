@@ -9,6 +9,15 @@ import (
 
 const orgName = "apimgr"
 
+// containerCheck and rootCheck are overridable in tests so that non-container
+// and privileged code-paths can be exercised from any environment.
+var containerCheck = isContainer
+var rootCheck = isRoot
+
+// detectedOS holds the current GOOS — overridable in tests to exercise
+// platform-specific branches without running on the target OS.
+var detectedOS = runtime.GOOS
+
 // isRoot returns true when the process is running as the privileged user.
 // Wrapped to keep the Windows build (where Getuid is unsupported by some toolchains) happy.
 func isRoot() bool {
@@ -26,12 +35,12 @@ func GetConfigDir(appName string) string {
 	}
 
 	// Container: spec PART 26 says /config/{project_name}/
-	if isContainer() {
+	if containerCheck() {
 		return filepath.Join("/config", appName)
 	}
 
-	if isRoot() {
-		switch runtime.GOOS {
+	if rootCheck() {
+		switch detectedOS {
 		case "darwin":
 			return filepath.Join("/Library", "Application Support", orgName, appName)
 		case "freebsd", "openbsd", "netbsd":
@@ -41,7 +50,7 @@ func GetConfigDir(appName string) string {
 		}
 	}
 
-	switch runtime.GOOS {
+	switch detectedOS {
 	case "darwin":
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library", "Application Support", orgName, appName)
@@ -63,12 +72,12 @@ func GetDataDir(appName string) string {
 	}
 
 	// Container: spec PART 26 says /data/{project_name}/
-	if isContainer() {
+	if containerCheck() {
 		return filepath.Join("/data", appName)
 	}
 
-	if isRoot() {
-		switch runtime.GOOS {
+	if rootCheck() {
+		switch detectedOS {
 		case "darwin":
 			// PART 4 macOS root: /Library/Application Support/{org}/{app}/data/
 			return filepath.Join("/Library", "Application Support", orgName, appName, "data")
@@ -80,7 +89,7 @@ func GetDataDir(appName string) string {
 		}
 	}
 
-	switch runtime.GOOS {
+	switch detectedOS {
 	case "darwin":
 		// PART 4 macOS user: ~/Library/Application Support/{org}/{app}/
 		home, _ := os.UserHomeDir()
@@ -105,12 +114,12 @@ func GetBackupDir(appName string) string {
 	}
 
 	// Container: PART 26 says /data/backups/{project_name}/
-	if isContainer() {
+	if containerCheck() {
 		return filepath.Join("/data", "backups", appName)
 	}
 
-	if isRoot() {
-		switch runtime.GOOS {
+	if rootCheck() {
+		switch detectedOS {
 		case "darwin":
 			return filepath.Join("/Library", "Backups", orgName, appName)
 		case "windows":
@@ -122,7 +131,7 @@ func GetBackupDir(appName string) string {
 		}
 	}
 
-	switch runtime.GOOS {
+	switch detectedOS {
 	case "darwin":
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library", "Backups", orgName, appName)
@@ -142,12 +151,12 @@ func GetPIDFile(appName string) string {
 		return p
 	}
 
-	if isContainer() {
+	if containerCheck() {
 		return filepath.Join(GetDataDir(appName), appName+".pid")
 	}
 
-	if isRoot() {
-		switch runtime.GOOS {
+	if rootCheck() {
+		switch detectedOS {
 		case "windows":
 			return filepath.Join(os.Getenv("ProgramData"), orgName, appName, appName+".pid")
 		default:
@@ -165,12 +174,12 @@ func GetLogsDir(appName string) string {
 	}
 
 	// Container: spec PART 26 says /data/log/{project_name}/
-	if isContainer() {
+	if containerCheck() {
 		return filepath.Join("/data", "log", appName)
 	}
 
-	if isRoot() {
-		switch runtime.GOOS {
+	if rootCheck() {
+		switch detectedOS {
 		case "darwin":
 			// PART 4 macOS root: /Library/Logs/{org}/{app}/
 			return filepath.Join("/Library", "Logs", orgName, appName)
@@ -179,7 +188,7 @@ func GetLogsDir(appName string) string {
 		}
 	}
 
-	switch runtime.GOOS {
+	switch detectedOS {
 	case "darwin":
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library", "Logs", orgName, appName)
@@ -199,12 +208,12 @@ func GetCacheDir(appName string) string {
 	}
 
 	// Container: spec PART 26 says /data/{project_name}/cache/
-	if isContainer() {
+	if containerCheck() {
 		return filepath.Join("/data", appName, "cache")
 	}
 
-	if isRoot() {
-		switch runtime.GOOS {
+	if rootCheck() {
+		switch detectedOS {
 		case "darwin":
 			// PART 4 macOS root: /Library/Caches/{org}/{app}/
 			return filepath.Join("/Library", "Caches", orgName, appName)
@@ -213,7 +222,7 @@ func GetCacheDir(appName string) string {
 		}
 	}
 
-	switch runtime.GOOS {
+	switch detectedOS {
 	case "darwin":
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library", "Caches", orgName, appName)
@@ -237,7 +246,7 @@ func GetDBPath(appName string) string {
 	}
 
 	// Container: PART 4 says /data/db/sqlite/server.db
-	if isContainer() {
+	if containerCheck() {
 		return "/data/db/sqlite/server.db"
 	}
 
@@ -247,7 +256,7 @@ func GetDBPath(appName string) string {
 // EnsureDir creates path with sensible default permissions for the running user.
 func EnsureDir(path string) error {
 	perm := os.FileMode(0o700)
-	if isRoot() {
+	if rootCheck() {
 		perm = 0o755
 	}
 	return os.MkdirAll(path, perm)

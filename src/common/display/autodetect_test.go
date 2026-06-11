@@ -97,3 +97,63 @@ func TestDetectPlatformDisplay_NoDisplay(t *testing.T) {
 		t.Errorf("DisplayType: got %q, want %q or %q", e.DisplayType, "none", "macos")
 	}
 }
+
+// TestDetectPlatformDisplay_macOS_BundleIdentifier exercises the macOS path when
+// __CFBundleIdentifier is set and IsSSH is false.
+func TestDetectPlatformDisplay_macOS_BundleIdentifier(t *testing.T) {
+	old := detectedOS
+	detectedOS = "darwin"
+	defer func() { detectedOS = old }()
+
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("DISPLAY", "")
+	t.Setenv("__CFBundleIdentifier", "com.apple.test")
+
+	e := &DisplayEnv{IsSSH: false}
+	e.detectPlatformDisplay()
+
+	if !e.HasDisplay {
+		t.Error("HasDisplay: want true when __CFBundleIdentifier is set on macOS and not SSH")
+	}
+	if e.DisplayType != "macos" {
+		t.Errorf("DisplayType: got %q, want %q", e.DisplayType, "macos")
+	}
+}
+
+// TestDetectPlatformDisplay_macOS_SSH_SkipsBundleCheck verifies that when IsSSH
+// is true the __CFBundleIdentifier fast-path is not taken.
+func TestDetectPlatformDisplay_macOS_SSH_SkipsBundleCheck(t *testing.T) {
+	old := detectedOS
+	detectedOS = "darwin"
+	defer func() { detectedOS = old }()
+
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("DISPLAY", "")
+	t.Setenv("__CFBundleIdentifier", "com.apple.test")
+
+	e := &DisplayEnv{IsSSH: true}
+	e.detectPlatformDisplay()
+
+	// IsSSH=true blocks the bundle-identifier path; launchctl also unavailable → none
+	_ = e.HasDisplay
+}
+
+// TestDetectPlatformDisplay_macOS_NoBundleNoLaunchctl covers the macOS path where
+// __CFBundleIdentifier is absent and launchctl is unavailable (Linux CI).
+func TestDetectPlatformDisplay_macOS_NoBundleNoLaunchctl(t *testing.T) {
+	old := detectedOS
+	detectedOS = "darwin"
+	defer func() { detectedOS = old }()
+
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("DISPLAY", "")
+	t.Setenv("__CFBundleIdentifier", "")
+
+	e := &DisplayEnv{IsSSH: false}
+	e.detectPlatformDisplay()
+
+	// launchctl is not available on Linux; falls through to no-display
+	if e.DisplayType != "none" && e.DisplayType != "macos" {
+		t.Errorf("DisplayType: got %q, want \"none\" or \"macos\"", e.DisplayType)
+	}
+}

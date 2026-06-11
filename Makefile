@@ -29,15 +29,20 @@ LDFLAGS := -s -w \
 BINDIR := binaries
 RELDIR := releases
 
-# Build matrix — all 8 required platforms (PART 7)
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
+# Build matrix — all 8 required platforms (PART 7); space-separated for shell for-loop
+PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 freebsd/amd64 freebsd/arm64
 
-# Docker — Go state in named volume so modules are cached across builds (PART 25)
+# Go cache bind-mounted from host so modules are cached across builds (PART 25)
+GO_CACHE  ?= $(HOME)/go/pkg/mod
+GO_BUILD  ?= $(HOME)/.cache/go-build
+
+# Docker (PART 25)
 REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
 GO_DOCKER := docker run --rm -it \
 	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 	-v $(PWD):/app \
-	-v go-state:/usr/local/share/go \
+	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
+	-v $(GO_BUILD):/usr/local/share/go/cache \
 	-w /app \
 	-e CGO_ENABLED=0 \
 	casjaysdev/go:latest
@@ -49,7 +54,7 @@ GO_DOCKER := docker run --rm -it \
 # BUILD - Full release build for all platforms (via Docker)
 # =============================================================================
 build: clean
-	@mkdir -p $(BINDIR)
+	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
 	@echo "Building $(PROJECTNAME) $(VERSION) for all platforms..."
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download

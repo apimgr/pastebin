@@ -190,6 +190,18 @@ type WebConfig struct {
 	Headers HeadersConfig `yaml:"headers"`
 	// CSRF controls double-submit cookie CSRF protection (PART 16).
 	CSRF CSRFConfig `yaml:"csrf"`
+	// Healthz controls the optional root-level /healthz alias.
+	Healthz HealthzConfig `yaml:"healthz"`
+}
+
+// HealthzConfig controls the optional /healthz root alias (PART 13).
+// The canonical route is always /server/healthz; this alias is opt-in only.
+type HealthzConfig struct {
+	// Root.Enabled mounts /healthz → /server/healthz when true.
+	// Default: false. Only enable for tooling that requires a root-level probe.
+	Root struct {
+		Enabled bool `yaml:"enabled"`
+	} `yaml:"root"`
 }
 
 // HeadersConfig controls which advanced security headers the server emits (PART 11).

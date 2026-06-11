@@ -129,3 +129,46 @@ func TestDetectDisplayEnv_SSHDetection(t *testing.T) {
 		t.Error("DetectDisplayEnv().IsSSH = false, want true when SSH_CLIENT is set")
 	}
 }
+
+func TestDetectDisplayEnv_SSHTTYDetection(t *testing.T) {
+	t.Setenv("SSH_CLIENT", "")
+	t.Setenv("SSH_TTY", "/dev/pts/0")
+	env := display.DetectDisplayEnv()
+	if !env.IsSSH {
+		t.Error("DetectDisplayEnv().IsSSH = false, want true when SSH_TTY is set")
+	}
+}
+
+func TestDetectDisplayEnv_MoshDetection(t *testing.T) {
+	t.Setenv("MOSH", "1")
+	env := display.DetectDisplayEnv()
+	if !env.IsMosh {
+		t.Error("DetectDisplayEnv().IsMosh = false, want true when MOSH is set")
+	}
+}
+
+func TestDetectDisplayEnv_MoshTermDetection(t *testing.T) {
+	t.Setenv("MOSH", "")
+	t.Setenv("TERM", "mosh-xterm")
+	env := display.DetectDisplayEnv()
+	if !env.IsMosh {
+		t.Error("DetectDisplayEnv().IsMosh = false, want true when TERM contains 'mosh'")
+	}
+}
+
+func TestDetectDisplayEnv_ScreenDetection(t *testing.T) {
+	t.Setenv("STY", "12345.pts-0.hostname")
+	env := display.DetectDisplayEnv()
+	if !env.IsScreen {
+		t.Error("DetectDisplayEnv().IsScreen = false, want true when STY is set")
+	}
+}
+
+func TestDetectDisplayEnv_TmuxDetection(t *testing.T) {
+	t.Setenv("STY", "")
+	t.Setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+	env := display.DetectDisplayEnv()
+	if !env.IsScreen {
+		t.Error("DetectDisplayEnv().IsScreen = false, want true when TMUX is set")
+	}
+}

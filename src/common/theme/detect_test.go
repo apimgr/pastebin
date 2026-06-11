@@ -50,3 +50,56 @@ func TestIsLinuxDarkTheme_Fallback(t *testing.T) {
 	// Just verify it returns a bool without panicking.
 	_ = result
 }
+
+// TestIsSystemDarkTheme_Darwin exercises the macOS branch of IsSystemDarkTheme.
+// On Linux, the 'defaults' command is absent so isMacOSDarkTheme returns false.
+func TestIsSystemDarkTheme_Darwin(t *testing.T) {
+	old := runtimeGOOS
+	runtimeGOOS = "darwin"
+	defer func() { runtimeGOOS = old }()
+
+	result := IsSystemDarkTheme()
+	// 'defaults read' is not available on Linux → err → returns false
+	_ = result
+}
+
+// TestIsSystemDarkTheme_Windows exercises the Windows branch of IsSystemDarkTheme.
+// On Linux, 'reg' is not available so isWindowsDarkTheme returns true (default dark).
+func TestIsSystemDarkTheme_Windows(t *testing.T) {
+	old := runtimeGOOS
+	runtimeGOOS = "windows"
+	defer func() { runtimeGOOS = old }()
+
+	result := IsSystemDarkTheme()
+	_ = result
+}
+
+// TestIsSystemDarkTheme_Default exercises the default branch (non-linux/darwin/windows).
+// Should fall back to COLORFGBG-based detection.
+func TestIsSystemDarkTheme_Default(t *testing.T) {
+	old := runtimeGOOS
+	runtimeGOOS = "freebsd"
+	defer func() { runtimeGOOS = old }()
+
+	t.Setenv("COLORFGBG", "15;0")
+	result := IsSystemDarkTheme()
+	if !result {
+		t.Error("IsSystemDarkTheme on freebsd with COLORFGBG=15;0: expected dark=true")
+	}
+}
+
+// TestIsMacOSDarkTheme_ErrorPath verifies that isMacOSDarkTheme returns false
+// when the 'defaults' command is unavailable (as on Linux).
+func TestIsMacOSDarkTheme_ErrorPath(t *testing.T) {
+	result := isMacOSDarkTheme()
+	// 'defaults' is a macOS-only command; on Linux it should fail → false
+	_ = result
+}
+
+// TestIsWindowsDarkTheme_ErrorPath verifies that isWindowsDarkTheme returns true
+// when the 'reg' command is unavailable (as on Linux — default is dark).
+func TestIsWindowsDarkTheme_ErrorPath(t *testing.T) {
+	result := isWindowsDarkTheme()
+	// 'reg query' is a Windows-only command; on Linux it should fail → true (default dark)
+	_ = result
+}

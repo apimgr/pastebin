@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+// detectedOS holds the current OS — overridable in tests to exercise platform
+// branches without running on the target OS.
+var detectedOS = runtime.GOOS
+
 // detectPlatformDisplay - Unix/macOS display detection
 func (e *DisplayEnv) detectPlatformDisplay() {
 	// Check for Wayland first (preferred on Linux)
@@ -27,7 +31,7 @@ func (e *DisplayEnv) detectPlatformDisplay() {
 	}
 
 	// macOS: check if we have access to WindowServer
-	if runtime.GOOS == "darwin" {
+	if detectedOS == "darwin" {
 		// On macOS, display is always available unless:
 		// - Running over SSH
 		// - Running as a LaunchDaemon (no GUI session)

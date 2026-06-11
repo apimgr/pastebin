@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -237,13 +238,37 @@ func checkCLIUpdate(serverURL string) error {
 	return nil
 }
 
-// versionLessThan returns true when a < b (simple semver string comparison).
-// Only correct for x.y.z style versions without pre-release suffixes.
+// versionLessThan returns true when semver a < b.
+// Compares MAJOR.MINOR.PATCH numerically so "0.9.0" < "0.10.0" is correct.
+// Returns false for non-numeric or special versions (dev, unknown).
 func versionLessThan(a, b string) bool {
 	if a == "dev" || b == "dev" || a == "unknown" || b == "unknown" {
 		return false
 	}
-	return strings.Compare(a, b) < 0
+	aParts := strings.SplitN(a, ".", 3)
+	bParts := strings.SplitN(b, ".", 3)
+	for len(aParts) < 3 {
+		aParts = append(aParts, "0")
+	}
+	for len(bParts) < 3 {
+		bParts = append(bParts, "0")
+	}
+	for i := range 3 {
+		av, ae := strconv.Atoi(aParts[i])
+		bv, be := strconv.Atoi(bParts[i])
+		if ae != nil || be != nil {
+			// Non-numeric component — fall back to string compare for this segment.
+			c := strings.Compare(aParts[i], bParts[i])
+			if c != 0 {
+				return c < 0
+			}
+			continue
+		}
+		if av != bv {
+			return av < bv
+		}
+	}
+	return false
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────

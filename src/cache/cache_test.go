@@ -1,7 +1,8 @@
 package cache_test
 
 // Tests for the cache package — memory driver, noop driver, and New() factory.
-// No external services required; the memory driver is entirely in-process.
+// Redis driver methods require an external service and are covered by
+// integration tests in tests/docker.sh and tests/incus.sh (PART 28).
 
 import (
 	"context"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/cache"
 )
+
 
 // ── DefaultConfig ─────────────────────────────────────────────────────────────
 
@@ -50,8 +52,20 @@ func TestNew_Drivers(t *testing.T) {
 		{"memory_default_empty_type", cache.Config{}, false},
 		{"none", cache.Config{Type: "none"}, false},
 		{"invalid_driver", cache.Config{Type: "invalid"}, true},
+		// Redis/valkey with bad host — covers newRedisCache host/port path
 		{"redis_no_server", cache.Config{Type: "redis", Host: "localhost", Port: 1}, true},
 		{"valkey_no_server", cache.Config{Type: "valkey", Host: "localhost", Port: 1}, true},
+		// Invalid URL — covers newRedisCache URL parse-error path
+		{"redis_bad_url", cache.Config{Type: "redis", URL: "not-a-valid-redis-url"}, true},
+		// Valid URL, server unreachable — covers PoolSize/MinIdle/Timeout option paths
+		{
+			"redis_url_with_options",
+			cache.Config{
+				Type: "redis", Host: "localhost", Port: 1,
+				PoolSize: 5, MinIdle: 2, Timeout: 100 * time.Millisecond,
+			},
+			true,
+		},
 	}
 
 	for _, tc := range cases {
