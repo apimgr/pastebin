@@ -67,11 +67,11 @@ func TestIsCSRFExempt(t *testing.T) {
 	}{
 		{"empty patterns", "/foo", []string{}, false},
 		{"nil patterns", "/foo", nil, false},
-		{"exact match", "/api/v1/paste", []string{"/api/v1/paste"}, true},
-		{"exact no match", "/api/v1/other", []string{"/api/v1/paste"}, false},
-		{"wildcard prefix match", "/api/v1/paste/123", []string{"/api/v1/paste/*"}, true},
-		{"wildcard root match", "/api/v1/paste", []string{"/api/v1/paste/*"}, true},
-		{"wildcard no match", "/other/path", []string{"/api/v1/paste/*"}, false},
+		{"exact match", "/api/v1/pastes", []string{"/api/v1/pastes"}, true},
+		{"exact no match", "/api/v1/other", []string{"/api/v1/pastes"}, false},
+		{"wildcard prefix match", "/api/v1/pastes/123", []string{"/api/v1/pastes/*"}, true},
+		{"wildcard root match", "/api/v1/pastes", []string{"/api/v1/pastes/*"}, true},
+		{"wildcard no match", "/other/path", []string{"/api/v1/pastes/*"}, false},
 		{"multiple patterns first", "/foo", []string{"/foo", "/bar"}, true},
 		{"multiple patterns second", "/bar", []string{"/foo", "/bar"}, true},
 		{"multiple patterns none", "/baz", []string{"/foo", "/bar"}, false},
@@ -1001,12 +1001,12 @@ func TestSecFetchMiddleware(t *testing.T) {
 		secFetchMode   string
 		wantStatus     int
 	}{
-		{"disabled passes all", false, http.MethodPost, "/api/v1/paste", "cross-site", "", "", http.StatusOK},
-		{"cross-site POST blocked", true, http.MethodPost, "/api/v1/paste", "cross-site", "", "", http.StatusForbidden},
-		{"cross-site POST with bearer allowed", true, http.MethodPost, "/api/v1/paste", "cross-site", "Bearer tok", "", http.StatusOK},
-		{"same-site POST allowed", true, http.MethodPost, "/api/v1/paste", "same-origin", "", "", http.StatusOK},
-		{"GET not blocked by cross-site", true, http.MethodGet, "/api/v1/paste", "cross-site", "", "", http.StatusOK},
-		{"navigate to API blocked", true, http.MethodGet, "/api/v1/paste", "", "", "navigate", http.StatusForbidden},
+		{"disabled passes all", false, http.MethodPost, "/api/v1/pastes", "cross-site", "", "", http.StatusOK},
+		{"cross-site POST blocked", true, http.MethodPost, "/api/v1/pastes", "cross-site", "", "", http.StatusForbidden},
+		{"cross-site POST with bearer allowed", true, http.MethodPost, "/api/v1/pastes", "cross-site", "Bearer tok", "", http.StatusOK},
+		{"same-site POST allowed", true, http.MethodPost, "/api/v1/pastes", "same-origin", "", "", http.StatusOK},
+		{"GET not blocked by cross-site", true, http.MethodGet, "/api/v1/pastes", "cross-site", "", "", http.StatusOK},
+		{"navigate to API blocked", true, http.MethodGet, "/api/v1/pastes", "", "", "navigate", http.StatusForbidden},
 		{"navigate to non-API allowed", true, http.MethodGet, "/paste/abc", "", "", "navigate", http.StatusOK},
 	}
 	for _, tc := range cases {
@@ -1264,7 +1264,7 @@ func TestMaybeDeleteRateLimitNilLimiter(t *testing.T) {
 	})
 
 	wrapped := s.maybeDeleteRateLimit(inner)
-	r := httptest.NewRequest(http.MethodDelete, "/api/v1/paste/abc", nil)
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/abc", nil)
 	w := httptest.NewRecorder()
 	wrapped(w, r)
 
@@ -2792,7 +2792,7 @@ func TestMaybeDeleteRateLimitWithLimiter(t *testing.T) {
 	})
 	wrapped := s.maybeDeleteRateLimit(inner)
 
-	r1 := httptest.NewRequest(http.MethodDelete, "/api/v1/paste/abc", nil)
+	r1 := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/abc", nil)
 	r1.RemoteAddr = "10.1.1.1:1111"
 	w1 := httptest.NewRecorder()
 	wrapped(w1, r1)
@@ -2800,7 +2800,7 @@ func TestMaybeDeleteRateLimitWithLimiter(t *testing.T) {
 		t.Errorf("first delete status = %d, want 200", w1.Code)
 	}
 
-	r2 := httptest.NewRequest(http.MethodDelete, "/api/v1/paste/abc", nil)
+	r2 := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/abc", nil)
 	r2.RemoteAddr = "10.1.1.1:2222"
 	w2 := httptest.NewRecorder()
 	wrapped(w2, r2)

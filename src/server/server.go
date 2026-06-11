@@ -564,25 +564,14 @@ func (s *Server) setupRoutes() {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/", s.handleAPIInfo)
 
-		// Native REST API (IDEA.md):
-		//   POST   /api/v1/paste         — create
-		//   GET    /api/v1/paste/{id}    — retrieve
-		//   DELETE /api/v1/paste/{id}    — delete
-		//   GET    /api/v1/paste/{id}/raw — raw text
-		//   GET    /api/v1/pastes        — list (plural)
-		r.Get("/pastes", s.pasteHandler.ListPastes)
-		r.Route("/paste", func(r chi.Router) {
+		// Native REST API (PART 14): plural resource routes only; no singular forms.
+		r.Route("/pastes", func(r chi.Router) {
+			r.Get("/", s.pasteHandler.ListPastes)
 			r.Post("/", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 			r.Get("/{id}", s.pasteHandler.GetPaste)
 			r.Delete("/{id}", s.maybeDeleteRateLimit(s.pasteHandler.DeletePaste))
 			r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)
 		})
-
-		// Legacy plural-noun aliases so existing integrations keep working.
-		r.Post("/pastes", s.maybeRateLimit(s.pasteHandler.CreatePaste))
-		r.Get("/pastes/{id}", s.pasteHandler.GetPaste)
-		r.Delete("/pastes/{id}", s.maybeDeleteRateLimit(s.pasteHandler.DeletePaste))
-		r.Get("/pastes/{id}/raw", s.pasteHandler.GetRawPaste)
 
 		// microbin-style /pasta alias
 		r.Get("/pasta", s.compatHandler.MicrobinList)
@@ -1346,11 +1335,11 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 		"version": s.version,
 		"endpoints": map[string]interface{}{
 			"native": map[string]string{
-				"GET    /api/v1/pastes":         "list public pastes",
-				"POST   /api/v1/paste":          "create paste (JSON/multipart/raw)",
-				"GET    /api/v1/paste/{id}":     "get paste JSON",
-				"DELETE /api/v1/paste/{id}":     "delete paste (requires token)",
-				"GET    /api/v1/paste/{id}/raw":  "get paste raw text",
+				"GET    /api/v1/pastes":          "list public pastes",
+				"POST   /api/v1/pastes":          "create paste (JSON/multipart/raw)",
+				"GET    /api/v1/pastes/{id}":     "get paste JSON",
+				"DELETE /api/v1/pastes/{id}":     "delete paste (requires token)",
+				"GET    /api/v1/pastes/{id}/raw": "get paste raw text",
 			},
 			"web": map[string]string{
 				"GET  /":           "home",
@@ -1377,7 +1366,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 		"examples": map[string]string{
 			"curl_raw":  "curl --data-binary @file.txt " + base + "/create",
 			"curl_file": "curl -F 'files=@code.py' " + base + "/create",
-			"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/paste",
+			"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/pastes",
 			"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
 		},
 	},

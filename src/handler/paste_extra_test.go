@@ -196,7 +196,7 @@ func TestHighlightedContent(t *testing.T) {
 func TestCreatePaste_RawBody(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader("raw paste content from curl"))
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-Title", "My Raw Paste")
@@ -234,7 +234,7 @@ func TestCreatePaste_PlainTextResponse(t *testing.T) {
 func TestCreatePaste_BurnAfter(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(`{"content":"burn after 3 reads","burn_after":3}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -257,7 +257,7 @@ func TestCreatePaste_BurnAfter(t *testing.T) {
 func TestCreatePaste_Unlisted(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(`{"content":"secret paste","visibility":"unlisted"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -280,7 +280,7 @@ func TestCreatePaste_Unlisted(t *testing.T) {
 func TestCreatePaste_WithExpiry(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(`{"content":"expires soon","expires_in":"1h"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -308,7 +308,7 @@ func TestCreatePaste_MultipartForm_Content(t *testing.T) {
 	_ = w.WriteField("title", "Multipart Title")
 	w.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste", &buf)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes", &buf)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 
@@ -332,7 +332,7 @@ func TestCreatePaste_MultipartForm_FileUpload(t *testing.T) {
 	io.WriteString(fw, "package main\n\nfunc main() {}")
 	w.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste", &buf)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes", &buf)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	req.Header.Set("Accept", "application/json")
 
@@ -357,7 +357,7 @@ func TestCreatePaste_FormWithBurnAfter(t *testing.T) {
 		"content":    {"burn after 2 from form"},
 		"burn_after": {"2"},
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -386,7 +386,7 @@ func TestGetPaste_BurnAfter(t *testing.T) {
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/paste/"+id, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id, nil)
 	req.Header.Set("Accept", "application/json")
 	req = withID(req, id)
 
@@ -397,7 +397,7 @@ func TestGetPaste_BurnAfter(t *testing.T) {
 		t.Fatalf("first read: status %d, want 200", rr.Code)
 	}
 
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/paste/"+id, nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id, nil)
 	req2.Header.Set("Accept", "application/json")
 	req2 = withID(req2, id)
 
@@ -444,7 +444,7 @@ func TestGetRawPaste_BurnAfter(t *testing.T) {
 func TestCreatePaste_HTTPSLink(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(`{"content":"https test"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")

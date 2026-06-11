@@ -64,7 +64,7 @@ func withID(r *http.Request, id string) *http.Request {
 // createViaAPI posts JSON to the handler and returns the parsed response body.
 func createViaAPI(t *testing.T, h *handler.PasteHandler, body string) map[string]interface{} {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -85,7 +85,7 @@ func createViaAPI(t *testing.T, h *handler.PasteHandler, body string) map[string
 func TestCreatePaste_JSON(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(`{"content":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -127,7 +127,7 @@ func TestCreatePaste_EmptyContent(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := newTestHandler(t)
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/paste",
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 				strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Accept", "application/json")
@@ -178,7 +178,7 @@ func TestGetPaste(t *testing.T) {
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/paste/"+id, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id, nil)
 	req.Header.Set("Accept", "application/json")
 	req = withID(req, id)
 
@@ -200,7 +200,7 @@ func TestGetPaste(t *testing.T) {
 func TestGetPaste_NotFound(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/paste/badid00x", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/badid00x", nil)
 	req.Header.Set("Accept", "application/json")
 	req = withID(req, "badid00x")
 
@@ -226,7 +226,7 @@ func TestGetRawPaste(t *testing.T) {
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/paste/"+id+"/raw", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id+"/raw", nil)
 	req = withID(req, id)
 
 	rr := httptest.NewRecorder()
@@ -257,7 +257,7 @@ func TestDeletePaste(t *testing.T) {
 	token := data["owner_token"].(string)
 
 	req := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/api/v1/paste/%s", id), nil)
+		fmt.Sprintf("/api/v1/pastes/%s", id), nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	req = withID(req, id)
 
@@ -284,7 +284,7 @@ func TestDeletePaste_WrongToken(t *testing.T) {
 	id := data["id"].(string)
 
 	req := httptest.NewRequest(http.MethodDelete,
-		fmt.Sprintf("/api/v1/paste/%s", id), nil)
+		fmt.Sprintf("/api/v1/pastes/%s", id), nil)
 	req.Header.Set("Authorization", "Bearer tok_wrongtokenwrongtokenwrongtokenwx")
 	req = withID(req, id)
 
@@ -304,7 +304,7 @@ func TestDeletePaste_NoToken(t *testing.T) {
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/paste/"+id, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/"+id, nil)
 	req = withID(req, id)
 
 	rr := httptest.NewRecorder()
