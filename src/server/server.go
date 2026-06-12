@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
@@ -474,6 +475,11 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Logger)
 	r.Use(s.countRequests)
 	r.Use(s.metricsCollector.Middleware())
+	// .txt extension middleware for API routes (PART 14): strips ".txt" suffix from /api/
+	// paths so the router matches the canonical route, while preserving the original
+	// URL in the request so GetAPIResponseFormat can detect the text-format intent.
+	r.Use(s.txtExtensionMiddleware)
+
 	// Response compression (PART 12) — compresses text/html, text/css, text/javascript,
 	// application/json, and application/xml at level 5.
 	r.Use(middleware.Compress(5,
@@ -702,6 +708,25 @@ func (s *Server) countRequests(next http.Handler) http.Handler {
 		s.stats.inc()
 		s.stats.activeConn.Add(1)
 		defer s.stats.activeConn.Add(-1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// txtExtensionMiddleware strips ".txt" from API route paths so chi can match
+// the canonical route (e.g., /api/v1/pastes.txt → /api/v1/pastes). It sets
+// the httputil txt-extension flag in context so GetAPIResponseFormat detects
+// that text output was requested even after the suffix is removed.
+func (s *Server) txtExtensionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") && strings.HasSuffix(r.URL.Path, ".txt") {
+			// Strip .txt before routing so chi matches the canonical route path.
+			stripped := *r.URL
+			stripped.Path = strings.TrimSuffix(r.URL.Path, ".txt")
+			r2 := httputil.WithTxtExtension(r)
+			r2.URL = &stripped
+			next.ServeHTTP(w, r2)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1414,23 +1439,30 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	pastes, _, _ := s.db.GetPublicPastes(1, 5)
-
-	// Content negotiation per PART 16.
-	if detectClientType(r) == "text" {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "%s\nPOST %s/api/v1/pastes to create a paste.\n", s.liveCfg().Web.SiteTitle, s.baseURL(r))
-		for _, p := range pastes {
-			fmt.Fprintf(w, "%s/%s\t%s\n", s.baseURL(r), p.ID, p.Title)
-		}
-		return
-	}
-
-	s.renderTemplate(w, r, "home.html", map[string]interface{}{
+	data := map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
 		"BaseURL":   s.baseURL(r),
 		"Recent":    pastes,
-	})
+	}
+
+	// Content negotiation: HTTP tools get the full template rendered as plain text.
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "home.html", data)
+		if err != nil {
+			// Fallback when templates are unavailable: minimal plain text.
+			fmt.Fprintf(w, "%s\nPOST %s/api/v1/pastes to create a paste.\n", s.liveCfg().Web.SiteTitle, s.baseURL(r))
+			for _, p := range pastes {
+				fmt.Fprintf(w, "%s/%s\t%s\n", s.baseURL(r), p.ID, p.Title)
+			}
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
+
+	s.renderTemplate(w, r, "home.html", data)
 }
 
 func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
@@ -1443,23 +1475,31 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	page := 1
 	pastes, total, _ := s.db.GetPublicPastes(page, 20)
+	data := map[string]interface{}{
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
+		"BaseURL":   s.baseURL(r),
+		"Pastes":    pastes,
+		"Total":     total,
+	}
 
-	// Content negotiation per PART 16.
+	// Content negotiation: HTTP tools get the full template rendered as plain text.
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "# Recent pastes (%d total)\n", total)
-		for _, p := range pastes {
-			fmt.Fprintf(w, "%s/%s\t%s\t%s\n", s.baseURL(r), p.ID, p.Language, p.Title)
+		html, err := s.renderTemplateToString(r, "recent.html", data)
+		if err != nil {
+			// Fallback when templates are unavailable: minimal plain text.
+			fmt.Fprintf(w, "# Recent pastes (%d total)\n", total)
+			for _, p := range pastes {
+				fmt.Fprintf(w, "%s/%s\t%s\t%s\n", s.baseURL(r), p.ID, p.Language, p.Title)
+			}
+			return
 		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
 		return
 	}
 
-	s.renderTemplate(w, r, "recent.html", map[string]interface{}{
-		"SiteTitle": s.liveCfg().Web.SiteTitle,
-		"Theme":     s.liveCfg().Web.Theme,
-		"Pastes":    pastes,
-		"Total":     total,
-	})
+	s.renderTemplate(w, r, "recent.html", data)
 }
 
 // detectClientType returns "html", "json", or "text" based on User-Agent and
@@ -1987,6 +2027,23 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		log.Printf("template %s error: %v", name, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
+}
+
+// renderTemplateToString renders a named template to a string instead of writing to a ResponseWriter.
+// Used by handlers that need to apply HTML2TextConverter for plain-text clients.
+func (s *Server) renderTemplateToString(r *http.Request, name string, data map[string]interface{}) (string, error) {
+	if s.templates == nil {
+		return "", fmt.Errorf("templates not loaded")
+	}
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	data["Lang"] = i18n.LangFromRequest(r)
+	var buf bytes.Buffer
+	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func (s *Server) pageData() map[string]interface{} {

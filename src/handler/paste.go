@@ -19,6 +19,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 
+	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
@@ -357,6 +358,18 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 	// Never return delete token hash.
 	paste.DeleteTokenHash = ""
 
+	// Content negotiation: text format returns key=value summary (PART 14).
+	if httputil.GetAPIResponseFormat(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "id: %s\ntitle: %s\nlanguage: %s\nviews: %d\ncreated: %s\n",
+			paste.ID, paste.Title, paste.Language, paste.Views, paste.CreatedAt.Format(time.RFC3339))
+		if paste.ExpiresAt != nil {
+			fmt.Fprintf(w, "expires: %s\n", paste.ExpiresAt.Format(time.RFC3339))
+		}
+		fmt.Fprintf(w, "\n%s\n", paste.Content)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": paste})
 }
 
@@ -394,6 +407,16 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 	pastes, total, err := h.db.GetPublicPastes(page, limit)
 	if err != nil {
 		h.errJSON(w, "failed to fetch pastes", http.StatusInternalServerError)
+		return
+	}
+
+	// Content negotiation: text format returns a tab-separated list (PART 14).
+	if httputil.GetAPIResponseFormat(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "# pastes: %d (page %d)\n", total, page)
+		for _, p := range pastes {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", p.ID, p.Language, p.Title)
+		}
 		return
 	}
 

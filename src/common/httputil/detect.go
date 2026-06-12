@@ -1,12 +1,28 @@
 package httputil
 
 import (
+	"context"
 	"net/http"
 	"strings"
 )
 
 // projectName is the CLI binary prefix used in User-Agent detection.
 const projectName = "pastebin"
+
+// ctxKeyTxtExtension is a private context key set by the txt-extension middleware.
+type ctxKeyTxtExtension struct{}
+
+// WithTxtExtension returns a new request with the txt-extension flag set.
+// Called by the server's txtExtensionMiddleware when stripping ".txt" from a path.
+func WithTxtExtension(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), ctxKeyTxtExtension{}, true))
+}
+
+// hasTxtExtension reports whether the request had a ".txt" extension that was stripped.
+func hasTxtExtension(r *http.Request) bool {
+	v, _ := r.Context().Value(ctxKeyTxtExtension{}).(bool)
+	return v
+}
 
 // IsOurCliClient detects our own client binary (pastebin-cli).
 // Our client is INTERACTIVE (TUI/GUI) — receives JSON and renders itself.
@@ -90,11 +106,19 @@ func IsNonInteractiveClient(r *http.Request) bool {
 // Accept: text/plain header, or non-interactive clients (curl, wget, etc.).
 func GetAPIResponseFormat(r *http.Request) string {
 	// .txt extension always wins regardless of other signals.
-	if strings.HasSuffix(r.URL.Path, ".txt") {
+	// Also checks the context flag set by the txt-extension middleware, which
+	// strips ".txt" from r.URL.Path before routing so chi can match routes.
+	if strings.HasSuffix(r.URL.Path, ".txt") || hasTxtExtension(r) {
 		return "text"
 	}
 
 	accept := r.Header.Get("Accept")
+
+	// Explicit Accept: application/json always returns JSON, even from HTTP tools.
+	if strings.Contains(accept, "application/json") {
+		return "json"
+	}
+
 	if strings.Contains(accept, "text/plain") {
 		return "text"
 	}

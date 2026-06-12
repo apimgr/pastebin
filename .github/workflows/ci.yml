@@ -127,7 +127,6 @@ jobs:
   vuln-check:
     needs: ensure-build-image
     runs-on: ubuntu-latest
-    if: hashFiles('go.sum') != ''
     container:
       image: ${{ needs.ensure-build-image.outputs.image }}
     steps:
