@@ -1,48 +1,39 @@
 name: Build Toolchain Image
 
 on:
-  push:
-    paths:
-      - "docker/Dockerfile.build"
   schedule:
-    - cron: "0 4 1 * *"
+    - cron: '0 4 1 * *'
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build-toolchain:
-    name: Build and push :build image
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@259a565a6f30a57c28f9ea913f2d359b43ff5fc9 # v3
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@22b48a429f10e1de233237b5c534c9c3d2e41597 # v3
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
 
-      - name: Log in to GHCR
-        uses: docker/login-action@946f94de75ea52995b6aa1e54fd3e0aeed6cc573 # v3
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push :build image
-        uses: docker/build-push-action@f72b3cf665d7d5fe435407befecb40d10b4266d2 # v6
+      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
         with:
           context: .
           file: docker/Dockerfile.build
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:build
-          annotations: |
-            org.opencontainers.image.title=pastebin build toolchain
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: false
+          tags: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build
