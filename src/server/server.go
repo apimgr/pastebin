@@ -1322,9 +1322,18 @@ func formatUptime(d time.Duration) string {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "application/json") {
+	switch detectClientType(r) {
+	case "json":
 		s.handleHealthzJSON(w, r)
+		return
+	case "text":
+		hr := s.buildHealthResponse()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if hr.Status == "ok" {
+			fmt.Fprintf(w, "OK\n")
+		} else {
+			fmt.Fprintf(w, "ERROR: %s\n", hr.Status)
+		}
 		return
 	}
 	hr := s.buildHealthResponse()
@@ -1732,22 +1741,63 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 // ─── Server info pages ────────────────────────────────────────────────────────
 
 func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "about.html", s.pageData())
+		if err != nil {
+			fmt.Fprintf(w, "%s\n%s/server/about\n", s.liveCfg().Web.SiteTitle, s.baseURL(r))
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
 	s.renderTemplate(w, r, "about.html", s.pageData())
 }
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
-	s.renderTemplate(w, r, "help.html", map[string]interface{}{
+	data := map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
 		"BaseURL":   s.baseURL(r),
-	})
+	}
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "help.html", data)
+		if err != nil {
+			fmt.Fprintf(w, "Usage: curl %s/create\nAPI docs: %s/server/docs/swagger\n", s.baseURL(r), s.baseURL(r))
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
+	s.renderTemplate(w, r, "help.html", data)
 }
 
 func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "privacy.html", s.pageData())
+		if err != nil {
+			fmt.Fprintf(w, "Privacy Policy — %s/server/privacy\n", s.baseURL(r))
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
 	s.renderTemplate(w, r, "privacy.html", s.pageData())
 }
 
 func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "terms.html", s.pageData())
+		if err != nil {
+			fmt.Fprintf(w, "Terms of Service — %s/server/terms\n", s.baseURL(r))
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
 	s.renderTemplate(w, r, "terms.html", s.pageData())
 }
 

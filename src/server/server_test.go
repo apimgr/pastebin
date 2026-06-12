@@ -2068,7 +2068,22 @@ func TestHandleHealthz(t *testing.T) {
 		}
 	})
 
-	t.Run("non-JSON returns 500 (nil templates)", func(t *testing.T) {
+	t.Run("text UA returns 200 plain text", func(t *testing.T) {
+		db := &stubDB{}
+		s := newServerWithDB(&config.Config{}, db)
+		r := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
+		r.Header.Set("User-Agent", "curl/8.0.0")
+		w := httptest.NewRecorder()
+		s.handleHealthz(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("healthz text status = %d, want 200", w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Errorf("healthz text content-type = %q, want text/plain; charset=utf-8", ct)
+		}
+	})
+
+	t.Run("browser UA returns 500 with nil templates", func(t *testing.T) {
 		db := &stubDB{}
 		s := newServerWithDB(&config.Config{}, db)
 		r := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
@@ -2098,9 +2113,10 @@ func TestTemplateHandlersNilTemplates(t *testing.T) {
 		{"terms", (*Server).handleTerms},
 	}
 	for _, tc := range handlers {
-		t.Run(tc.name+" returns 500 with nil templates", func(t *testing.T) {
+		t.Run(tc.name+" browser UA returns 500 with nil templates", func(t *testing.T) {
 			s := newMinimalServer(cfg)
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")
 			w := httptest.NewRecorder()
 			tc.handler(s, w, r)
 			if w.Code != http.StatusInternalServerError {
@@ -2108,18 +2124,58 @@ func TestTemplateHandlersNilTemplates(t *testing.T) {
 			}
 		})
 	}
+
+	textHandlers := []struct {
+		name    string
+		handler func(*Server, http.ResponseWriter, *http.Request)
+	}{
+		{"about", (*Server).handleAbout},
+		{"privacy", (*Server).handlePrivacy},
+		{"terms", (*Server).handleTerms},
+	}
+	for _, tc := range textHandlers {
+		t.Run(tc.name+" curl UA returns 200 text with nil templates", func(t *testing.T) {
+			s := newMinimalServer(cfg)
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.Header.Set("User-Agent", "curl/8.0.0")
+			w := httptest.NewRecorder()
+			tc.handler(s, w, r)
+			if w.Code != http.StatusOK {
+				t.Errorf("%s text: status = %d, want 200", tc.name, w.Code)
+			}
+			if ct := w.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+				t.Errorf("%s text: content-type = %q, want text/plain", tc.name, ct)
+			}
+		})
+	}
 }
 
 func TestHandleHelpNilTemplates(t *testing.T) {
 	cfg := &config.Config{}
-	s := newMinimalServer(cfg)
-	r := httptest.NewRequest(http.MethodGet, "/help", nil)
-	r.Host = "example.com"
-	w := httptest.NewRecorder()
-	s.handleHelp(w, r)
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("handleHelp status = %d, want 500", w.Code)
-	}
+
+	t.Run("browser UA returns 500 with nil templates", func(t *testing.T) {
+		s := newMinimalServer(cfg)
+		r := httptest.NewRequest(http.MethodGet, "/help", nil)
+		r.Host = "example.com"
+		r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")
+		w := httptest.NewRecorder()
+		s.handleHelp(w, r)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("handleHelp status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("curl UA returns 200 text with nil templates", func(t *testing.T) {
+		s := newMinimalServer(cfg)
+		r := httptest.NewRequest(http.MethodGet, "/help", nil)
+		r.Host = "example.com"
+		r.Header.Set("User-Agent", "curl/8.0.0")
+		w := httptest.NewRecorder()
+		s.handleHelp(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("handleHelp text: status = %d, want 200", w.Code)
+		}
+	})
 }
 
 func TestHandleOfflineNilTemplates(t *testing.T) {
