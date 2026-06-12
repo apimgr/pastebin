@@ -104,7 +104,7 @@ func TestDetectClientType(t *testing.T) {
 		{"mozilla browser ua", "", "Mozilla/5.0 (X11; Linux x86_64)", "html"},
 		{"chrome browser ua", "", "Chrome/113.0", "html"},
 		{"empty ua and accept", "", "", "text"},
-		{"pastebin-cli ua", "", "pastebin-cli/1.0.0", "text"},
+		{"pastebin-cli ua", "", "pastebin-cli/1.0.0", "json"},
 		{"go http client ua", "", "Go-http-client/1.1", "text"},
 		{"accept star-star", "*/*", "", "text"},
 		{"accept json beats ua", "application/json", "Mozilla/5.0", "json"},

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/cache"
+	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/mode"
@@ -926,7 +927,7 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 				if r.Header.Get("Authorization") == "" && r.Header.Get("X-API-Token") == "" {
 					// Check CSRF exempt paths.
 					if !isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) {
-						http.Error(w, `{"ok":false,"error":"SEC_FETCH_BLOCKED","message":"cross-site state-changing request blocked"}`, http.StatusForbidden)
+						writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "SEC_FETCH_BLOCKED", "message": "cross-site state-changing request blocked"})
 						return
 					}
 				}
@@ -935,7 +936,7 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 
 		// Reject API endpoints navigated to directly (Sec-Fetch-Mode: navigate on /api/*).
 		if r.Header.Get("Sec-Fetch-Mode") == "navigate" && strings.HasPrefix(r.URL.Path, "/api/") {
-			http.Error(w, `{"ok":false,"error":"SEC_FETCH_BLOCKED","message":"direct navigation to API endpoint blocked"}`, http.StatusForbidden)
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "SEC_FETCH_BLOCKED", "message": "direct navigation to API endpoint blocked"})
 			return
 		}
 
@@ -1461,34 +1462,44 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// detectClientType returns "html", "json", or "text" based on Accept header
-// and User-Agent per PART 16 content negotiation rules.
+// detectClientType returns "html", "json", or "text" based on User-Agent and
+// Accept header per PART 14 content negotiation rules.
+//
+// Priority order:
+//  1. Explicit Accept header overrides UA detection.
+//  2. Our CLI client (pastebin-cli/) → "json" (INTERACTIVE, renders its own TUI).
+//  3. Text browsers (lynx, w3m, etc.) → "html" (INTERACTIVE, no JavaScript).
+//  4. HTTP tools (curl, wget, empty UA) → "text" (NON-INTERACTIVE, dump output).
+//  5. Anything else (regular browsers) → "html".
 func detectClientType(r *http.Request) string {
 	accept := r.Header.Get("Accept")
-	if strings.Contains(accept, "text/html") {
-		return "html"
+	if strings.Contains(accept, "application/json") {
+		return "json"
 	}
 	if strings.Contains(accept, "text/plain") {
 		return "text"
 	}
-	if strings.Contains(accept, "application/json") {
+	if strings.Contains(accept, "text/html") {
+		return "html"
+	}
+
+	// Our client is INTERACTIVE — receives JSON, renders own TUI/GUI.
+	if httputil.IsOurCliClient(r) {
 		return "json"
 	}
 
-	ua := r.Header.Get("User-Agent")
-	for _, browser := range []string{"Mozilla/", "Chrome/", "Safari/", "Edge/", "Firefox/", "Opera/", "MSIE", "Trident/"} {
-		if strings.Contains(ua, browser) {
-			return "html"
-		}
+	// Text browsers are INTERACTIVE but have no JavaScript support.
+	// They receive the standard HTML templates (forms use POST, no JS required).
+	if httputil.IsTextBrowser(r) {
+		return "html"
 	}
-	for _, cli := range []string{"curl/", "Wget/", "HTTPie/", "python-requests/", "Go-http-client/", "node-fetch/", "pastebin-cli/"} {
-		if strings.Contains(ua, cli) {
-			return "text"
-		}
-	}
-	if ua == "" {
+
+	// HTTP tools are NON-INTERACTIVE — send pre-formatted plain text.
+	if httputil.IsHttpTool(r) {
 		return "text"
 	}
+
+	// Default: regular browser.
 	return "html"
 }
 
@@ -1883,7 +1894,7 @@ func (s *Server) handleOffline(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerList returns all registered tasks.
 func (s *Server) handleSchedulerList(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
 		return
 	}
 	tasks := s.schedulerAPI.GetTasks()
@@ -1893,7 +1904,7 @@ func (s *Server) handleSchedulerList(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerShow returns the state for a single task.
 func (s *Server) handleSchedulerShow(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -1908,7 +1919,7 @@ func (s *Server) handleSchedulerShow(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerRun triggers a task to run immediately.
 func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -1922,7 +1933,7 @@ func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerEnable enables a task.
 func (s *Server) handleSchedulerEnable(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -1937,7 +1948,7 @@ func (s *Server) handleSchedulerEnable(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerDisable disables a task.
 func (s *Server) handleSchedulerDisable(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
