@@ -672,8 +672,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
-				"type": "about:blank", "title": "Unauthorized", "status": 401,
-				"detail": "operator token required",
+				"ok": false, "error": "UNAUTHORIZED", "message": "operator token required",
 			})
 			return
 		}
@@ -682,16 +681,14 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		var zeroHash [32]byte
 		if s.operatorTokenHash == zeroHash {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
-				"type": "about:blank", "title": "Service Unavailable", "status": 503,
-				"detail": "server.token not configured",
+				"ok": false, "error": "SERVER_ERROR", "message": "server.token not configured",
 			})
 			return
 		}
 		if subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
-				"type": "about:blank", "title": "Unauthorized", "status": 401,
-				"detail": "operator token required",
+				"ok": false, "error": "UNAUTHORIZED", "message": "operator token required",
 			})
 			return
 		}
@@ -1902,7 +1899,7 @@ func (s *Server) handleSchedulerShow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	t, ok := s.schedulerAPI.GetTask(id)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]interface{}{"type": "about:blank", "title": "Not Found", "status": 404, "detail": "task not found"})
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "NOT_FOUND", "message": "task not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": t})
@@ -1916,7 +1913,7 @@ func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	if err := s.schedulerAPI.RunNow(id); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"type": "about:blank", "title": "Bad Request", "status": 400, "detail": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "BAD_REQUEST", "message": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"status": "triggered", "task": id}})
@@ -1930,7 +1927,7 @@ func (s *Server) handleSchedulerEnable(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	if _, ok := s.schedulerAPI.GetTask(id); !ok {
-		writeJSON(w, http.StatusNotFound, map[string]interface{}{"type": "about:blank", "title": "Not Found", "status": 404, "detail": "task not found"})
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "NOT_FOUND", "message": "task not found"})
 		return
 	}
 	s.schedulerAPI.EnableTask(id)
@@ -1945,7 +1942,7 @@ func (s *Server) handleSchedulerDisable(w http.ResponseWriter, r *http.Request) 
 	}
 	id := chi.URLParam(r, "id")
 	if _, ok := s.schedulerAPI.GetTask(id); !ok {
-		writeJSON(w, http.StatusNotFound, map[string]interface{}{"type": "about:blank", "title": "Not Found", "status": 404, "detail": "task not found"})
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "NOT_FOUND", "message": "task not found"})
 		return
 	}
 	s.schedulerAPI.DisableTask(id)
@@ -1957,7 +1954,7 @@ func (s *Server) handleSchedulerHistory(w http.ResponseWriter, r *http.Request) 
 	id := chi.URLParam(r, "id")
 	history, err := s.db.ListTaskHistory(id, 20)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"type": "about:blank", "title": "Internal Server Error", "status": 500, "detail": "could not retrieve history"})
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "could not retrieve history"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": history})
