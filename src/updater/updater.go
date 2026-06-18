@@ -46,7 +46,13 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string) (*Releas
 	default:
 		apiURL = apiBase
 	}
+	return CheckForUpdateURL(ctx, currentVersion, branch, apiURL)
+}
 
+// CheckForUpdateURL is the testable core of CheckForUpdate.  It queries the
+// given apiURL (so tests can inject an httptest server) and otherwise behaves
+// identically to CheckForUpdate.
+func CheckForUpdateURL(ctx context.Context, currentVersion, branch, apiURL string) (*Release, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {

@@ -2879,19 +2879,8 @@ func TestLiveCfgWithManager(t *testing.T) {
 	}
 }
 
-// ─── buildTorInfo with non-nil torManager ─────────────────────────────────────
-
-type mockTorManager struct{ running bool; onion string }
-
-func (m *mockTorManager) Start() error                      { return nil }
-func (m *mockTorManager) Running() bool                     { return m.running }
-func (m *mockTorManager) OnionAddress() string              { return m.onion }
-func (m *mockTorManager) Close() error                      { return nil }
-func (m *mockTorManager) Monitor()                          {}
-
-// torManagerIface is what buildTorInfo uses internally — since torManager is a
-// concrete *tor.Manager, we test via a real New() server with no Tor binary found.
-// buildTorInfo gets covered by TestNew/TestBuildHealthResponse.
+// torManager is a concrete *tor.Manager, so buildTorInfo is tested via
+// TestNew/TestBuildHealthResponse which exercise the real server with no Tor binary found.
 
 // ─── OnConfigChange TLS restart key ──────────────────────────────────────────
 

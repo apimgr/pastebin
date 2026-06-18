@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	crand "crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
@@ -924,13 +923,6 @@ func (s *SQLiteDB) DeleteExpiredAPITokens() (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-// hashTokenForStorage returns the SHA-256 hex digest of a raw token string.
-// Used internally when the caller has the raw bytes rather than a [32]byte array.
-func hashTokenForStorage(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }
 
 // scanTaskState scans a row into a TaskState.

@@ -1,0 +1,170 @@
+package task
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// ─── applyRetention ───────────────────────────────────────────────────────────
+
+func TestApplyRetention_KeepsMaxBackups(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create 5 daily backup files (newest first when named by date).
+	dates := []string{
+		"2025-01-05",
+		"2025-01-04",
+		"2025-01-03",
+		"2025-01-02",
+		"2025-01-01",
+	}
+	for _, d := range dates {
+		name := "pastebin_backup_" + d + ".tar.gz"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Keep only 2 most recent.
+	if err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 2}); err != nil {
+		t.Fatalf("applyRetention error: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 files remaining, got %d", len(entries))
+	}
+}
+
+func TestApplyRetention_KeepsWeekly(t *testing.T) {
+	dir := t.TempDir()
+
+	// 2025-01-05 is a Sunday; 2025-01-06 is a Monday.
+	dates := []string{"2025-01-06", "2025-01-05"}
+	for _, d := range dates {
+		name := "pastebin_backup_" + d + ".tar.gz"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// MaxBackups=1 would keep only the newest daily (Mon 01-06).
+	// KeepWeekly=1 also retains the Sunday (01-05).
+	if err := applyRetention(dir, "pastebin", BackupRetention{
+		MaxBackups: 1,
+		KeepWeekly: 1,
+	}); err != nil {
+		t.Fatalf("applyRetention error: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both should survive: newest daily + Sunday weekly.
+	if len(entries) != 2 {
+		t.Errorf("expected 2 files remaining (newest+Sunday), got %d", len(entries))
+	}
+}
+
+func TestApplyRetention_YearlyKept(t *testing.T) {
+	dir := t.TempDir()
+
+	// January 1st should be kept as yearly.
+	jan1 := "2025-01-01"
+	jan2 := "2025-01-02"
+	for _, d := range []string{jan1, jan2} {
+		name := "pastebin_backup_" + d + ".tar.gz"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// MaxBackups=1 keeps newest daily (jan2). KeepYearly=1 keeps jan1 as yearly.
+	if err := applyRetention(dir, "pastebin", BackupRetention{
+		MaxBackups: 1,
+		KeepYearly: 1,
+	}); err != nil {
+		t.Fatalf("applyRetention error: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 files (newest daily + jan1 yearly), got %d", len(entries))
+	}
+}
+
+func TestApplyRetention_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 3}); err != nil {
+		t.Fatalf("unexpected error on empty dir: %v", err)
+	}
+}
+
+func TestApplyRetention_InvalidDir(t *testing.T) {
+	err := applyRetention("/nonexistent/path/xxx", "pastebin", BackupRetention{MaxBackups: 3})
+	if err == nil {
+		t.Error("expected error for nonexistent dir, got nil")
+	}
+}
+
+// ─── gzipFile ────────────────────────────────────────────────────────────────
+
+func TestGzipFile_CompressesAndRemovesSource(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "test.log")
+	if err := os.WriteFile(src, []byte("hello world log\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := gzipFile(src); err != nil {
+		t.Fatalf("gzipFile error: %v", err)
+	}
+
+	// Source should be gone.
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Errorf("source file should have been removed")
+	}
+
+	// Compressed file should exist.
+	gz := src + ".gz"
+	if _, err := os.Stat(gz); err != nil {
+		t.Errorf("compressed file should exist: %v", err)
+	}
+}
+
+func TestGzipFile_NonexistentSource(t *testing.T) {
+	err := gzipFile("/nonexistent/file.log")
+	if err == nil {
+		t.Error("expected error for nonexistent source, got nil")
+	}
+}
+
+// ─── backupFileRE ─────────────────────────────────────────────────────────────
+
+func TestBackupFileRE(t *testing.T) {
+	cases := []struct {
+		name  string
+		match bool
+	}{
+		{"pastebin_backup_2025-01-15.tar.gz", true},
+		{"pastebin_backup_2025-01-15.tar.gz.enc", true},
+		{"pastebin_backup_20250115.tar.gz", false},
+		{"pastebin-daily.tar.gz", false},
+		{"pastebin-hourly.tar.gz.enc", false},
+		{"other_backup_2025-01-15.tar.gz", true},
+	}
+	for _, tc := range cases {
+		got := backupFileRE.MatchString(tc.name)
+		if got != tc.match {
+			t.Errorf("%s: match=%v want=%v", tc.name, got, tc.match)
+		}
+	}
+}

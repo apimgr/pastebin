@@ -8,8 +8,6 @@ import (
 	"sync"
 )
 
-const appName = "pastebin"
-
 // Mode represents the application execution mode
 type Mode string
 

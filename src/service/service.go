@@ -156,6 +156,12 @@ WantedBy=multi-user.target
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
+	// Create system user and group with fixed UID/GID for reproducible deployments.
+	uidStr := fmt.Sprintf("%d", serviceUID)
+	exec.Command("groupadd", "-r", "-g", uidStr, serviceUser).Run()
+	exec.Command("useradd", "-r", "-u", uidStr, "-g", uidStr, "-d", "/nonexistent",
+		"-s", "/sbin/nologin", "-c", "Pastebin service account", serviceUser).Run()
+
 	// Create directories
 	dirs := []string{
 		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),

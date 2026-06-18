@@ -44,11 +44,6 @@ var (
 	OfficialSite = ""
 )
 
-// defaultServer is intentionally empty — PART 32 requires that no compiled-in
-// server URL exists unless IDEA.md specifies one (which it does not for this
-// project). The user MUST supply a server via --server or $PASTEBIN_SERVER.
-const defaultServer = ""
-
 // projectName is the hardcoded internal name used for User-Agent and config paths.
 // Display uses filepath.Base(os.Args[0]) per PART 32.
 const projectName = "pastebin"
