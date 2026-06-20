@@ -1,6 +1,6 @@
 # TODO.AI.md — pastebin
 
-Outstanding items after bootstrap. Bootstrap completed PART 0–6 scaffolding; PART 7–32 application implementation remains. All items below are pending or require verification against the spec.
+Outstanding items after bootstrap. Bootstrap completed PART 0–6 scaffolding, created all `.claude/rules/` files, and created `CLAUDE.md`. PART 7–32 application implementation remains. All items below are pending or require verification against the spec.
 
 ---
 
@@ -124,44 +124,37 @@ Confirm `--service start|stop|restart|reload|--install|--uninstall|--disable` al
 ---
 
 ## [ ] Verify Tor hidden service
-Read: AI.md PART 31
+Read: AI.md PART 32
 
 Confirm `src/tor/` uses `github.com/cretz/bine` (not the C `tor` library) for hidden service management. Tor binary auto-detected. HiddenServiceVersion 3. SafeLogging enabled. No default Tor ports (9050/9051) used. Hidden service auto-enabled whenever Tor binary is found.
 
 ---
 
 ## [ ] Verify client binary completeness
-Read: AI.md PART 32
+Read: AI.md PART 33
 
-Confirm `src/client/` implements all required commands: `paste create`, `paste get`, `paste delete`, `paste list`, `paste raw`, and any other commands from PART 32. TUI mode where specified. `--lang` flag present. `Accept-Language` header sent on all API requests.
-
----
-
-## [ ] Add `pt.json` or confirm Portuguese is not required
-Read: AI.md PART 30
-
-The project had `pt.json` (Portuguese) but PART 30 specifies 7 required locales: `en, es, fr, de, zh, ar, ja`. Portuguese is not in the required list. `pt.json` has been replaced by `ar.json` during bootstrap. Confirm this is correct and remove `pt.json` if it still exists.
+Confirm `src/client/` implements all required commands: `paste create`, `paste get`, `paste delete`, `paste list`, `paste raw`, and any other commands from PART 33. TUI mode where specified. `--lang` flag present. `Accept-Language` header sent on all API requests.
 
 ---
 
-## [ ] Remove pt.json locale file
+## [ ] Confirm Portuguese locale decision
 Read: AI.md PART 30
 
-`pt.json` is not a required locale per PART 30. It should be removed, or kept as an optional extra locale with `pt` added to `supportedLangs`. Decision: remove it to match the spec exactly, OR keep it (extra locale, not required). Confirm with project owner.
+PART 30 specifies 7 required locales: `en, es, fr, de, zh, ar, ja`. Portuguese is not in the required list. Confirm whether `pt.json` should be removed or kept as an optional extra locale. If kept, add `pt` to `supportedLangs` in the i18n loader.
 
 ---
 
 ## [ ] Verify GraphQL implementation
 Read: AI.md PART 14
 
-Confirm `src/graphql/` implements the schema from PART 14. All type descriptions use i18n keys. GraphQL playground accessible at `/graphql` (development mode only).
+Confirm `src/graphql/` implements the schema from PART 14. All type descriptions use i18n keys. GraphQL playground accessible at `/server/docs/graphql` (Development mode only).
 
 ---
 
 ## [ ] Verify Swagger/OpenAPI implementation
 Read: AI.md PART 14
 
-Confirm `src/swagger/` serves the Swagger UI at `/api/docs` and the OpenAPI spec at `/api/openapi.json`. All endpoint descriptions use i18n keys.
+Confirm `src/swagger/` serves the Swagger UI at `/server/docs/swagger` and the OpenAPI spec at `/api/openapi.json`. All endpoint descriptions use i18n keys.
 
 ---
 
