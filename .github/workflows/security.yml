@@ -1,0 +1,67 @@
+name: Security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret Scanning (TruffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog secret scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.before }}
+          head: ${{ github.event.after }}
+          extra_args: --only-verified
+
+  vuln-scan:
+    name: Vulnerability Scan (govulncheck)
+    runs-on: ubuntu-latest
+    container:
+      image: casjaysdev/go:latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  workflow-policy:
+    name: Workflow SHA Policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Check third-party Actions are pinned to commit SHAs
+        run: |
+          VIOLATIONS=0
+          while IFS= read -r file; do
+            while IFS= read -r line; do
+              if echo "$line" | grep -qE '^\s+uses:\s+[^\.]+/[^@]+@[^a-f0-9]'; then
+                echo "FAIL: unpinned action in $file: $line"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            done < "$file"
+          done < <(find .github/workflows .gitea/workflows .forgejo/workflows -name '*.yml' 2>/dev/null)
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "::error::$VIOLATIONS workflow(s) use unpinned Actions. Pin every third-party action to a full commit SHA."
+            exit 1
+          fi
+          echo "All third-party Actions are pinned to commit SHAs."
