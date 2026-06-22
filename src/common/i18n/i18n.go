@@ -59,6 +59,35 @@ func flattenJSON(prefix string, obj map[string]interface{}, out map[string]strin
 	}
 }
 
+// JSBundle returns a JSON object string containing every "js.*" translation
+// key for the given language, with the "js." prefix stripped. It is embedded
+// into the page so progressive-enhancement scripts can localize the few strings
+// they generate at runtime (update banner, copy feedback, loading verbs).
+// Falls back to English for any missing key.
+func JSBundle(lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if !IsSupported(lang) {
+		lang = "en"
+	}
+	out := map[string]string{}
+	const prefix = "js."
+	for k, v := range translations["en"] {
+		if strings.HasPrefix(k, prefix) {
+			out[k[len(prefix):]] = v
+		}
+	}
+	for k, v := range translations[lang] {
+		if strings.HasPrefix(k, prefix) {
+			out[k[len(prefix):]] = v
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 // IsSupported returns true if lang is a supported language code.
 func IsSupported(lang string) bool {
 	return supportedLangs[strings.ToLower(strings.TrimSpace(lang))]

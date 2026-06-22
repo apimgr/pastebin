@@ -471,7 +471,10 @@
     "features_desc": "Todo lo que necesitas para compartir código",
     "features_title": "Características",
     "quickstart_desc": "Sube pastes desde la línea de comandos",
-    "quickstart_title": "Inicio rápido"
+    "quickstart_title": "Inicio rápido",
+    "stat_languages": "Lenguajes",
+    "stat_api": "API",
+    "stat_free": "Gratis"
   },
   "paste": {
     "burn_after_label": "Eliminar tras N vistas (0 = desactivado)",
@@ -530,5 +533,21 @@
     "previous": "Anterior",
     "title": "Pastes recientes",
     "views": "vistas"
+  },
+  "js": {
+    "update_available": "Hay una versión nueva disponible.",
+    "update_now": "Actualizar ahora",
+    "dismiss": "Descartar",
+    "copied": "¡Copiado!",
+    "copy": "Copiar",
+    "api_error": "Error de la API",
+    "creating": "Creando…",
+    "saving": "Guardando…",
+    "submitting": "Enviando…",
+    "deleting": "Eliminando…",
+    "sending": "Enviando…",
+    "searching": "Buscando…",
+    "uploading": "Subiendo…",
+    "working": "…"
   }
 }

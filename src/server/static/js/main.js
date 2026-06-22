@@ -1,6 +1,34 @@
 // Pastebin — Main JavaScript
 // Progressive enhancement only. All core features work without this file.
 
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+
+// English fallback strings for the few messages this script generates at
+// runtime. The server injects window.PB_I18N with the active-locale values;
+// this map is used when that bundle is absent (e.g. cached page, no template).
+const I18N_FALLBACK = {
+    update_available: 'A new version is available.',
+    update_now: 'Update Now',
+    dismiss: 'Dismiss',
+    copied: 'Copied!',
+    copy: 'Copy',
+    api_error: 'API error',
+    creating: 'Creating…',
+    saving: 'Saving…',
+    submitting: 'Submitting…',
+    deleting: 'Deleting…',
+    sending: 'Sending…',
+    searching: 'Searching…',
+    uploading: 'Uploading…',
+    working: '…',
+};
+
+// t returns the localized string for key, falling back to English.
+function t(key) {
+    const bundle = window.PB_I18N || {};
+    return bundle[key] || I18N_FALLBACK[key] || key;
+}
+
 // ─── Service worker ───────────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
@@ -47,9 +75,9 @@ function showUpdateBanner(registration) {
         'font-size:0.875rem', 'z-index:9999',
         'box-shadow:0 4px 12px rgba(0,0,0,.25)'
     ].join(';');
-    banner.innerHTML = '<span>A new version is available.</span>' +
-        '<button onclick="applyUpdate()" style="background:rgba(255,255,255,.2);border:none;color:inherit;padding:0.25rem 0.75rem;border-radius:0.25rem;cursor:pointer">Update Now</button>' +
-        '<button onclick="this.parentElement.remove()" style="background:none;border:none;color:inherit;cursor:pointer;padding:0.25rem" aria-label="Dismiss">✕</button>';
+    banner.innerHTML = '<span>' + t('update_available') + '</span>' +
+        '<button onclick="applyUpdate()" style="background:rgba(255,255,255,.2);border:none;color:inherit;padding:0.25rem 0.75rem;border-radius:0.25rem;cursor:pointer">' + t('update_now') + '</button>' +
+        '<button onclick="this.parentElement.remove()" style="background:none;border:none;color:inherit;cursor:pointer;padding:0.25rem" aria-label="' + t('dismiss') + '">✕</button>';
     document.body.appendChild(banner);
     window.__swRegistration = registration;
 }
@@ -93,10 +121,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             navigator.clipboard.writeText(text).then(() => {
                 btn.classList.add('copied');
-                if (copyText) copyText.textContent = 'Copied!';
+                if (copyText) copyText.textContent = t('copied');
                 setTimeout(() => {
                     btn.classList.remove('copied');
-                    if (copyText) copyText.textContent = 'Copy';
+                    if (copyText) copyText.textContent = t('copy');
                 }, 2000);
             }).catch(() => {
                 // Fallback: select the adjacent code element
@@ -125,16 +153,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const originalText = btn.textContent.trim();
             const loadingMap = {
-                'create': 'Creating…',
-                'save': 'Saving…',
-                'submit': 'Submitting…',
-                'delete': 'Deleting…',
-                'send': 'Sending…',
-                'search': 'Searching…',
-                'upload': 'Uploading…',
+                'create': t('creating'),
+                'save': t('saving'),
+                'submit': t('submitting'),
+                'delete': t('deleting'),
+                'send': t('sending'),
+                'search': t('searching'),
+                'upload': t('uploading'),
             };
             const lower = originalText.toLowerCase();
-            const loadingText = loadingMap[lower] || originalText + '…';
+            const loadingText = loadingMap[lower] || originalText + t('working');
 
             btn.disabled = true;
             btn.style.minWidth = btn.offsetWidth + 'px';
@@ -155,7 +183,7 @@ async function fetchAPI(endpoint, options = {}) {
     const response = await fetch(endpoint, { ...defaults, ...options });
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || err.error || 'API error');
+        throw new Error(err.detail || err.error || t('api_error'));
     }
     return response.json();
 }

@@ -471,7 +471,10 @@
     "features_desc": "Alles, was Sie zum Teilen von Code brauchen",
     "features_title": "Funktionen",
     "quickstart_desc": "Pastes von der Kommandozeile hochladen",
-    "quickstart_title": "Schnellstart"
+    "quickstart_title": "Schnellstart",
+    "stat_languages": "Sprachen",
+    "stat_api": "API",
+    "stat_free": "Kostenlos"
   },
   "paste": {
     "burn_after_label": "Nach N Aufrufen löschen (0 = aus)",
@@ -530,5 +533,21 @@
     "previous": "Zurück",
     "title": "Neueste Pastes",
     "views": "Aufrufe"
+  },
+  "js": {
+    "update_available": "Eine neue Version ist verfügbar.",
+    "update_now": "Jetzt aktualisieren",
+    "dismiss": "Verwerfen",
+    "copied": "Kopiert!",
+    "copy": "Kopieren",
+    "api_error": "API-Fehler",
+    "creating": "Wird erstellt…",
+    "saving": "Wird gespeichert…",
+    "submitting": "Wird gesendet…",
+    "deleting": "Wird gelöscht…",
+    "sending": "Wird gesendet…",
+    "searching": "Suche…",
+    "uploading": "Wird hochgeladen…",
+    "working": "…"
   }
 }

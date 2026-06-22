@@ -471,7 +471,10 @@
     "features_desc": "Tout ce dont vous avez besoin pour partager du code",
     "features_title": "Fonctionnalités",
     "quickstart_desc": "Téléverser des pastes depuis la ligne de commande",
-    "quickstart_title": "Démarrage rapide"
+    "quickstart_title": "Démarrage rapide",
+    "stat_languages": "Langages",
+    "stat_api": "API",
+    "stat_free": "Gratuit"
   },
   "paste": {
     "burn_after_label": "Supprimer après N vues (0 = désactivé)",
@@ -530,5 +533,21 @@
     "previous": "Précédent",
     "title": "Pastes récents",
     "views": "vues"
+  },
+  "js": {
+    "update_available": "Une nouvelle version est disponible.",
+    "update_now": "Mettre à jour",
+    "dismiss": "Ignorer",
+    "copied": "Copié !",
+    "copy": "Copier",
+    "api_error": "Erreur de l’API",
+    "creating": "Création…",
+    "saving": "Enregistrement…",
+    "submitting": "Envoi…",
+    "deleting": "Suppression…",
+    "sending": "Envoi…",
+    "searching": "Recherche…",
+    "uploading": "Téléversement…",
+    "working": "…"
   }
 }

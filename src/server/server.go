@@ -350,6 +350,9 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		"t": func(lang, key string) string {
 			return i18n.Translate(lang, key)
 		},
+		"i18njs": func(lang string) template.JS {
+			return template.JS(i18n.JSBundle(lang))
+		},
 	}).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		log.Printf("warning: could not parse templates: %v", err)

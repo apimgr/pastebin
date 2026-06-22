@@ -133,7 +133,10 @@
     "feature_api_title": "REST API",
     "feature_api_desc": "REST API كامل المميزات للأتمتة والتكامل مع أدواتك.",
     "quickstart_title": "البدء السريع",
-    "quickstart_desc": "رفع اللصقات من سطر الأوامر"
+    "quickstart_desc": "رفع اللصقات من سطر الأوامر",
+    "stat_languages": "اللغات",
+    "stat_api": "واجهة برمجة",
+    "stat_free": "مجاني"
   },
   "paste": {
     "views": "مشاهدة",
@@ -549,5 +552,21 @@
     "loading": "جارٍ التحميل...",
     "item_saved": "تم حفظ العنصر بنجاح",
     "search_results": "تم العثور على {count} نتائج بحث"
+  },
+  "js": {
+    "update_available": "يتوفر إصدار جديد.",
+    "update_now": "تحديث الآن",
+    "dismiss": "تجاهل",
+    "copied": "تم النسخ!",
+    "copy": "نسخ",
+    "api_error": "خطأ في واجهة البرمجة",
+    "creating": "جارٍ الإنشاء…",
+    "saving": "جارٍ الحفظ…",
+    "submitting": "جارٍ الإرسال…",
+    "deleting": "جارٍ الحذف…",
+    "sending": "جارٍ الإرسال…",
+    "searching": "جارٍ البحث…",
+    "uploading": "جارٍ الرفع…",
+    "working": "…"
   }
 }

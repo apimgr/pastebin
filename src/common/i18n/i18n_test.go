@@ -1,8 +1,10 @@
 package i18n
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -326,5 +328,37 @@ func TestLocaleFS(t *testing.T) {
 	}
 	if len(data) == 0 {
 		t.Error("LocaleFS: en.json is empty")
+	}
+}
+
+// TestJSBundle verifies the runtime JS string bundle is valid JSON, contains
+// the expected keys with the js. prefix stripped, localizes per language, and
+// falls back to English for unsupported locales.
+func TestJSBundle(t *testing.T) {
+	en := JSBundle("en")
+	if !strings.Contains(en, `"update_now"`) || strings.Contains(en, "js.") {
+		t.Errorf("JSBundle(en) missing key or kept prefix: %s", en)
+	}
+
+	var m map[string]string
+	if err := json.Unmarshal([]byte(en), &m); err != nil {
+		t.Fatalf("JSBundle(en) is not valid JSON: %v", err)
+	}
+	if m["copy"] != "Copy" {
+		t.Errorf("JSBundle(en)[copy] = %q; want Copy", m["copy"])
+	}
+
+	de := JSBundle("de")
+	var dm map[string]string
+	if err := json.Unmarshal([]byte(de), &dm); err != nil {
+		t.Fatalf("JSBundle(de) is not valid JSON: %v", err)
+	}
+	if dm["update_now"] != "Jetzt aktualisieren" {
+		t.Errorf("JSBundle(de)[update_now] = %q; want German value", dm["update_now"])
+	}
+
+	// Unsupported locale falls back to English.
+	if JSBundle("xx") != en {
+		t.Error("JSBundle(unsupported) did not fall back to English")
 	}
 }

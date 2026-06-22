@@ -56,15 +56,15 @@
                     <div class="hero-stats">
                         <div class="hero-stat">
                             <div class="hero-stat-value">15+</div>
-                            <div class="hero-stat-label">Languages</div>
+                            <div class="hero-stat-label">{{t .Lang "home.stat_languages"}}</div>
                         </div>
                         <div class="hero-stat">
                             <div class="hero-stat-value">REST</div>
-                            <div class="hero-stat-label">API</div>
+                            <div class="hero-stat-label">{{t .Lang "home.stat_api"}}</div>
                         </div>
                         <div class="hero-stat">
                             <div class="hero-stat-value">100%</div>
-                            <div class="hero-stat-label">Free</div>
+                            <div class="hero-stat-label">{{t .Lang "home.stat_free"}}</div>
                         </div>
                     </div>
                 </div>
@@ -167,6 +167,7 @@
         </div>
     </footer>
 
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="/static/js/main.js"></script>
     <script>
         function copyCode(btn) {

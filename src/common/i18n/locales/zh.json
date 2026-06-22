@@ -471,7 +471,10 @@
     "features_desc": "代码共享所需的一切",
     "features_title": "功能",
     "quickstart_desc": "从命令行上传粘贴",
-    "quickstart_title": "快速开始"
+    "quickstart_title": "快速开始",
+    "stat_languages": "语言",
+    "stat_api": "API",
+    "stat_free": "免费"
   },
   "paste": {
     "burn_after_label": "查看后销毁 (0=关闭)",
@@ -530,5 +533,21 @@
     "previous": "上一页",
     "title": "最新粘贴",
     "views": "次浏览"
+  },
+  "js": {
+    "update_available": "有新版本可用。",
+    "update_now": "立即更新",
+    "dismiss": "忽略",
+    "copied": "已复制！",
+    "copy": "复制",
+    "api_error": "API 错误",
+    "creating": "正在创建…",
+    "saving": "正在保存…",
+    "submitting": "正在提交…",
+    "deleting": "正在删除…",
+    "sending": "正在发送…",
+    "searching": "正在搜索…",
+    "uploading": "正在上传…",
+    "working": "…"
   }
 }

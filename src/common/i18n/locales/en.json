@@ -133,7 +133,10 @@
     "feature_api_title": "REST API",
     "feature_api_desc": "Full-featured REST API for automation and integration with your tools.",
     "quickstart_title": "Quick Start",
-    "quickstart_desc": "Upload pastes from the command line"
+    "quickstart_desc": "Upload pastes from the command line",
+    "stat_languages": "Languages",
+    "stat_api": "API",
+    "stat_free": "Free"
   },
   "paste": {
     "views": "views",
@@ -530,5 +533,21 @@
     "loading": "Loading...",
     "item_saved": "Item saved successfully",
     "search_results": "{count} search results found"
+  },
+  "js": {
+    "update_available": "A new version is available.",
+    "update_now": "Update Now",
+    "dismiss": "Dismiss",
+    "copied": "Copied!",
+    "copy": "Copy",
+    "api_error": "API error",
+    "creating": "Creating…",
+    "saving": "Saving…",
+    "submitting": "Submitting…",
+    "deleting": "Deleting…",
+    "sending": "Sending…",
+    "searching": "Searching…",
+    "uploading": "Uploading…",
+    "working": "…"
   }
 }
