@@ -202,7 +202,7 @@ func main() {
 	}
 
 	if showVersion {
-		fmt.Printf("%s %s\n", binaryName, Version)
+		fmt.Printf("%s %s (%s)\n", binaryName, Version, CommitID)
 		fmt.Printf("Built: %s\n", BuildDate)
 		fmt.Printf("Go: %s\n", runtime.Version())
 		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
@@ -1059,11 +1059,12 @@ func normalizeArgs(args []string) []string {
 }
 
 // applyColor applies the --color flag, updating NO_COLOR as needed.
+// Spec PART 8 values: auto, yes, no. always/never are tolerated aliases.
 func applyColor(v string) {
 	switch v {
-	case "never":
+	case "no", "never":
 		os.Setenv("NO_COLOR", "1")
-	case "always":
+	case "yes", "always":
 		os.Unsetenv("NO_COLOR")
 	}
 	// "auto" or empty: leave NO_COLOR as-is
@@ -1098,7 +1099,7 @@ Server Configuration:
       --baseurl PATH                URL path prefix (default: /)
       --daemon                      Run as daemon (detach from terminal)
       --debug                       Enable debug mode
-      --color {always|never|auto}   Color output (default: auto)
+      --color {auto|yes|no}         Color output (default: auto)
       --lang CODE                   Language for output (default: auto)
 
 Service Management:

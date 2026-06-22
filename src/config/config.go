@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,7 +31,23 @@ type ServerConfig struct {
 	Address       string              `yaml:"address"`
 	FQDN          string              `yaml:"fqdn"`
 	Mode          string              `yaml:"mode"`
+	// APIVersion is the API route prefix segment (default v1): /api/{api_version}/.
+	APIVersion    string              `yaml:"api_version"`
 	BaseURL       string              `yaml:"base_url"` // override for URL generation
+	// Branding holds the site title/tagline/description (PART 12/16).
+	Branding BrandingConfig `yaml:"branding"`
+	// SEO holds search-engine metadata such as keywords (PART 12/16).
+	SEO SEOConfig `yaml:"seo"`
+	// User and Group are the system user/group to drop privileges to (PART 12).
+	// Empty or "{auto}" means auto-detect; keep current privileges if unset.
+	User  string `yaml:"user"`
+	Group string `yaml:"group"`
+	// PIDFile enables writing a PID file on start (PART 12).
+	PIDFile bool `yaml:"pidfile"`
+	// Daemonize detaches from the terminal on start (PART 12). Default false.
+	Daemonize bool `yaml:"daemonize"`
+	// Scheduler configures built-in background tasks (PART 12/18).
+	Scheduler SchedulerConfig `yaml:"scheduler"`
 	// Token is the operator token (server.token). Auto-generated on first run.
 	// All operator-protected API endpoints require: Authorization: Bearer <token>
 	Token         string              `yaml:"token"`
@@ -42,7 +59,7 @@ type ServerConfig struct {
 	Tor           TorConfig           `yaml:"tor"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Notifications NotificationsConfig `yaml:"notifications"`
-	TLS           TLSConfig           `yaml:"tls"`
+	TLS           TLSConfig           `yaml:"ssl"`
 	// Cache configures the in-process or remote cache driver (PART 9/12).
 	Cache CacheConfig `yaml:"cache"`
 	// Limits controls HTTP server request and body limits (PART 12).
@@ -282,17 +299,67 @@ type SecurityConfig struct {
 	Allowlist []string `yaml:"allowlist"`
 }
 
-// TLSConfig holds Let's Encrypt and manual certificate settings (PART 15).
+// TLSConfig holds SSL/TLS and Let's Encrypt settings (PART 12/15).
+// The yaml key is `ssl` per the authoritative server.yml schema.
 type TLSConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Email   string `yaml:"email"`    // ACME account email for expiry notices
-	// Challenge selects the ACME challenge type: http-01, tls-alpn-01, dns-01.
-	Challenge   string `yaml:"challenge"`
-	DNSProvider string `yaml:"dns_provider"` // dns-01: provider name (e.g. cloudflare, rfc2136)
+	Enabled bool `yaml:"enabled"`
+	// Cert and Key are optional manual certificate override paths.
+	// Leave empty for auto-detection (certbot dirs, app-managed, self-signed).
+	Cert string `yaml:"cert"`
+	Key  string `yaml:"key"`
+	// MinVersion is the minimum negotiated TLS version: TLS1.2 or TLS1.3.
+	MinVersion string `yaml:"min_version"`
+	// LetsEncrypt holds ACME settings, nested under ssl.letsencrypt per spec.
+	LetsEncrypt LetsEncryptConfig `yaml:"letsencrypt"`
+	// DNSProvider selects the dns-01 provider name (e.g. cloudflare, rfc2136).
+	DNSProvider string `yaml:"dns_provider"`
 	// DNSCredentialsEncrypted stores AES-256-GCM encrypted JSON of provider credentials.
 	// Encrypted using web.security.encryption_key. Never store plaintext credentials here.
 	DNSCredentialsEncrypted string `yaml:"dns_credentials_encrypted"`
-	Staging                 bool   `yaml:"staging"` // use LE staging CA (for testing)
+}
+
+// LetsEncryptConfig holds ACME settings nested under server.ssl.letsencrypt (PART 12/15).
+type LetsEncryptConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Email   string `yaml:"email"`
+	// Challenge selects the ACME challenge type: http-01, tls-alpn-01, dns-01.
+	Challenge string `yaml:"challenge"`
+	// Staging uses the LE staging CA for testing.
+	Staging bool `yaml:"staging"`
+}
+
+// BrandingConfig holds site branding shown in the UI and metadata (PART 12/16).
+type BrandingConfig struct {
+	Title       string `yaml:"title"`
+	Tagline     string `yaml:"tagline"`
+	Description string `yaml:"description"`
+}
+
+// SEOConfig holds search-engine metadata (PART 12/16).
+type SEOConfig struct {
+	Keywords []string `yaml:"keywords"`
+}
+
+// SchedulerConfig configures the built-in task scheduler (PART 12/18).
+// Tasks maps a task name to its per-task settings; absent entries use code defaults.
+type SchedulerConfig struct {
+	Enabled bool                       `yaml:"enabled"`
+	Tasks   map[string]SchedulerTask   `yaml:"tasks"`
+}
+
+// SchedulerTask holds the settings for a single scheduled task (PART 12/18).
+type SchedulerTask struct {
+	Enabled     bool   `yaml:"enabled"`
+	Schedule    string `yaml:"schedule"`
+	RetryOnFail bool   `yaml:"retry_on_fail"`
+	RetryDelay  string `yaml:"retry_delay"`
+	// MaxAge and MaxSize apply to log_rotation.
+	MaxAge  string `yaml:"max_age"`
+	MaxSize string `yaml:"max_size"`
+	// Retention applies to the backup task (max backups to keep).
+	Retention int `yaml:"retention"`
+	// RenewBefore applies to ssl_renewal (e.g. "7d").
+	RenewBefore string `yaml:"renew_before"`
 }
 
 // HSTSConfig controls Strict-Transport-Security emission.
@@ -323,10 +390,29 @@ type CSPConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Port:    "",
-			Address: "0.0.0.0",
-			FQDN:    "localhost",
-			Mode:    "production",
+			Port:       "",
+			Address:    "0.0.0.0",
+			FQDN:       "localhost",
+			Mode:       "production",
+			APIVersion: "v1",
+			Branding: BrandingConfig{
+				Title: "Pastebin",
+			},
+			SEO: SEOConfig{
+				Keywords: []string{},
+			},
+			PIDFile:   true,
+			Daemonize: false,
+			TLS: TLSConfig{
+				MinVersion: "TLS1.2",
+				LetsEncrypt: LetsEncryptConfig{
+					Challenge: "http-01",
+				},
+			},
+			Scheduler: SchedulerConfig{
+				Enabled: true,
+				Tasks:   map[string]SchedulerTask{},
+			},
 			Metrics: MetricsConfig{
 				Enabled:  false,
 				Endpoint: "/metrics",
@@ -874,14 +960,61 @@ func (m *ConfigManager) applyHotSettings(prev, next *Config) {
 // ParseBool converts common boolean string representations to bool.
 // Accepts: "true", "1", "yes", "on" → true; "false", "0", "no", "off" → false.
 // Returns an error for any unrecognised value.
-func ParseBool(s string) (bool, error) {
-	switch s {
-	case "true", "1", "yes", "on":
-		return true, nil
-	case "false", "0", "no", "off":
-		return false, nil
-	default:
-		return false, fmt.Errorf("config: unrecognised boolean value %q", s)
+// truthyValues lists every accepted truthy token (case-insensitive) per PART 5.
+var truthyValues = map[string]bool{
+	"1": true, "y": true, "t": true,
+	"yes": true, "true": true, "on": true, "ok": true,
+	"enable": true, "enabled": true,
+	"yep": true, "yup": true, "yeah": true,
+	"aye": true, "si": true, "oui": true, "da": true, "hai": true,
+	"affirmative": true, "accept": true, "allow": true, "grant": true,
+	"sure": true, "totally": true,
+}
+
+// falsyValues lists every accepted falsy token (case-insensitive) per PART 5.
+var falsyValues = map[string]bool{
+	"0": true, "n": true, "f": true,
+	"no": true, "false": true, "off": true,
+	"disable": true, "disabled": true,
+	"nope": true, "nah": true, "nay": true,
+	"nein": true, "non": true, "niet": true, "iie": true, "lie": true,
+	"negative": true, "reject": true, "block": true, "revoke": true,
+	"deny": true, "never": true, "noway": true,
+}
+
+// ParseBool parses a string into a boolean using the truthy/falsy value sets.
+// An empty string returns defaultVal; an unrecognised value returns an error.
+func ParseBool(s string, defaultVal bool) (bool, error) {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return defaultVal, nil
 	}
+	if truthyValues[s] {
+		return true, nil
+	}
+	if falsyValues[s] {
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid boolean value: %q", s)
+}
+
+// MustParseBool parses a string into a boolean and panics on an invalid value.
+// Use only during initialization where invalid config should halt startup.
+func MustParseBool(s string, defaultVal bool) bool {
+	val, err := ParseBool(s, defaultVal)
+	if err != nil {
+		panic(err)
+	}
+	return val
+}
+
+// IsTruthy reports whether s is a recognised truthy value (case-insensitive).
+func IsTruthy(s string) bool {
+	return truthyValues[strings.TrimSpace(strings.ToLower(s))]
+}
+
+// IsFalsy reports whether s is a recognised falsy value (case-insensitive).
+func IsFalsy(s string) bool {
+	return falsyValues[strings.TrimSpace(strings.ToLower(s))]
 }
 

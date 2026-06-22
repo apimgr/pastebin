@@ -116,6 +116,92 @@ var (
 		[]string{"operation", "error_type"},
 	)
 
+	// Authentication metrics (REQUIRED per PART 20).
+	AuthAttemptsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "auth_attempts_total",
+			Help:      "Total authentication attempts.",
+		},
+		[]string{"method", "status"},
+	)
+	AuthSessionsActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "auth_sessions_active",
+		Help:      "Number of active authenticated sessions.",
+	})
+	APITokensActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "api_tokens_active",
+		Help:      "Number of active (non-revoked, non-expired) API tokens.",
+	})
+
+	// Cache metrics (PART 20; project uses a cache subsystem).
+	CacheHitsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "cache_hits_total",
+			Help:      "Total cache hits.",
+		},
+		[]string{"cache"},
+	)
+	CacheMissesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "cache_misses_total",
+			Help:      "Total cache misses.",
+		},
+		[]string{"cache"},
+	)
+	CacheEvictionsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "cache_evictions_total",
+			Help:      "Total cache evictions.",
+		},
+		[]string{"cache"},
+	)
+	CacheSize = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: ns,
+			Name:      "cache_size",
+			Help:      "Current number of items in the cache.",
+		},
+		[]string{"cache"},
+	)
+
+	// Scheduler metrics (PART 20; project uses the built-in scheduler, PART 18).
+	SchedulerTasksTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "scheduler_tasks_total",
+			Help:      "Total scheduled task executions.",
+		},
+		[]string{"task", "status"},
+	)
+	SchedulerTaskDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: ns,
+			Name:      "scheduler_task_duration_seconds",
+			Help:      "Scheduled task execution duration distribution.",
+			Buckets:   []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 300},
+		},
+		[]string{"task"},
+	)
+	SchedulerTasksRunning = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "scheduler_tasks_running",
+		Help:      "Number of scheduled tasks currently running.",
+	})
+	SchedulerLastRunTimestamp = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: ns,
+			Name:      "scheduler_last_run_timestamp",
+			Help:      "Unix timestamp of the last run for each scheduled task.",
+		},
+		[]string{"task"},
+	)
+
 	// Rate limiting
 	RateLimitRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

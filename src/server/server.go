@@ -394,8 +394,8 @@ func (s *Server) OnConfigChange(next *config.Config) {
 		s.MarkPendingRestart("server.tor")
 	}
 	if prev.Server.TLS.Enabled != next.Server.TLS.Enabled ||
-		prev.Server.TLS.Email != next.Server.TLS.Email {
-		s.MarkPendingRestart("server.tls")
+		prev.Server.TLS.LetsEncrypt.Email != next.Server.TLS.LetsEncrypt.Email {
+		s.MarkPendingRestart("server.ssl")
 	}
 }
 
@@ -677,6 +677,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		const prefix = "Bearer "
 		if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
+			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"ok": false, "error": "UNAUTHORIZED", "message": "operator token required",
@@ -687,18 +688,21 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		incomingHash := sha256.Sum256([]byte(incoming))
 		var zeroHash [32]byte
 		if s.operatorTokenHash == zeroHash {
+			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
 			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 				"ok": false, "error": "SERVER_ERROR", "message": "server.token not configured",
 			})
 			return
 		}
 		if subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) != 1 {
+			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"ok": false, "error": "UNAUTHORIZED", "message": "operator token required",
 			})
 			return
 		}
+		metrics.AuthAttemptsTotal.WithLabelValues("bearer", "success").Inc()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1122,11 +1126,11 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			CertDir: s.configDir + "/ssl",
 			FQDN:    fqdn,
 			LetsEncrypt: ssl.LetsEncryptConfig{
-				Enabled:         true,
-				Email:           cfg.Server.TLS.Email,
-				Challenge:       ssl.ParseChallenge(cfg.Server.TLS.Challenge),
+				Enabled:         cfg.Server.TLS.LetsEncrypt.Enabled,
+				Email:           cfg.Server.TLS.LetsEncrypt.Email,
+				Challenge:       ssl.ParseChallenge(cfg.Server.TLS.LetsEncrypt.Challenge),
 				DNSProviderType: cfg.Server.TLS.DNSProvider,
-				Staging:         cfg.Server.TLS.Staging,
+				Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
 			},
 		})
 
@@ -1329,11 +1333,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	case "text":
 		hr := s.buildHealthResponse()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		if hr.Status == "ok" {
-			fmt.Fprintf(w, "OK\n")
-		} else {
-			fmt.Fprintf(w, "ERROR: %s\n", hr.Status)
-		}
+		writeHealthText(w, hr)
 		return
 	}
 	hr := s.buildHealthResponse()
@@ -1342,6 +1342,41 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
 	})
+}
+
+// writeHealthText emits the /server/healthz response in the canonical
+// flattened dot-notation plain-text format defined in PART 13.
+func writeHealthText(w http.ResponseWriter, hr HealthResponse) {
+	fmt.Fprintf(w, "project.name: %s\n", hr.Project.Name)
+	fmt.Fprintf(w, "project.tagline: %s\n", hr.Project.Tagline)
+	fmt.Fprintf(w, "project.description: %s\n", hr.Project.Description)
+	fmt.Fprintf(w, "status: %s\n", hr.Status)
+	fmt.Fprintf(w, "version: %s\n", hr.Version)
+	fmt.Fprintf(w, "go_version: %s\n", hr.GoVersion)
+	fmt.Fprintf(w, "build.commit: %s\n", hr.Build.Commit)
+	fmt.Fprintf(w, "build.date: %s\n", hr.Build.Date)
+	fmt.Fprintf(w, "uptime: %s\n", hr.Uptime)
+	fmt.Fprintf(w, "mode: %s\n", hr.Mode)
+	fmt.Fprintf(w, "timestamp: %s\n", hr.Timestamp.UTC().Format(time.RFC3339))
+	fmt.Fprintf(w, "features.tor.enabled: %t\n", hr.Features.Tor.Enabled)
+	fmt.Fprintf(w, "features.tor.running: %t\n", hr.Features.Tor.Running)
+	if hr.Features.Tor.Status != "" {
+		fmt.Fprintf(w, "features.tor.status: %s\n", hr.Features.Tor.Status)
+	}
+	if hr.Features.Tor.Hostname != "" {
+		fmt.Fprintf(w, "features.tor.hostname: %s\n", hr.Features.Tor.Hostname)
+	}
+	fmt.Fprintf(w, "features.geoip: %t\n", hr.Features.GeoIP)
+	fmt.Fprintf(w, "checks.database: %s\n", hr.Checks.Database)
+	fmt.Fprintf(w, "checks.cache: %s\n", hr.Checks.Cache)
+	fmt.Fprintf(w, "checks.disk: %s\n", hr.Checks.Disk)
+	fmt.Fprintf(w, "checks.scheduler: %s\n", hr.Checks.Scheduler)
+	if hr.Checks.Tor != "" {
+		fmt.Fprintf(w, "checks.tor: %s\n", hr.Checks.Tor)
+	}
+	fmt.Fprintf(w, "stats.requests_total: %d\n", hr.Stats.RequestsTotal)
+	fmt.Fprintf(w, "stats.requests_24h: %d\n", hr.Stats.Requests24h)
+	fmt.Fprintf(w, "stats.active_connections: %d\n", hr.Stats.ActiveConns)
 }
 
 func (s *Server) handleHealthzJSON(w http.ResponseWriter, r *http.Request) {

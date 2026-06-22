@@ -153,7 +153,7 @@ func detectMode(args []string) string {
 	// Config-only flags that still allow TUI launch.
 	configFlags := map[string]bool{
 		"--config": true, "--server": true, "--token": true, "--debug": true,
-		"--color": true, "--json": true,
+		"--color": true, "--json": true, "--lang": true,
 	}
 
 	for _, arg := range args {
@@ -280,11 +280,13 @@ func main() {
 
 	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", fileCfg.Server), "server base URL")
 	asJSON := flag.Bool("json", false, "machine-readable JSON output")
-	colorFlag := flag.String("color", "auto", "color output: always, never, auto")
+	colorFlag := flag.String("color", "auto", "color output: auto, yes, no")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	showHelp := flag.Bool("help", false, "show help and exit")
 	debugFlag := flag.Bool("debug", false, "enable debug output")
 	doUpdate := flag.String("update", "", "check for CLI updates: 'check' or 'yes'")
+	// PART 32: --lang sets the output/UI language; default auto-detects from the LANG env var.
+	langFlag := flag.String("lang", "auto", "output language code (default: auto-detect from LANG)")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -294,10 +296,11 @@ func main() {
 	flag.Parse()
 
 	// Honour NO_COLOR env var (https://no-color.org/) and --color flag.
+	// Spec PART 8 values: auto, yes, no. always/never are tolerated aliases.
 	switch *colorFlag {
-	case "never":
+	case "no", "never":
 		os.Setenv("NO_COLOR", "1")
-	case "always":
+	case "yes", "always":
 		os.Unsetenv("NO_COLOR")
 	}
 
@@ -367,8 +370,10 @@ func main() {
 	}
 
 	// Handle --update flag.
+	locale := detectLocale(*langFlag)
+
 	if *doUpdate != "" {
-		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON}
+		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale}
 		c.cmdUpdate(*doUpdate)
 		return
 	}
@@ -394,7 +399,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON}
+	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale}
 
 	switch args[0] {
 	case "create":
@@ -444,6 +449,34 @@ func runTUI(server string, cfg cliConfig) {
 type client struct {
 	server string
 	asJSON bool
+	// lang is the resolved output/UI locale sent as the Accept-Language header (PART 30/32).
+	lang string
+}
+
+// detectLocale resolves the output locale from the --lang flag, falling back to the
+// LANG / LC_ALL environment variables, then to "en". A value of "auto" or "" triggers
+// environment detection. The server silently falls back to English for unsupported codes.
+func detectLocale(flagVal string) string {
+	v := strings.TrimSpace(flagVal)
+	if v != "" && v != "auto" {
+		return v
+	}
+	for _, env := range []string{"LC_ALL", "LANG", "LANGUAGE"} {
+		if val := os.Getenv(env); val != "" {
+			// Strip encoding/territory suffixes: "en_US.UTF-8" -> "en".
+			code := val
+			if i := strings.IndexAny(code, "._@"); i >= 0 {
+				code = code[:i]
+			}
+			if i := strings.IndexByte(code, '_'); i >= 0 {
+				code = code[:i]
+			}
+			if code != "" && code != "C" && code != "POSIX" {
+				return code
+			}
+		}
+	}
+	return "en"
 }
 
 func (c *client) cmdCreate(args []string) {
@@ -714,6 +747,9 @@ func (c *client) get(path string) (*http.Response, error) {
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
 	req.Header.Set("Accept", "application/json")
+	if c.lang != "" {
+		req.Header.Set("Accept-Language", c.lang)
+	}
 	return httpClient.Do(req)
 }
 
@@ -730,6 +766,9 @@ func (c *client) postJSON(path string, body interface{}) (*http.Response, error)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+	if c.lang != "" {
+		req.Header.Set("Accept-Language", c.lang)
+	}
 	return httpClient.Do(req)
 }
 
@@ -791,7 +830,8 @@ LIST FLAGS
 GLOBAL FLAGS
     --server <url>       Server base URL (required; or set $PASTEBIN_SERVER)
     --json               Output machine-readable JSON
-    --color <when>       Color output: always, never, auto (default: auto; honors NO_COLOR)
+    --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
+    --lang <code>        Output language (default: auto-detect from LANG)
     --debug              Enable debug output
     --update check|yes   Check for or apply CLI updates
     --version            Print version

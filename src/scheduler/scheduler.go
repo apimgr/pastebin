@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/metrics"
 )
 
 const defaultCatchUpWindow = time.Hour
@@ -246,7 +247,9 @@ func (s *Scheduler) execute(e *taskEntry) error {
 	start := time.Now()
 	log.Printf("scheduler: running %s", e.id)
 
+	metrics.SchedulerTasksRunning.Inc()
 	taskErr := e.fn()
+	metrics.SchedulerTasksRunning.Dec()
 
 	finished := time.Now()
 	durationMS := finished.Sub(start).Milliseconds()
@@ -260,6 +263,10 @@ func (s *Scheduler) execute(e *taskEntry) error {
 	} else {
 		log.Printf("scheduler: task %s completed (%dms)", e.id, durationMS)
 	}
+
+	metrics.SchedulerTasksTotal.WithLabelValues(e.id, status).Inc()
+	metrics.SchedulerTaskDuration.WithLabelValues(e.id).Observe(finished.Sub(start).Seconds())
+	metrics.SchedulerLastRunTimestamp.WithLabelValues(e.id).Set(float64(finished.Unix()))
 
 	next := e.schedule.Next(finished)
 

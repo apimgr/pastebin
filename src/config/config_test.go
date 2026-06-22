@@ -204,37 +204,44 @@ func TestResolvePort_RandomPort(t *testing.T) {
 
 // ─── ParseBool ────────────────────────────────────────────────────────────────
 
-// TestParseBool covers all 8 spec-documented values (4 true, 4 false) and
-// several invalid inputs that must return errors.
+// TestParseBool covers the extended truthy/falsy value sets (case-insensitive),
+// the empty-string default path, and invalid inputs that must return errors.
 func TestParseBool(t *testing.T) {
 	cases := []struct {
 		name    string
 		input   string
+		def     bool
 		want    bool
 		wantErr bool
 	}{
-		// documented true values
-		{"true_literal", "true", true, false},
-		{"one", "1", true, false},
-		{"yes", "yes", true, false},
-		{"on", "on", true, false},
-		// documented false values
-		{"false_literal", "false", false, false},
-		{"zero", "0", false, false},
-		{"no", "no", false, false},
-		{"off", "off", false, false},
+		// truthy values (case-insensitive)
+		{"true_literal", "true", false, true, false},
+		{"one", "1", false, true, false},
+		{"yes", "yes", false, true, false},
+		{"on", "on", false, true, false},
+		{"capital_True", "True", false, true, false},
+		{"enabled", "ENABLED", false, true, false},
+		{"oui", "oui", false, true, false},
+		{"padded_yes", "  yes  ", false, true, false},
+		// falsy values (case-insensitive)
+		{"false_literal", "false", true, false, false},
+		{"zero", "0", true, false, false},
+		{"no", "no", true, false, false},
+		{"off", "off", true, false, false},
+		{"capital_NO", "NO", true, false, false},
+		{"disabled", "disabled", true, false, false},
+		{"never", "never", true, false, false},
+		// empty returns the default
+		{"empty_default_true", "", true, true, false},
+		{"empty_default_false", "", false, false, false},
 		// unrecognised values must return an error
-		{"empty", "", false, true},
-		{"capital_True", "True", false, true},
-		{"capital_False", "False", false, true},
-		{"capital_YES", "YES", false, true},
-		{"two", "2", false, true},
-		{"random_string", "maybe", false, true},
+		{"two", "2", false, false, true},
+		{"random_string", "maybe", false, false, true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := config.ParseBool(tc.input)
+			got, err := config.ParseBool(tc.input, tc.def)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("ParseBool(%q): expected error, got nil (value %v)", tc.input, got)
@@ -249,6 +256,22 @@ func TestParseBool(t *testing.T) {
 				t.Errorf("ParseBool(%q): got %v, want %v", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestIsTruthyFalsy verifies the boolean predicate helpers.
+func TestIsTruthyFalsy(t *testing.T) {
+	if !config.IsTruthy("YES") || !config.IsTruthy("enable") {
+		t.Error("IsTruthy should accept recognised truthy values")
+	}
+	if config.IsTruthy("no") || config.IsTruthy("") || config.IsTruthy("maybe") {
+		t.Error("IsTruthy should reject falsy, empty, and invalid values")
+	}
+	if !config.IsFalsy("NO") || !config.IsFalsy("disabled") {
+		t.Error("IsFalsy should accept recognised falsy values")
+	}
+	if config.IsFalsy("yes") || config.IsFalsy("") || config.IsFalsy("maybe") {
+		t.Error("IsFalsy should reject truthy, empty, and invalid values")
 	}
 }
 
