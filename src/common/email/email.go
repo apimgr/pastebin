@@ -27,6 +27,10 @@ type Mailer struct {
 	appName string
 	appURL  string
 	fqdn    string
+	// onionAddress and i2pAddress are set at runtime once the corresponding
+	// hidden service is available (PART 17 global template variables).
+	onionAddress string
+	i2pAddress   string
 }
 
 // New creates a Mailer from the provided email config, app name, and base URL.
@@ -38,6 +42,14 @@ func New(cfg *config.EmailConfig, appName, appURL, fqdn string) *Mailer {
 		fqdn:    fqdn,
 	}
 }
+
+// SetOnionAddress records the Tor .onion address used to populate the
+// {onion_url} and {onion_address} template variables. Pass "" to clear it.
+func (m *Mailer) SetOnionAddress(addr string) { m.onionAddress = addr }
+
+// SetI2PAddress records the I2P address used to populate the {i2p_url} and
+// {i2p_address} template variables. Pass "" to clear it.
+func (m *Mailer) SetI2PAddress(addr string) { m.i2pAddress = addr }
 
 // Enabled returns true if SMTP is configured and email sending is enabled.
 func (m *Mailer) Enabled() bool {
@@ -159,6 +171,30 @@ func (m *Mailer) renderTemplate(name string, vars map[string]string) (string, er
 		"fqdn":      m.fqdn,
 		"timestamp": time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		"year":      time.Now().UTC().Format("2006"),
+	}
+
+	// Tor / I2P address variables are only populated when the hidden service
+	// is active; otherwise they resolve to empty strings (PART 17).
+	if m.onionAddress != "" {
+		global["onion_address"] = m.onionAddress
+		global["onion_url"] = "http://" + m.onionAddress
+	} else {
+		global["onion_address"] = ""
+		global["onion_url"] = ""
+	}
+	if m.i2pAddress != "" {
+		global["i2p_address"] = m.i2pAddress
+		global["i2p_url"] = "http://" + m.i2pAddress
+	} else {
+		global["i2p_address"] = ""
+		global["i2p_url"] = ""
+	}
+
+	// notification_reply_to comes from server.notifications.email.reply_to.
+	if m.cfg != nil {
+		global["notification_reply_to"] = m.cfg.ReplyTo
+	} else {
+		global["notification_reply_to"] = ""
 	}
 
 	s := raw

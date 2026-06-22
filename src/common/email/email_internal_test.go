@@ -152,6 +152,48 @@ func TestRenderTemplate_CustomDir(t *testing.T) {
 	}
 }
 
+// TestRenderTemplate_OnionI2PReplyTo verifies the PART 17 global variables for
+// Tor/I2P addresses and the notification reply-to are substituted, and resolve
+// to empty strings when the hidden services are not configured.
+func TestRenderTemplate_OnionI2PReplyTo(t *testing.T) {
+	dir := t.TempDir()
+	content := "Subject: S\n---\nonion={onion_url} addr={onion_address} i2p={i2p_url} i2paddr={i2p_address} reply={notification_reply_to}"
+	if err := os.WriteFile(dir+"/vars.txt", []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.EmailConfig{TemplateDir: dir, ReplyTo: "noc@b.com"}
+	m := &Mailer{cfg: cfg, appName: "App", appURL: "https://b.com", fqdn: "b.com"}
+
+	// No hidden services set: onion/i2p resolve to empty, reply-to from config.
+	body, err := m.renderTemplate("vars", nil)
+	if err != nil {
+		t.Fatalf("renderTemplate vars: %v", err)
+	}
+	if strings.Contains(body, "{onion_url}") || strings.Contains(body, "{i2p_url}") ||
+		strings.Contains(body, "{onion_address}") || strings.Contains(body, "{i2p_address}") ||
+		strings.Contains(body, "{notification_reply_to}") {
+		t.Errorf("unsubstituted variable remained:\n%s", body)
+	}
+	if !strings.Contains(body, "reply=noc@b.com") {
+		t.Errorf("expected reply-to substitution, got:\n%s", body)
+	}
+
+	// With hidden services set, URLs are populated.
+	m.SetOnionAddress("abc123.onion")
+	m.SetI2PAddress("xyz789.b32.i2p")
+	body, err = m.renderTemplate("vars", nil)
+	if err != nil {
+		t.Fatalf("renderTemplate vars (with hidden services): %v", err)
+	}
+	if !strings.Contains(body, "onion=http://abc123.onion") || !strings.Contains(body, "addr=abc123.onion") {
+		t.Errorf("expected onion substitution, got:\n%s", body)
+	}
+	if !strings.Contains(body, "i2p=http://xyz789.b32.i2p") || !strings.Contains(body, "i2paddr=xyz789.b32.i2p") {
+		t.Errorf("expected i2p substitution, got:\n%s", body)
+	}
+}
+
 // ─── defaultGatewayIP ─────────────────────────────────────────────────────────
 
 func TestDefaultGatewayIP_DoesNotPanic(t *testing.T) {
