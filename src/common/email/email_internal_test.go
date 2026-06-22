@@ -151,3 +151,32 @@ func TestRenderTemplate_CustomDir(t *testing.T) {
 		t.Errorf("expected 'MyApp' in custom template output, got:\n%s", body)
 	}
 }
+
+// ─── defaultGatewayIP ─────────────────────────────────────────────────────────
+
+func TestDefaultGatewayIP_DoesNotPanic(t *testing.T) {
+	// defaultGatewayIP uses net.Dial("udp", ...) which does NOT send any network
+	// packets — it just resolves a local address. Safe to call in any environment.
+	got := defaultGatewayIP()
+	// Result is either a valid IP string or empty — both are acceptable.
+	if got != "" {
+		// Validate it looks like an IP address.
+		if !strings.Contains(got, ".") && !strings.Contains(got, ":") {
+			t.Errorf("defaultGatewayIP returned non-IP string: %q", got)
+		}
+	}
+}
+
+// ─── globalIPv4 ───────────────────────────────────────────────────────────────
+
+func TestGlobalIPv4_DoesNotPanic(t *testing.T) {
+	// globalIPv4 enumerates network interfaces — safe in all environments.
+	// We only verify it does not panic and returns a valid IPv4 or empty string.
+	got := globalIPv4()
+	if got != "" {
+		parts := strings.Split(got, ".")
+		if len(parts) != 4 {
+			t.Errorf("globalIPv4 returned non-IPv4 string: %q", got)
+		}
+	}
+}

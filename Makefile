@@ -38,13 +38,14 @@ GO_BUILD  ?= $(HOME)/.cache/go-build
 
 # Docker (PART 25)
 REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
-GO_DOCKER := docker run --rm -it \
+GO_DOCKER := docker run --rm \
 	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
 	-w /app \
 	-e CGO_ENABLED=0 \
+	-e GOFLAGS=-buildvcs=false \
 	casjaysdev/go:latest
 
 .PHONY: build local release docker test dev clean
@@ -170,16 +171,25 @@ docker:
 # =============================================================================
 # TEST - Run all tests with ≥80% coverage enforcement (via Docker)
 # =============================================================================
+# Coverage gates by project type:
+#   - SERVER template projects: 80% minimum (go test -cover must report >= 80.0%)
+#   - All other Go projects: 60% minimum; override upward in IDEA.md
+#     (## Project variables -> coverage_minimum: 80) when appropriate.
+#     Never override downward.
+# =============================================================================
 test:
 	@echo "Running tests with coverage..."
-	@$(GO_DOCKER) go mod download
-	@$(GO_DOCKER) go test -v -cover -coverprofile=coverage.out ./...
-	@COVERAGE=$$($(GO_DOCKER) go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
-	if [ $$(echo "$$COVERAGE < 80" | bc -l) -eq 1 ]; then \
-		echo "ERROR: Coverage is $$COVERAGE%, must be >= 80%"; \
-		exit 1; \
-	fi
-	@echo "✓ Tests complete — coverage >= 80%"
+	@$(GO_DOCKER) exec sh -c " \
+		mkdir -p \"/tmp/$(PROJECTORG)\" && \
+		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX\") && \
+		go mod download && \
+		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
+		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
+		echo \"Coverage: \$$COVERAGE%\" && \
+		if [ \$$(echo \"\$$COVERAGE < 80\" | bc -l) -eq 1 ]; then \
+			echo \"ERROR: Coverage is \$$COVERAGE%, must be >= 80%\"; exit 1; \
+		fi && \
+		echo \"Tests complete - Coverage: \$$COVERAGE% (>= 80% required) ✓\""
 
 # =============================================================================
 # DEV - Quick build for local development (random temp dir, no version info)
@@ -201,4 +211,4 @@ dev:
 # CLEAN - Remove build artifacts
 # =============================================================================
 clean:
-	@rm -rf $(BINDIR) $(RELDIR) coverage.out
+	@rm -rf $(BINDIR) $(RELDIR)

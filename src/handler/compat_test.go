@@ -5,6 +5,7 @@ package handler
 // parsePastebinExpiry are accessible directly.
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/go-chi/chi/v5"
 )
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -45,6 +47,13 @@ func newCompatHandler(t *testing.T) (*CompatHandler, database.DB) {
 	db := newCompatTestDB(t)
 	ph := NewPasteHandler(db, "", [32]byte{})
 	return NewCompatHandler(ph, db, "test-version"), db
+}
+
+// withID injects a chi URL parameter named "id" into the request context.
+func withID(r *http.Request, id string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 }
 
 // seedPaste creates a paste via the internal helper and returns its ID and raw
@@ -518,5 +527,91 @@ func TestLenServerInfo(t *testing.T) {
 	}
 	if resp["version"] != "test-version" {
 		t.Errorf("version: got %v, want %q", resp["version"], "test-version")
+	}
+}
+
+// ─── Microbin compatibility ───────────────────────────────────────────────────
+
+func TestMicrobinCreate_Success(t *testing.T) {
+	ch, _ := newCompatHandler(t)
+
+	form := url.Values{}
+	form.Set("content", "microbin paste content")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pasta",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	ch.MicrobinCreate(rr, req)
+
+	if rr.Code != http.StatusCreated && rr.Code != http.StatusOK {
+		t.Errorf("MicrobinCreate: got status %d, want 200 or 201\nbody: %s",
+			rr.Code, rr.Body.String())
+	}
+}
+
+func TestMicrobinList_Empty(t *testing.T) {
+	ch, _ := newCompatHandler(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pasta", nil)
+	rr := httptest.NewRecorder()
+
+	ch.MicrobinList(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("MicrobinList: got status %d, want 200\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestMicrobinDelete_Delegates(t *testing.T) {
+	ch, _ := newCompatHandler(t)
+
+	// Seed a paste so the handler has something to delete.
+	id, token := seedPaste(t, ch.ph, "to delete via microbin")
+
+	req := httptest.NewRequest(http.MethodDelete,
+		"/api/v1/pasta/"+id+"?token="+token, nil)
+	req = withID(req, id)
+	req.Header.Set("X-Delete-Token", token)
+	rr := httptest.NewRecorder()
+
+	ch.MicrobinDelete(rr, req)
+
+	// Accept any non-500 status: 200 / 204 / 404 are all reasonable outcomes.
+	if rr.Code >= http.StatusInternalServerError {
+		t.Errorf("MicrobinDelete: got status %d, want < 500\nbody: %s",
+			rr.Code, rr.Body.String())
+	}
+}
+
+func TestMicrobinGet_Delegates(t *testing.T) {
+	ch, _ := newCompatHandler(t)
+
+	id, _ := seedPaste(t, ch.ph, "microbin get test")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pasta/"+id, nil)
+	req = withID(req, id)
+	rr := httptest.NewRecorder()
+
+	ch.MicrobinGet(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("MicrobinGet: got status %d, want 200\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ─── AuthStubRedirect ─────────────────────────────────────────────────────────
+
+func TestAuthStubRedirect(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rr := httptest.NewRecorder()
+
+	AuthStubRedirect(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("AuthStubRedirect: got status %d, want 302", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/" {
+		t.Errorf("AuthStubRedirect: Location = %q; want /", loc)
 	}
 }

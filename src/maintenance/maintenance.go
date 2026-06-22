@@ -320,8 +320,9 @@ func VerifyBackup(path, password string) error {
 		return fmt.Errorf("verify: cannot read: %w", err)
 	}
 
-	// Check 3: decrypt if encrypted.
-	if strings.HasSuffix(path, ".enc") {
+	// Check 3: decrypt if encrypted (.enc or .enc.tmp for in-flight temp files).
+	checkPath := strings.TrimSuffix(path, ".tmp")
+	if strings.HasSuffix(checkPath, ".enc") {
 		if password == "" {
 			return fmt.Errorf("verify: encrypted backup requires password")
 		}

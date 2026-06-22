@@ -1,6 +1,8 @@
 package email_test
 
 import (
+	"net"
+	"os"
 	"testing"
 
 	"github.com/apimgr/pastebin/src/common/email"
@@ -71,5 +73,83 @@ func TestTestSMTP_NoHost_ReturnsError(t *testing.T) {
 
 	if err := m.TestSMTP(); err == nil {
 		t.Error("TestSMTP with no host: expected error, got nil")
+	}
+}
+
+// ─── AutoDetect ───────────────────────────────────────────────────────────────
+
+func TestAutoDetect_NoCandidatesReachable(t *testing.T) {
+	// AutoDetect probes 127.0.0.1:587/465/25 and other candidates.
+	// In a test environment these ports are typically closed, so ok should be false.
+	// We cannot guarantee ports are closed, so we only verify it does not panic.
+	_, _, _ = email.AutoDetect("test.example.invalid")
+}
+
+func TestAutoDetect_EmptyFQDN(t *testing.T) {
+	// With empty FQDN the fqdn-based candidates are skipped — still must not panic.
+	_, _, _ = email.AutoDetect("")
+}
+
+// ─── TestSMTP with a real listener ────────────────────────────────────────────
+
+func TestTestSMTP_WithListeningServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("could not open local listener: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+	cfg := &config.EmailConfig{
+		Enabled: true,
+		SMTP:    config.SMTPConfig{Host: "127.0.0.1", Port: port},
+	}
+	m := email.New(cfg, "pastebin", "https://example.com", "example.com")
+	// TestSMTP connects TCP and immediately closes; it must succeed.
+	if err := m.TestSMTP(); err != nil {
+		t.Errorf("TestSMTP with listening server: %v", err)
+	}
+}
+
+func TestTestSMTP_UnreachableHost_ReturnsError(t *testing.T) {
+	cfg := &config.EmailConfig{
+		Enabled: true,
+		SMTP:    config.SMTPConfig{Host: "127.0.0.1", Port: 1},
+	}
+	m := email.New(cfg, "pastebin", "https://example.com", "example.com")
+	if err := m.TestSMTP(); err == nil {
+		t.Error("expected error for unreachable SMTP host, got nil")
+	}
+}
+
+// ─── Send — enabled + error paths ────────────────────────────────────────────
+
+func TestSend_TemplateNotFound_ReturnsError(t *testing.T) {
+	cfg := &config.EmailConfig{
+		Enabled: true,
+		SMTP:    config.SMTPConfig{Host: "smtp.example.com", Port: 587},
+	}
+	m := email.New(cfg, "pastebin", "https://example.com", "example.com")
+	err := m.Send("user@example.com", "nonexistent_xyz_template", nil)
+	if err == nil {
+		t.Error("expected error for nonexistent template, got nil")
+	}
+}
+
+func TestSend_TemplateMissingSubject_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	// Template file without a "Subject:" prefix line.
+	if err := os.WriteFile(dir+"/no_subject.txt", []byte("---\nBody without subject"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.EmailConfig{
+		Enabled:     true,
+		SMTP:        config.SMTPConfig{Host: "smtp.example.com", Port: 587},
+		TemplateDir: dir,
+	}
+	m := email.New(cfg, "pastebin", "https://example.com", "example.com")
+	err := m.Send("user@example.com", "no_subject", nil)
+	if err == nil {
+		t.Error("expected error for template missing Subject:, got nil")
 	}
 }

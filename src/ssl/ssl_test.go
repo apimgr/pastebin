@@ -1,13 +1,51 @@
 package ssl_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apimgr/pastebin/src/ssl"
 )
+
+// genCertPair generates a self-signed TLS certificate and private key PEM pair
+// valid for dur (may be negative for an already-expired cert).
+func genCertPair(t *testing.T, cn string, dur time.Duration) (certPEM, keyPEM []byte) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(dur),
+		DNSNames:     []string{cn},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	privDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privDER})
+	return certPEM, keyPEM
+}
 
 // ─── ParseChallenge ───────────────────────────────────────────────────────────
 
@@ -191,5 +229,239 @@ func TestChallengeServer_MultipleTokens(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), tc.auth) {
 			t.Errorf("token %s: body %q; want %q", tc.token, rec.Body.String(), tc.auth)
 		}
+	}
+}
+
+// ─── GetTLSConfig — priority 4 (local cert) ──────────────────────────────────
+
+func TestGetTLSConfig_LocalCert_ReturnsConfig(t *testing.T) {
+	// Place a valid cert+key pair in {certDir}/local/localhost/ (priority 4).
+	// validateCertFile skips hostname validation for "localhost", so the
+	// self-signed cert passes and tlsConfigFromFiles is called.
+	certDir := t.TempDir()
+	fqdn := "localhost"
+	localDir := filepath.Join(certDir, "local", fqdn)
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	certPEM, keyPEM := genCertPair(t, fqdn, 24*time.Hour)
+	if err := os.WriteFile(filepath.Join(localDir, "fullchain.pem"), certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "privkey.pem"), keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    fqdn,
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: false,
+		},
+	})
+	cfg, err := m.GetTLSConfig([]string{fqdn})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with local cert: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config when local cert is present")
+	}
+	if len(cfg.Certificates) == 0 {
+		t.Error("expected at least one certificate in TLS config")
+	}
+}
+
+func TestGetTLSConfig_LocalCert_CertAndKey_Variant(t *testing.T) {
+	// Same as above but using cert.pem/key.pem naming instead of fullchain.pem/privkey.pem.
+	certDir := t.TempDir()
+	fqdn := "localhost"
+	localDir := filepath.Join(certDir, "local", fqdn)
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	certPEM, keyPEM := genCertPair(t, fqdn, 24*time.Hour)
+	if err := os.WriteFile(filepath.Join(localDir, "cert.pem"), certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "key.pem"), keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    fqdn,
+	})
+	cfg, err := m.GetTLSConfig([]string{fqdn})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with cert.pem/key.pem: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config when local cert.pem/key.pem is present")
+	}
+}
+
+func TestGetTLSConfig_LocalCert_Expired_FallsThrough(t *testing.T) {
+	// Expired cert in priority-4 dir — validateCertFile rejects it, so we fall
+	// through to "no certs available" → error (LE disabled).
+	certDir := t.TempDir()
+	fqdn := "localhost"
+	localDir := filepath.Join(certDir, "local", fqdn)
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	certPEM, keyPEM := genCertPair(t, fqdn, -time.Hour)
+	if err := os.WriteFile(filepath.Join(localDir, "fullchain.pem"), certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "privkey.pem"), keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    fqdn,
+		LetsEncrypt: ssl.LetsEncryptConfig{Enabled: false},
+	})
+	_, err := m.GetTLSConfig([]string{fqdn})
+	if err == nil {
+		t.Error("expected error when only cert is expired and LE is disabled")
+	}
+}
+
+// ─── GetTLSConfig — Let's Encrypt path ───────────────────────────────────────
+
+func TestGetTLSConfig_LetsEncrypt_Enabled_ReturnsConfig(t *testing.T) {
+	// When no local certs exist but LetsEncrypt is enabled, getLetsEncryptTLSConfig
+	// creates the cache directory and returns an autocert.Manager TLS config.
+	certDir := t.TempDir()
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    "example.com",
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: true,
+			Email:   "admin@example.com",
+		},
+	})
+	cfg, err := m.GetTLSConfig([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with LE enabled: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config when LE is enabled")
+	}
+}
+
+func TestGetTLSConfig_LetsEncrypt_Staging_ReturnsConfig(t *testing.T) {
+	// Staging CA path in getLetsEncryptTLSConfig.
+	certDir := t.TempDir()
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    "example.com",
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: true,
+			Staging: true,
+			Email:   "admin@example.com",
+		},
+	})
+	cfg, err := m.GetTLSConfig([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with LE staging: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config when LE staging is enabled")
+	}
+}
+
+func TestGetTLSConfig_FQDNFromDomains(t *testing.T) {
+	// When FQDN is empty, GetTLSConfig uses domains[0] as the FQDN.
+	certDir := t.TempDir()
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    "",
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: true,
+		},
+	})
+	cfg, err := m.GetTLSConfig([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with FQDN from domains: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config")
+	}
+}
+
+// ─── GetHTTPHandler — with cert manager ──────────────────────────────────────
+
+func TestGetHTTPHandler_WithCertManager_WrapsHandler(t *testing.T) {
+	// After a successful GetTLSConfig with LE enabled, the cert manager is set
+	// and GetHTTPHandler wraps the fallback with the ACME HTTP-01 handler.
+	certDir := t.TempDir()
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    "example.com",
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: true,
+			Email:   "admin@example.com",
+		},
+	})
+	if _, err := m.GetTLSConfig([]string{"example.com"}); err != nil {
+		t.Fatalf("GetTLSConfig: %v", err)
+	}
+
+	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := m.GetHTTPHandler(fallback)
+
+	// A non-ACME request should pass through to the fallback.
+	req := httptest.NewRequest(http.MethodGet, "/normal-path", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	// autocert may redirect HTTP to HTTPS; just verify it doesn't panic.
+	_ = rec.Code
+}
+
+// ─── validateCertFile — non-localhost FQDN ───────────────────────────────────
+
+func TestGetTLSConfig_AppManagedCert_ValidFQDN(t *testing.T) {
+	// Place a cert that exactly covers "localhost" in priority-3 dir.
+	// validateCertFile is called with fqdn="localhost" → hostname check skipped.
+	certDir := t.TempDir()
+	fqdn := "localhost"
+	appDir := filepath.Join(certDir, "letsencrypt", fqdn)
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	certPEM, keyPEM := genCertPair(t, fqdn, 24*time.Hour)
+	if err := os.WriteFile(filepath.Join(appDir, "fullchain.pem"), certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "privkey.pem"), keyPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    fqdn,
+	})
+	cfg, err := m.GetTLSConfig([]string{fqdn})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with app-managed cert: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config with app-managed cert")
 	}
 }

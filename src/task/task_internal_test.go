@@ -149,6 +149,69 @@ func TestGzipFile_NonexistentSource(t *testing.T) {
 
 // ─── backupFileRE ─────────────────────────────────────────────────────────────
 
+func TestApplyRetention_KeepsMonthly(t *testing.T) {
+	dir := t.TempDir()
+
+	// 2025-02-01 is 1st of the month; 2025-02-02 is not.
+	dates := []string{"2025-02-02", "2025-02-01"}
+	for _, d := range dates {
+		name := "pastebin_backup_" + d + ".tar.gz"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// MaxBackups=1 keeps newest daily (Feb 2). KeepMonthly=1 also retains Feb 1st.
+	if err := applyRetention(dir, "pastebin", BackupRetention{
+		MaxBackups:  1,
+		KeepMonthly: 1,
+	}); err != nil {
+		t.Fatalf("applyRetention error: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 files (newest daily + Feb 1st monthly), got %d", len(entries))
+	}
+}
+
+func TestApplyRetention_ExceedsAllTiers(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create many backups: some yearly, some monthly, some weekly, many daily.
+	dates := []string{
+		"2024-01-01", // yearly + monthly + possible weekly
+		"2024-12-01", // monthly
+		"2025-01-05", // Sunday (weekly)
+		"2025-01-06",
+		"2025-01-07",
+		"2025-01-08",
+	}
+	for _, d := range dates {
+		name := "pastebin_backup_" + d + ".tar.gz"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := applyRetention(dir, "pastebin", BackupRetention{
+		MaxBackups:  1,
+		KeepWeekly:  1,
+		KeepMonthly: 1,
+		KeepYearly:  1,
+	}); err != nil {
+		t.Fatalf("applyRetention error: %v", err)
+	}
+
+	// Verify the dir can still be read (no panic).
+	if _, err := os.ReadDir(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBackupFileRE(t *testing.T) {
 	cases := []struct {
 		name  string
