@@ -42,10 +42,17 @@ var (
 const appName = "pastebin"
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run is the testable entry point. rawArgs is os.Args[1:]; stdout and stderr are
+// the output writers (os.Stdout / os.Stderr in production, captured buffers in
+// tests). It returns a POSIX exit code: 0 = success, 1 = runtime error, 2 = usage error.
+func run(rawArgs []string, stdout, stderr io.Writer) int {
 	binaryName := filepath.Base(os.Args[0])
 
 	// Pre-process args: normalise -flag to --flag and expand -h/-v aliases.
-	args := normalizeArgs(os.Args[1:])
+	args := normalizeArgs(rawArgs)
 
 	// Simple manual flag parser so we control order and aliases.
 	var (
@@ -143,7 +150,10 @@ func main() {
 			// "restore" or mode name for "mode").
 			maintenanceArg = val()
 		case "--update":
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			// Consume the next arg unconditionally as the update subcommand so
+			// that "--update --help" routes to update-specific help instead of
+			// triggering the global --help handler.
+			if i+1 < len(args) {
 				i++
 				updateCmd = args[i]
 				// For "branch <name>", consume the branch name as well.
@@ -186,9 +196,9 @@ func main() {
 			}
 		default:
 			if strings.HasPrefix(arg, "--") {
-				fmt.Fprintf(os.Stderr, "%s: unknown flag: %s\n", binaryName, arg)
-				fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "%s: unknown flag: %s\n", binaryName, arg)
+				fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", binaryName)
+				return 2
 			}
 		}
 	}
@@ -197,16 +207,16 @@ func main() {
 	applyColor(colorFlag)
 
 	if showHelp {
-		printHelp(binaryName)
-		return
+		printHelp(stdout, binaryName)
+		return 0
 	}
 
 	if showVersion {
-		fmt.Printf("%s %s (%s)\n", binaryName, Version, CommitID)
-		fmt.Printf("Built: %s\n", BuildDate)
-		fmt.Printf("Go: %s\n", runtime.Version())
-		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-		return
+		fmt.Fprintf(stdout, "%s %s (%s)\n", binaryName, Version, CommitID)
+		fmt.Fprintf(stdout, "Built: %s\n", BuildDate)
+		fmt.Fprintf(stdout, "Go: %s\n", runtime.Version())
+		fmt.Fprintf(stdout, "OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		return 0
 	}
 
 	// ── Shell integration ─────────────────────────────────────────────────────
@@ -217,20 +227,20 @@ func main() {
 			shell.PrintHelp(binaryName)
 		case "completions":
 			if err := shell.PrintCompletions(binaryName, shellArg); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: --shell completions: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: --shell completions: %v\n", binaryName, err)
+				return 1
 			}
 		case "init":
 			if err := shell.PrintInit(binaryName, shellArg); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: --shell init: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: --shell init: %v\n", binaryName, err)
+				return 1
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "%s: --shell: unknown subcommand %q\n", binaryName, shellCmd)
-			fmt.Fprintf(os.Stderr, "Run '%s --shell --help' for usage.\n", binaryName)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: --shell: unknown subcommand %q\n", binaryName, shellCmd)
+			fmt.Fprintf(stderr, "Run '%s --shell --help' for usage.\n", binaryName)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	// ── Service management ────────────────────────────────────────────────────
@@ -241,50 +251,50 @@ func main() {
 			service.PrintHelp(binaryName)
 		case "start":
 			if err := service.Start(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service start: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service start: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Service started.\n")
+			fmt.Fprintf(stdout, "Service started.\n")
 		case "stop":
 			if err := service.Stop(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service stop: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service stop: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Service stopped.\n")
+			fmt.Fprintf(stdout, "Service stopped.\n")
 		case "restart":
 			if err := service.Restart(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service restart: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service restart: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Service restarted.\n")
+			fmt.Fprintf(stdout, "Service restarted.\n")
 		case "reload":
 			if err := service.Reload(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service reload: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service reload: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Service reloaded.\n")
+			fmt.Fprintf(stdout, "Service reloaded.\n")
 		case "--install":
 			if err := service.Install(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service install: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service install: %v\n", binaryName, err)
+				return 1
 			}
 		case "--disable":
 			if err := service.Disable(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service disable: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service disable: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Service disabled.\n")
+			fmt.Fprintf(stdout, "Service disabled.\n")
 		case "--uninstall":
 			if err := service.Uninstall(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: service uninstall: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: service uninstall: %v\n", binaryName, err)
+				return 1
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "%s: unknown --service subcommand: %s\n", binaryName, serviceCmd)
-			fmt.Fprintf(os.Stderr, "Run '%s --service --help' for usage.\n", binaryName)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: unknown --service subcommand: %s\n", binaryName, serviceCmd)
+			fmt.Fprintf(stderr, "Run '%s --service --help' for usage.\n", binaryName)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	// ── Maintenance operations ────────────────────────────────────────────────
@@ -308,49 +318,49 @@ func main() {
 				Filename:   maintenanceArg, // optional custom filename
 			}
 			if err := maintenance.Backup(opts); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: maintenance backup: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: maintenance backup: %v\n", binaryName, err)
+				return 1
 			}
 		case "restore":
 			if maintenanceArg == "" {
-				fmt.Fprintf(os.Stderr, "%s: --maintenance restore requires a filename argument\n", binaryName)
-				fmt.Fprintf(os.Stderr, "Usage: %s --maintenance restore <backup-file>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "%s: --maintenance restore requires a filename argument\n", binaryName)
+				fmt.Fprintf(stderr, "Usage: %s --maintenance restore <backup-file>\n", binaryName)
+				return 2
 			}
 			if err := maintenance.Restore(maintenanceArg, mcConfigDir, mcDataDir, ""); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: maintenance restore: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: maintenance restore: %v\n", binaryName, err)
+				return 1
 			}
-			return
+			return 0
 		case "update":
 			// Alias for --update yes: handled by the update block below.
 			updateCmd = "yes"
 		case "mode":
 			if maintenanceArg == "" {
-				fmt.Fprintf(os.Stderr, "%s: --maintenance mode requires a mode argument\n", binaryName)
-				fmt.Fprintf(os.Stderr, "Usage: %s --maintenance mode <production|development>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "%s: --maintenance mode requires a mode argument\n", binaryName)
+				fmt.Fprintf(stderr, "Usage: %s --maintenance mode <production|development>\n", binaryName)
+				return 2
 			}
 			if err := maintenance.SetMode(mcConfigDir, maintenanceArg); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: maintenance mode: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: maintenance mode: %v\n", binaryName, err)
+				return 1
 			}
-			return
+			return 0
 		case "setup":
 			if err := maintenance.Setup(mcConfigDir); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: maintenance setup: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: maintenance setup: %v\n", binaryName, err)
+				return 1
 			}
-			return
+			return 0
 		default:
-			fmt.Fprintf(os.Stderr, "%s: unknown --maintenance subcommand: %s\n", binaryName, maintenanceCmd)
-			fmt.Fprintf(os.Stderr, "Run '%s --maintenance --help' for usage.\n", binaryName)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: unknown --maintenance subcommand: %s\n", binaryName, maintenanceCmd)
+			fmt.Fprintf(stderr, "Run '%s --maintenance --help' for usage.\n", binaryName)
+			return 2
 		}
-		// All maintenance subcommands exit here except "update" which falls
+		// All maintenance subcommands return here except "update" which falls
 		// through to the --update block below.
 		if maintenanceCmd != "update" {
-			return
+			return 0
 		}
 	}
 
@@ -359,7 +369,7 @@ func main() {
 	if updateCmd != "" {
 		switch {
 		case updateCmd == "--help":
-			fmt.Printf(`Update: %s --update [command]
+			fmt.Fprintf(stdout, `Update: %s --update [command]
 
 Commands:
   check              Check for updates without installing
@@ -371,71 +381,71 @@ Examples:
   %s --update yes
   %s --update branch beta
 `, binaryName, binaryName, binaryName, binaryName)
-			return
+			return 0
 
 		case updateCmd == "check":
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			rel, err := updater.CheckForUpdate(ctx, Version, "stable")
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: update check: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: update check: %v\n", binaryName, err)
+				return 1
 			}
 			if rel == nil {
-				fmt.Printf("%s is up to date (%s).\n", binaryName, Version)
+				fmt.Fprintf(stdout, "%s is up to date (%s).\n", binaryName, Version)
 			} else {
-				fmt.Printf("Update available: %s → %s\n", Version, rel.TagName)
-				fmt.Printf("Run '%s --update yes' to install.\n", binaryName)
+				fmt.Fprintf(stdout, "Update available: %s → %s\n", Version, rel.TagName)
+				fmt.Fprintf(stdout, "Run '%s --update yes' to install.\n", binaryName)
 			}
-			return
+			return 0
 
 		case updateCmd == "yes":
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 			rel, err := updater.CheckForUpdate(ctx, Version, "stable")
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: update check: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: update check: %v\n", binaryName, err)
+				return 1
 			}
 			if rel == nil {
-				fmt.Printf("%s is already up to date (%s).\n", binaryName, Version)
-				return
+				fmt.Fprintf(stdout, "%s is already up to date (%s).\n", binaryName, Version)
+				return 0
 			}
-			fmt.Printf("Downloading %s %s…\n", binaryName, rel.TagName)
+			fmt.Fprintf(stdout, "Downloading %s %s…\n", binaryName, rel.TagName)
 			if err := updater.DoUpdate(ctx, rel); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: update failed: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Update installed. Restarting…\n")
+			fmt.Fprintf(stdout, "Update installed. Restarting…\n")
 			if err := updater.RestartSelf(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: restart failed: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: restart failed: %v\n", binaryName, err)
+				return 1
 			}
-			return
+			return 0
 
 		case strings.HasPrefix(updateCmd, "branch"):
 			parts := strings.Fields(updateCmd)
 			if len(parts) < 2 {
-				fmt.Fprintf(os.Stderr, "Usage: %s --update branch <stable|beta|daily>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s --update branch <stable|beta|daily>\n", binaryName)
+				return 2
 			}
 			branch := parts[1]
 			switch branch {
 			case "stable", "beta", "daily":
-				fmt.Printf("Update branch set to: %s\n", branch)
+				fmt.Fprintf(stdout, "Update branch set to: %s\n", branch)
 				// Branch preference is informational here; the actual setting
 				// lives in the config file. Full config integration is handled
 				// via the admin UI / config file.
 			default:
-				fmt.Fprintf(os.Stderr, "%s: unknown branch: %s (use stable|beta|daily)\n", binaryName, branch)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "%s: unknown branch: %s (use stable|beta|daily)\n", binaryName, branch)
+				return 2
 			}
-			return
+			return 0
 
 		default:
-			fmt.Fprintf(os.Stderr, "%s: unknown --update subcommand: %s\n", binaryName, updateCmd)
-			fmt.Fprintf(os.Stderr, "Run '%s --update --help' for usage.\n", binaryName)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: unknown --update subcommand: %s\n", binaryName, updateCmd)
+			fmt.Fprintf(stderr, "Run '%s --update --help' for usage.\n", binaryName)
+			return 2
 		}
 	}
 
@@ -452,23 +462,23 @@ Examples:
 		switch emailCmd {
 		case "test":
 			if emailTo == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s --email test <address>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s --email test <address>\n", binaryName)
+				return 2
 			}
 			if err := m.TestSMTP(); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: SMTP test failed: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: SMTP test failed: %v\n", binaryName, err)
+				return 1
 			}
 			if err := m.Send(emailTo, "test", nil); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: send failed: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: send failed: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Test email sent to %s\n", emailTo)
+			fmt.Fprintf(stdout, "Test email sent to %s\n", emailTo)
 		default:
-			fmt.Fprintf(os.Stderr, "%s: unknown --email subcommand: %s\n", binaryName, emailCmd)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: unknown --email subcommand: %s\n", binaryName, emailCmd)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	// ── Scheduler CLI ─────────────────────────────────────────────────────────
@@ -481,8 +491,8 @@ Examples:
 		}
 		scDB, err := database.NewDatabase(scCfg.Database.Type, scCfg.Database.Path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: scheduler: database: %v\n", binaryName, err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "%s: scheduler: database: %v\n", binaryName, err)
+			return 1
 		}
 		defer scDB.Close()
 
@@ -490,11 +500,11 @@ Examples:
 		case "list":
 			tasks, err := scDB.ListSchedulerTasks()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler list: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler list: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("%-20s %-16s %-12s %-20s %-20s\n", "ID", "SCHEDULE", "STATUS", "LAST RUN", "NEXT RUN")
-			fmt.Printf("%-20s %-16s %-12s %-20s %-20s\n",
+			fmt.Fprintf(stdout, "%-20s %-16s %-12s %-20s %-20s\n", "ID", "SCHEDULE", "STATUS", "LAST RUN", "NEXT RUN")
+			fmt.Fprintf(stdout, "%-20s %-16s %-12s %-20s %-20s\n",
 				"--------------------", "----------------", "------------",
 				"--------------------", "--------------------")
 			for _, t := range tasks {
@@ -513,19 +523,19 @@ Examples:
 				if !t.NextRun.IsZero() && t.Enabled {
 					nextRun = t.NextRun.Format("2006-01-02 15:04:05")
 				}
-				fmt.Printf("%-20s %-16s %-12s %-20s %-20s\n",
+				fmt.Fprintf(stdout, "%-20s %-16s %-12s %-20s %-20s\n",
 					t.TaskID, t.Schedule, enabled, lastRun, nextRun)
 			}
 
 		case "show":
 			if schedulerArg == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s scheduler show <id>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s scheduler show <id>\n", binaryName)
+				return 2
 			}
 			t, err := scDB.GetSchedulerTask(schedulerArg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler show: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler show: %v\n", binaryName, err)
+				return 1
 			}
 			enabled := "no"
 			if t.Enabled {
@@ -539,27 +549,27 @@ Examples:
 			if !t.NextRun.IsZero() {
 				nextRun = t.NextRun.Format(time.RFC3339)
 			}
-			fmt.Printf("ID:          %s\n", t.TaskID)
-			fmt.Printf("Name:        %s\n", t.TaskName)
-			fmt.Printf("Schedule:    %s\n", t.Schedule)
-			fmt.Printf("Enabled:     %s\n", enabled)
-			fmt.Printf("Status:      %s\n", t.LastStatus)
-			fmt.Printf("Last Run:    %s\n", lastRun)
-			fmt.Printf("Next Run:    %s\n", nextRun)
-			fmt.Printf("Run Count:   %d\n", t.RunCount)
-			fmt.Printf("Fail Count:  %d\n", t.FailCount)
+			fmt.Fprintf(stdout, "ID:          %s\n", t.TaskID)
+			fmt.Fprintf(stdout, "Name:        %s\n", t.TaskName)
+			fmt.Fprintf(stdout, "Schedule:    %s\n", t.Schedule)
+			fmt.Fprintf(stdout, "Enabled:     %s\n", enabled)
+			fmt.Fprintf(stdout, "Status:      %s\n", t.LastStatus)
+			fmt.Fprintf(stdout, "Last Run:    %s\n", lastRun)
+			fmt.Fprintf(stdout, "Next Run:    %s\n", nextRun)
+			fmt.Fprintf(stdout, "Run Count:   %d\n", t.RunCount)
+			fmt.Fprintf(stdout, "Fail Count:  %d\n", t.FailCount)
 			if t.LastError != "" {
-				fmt.Printf("Last Error:  %s\n", t.LastError)
+				fmt.Fprintf(stdout, "Last Error:  %s\n", t.LastError)
 			}
 
 		case "run":
 			if schedulerArg == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s scheduler run <id>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s scheduler run <id>\n", binaryName)
+				return 2
 			}
 			if scCfg.Server.Token == "" {
-				fmt.Fprintf(os.Stderr, "%s: scheduler run: server.token not set in config; cannot authenticate\n", binaryName)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler run: server.token not set in config; cannot authenticate\n", binaryName)
+				return 1
 			}
 			// Triggering a task requires the server to be running — send an
 			// authenticated POST to the scheduler API (PART 18).
@@ -580,62 +590,62 @@ Examples:
 			req, reqErr := newHTTPRequest(ctx, "POST",
 				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/run", nil)
 			if reqErr != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler run: %v\n", binaryName, reqErr)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler run: %v\n", binaryName, reqErr)
+				return 1
 			}
 			req.Header.Set("Authorization", "Bearer "+scCfg.Server.Token)
 			resp, doErr := doHTTP(req)
 			if doErr != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler run: %v\n", binaryName, doErr)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler run: %v\n", binaryName, doErr)
+				return 1
 			}
 			resp.Body.Close()
 			if resp.StatusCode >= 400 {
-				fmt.Fprintf(os.Stderr, "%s: scheduler run: server returned %s\n", binaryName, resp.Status)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler run: server returned %s\n", binaryName, resp.Status)
+				return 1
 			}
-			fmt.Printf("Task %s triggered.\n", schedulerArg)
+			fmt.Fprintf(stdout, "Task %s triggered.\n", schedulerArg)
 
 		case "enable":
 			if schedulerArg == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s scheduler enable <id>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s scheduler enable <id>\n", binaryName)
+				return 2
 			}
 			// enable/disable write to the DB directly — no running server needed.
 			if err := scDB.SetTaskEnabled(schedulerArg, true); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler enable: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler enable: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Task %s enabled.\n", schedulerArg)
+			fmt.Fprintf(stdout, "Task %s enabled.\n", schedulerArg)
 
 		case "disable":
 			if schedulerArg == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s scheduler disable <id>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s scheduler disable <id>\n", binaryName)
+				return 2
 			}
 			// enable/disable write to the DB directly — no running server needed.
 			if err := scDB.SetTaskEnabled(schedulerArg, false); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler disable: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler disable: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Task %s disabled.\n", schedulerArg)
+			fmt.Fprintf(stdout, "Task %s disabled.\n", schedulerArg)
 
 		case "history":
 			if schedulerArg == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s scheduler history <id>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s scheduler history <id>\n", binaryName)
+				return 2
 			}
 			history, err := scDB.ListTaskHistory(schedulerArg, 20)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: scheduler history: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: scheduler history: %v\n", binaryName, err)
+				return 1
 			}
 			if len(history) == 0 {
-				fmt.Printf("No history for task %q.\n", schedulerArg)
+				fmt.Fprintf(stdout, "No history for task %q.\n", schedulerArg)
 			} else {
-				fmt.Printf("%-24s %-24s %-10s %-10s %s\n",
+				fmt.Fprintf(stdout, "%-24s %-24s %-10s %-10s %s\n",
 					"STARTED", "FINISHED", "STATUS", "DURATION", "ERROR")
-				fmt.Printf("%-24s %-24s %-10s %-10s %s\n",
+				fmt.Fprintf(stdout, "%-24s %-24s %-10s %-10s %s\n",
 					"------------------------", "------------------------",
 					"----------", "----------", "-----")
 				for _, h := range history {
@@ -644,7 +654,7 @@ Examples:
 					if errStr == "" {
 						errStr = "-"
 					}
-					fmt.Printf("%-24s %-24s %-10s %-10s %s\n",
+					fmt.Fprintf(stdout, "%-24s %-24s %-10s %-10s %s\n",
 						h.StartedAt.Format("2006-01-02 15:04:05"),
 						h.FinishedAt.Format("2006-01-02 15:04:05"),
 						h.Status, dur, errStr)
@@ -652,11 +662,11 @@ Examples:
 			}
 
 		default:
-			fmt.Fprintf(os.Stderr, "%s: unknown scheduler subcommand: %s\n", binaryName, schedulerCmd)
-			fmt.Fprintf(os.Stderr, "Usage: %s scheduler {list|show|run|enable|disable|history} [id]\n", binaryName)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: unknown scheduler subcommand: %s\n", binaryName, schedulerCmd)
+			fmt.Fprintf(stderr, "Usage: %s scheduler {list|show|run|enable|disable|history} [id]\n", binaryName)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	// ── Token management CLI ──────────────────────────────────────────────────
@@ -669,8 +679,8 @@ Examples:
 		}
 		tkDB, err := database.NewDatabase(tkCfg.Database.Type, tkCfg.Database.Path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: token: database: %v\n", binaryName, err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "%s: token: database: %v\n", binaryName, err)
+			return 1
 		}
 		defer tkDB.Close()
 
@@ -678,15 +688,15 @@ Examples:
 		case "list":
 			tokens, err := tkDB.ListAPITokens()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: token list: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: token list: %v\n", binaryName, err)
+				return 1
 			}
 			if len(tokens) == 0 {
-				fmt.Println("No active tokens.")
+				fmt.Fprintln(stdout, "No active tokens.")
 			} else {
-				fmt.Printf("%-14s %-8s %-14s %-24s %-24s\n",
+				fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
 					"PREFIX", "TYPE", "RESOURCE", "CREATED", "EXPIRES")
-				fmt.Printf("%-14s %-8s %-14s %-24s %-24s\n",
+				fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
 					"--------------", "--------", "--------------",
 					"------------------------", "------------------------")
 				for _, t := range tokens {
@@ -694,7 +704,7 @@ Examples:
 					if t.ExpiresAt != nil {
 						expires = t.ExpiresAt.Format("2006-01-02 15:04:05")
 					}
-					fmt.Printf("%-14s %-8s %-14s %-24s %-24s\n",
+					fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
 						t.TokenPrefix, t.ResourceType, t.ResourceID,
 						t.CreatedAt.Format("2006-01-02 15:04:05"), expires)
 				}
@@ -702,21 +712,21 @@ Examples:
 
 		case "revoke":
 			if tokenArg == "" {
-				fmt.Fprintf(os.Stderr, "Usage: %s token revoke <prefix>\n", binaryName)
-				os.Exit(2)
+				fmt.Fprintf(stderr, "Usage: %s token revoke <prefix>\n", binaryName)
+				return 2
 			}
 			if err := tkDB.RevokeAPIToken(tokenArg, "revoked via CLI"); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: token revoke: %v\n", binaryName, err)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "%s: token revoke: %v\n", binaryName, err)
+				return 1
 			}
-			fmt.Printf("Token %s revoked.\n", tokenArg)
+			fmt.Fprintf(stdout, "Token %s revoked.\n", tokenArg)
 
 		default:
-			fmt.Fprintf(os.Stderr, "%s: unknown token subcommand: %s\n", binaryName, tokenCmd)
-			fmt.Fprintf(os.Stderr, "Usage: %s token {list|revoke} [prefix]\n", binaryName)
-			os.Exit(2)
+			fmt.Fprintf(stderr, "%s: unknown token subcommand: %s\n", binaryName, tokenCmd)
+			fmt.Fprintf(stderr, "Usage: %s token {list|revoke} [prefix]\n", binaryName)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	// ── Daemon ────────────────────────────────────────────────────────────────
@@ -801,12 +811,12 @@ Examples:
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(probeURL)
 		if err != nil || resp.StatusCode >= 500 {
-			fmt.Fprintf(os.Stderr, "%s: unhealthy — %v\n", binaryName, err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "%s: unhealthy — %v\n", binaryName, err)
+			return 1
 		}
 		resp.Body.Close()
-		fmt.Printf("%s: healthy (port %s)\n", binaryName, port)
-		return
+		fmt.Fprintf(stdout, "%s: healthy (port %s)\n", binaryName, port)
+		return 0
 	}
 
 	// ── Load config ───────────────────────────────────────────────────────────
@@ -903,7 +913,7 @@ Examples:
 		}
 		b, _ := db.DeleteBurnedPastes()
 		log.Printf("deleted %d expired + %d burned pastes", n, b)
-		return
+		return 0
 	}
 
 	// ── Background scheduler ──────────────────────────────────────────────────
@@ -1030,10 +1040,11 @@ Examples:
 		if err := service.RunAsWindowsService(appName, runServer); err != nil {
 			log.Fatalf("windows service: %v", err)
 		}
-		return
+		return 0
 	}
 
 	runServer()
+	return 0
 }
 
 // normalizeArgs converts single-dash long flags (-flag) to double-dash (--flag)
@@ -1070,8 +1081,9 @@ func applyColor(v string) {
 	// "auto" or empty: leave NO_COLOR as-is
 }
 
-func printHelp(name string) {
-	fmt.Printf(`%s %s - a fast, public pastebin service
+// printHelp writes usage information to w.
+func printHelp(w io.Writer, name string) {
+	fmt.Fprintf(w, `%s %s - a fast, public pastebin service
 
 Usage:
   %s [flags]

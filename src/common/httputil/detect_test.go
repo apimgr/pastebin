@@ -134,3 +134,40 @@ func TestIsNonInteractiveClient(t *testing.T) {
 		}
 	}
 }
+
+// TestWithTxtExtension_SetsContextFlag verifies that WithTxtExtension marks the
+// request context so that GetAPIResponseFormat returns "text" even when the URL
+// has no .txt suffix (covers the hasTxtExtension(r) true-return path).
+func TestWithTxtExtension_SetsContextFlag(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	r2 := WithTxtExtension(r)
+	got := GetAPIResponseFormat(r2)
+	if got != "text" {
+		t.Errorf("GetAPIResponseFormat with TxtExtension context = %q, want %q", got, "text")
+	}
+}
+
+// TestGetAPIResponseFormat_AcceptJSON covers the Accept: application/json branch
+// which forces JSON even for HTTP tools that would normally receive plain text.
+func TestGetAPIResponseFormat_AcceptJSON(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)
+	r.Header.Set("Accept", "application/json")
+	r.Header.Set("User-Agent", "curl/7.68.0")
+	got := GetAPIResponseFormat(r)
+	if got != "json" {
+		t.Errorf("Accept: application/json: got %q, want %q", got, "json")
+	}
+}
+
+// TestGetAPIResponseFormat_AcceptTextPlain covers the Accept: text/plain branch
+// which forces plain text even for interactive browsers.
+func TestGetAPIResponseFormat_AcceptTextPlain(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)
+	r.Header.Set("Accept", "text/plain")
+	r.Header.Set("User-Agent", "Mozilla/5.0")
+	got := GetAPIResponseFormat(r)
+	if got != "text" {
+		t.Errorf("Accept: text/plain: got %q, want %q", got, "text")
+	}
+}

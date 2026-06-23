@@ -362,3 +362,25 @@ func TestJSBundle(t *testing.T) {
 		t.Error("JSBundle(unsupported) did not fall back to English")
 	}
 }
+
+// TestToString_FloatValue covers the default (json.Marshal) branch of the
+// private toString helper, which is triggered by any non-string, non-int value.
+func TestToString_FloatValue(t *testing.T) {
+	got := toString(3.14)
+	if got != "3.14" {
+		t.Errorf("toString(3.14) = %q, want %q", got, "3.14")
+	}
+}
+
+// TestTranslatePlural_FallbackPath covers the "try other as fallback" branch:
+// when the primary plural form key (e.g. "nonexistent.one") is not found,
+// the code falls back to "nonexistent.other". Neither key exists so the key
+// itself is returned — but all three fallback stmts are executed.
+func TestTranslatePlural_FallbackPath(t *testing.T) {
+	got := TranslatePlural("en", "nonexistent.key", 1)
+	// "nonexistent.key.one" does not exist → falls back to "nonexistent.key.other"
+	// which also does not exist → returns the key as-is (no panic).
+	if got == "" {
+		t.Error("TranslatePlural with nonexistent key returned empty string")
+	}
+}
