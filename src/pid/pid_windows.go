@@ -3,24 +3,27 @@
 package pid
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/windows"
 )
 
-// isProcessRunning uses GetExitCodeProcess to determine whether the process
-// is still alive (Windows).
+// stillActive is the Windows exit code returned by GetExitCodeProcess when
+// the process has not yet terminated (STILL_ACTIVE = 259 = 0x103).
+const stillActive = 259
+
+// isProcessRunning opens a query handle for pid and calls GetExitCodeProcess.
+// Returns true only when the process exists and its exit code is STILL_ACTIVE.
 func isProcessRunning(pid int) bool {
-	process, err := os.FindProcess(pid)
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	handle := windows.Handle(uintptr(process.Pid))
+	defer windows.CloseHandle(handle) //nolint:errcheck
 	var exitCode uint32
 	err = windows.GetExitCodeProcess(handle, &exitCode)
-	return err == nil && exitCode == windows.STILL_ACTIVE
+	return err == nil && exitCode == stillActive
 }
 
 // isOurProcess uses QueryFullProcessImageName to verify the running process
