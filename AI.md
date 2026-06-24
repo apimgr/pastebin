@@ -713,15 +713,16 @@ Every project ships workflow files for all five CI/CD providers. Same gates, dif
 
 **Workflow creation order — not all workflows carry the same risk:**
 1. **Security-only workflows** (secret scan, SHA/digest policy, dependency audit) — no build dependency; safe to add anytime
-2. **`build-toolchain.yml`** (`:build` image) — add once `docker/Dockerfile.build` builds successfully locally; required by all subsequent workflows
-3. **`ci.yml` and `release.yml`** — add **last**, only after all code is complete, `make test` passes, and the lint gate is clean; these trigger a full build on push and will fail immediately if the code is not ready
+2. **`ci.yml` and `release.yml`** — add **last**, only after all code is complete, `make test` passes, and the lint gate is clean; these trigger a full build on push and will fail immediately if the code is not ready
+
+Go projects never have `build-toolchain.yml` — `casjaysdev/go:latest` is maintained externally and needs no per-project rebuild workflow.
 
 | Provider | Workflow location | Syntax |
 |----------|------------------|--------|
-| GitHub  | `.github/workflows/ci.yml` / `release.yml` / `build-toolchain.yml` | GitHub Actions |
+| GitHub  | `.github/workflows/ci.yml` / `release.yml` | GitHub Actions |
 | GitLab | `.gitlab-ci.yml` | GitLab CI (stages: build, test, security, release) |
-| Gitea   | `.gitea/workflows/ci.yml` / `release.yml` / `build-toolchain.yml` | GitHub Actions (act runner) |
-| Forgejo | `.forgejo/workflows/ci.yml` / `release.yml` / `build-toolchain.yml` | GitHub Actions (act runner) |
+| Gitea   | `.gitea/workflows/ci.yml` / `release.yml` | GitHub Actions (act runner) |
+| Forgejo | `.forgejo/workflows/ci.yml` / `release.yml` | GitHub Actions (act runner) |
 | Jenkins | `Jenkinsfile` | Declarative Pipeline |
 
 **`security` job conditionality (applies to all providers):**
@@ -731,8 +732,8 @@ Every project ships workflow files for all five CI/CD providers. Same gates, dif
 - `image-scan` (Trivy) — conditional on Dockerfile present; runs after image build
 
 **GitHub Actions job ordering (`needs:`):**
-- `ci.yml`: `ensure-build-image` first → `lint`, `test`, `secret-scan`, `workflow-policy`, `vuln-scan` in parallel (all need ensure-build-image) → `build` (needs lint + test) → `coverage`, `image-scan`, `upload-artifacts` (need build); security jobs also run on weekly schedule via `if:` conditions
-- `release.yml`: `ensure-build-image` → `build` → `release` (needs: build)
+- `ci.yml`: `lint`, `test`, `secret-scan`, `workflow-policy`, `vuln-scan` in parallel → `build` (needs lint + test) → `coverage`, `image-scan`, `upload-artifacts` (need build); all jobs run inside `container: image: casjaysdev/go:latest`; security jobs also run on weekly schedule via `if:` conditions
+- `release.yml`: `build` → `release` (needs: build); all build jobs run inside `container: image: casjaysdev/go:latest`
 - Cross-workflow ordering via branch protection; never `workflow_run`
 
 **GitLab CI**: security jobs run in the `security` stage (parallel by default in the same stage). Release stage has `rules: - if: $CI_COMMIT_TAG`.
@@ -1909,7 +1910,7 @@ Instructions for how this agent should behave...
   - `.github/PULL_REQUEST_TEMPLATE.md`
   - `.github/workflows/ci.yml`
   - `.github/workflows/release.yml`
-  - `.github/workflows/build-toolchain.yml`
+  - `.github/workflows/ci.yml` and `.github/workflows/release.yml` (never `build-toolchain.yml` — Go projects use `casjaysdev/go:latest` directly)
 - These files are templates/project policy files: define them once in the template, then update them to match the actual project
 - `FUNDING.yml` remains optional
 
@@ -5559,35 +5560,10 @@ name: License Check
 on: [push, pull_request]
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   check-licenses:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
@@ -5615,9 +5591,9 @@ set -eo pipefail
 
 echo "Checking for incompatible licenses..."
 
-# Require go-licenses — never install inline. It is pre-installed in docker/Dockerfile.build.
+# Require go-licenses — it is pre-installed in casjaysdev/go:latest; never install inline.
 command -v go-licenses >/dev/null 2>&1 || {
-    echo "ERROR: go-licenses not found — run inside the project build image (docker/Dockerfile.build)"
+    echo "ERROR: go-licenses not found — run inside casjaysdev/go:latest"
     exit 1
 }
 
@@ -5936,7 +5912,6 @@ PROJECTORG=$(git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(
 ├── docker/                 # Docker files
 │   ├── Dockerfile          # Production Dockerfile
 │   ├── Dockerfile.dev      # devel image — same as release but binary runs in debug mode; tagged :devel (project-specific)
-│   ├── Dockerfile.build    # toolchain image — casjaysdev/go:latest + all build/test/lint/scan tools; built monthly; tagged :build   (project-specific)
 │   ├── docker-compose.yml  # Production compose (NO debug)
 │   ├── docker-compose.dev.yml  # Development compose
 │   ├── docker-compose.test.yml # Test compose (DEBUG=true)
@@ -30705,7 +30680,6 @@ Docker build/runtime definitions are split between `docker/` and runtime `./volu
 docker/
 ├── Dockerfile              # Production Dockerfile
 ├── Dockerfile.dev          # devel image — same as release but binary runs in debug mode; tagged :devel (project-specific)
-├── Dockerfile.build        # toolchain image — casjaysdev/go:latest + all build/test/lint/scan tools; built monthly; tagged :build   (project-specific)
 ├── docker-compose.yml      # Production compose - HUMAN USE ONLY
 ├── docker-compose.dev.yml  # Development compose - HUMAN USE ONLY
 ├── docker-compose.test.yml # Test compose - AI/AUTOMATED TESTING ONLY
@@ -32129,9 +32103,7 @@ networks:
 | `beta.yml` | Push to `beta` branch | Beta releases |
 | `daily.yml` | Daily at 3am UTC + push to main/master | Daily builds |
 | `docker.yml` | Version tag, push to main/master/beta | Docker images |
-| `build-toolchain.yml` | Monthly cron (1st @ 04:00 UTC) + `workflow_dispatch` | Rebuild and push `docker/Dockerfile.build` as `:build` |
-
-> **Note:** `ci.yml`, `release.yml`, and `build-toolchain.yml` are required on every project. `beta.yml`, `daily.yml`, and `docker.yml` are project-specific optional workflows — include only when the project requires them.
+> **Note:** `ci.yml` and `release.yml` are required on every project. Go projects never have `build-toolchain.yml` — `casjaysdev/go:latest` is maintained externally. `beta.yml`, `daily.yml`, and `docker.yml` are project-specific optional workflows — include only when the project requires them.
 
 **Branch push auto-cancel policy:** Any workflow triggered by pushes to `main`, `master`, `devel`, `dev`, or `beta` MUST use workflow concurrency to cancel older in-progress runs for the same ref. This applies to branch-based CI (for example `beta.yml`, `daily.yml`, `docker.yml`, and any project-specific branch-push workflow).
 
@@ -32154,11 +32126,7 @@ All workflows MUST set these environment variables:
 
 **File:** `.github/workflows/ci.yml`
 
-Runs on push and pull requests; security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`, `image-scan`) also run on the weekly schedule. Uses the project's toolchain image (`docker/Dockerfile.build`) — never installs tools inline. The `ensure-build-image` job is the gate: every downstream job `needs: ensure-build-image` and runs inside `${{ needs.ensure-build-image.outputs.image }}`.
-
-CI workflows pull the toolchain image — they never build it inline. If the image is absent, `ensure-build-image` fails immediately with an actionable error pointing the operator to `build-toolchain.yml`.
-
-**Bootstrap order** — when adding `docker/Dockerfile.build` for the first time: commit only `docker/Dockerfile.build` → trigger `build-toolchain.yml` via `workflow_dispatch` → verify image in registry → then commit `ci.yml` and `release.yml`.
+Runs on push and pull requests; security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`, `image-scan`) also run on the weekly schedule. All jobs run inside `container: image: casjaysdev/go:latest` — never installs tools inline. No `ensure-build-image` gate, no `build-toolchain.yml`.
 
 ```yaml
 name: CI
@@ -32177,46 +32145,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   lint:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - run: go vet ./...
       - run: staticcheck ./...
 
   test:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     env:
       CGO_ENABLED: "0"
     steps:
@@ -32237,10 +32178,10 @@ jobs:
           fi
 
   build:
-    needs: [ensure-build-image, test]
+    needs: [lint, test]
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     env:
       CGO_ENABLED: "0"
     steps:
@@ -32248,64 +32189,15 @@ jobs:
       - run: go build -buildvcs=false ./...
 
   vuln-check:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - run: govulncheck ./...
 ```
 
-> **Note:** Security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`, `image-scan`) are defined within `ci.yml` with `needs: ensure-build-image`. They run on push, PR, and weekly schedule (`cron: '0 6 * * 1'`). Add `if: github.event_name != 'schedule'` to build/test/coverage/artifact jobs to skip non-security work on scheduled runs. Secret scanning is mandatory on every public repo via truffleHog (Apache-2.0). Use `github.event.before` / `github.event.after` for the scan range — never `default_branch`, which after a push resolves to the same commit as HEAD and silently skips the scan.
-
-## Build Toolchain Workflow (GitHub Actions)
-
-**File:** `.github/workflows/build-toolchain.yml`
-
-Builds and pushes the toolchain image tagged `:build`. Runs monthly so the toolchain stays current; also runnable on demand via `workflow_dispatch`. Push must NOT be cancelled mid-run — `cancel-in-progress: false`.
-
-```yaml
-name: Build Toolchain Image
-
-on:
-  schedule:
-    - cron: '0 4 1 * *'   # 1st of each month at 04:00 UTC
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  packages: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3  # v4.1.0
-
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
-
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
-        with:
-          context: .
-          file: docker/Dockerfile.build
-          platforms: linux/amd64,linux/arm64
-          push: true
-          provenance: false
-          tags: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build
-```
+> **Note:** Security jobs (`secret-scan`, `workflow-policy`, `vuln-scan`, `image-scan`) are defined within `ci.yml`. They run on push, PR, and weekly schedule (`cron: '0 6 * * 1'`). Add `if: github.event_name != 'schedule'` to build/test/coverage/artifact jobs to skip non-security work on scheduled runs. Secret scanning is mandatory on every public repo via truffleHog (Apache-2.0). Use `github.event.before` / `github.event.after` for the scan range — never `default_branch`, which after a push resolves to the same commit as HEAD and silently skips the scan.
 
 ## Release Workflow — Stable (GitHub Actions)
 
@@ -32331,35 +32223,10 @@ env:
   PROJECTNAME: {project_name}
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     strategy:
       matrix:
         include:
@@ -32506,35 +32373,10 @@ env:
   PROJECTNAME: {project_name}
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     strategy:
       matrix:
         include:
@@ -32673,35 +32515,10 @@ env:
   PROJECTNAME: {project_name}
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     strategy:
       matrix:
         include:
@@ -33145,35 +32962,10 @@ env:
   PROJECTNAME: {project_name}
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ${{ vars.REGISTRY }}
-          username: ${{ gitea.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="${{ vars.REGISTRY }}/${{ gitea.repository_owner }}/${{ gitea.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     strategy:
       matrix:
         include:
@@ -33320,35 +33112,10 @@ env:
   PROJECTNAME: {project_name}
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ${{ vars.REGISTRY }}
-          username: ${{ gitea.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="${{ vars.REGISTRY }}/${{ gitea.repository_owner }}/${{ gitea.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     strategy:
       matrix:
         include:
@@ -33473,35 +33240,10 @@ env:
   PROJECTNAME: {project_name}
 
 jobs:
-  ensure-build-image:
-    runs-on: ubuntu-latest
-    permissions:
-      packages: read
-    outputs:
-      image: ${{ steps.pull.outputs.image }}
-    steps:
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ${{ vars.REGISTRY }}
-          username: ${{ gitea.actor }}
-          password: ${{ secrets.GITEA_TOKEN }}
-      - id: pull
-        name: Pull build image (fail fast if missing)
-        run: |
-          IMAGE="${{ vars.REGISTRY }}/${{ gitea.repository_owner }}/${{ gitea.event.repository.name }}:build"
-          if ! docker pull "$IMAGE"; then
-            echo "::error::Build image $IMAGE not found."
-            echo "::error::Trigger the 'Build Toolchain Image' workflow (workflow_dispatch) to create it."
-            echo "::error::Never commit ci.yml or release.yml before the build image exists in the registry."
-            exit 1
-          fi
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: ensure-build-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.ensure-build-image.outputs.image }}
+      image: casjaysdev/go:latest
     strategy:
       matrix:
         include:
@@ -33927,10 +33669,8 @@ variables:
   CGO_ENABLED: "0"
   GOOS: linux
   GOARCH: amd64
-  # Toolchain image — pre-installs every build/test/lint/scan tool the project uses.
-  # Tools MUST live in docker/Dockerfile.build, not inline `apk add` / `go install` calls.
-  # $CI_REGISTRY_IMAGE resolves to the project registry path automatically on every GitLab instance.
-  BUILD_IMAGE: "$CI_REGISTRY_IMAGE:build"
+  # Go CI always uses casjaysdev/go:latest — never create docker/Dockerfile.build or build-toolchain.yml for Go.
+  BUILD_IMAGE: "casjaysdev/go:latest"
 
 stages:
   - build
@@ -33947,7 +33687,7 @@ stages:
   image: $BUILD_IMAGE
   before_script:
     # NOTE: all tooling (git, bash, govulncheck, cyclonedx-gomod, etc.) is pre-installed
-    # in docker/Dockerfile.build — never `apk add` or `go install` inside a CI job.
+    # in casjaysdev/go:latest — never `apk add` or `go install` inside a CI job.
     - export VERSION="${CI_COMMIT_TAG#v}"
     - export COMMIT_ID="${CI_COMMIT_SHORT_SHA}"
     - export BUILD_DATE="$(date +"%a %b %d, %Y at %H:%M:%S %Z")"
@@ -45246,8 +44986,8 @@ Implement the required client, then any project-specific optional features:
 
 - [ ] Docker builds successfully
 - [ ] Docker Compose files work (prod, dev, test)
-- [ ] `docker/Dockerfile.build` base is the official toolchain image (`casjaysdev/go:latest`); committed first before any CI workflow
-- [ ] `build-toolchain.yml` triggered via `workflow_dispatch`; build image verified in registry before committing `ci.yml`/`release.yml`
+- [ ] `docker/Dockerfile.build` does NOT exist — Go projects always use `casjaysdev/go:latest` directly; no custom toolchain image is ever needed
+- [ ] `ci.yml` and `release.yml` use `container: image: casjaysdev/go:latest` — no `ensure-build-image` pre-flight, no `build-toolchain.yml`
 - [ ] CI/CD workflows configured
 - [ ] Automated builds work
 - [ ] Multi-platform builds work (8 platforms)
