@@ -192,22 +192,24 @@ Read: AI.md PART 25, PART 6
 
 ---
 
-## [ ] Create GitHub Actions CI workflow (ci.yml)
+## [x] Create GitHub Actions CI workflow (ci.yml)
 Read: AI.md PART 27
 
-`.github/workflows/security.yml` is already committed. Next step is `ci.yml`. This project uses `casjaysdev/go:latest` as the standard build image — no custom toolchain image or `build-toolchain.yml` needed. Adapt the spec template to use `casjaysdev/go:latest` directly (no `ensure-build-image` gate required). Add only after all source code is complete and `make test` passes.
+Completed 2026-06-23. ci.yml rewritten to match spec exactly: checkout v7.0.0 SHA,
+build needs: [lint, test], vuln-scan renamed to vuln-check, if:!=schedule guards on
+non-security jobs, PROJECTNAME env var, secret-scan and workflow-policy included.
 
 ---
 
-## [ ] Create GitHub Actions release.yml and optional workflows
+## [x] Create GitHub Actions release.yml and optional workflows
 Read: AI.md PART 27
 
-Add after `ci.yml` is verified working:
-- `.github/workflows/release.yml` — stable releases on version tags
-- `.github/workflows/beta.yml` — optional, beta branch releases
-- `.github/workflows/daily.yml` — optional, daily builds
-- `.github/workflows/docker.yml` — optional, Docker image builds
-
-All use `casjaysdev/go:latest` directly. Pin all third-party Actions to full commit SHAs.
+Completed 2026-06-23. All workflows updated and created:
+- `.github/workflows/release.yml` — checkout v7 SHA, -trimpath, softprops SHA 718ea10b
+- `.github/workflows/security.yml` — checkout v7 SHA, vuln-scan → vuln-check
+- `.gitea/workflows/release.yml` — Gitea stable release (GITEA_ENV/GITEA_REF_NAME)
+- `.gitea/workflows/beta.yml` — Gitea beta branch release
+- `.gitea/workflows/daily.yml` — Gitea daily build with API delete of previous daily
+- `.gitea/workflows/docker.yml` — Gitea Docker image build (standard + aio)
 
 ---
