@@ -259,6 +259,35 @@ func TestParseBool(t *testing.T) {
 	}
 }
 
+// TestMustParseBool verifies that MustParseBool returns the correct boolean
+// for valid inputs and panics on unrecognised values (demonstrating that it
+// propagates the ParseBool error by panicking rather than returning it).
+func TestMustParseBool(t *testing.T) {
+	t.Run("truthy yes returns true", func(t *testing.T) {
+		if got := config.MustParseBool("yes", false); !got {
+			t.Error("MustParseBool('yes', false) must return true")
+		}
+	})
+	t.Run("falsy no returns false", func(t *testing.T) {
+		if got := config.MustParseBool("no", true); got {
+			t.Error("MustParseBool('no', true) must return false")
+		}
+	})
+	t.Run("empty string returns default true", func(t *testing.T) {
+		if got := config.MustParseBool("", true); !got {
+			t.Error("MustParseBool('', true) must return default true")
+		}
+	})
+	t.Run("invalid value panics", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("MustParseBool with invalid input must panic")
+			}
+		}()
+		config.MustParseBool("notabool", false)
+	})
+}
+
 // TestIsTruthyFalsy verifies the boolean predicate helpers.
 func TestIsTruthyFalsy(t *testing.T) {
 	if !config.IsTruthy("YES") || !config.IsTruthy("enable") {

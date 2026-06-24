@@ -217,5 +217,38 @@ func Routes() []Route {
 				200: {Description: "OpenAPI JSON spec", ContentType: "application/json"},
 			},
 		},
+		{
+			Method:      "POST",
+			Path:        "/api/v1/server/graphql",
+			Tag:         "server",
+			Summary:     "GraphQL endpoint",
+			Description: "Executes a GraphQL query or mutation. The interactive GraphiQL explorer is available at /server/docs/graphql.",
+			Body: &BodySpec{
+				Required:    true,
+				ContentType: "application/json",
+				Description: "GraphQL request with query and optional variables.",
+				Schema: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"query":     map[string]interface{}{"type": "string"},
+						"variables": map[string]interface{}{"type": "object"},
+					},
+					"required": []string{"query"},
+				},
+			},
+			Responses: map[int]ResponseSpec{
+				200: {
+					Description: "GraphQL response",
+					ContentType: "application/json",
+					Schema: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"data":   map[string]interface{}{"type": "object"},
+							"errors": map[string]interface{}{"type": "array"},
+						},
+					},
+				},
+			},
+		},
 	}
 }

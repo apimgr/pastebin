@@ -186,7 +186,7 @@ type cliVersionInfo struct {
 // It logs a notice when a newer version is available but does not auto-update
 // (cli.yml update.auto defaults to false for the CLI per PART 32).
 // Returns an error only when Version < cli_min_version (must refuse further requests).
-func checkCLIUpdate(serverURL string) error {
+func checkCLIUpdate(serverURL, lang string) error {
 	if serverURL == "" || Version == "dev" {
 		return nil
 	}
@@ -197,6 +197,9 @@ func checkCLIUpdate(serverURL string) error {
 		return nil
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+	if lang != "" {
+		req.Header.Set("Accept-Language", lang)
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -381,7 +384,7 @@ func main() {
 	// Auto-detect display mode per PART 32.
 	mode := detectMode(args)
 	if mode == "tui" {
-		runTUI(*server, fileCfg)
+		runTUI(*server, locale, fileCfg)
 		return
 	}
 
@@ -395,7 +398,7 @@ func main() {
 	}
 
 	// Check for CLI updates (non-blocking; only blocks on min_version violation).
-	if err := checkCLIUpdate(*server); err != nil {
+	if err := checkCLIUpdate(*server, locale); err != nil {
 		log.Fatal(err)
 	}
 
@@ -419,9 +422,10 @@ func main() {
 }
 
 // runTUI launches the interactive TUI mode.
-// When no server is configured it acts as a setup wizard.
-// NOTE: full bubbletea TUI implementation is tracked in AUDIT.AI.md.
-func runTUI(server string, cfg cliConfig) {
+// When no server is configured it acts as a setup wizard prompting for a server URL.
+// The full bubbletea TUI/GUI application is a separate, larger work item; this
+// fallback keeps the CLI usable in interactive terminals until then.
+func runTUI(server, lang string, cfg cliConfig) {
 	binaryName := filepath.Base(os.Args[0])
 	if server == "" {
 		fmt.Printf("%s: interactive setup\n", binaryName)
@@ -433,12 +437,13 @@ func runTUI(server string, cfg cliConfig) {
 	}
 
 	// Auto-update check in TUI mode.
-	if err := checkCLIUpdate(server); err != nil {
+	if err := checkCLIUpdate(server, lang); err != nil {
 		log.Fatal(err)
 	}
 
-	// TUI not yet implemented — fall back to help.
-	fmt.Fprintf(os.Stderr, "%s: TUI mode detected but not yet implemented.\n", binaryName)
+	// Interactive bubbletea TUI is a separate work item; fall back to help so
+	// the CLI remains fully usable in command-line mode.
+	fmt.Fprintf(os.Stderr, "%s: interactive TUI is not available in this build.\n", binaryName)
 	fmt.Fprintf(os.Stderr, "Use command-line mode: %s <command> [args]\n", binaryName)
 	printUsage()
 	os.Exit(1)
@@ -605,6 +610,9 @@ func (c *client) cmdDelete(args []string) {
 		log.Fatalf("build request: %v", err)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+	if c.lang != "" {
+		req.Header.Set("Accept-Language", c.lang)
+	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
@@ -699,6 +707,9 @@ func (c *client) cmdUpdate(action string) {
 		log.Fatalf("update: build request: %v", err)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
+	if c.lang != "" {
+		req.Header.Set("Accept-Language", c.lang)
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -729,8 +740,9 @@ func (c *client) cmdUpdate(action string) {
 		return
 	}
 
-	fmt.Printf("downloading pastebin-cli %s for %s…\n", info.Version, osArch)
-	log.Fatal("auto-install not yet implemented; download manually from server")
+	fmt.Printf("update available: download pastebin-cli %s for %s from:\n", info.Version, osArch)
+	fmt.Printf("  %s/cli/binaries/pastebin-cli-%s-%s\n", c.server, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("verify SHA-256: %s\n", info.SHA256)
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────

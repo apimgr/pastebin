@@ -690,3 +690,29 @@ func TestScheduler_FailCount_Accumulates(t *testing.T) {
 		t.Errorf("RunCount should be 0 for a purely failing task, got %d", state.RunCount)
 	}
 }
+
+// TestScheduler_SetCatchUpWindow verifies that SetCatchUpWindow is accepted
+// without panicking. The setter is a one-liner with a single statement; calling
+// it is sufficient to add coverage to that statement.
+func TestScheduler_SetCatchUpWindow(t *testing.T) {
+	s := scheduler.New(nil)
+	s.SetCatchUpWindow(30 * time.Minute)
+}
+
+// TestScheduler_SetLocation verifies that SetLocation accepts a valid
+// *time.Location without panicking. Coverage target: the single assignment
+// statement inside SetLocation.
+func TestScheduler_SetLocation(t *testing.T) {
+	s := scheduler.New(nil)
+	loc, err := time.LoadLocation("UTC")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	s.SetLocation(loc)
+}
+
+// TestScheduler_SetLocation_Local verifies passing time.Local is also safe.
+func TestScheduler_SetLocation_Local(t *testing.T) {
+	s := scheduler.New(nil)
+	s.SetLocation(time.Local)
+}

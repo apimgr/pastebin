@@ -452,10 +452,9 @@ func TestCmdList_DefaultQueryParams(t *testing.T) {
 	}
 }
 
-// ─── cmdUpdate — "yes" action path, update notice ────────────────────────────
-// cmdUpdate("yes") when an update is available eventually calls log.Fatal
-// ("auto-install not yet implemented").  We exercise the path up to that point
-// via a subprocess so the main test process does not exit.
+// ─── cmdUpdate — "check" action path, update notice ───────────────────────────
+// cmdUpdate("check") prints a run hint when a newer version is available and
+// returns without downloading, so it is safe to call in-process.
 
 func TestCmdUpdate_CheckAction_AvailableUpdate_PrintsRunHint(t *testing.T) {
 	orig := Version
@@ -549,7 +548,7 @@ func TestCheckCLIUpdate_SendsUserAgentHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	checkCLIUpdate(srv.URL)
+	checkCLIUpdate(srv.URL, "")
 
 	if gotUA != "pastebin-cli/2.1.0" {
 		t.Errorf("User-Agent = %q; want pastebin-cli/2.1.0", gotUA)
@@ -570,7 +569,7 @@ func TestCheckCLIUpdate_HitsAutodiscoverPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	checkCLIUpdate(srv.URL)
+	checkCLIUpdate(srv.URL, "")
 
 	if gotPath != "/api/autodiscover" {
 		t.Errorf("autodiscover path = %q; want /api/autodiscover", gotPath)

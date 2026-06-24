@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -71,44 +72,124 @@ func DetectServiceManager() ServiceType {
 	}
 }
 
-// Install installs the service for the detected service manager
+// Install installs the service for the detected service manager, then enables
+// and starts it (PART 23: --install installs, enables, and starts).
 func Install() error {
+	if !isPrivileged() {
+		return fmt.Errorf("installing a system service requires root; re-run with sudo: sudo %s --service --install", appName)
+	}
+
 	serviceType := DetectServiceManager()
 
+	var err error
 	switch serviceType {
 	case ServiceSystemd:
-		return installSystemd()
+		err = installSystemd()
 	case ServiceRunit:
-		return installRunit()
+		err = installRunit()
 	case ServiceLaunchd:
-		return installLaunchd()
+		err = installLaunchd()
 	case ServiceWindows:
-		return installWindows()
+		err = installWindows()
 	case ServiceBSDRC:
-		return installBSDRC()
+		err = installBSDRC()
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
+	if err != nil {
+		return err
+	}
+
+	// PART 23: --install also starts the service after installing and enabling.
+	if startErr := Start(); startErr != nil {
+		fmt.Printf("Service installed but failed to start automatically: %v\n", startErr)
+		return nil
+	}
+	fmt.Printf("%sService started.\n", ok())
+	return nil
 }
 
-// Uninstall removes the service
+// Uninstall stops, disables, and removes the service, then deletes all data,
+// configs, and the service user (PART 23 Service Uninstall Logic). A
+// confirmation prompt guards the destructive step.
 func Uninstall() error {
+	if !isPrivileged() {
+		return fmt.Errorf("uninstalling a system service requires root; re-run with sudo: sudo %s --service --uninstall", appName)
+	}
+
+	if !confirmDestructive() {
+		fmt.Println("Uninstall cancelled.")
+		return nil
+	}
+
 	serviceType := DetectServiceManager()
 
+	var err error
 	switch serviceType {
 	case ServiceSystemd:
-		return uninstallSystemd()
+		err = uninstallSystemd()
 	case ServiceRunit:
-		return uninstallRunit()
+		err = uninstallRunit()
 	case ServiceLaunchd:
-		return uninstallLaunchd()
+		err = uninstallLaunchd()
 	case ServiceWindows:
-		return uninstallWindows()
+		err = uninstallWindows()
 	case ServiceBSDRC:
-		return uninstallBSDRC()
+		err = uninstallBSDRC()
 	default:
 		return fmt.Errorf("unsupported service manager")
 	}
+	if err != nil {
+		return err
+	}
+
+	// PART 23: remove all data, configs, cache, logs, and the service user.
+	purgeData()
+
+	fmt.Printf("Service uninstalled. Delete binary manually: rm %s\n", GetBinaryPath())
+	return nil
+}
+
+// confirmDestructive prompts the operator before deleting all data and the
+// service user. Returns true only on an explicit "y"/"yes" answer.
+func confirmDestructive() bool {
+	fmt.Print("This will delete ALL data, configs, and the system user. Continue? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes"
+}
+
+// purgeData removes the application data, config, cache, and log directories
+// and the dedicated service user/group. Removal failures are reported but do
+// not abort the remaining cleanup.
+func purgeData() {
+	if runtime.GOOS == "windows" {
+		base := fmt.Sprintf(`C:\ProgramData\%s\%s`, orgName, appName)
+		if rmErr := os.RemoveAll(base); rmErr != nil && !os.IsNotExist(rmErr) {
+			fmt.Printf("Warning: could not remove %s: %v\n", base, rmErr)
+		}
+		return
+	}
+
+	dirs := []string{
+		fmt.Sprintf("/etc/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
+	}
+	for _, dir := range dirs {
+		if rmErr := os.RemoveAll(dir); rmErr != nil && !os.IsNotExist(rmErr) {
+			fmt.Printf("Warning: could not remove %s: %v\n", dir, rmErr)
+		}
+	}
+
+	// Remove the dedicated service user and group created during install.
+	exec.Command("userdel", serviceUser).Run()
+	exec.Command("groupdel", serviceUser).Run()
 }
 
 // GetBinaryPath returns the path where the binary should be installed

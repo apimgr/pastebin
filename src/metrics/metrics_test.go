@@ -162,3 +162,32 @@ func TestCollector_Middleware_RecordsRequest(t *testing.T) {
 		t.Errorf("status = %d, want 200", rr.Code)
 	}
 }
+
+// TestResponseWriter_Write verifies that the responseWriter.Write method
+// delegates to the underlying ResponseWriter and accumulates the byte count.
+// The Middleware wraps the recorder with a responseWriter; writing a body
+// exercises the Write method that was previously unreachable.
+func TestResponseWriter_Write(t *testing.T) {
+	c := New("1.0.0", "abc", "2024-01-01", time.Now(), "")
+
+	body := []byte("hello world")
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(body); err != nil {
+			t.Errorf("Write returned error: %v", err)
+		}
+	})
+
+	handler := c.Middleware()(inner)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if rr.Body.String() != string(body) {
+		t.Errorf("body = %q, want %q", rr.Body.String(), string(body))
+	}
+}

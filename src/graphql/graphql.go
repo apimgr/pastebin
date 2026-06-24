@@ -152,7 +152,7 @@ func (h *Handler) renderUI(r *http.Request) string {
     var result = document.getElementById('result');
     result.textContent = 'Running…';
     result.className = 'result-window';
-    fetch('/graphql', {
+    fetch('/api/graphql', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({query: query, variables: variables})

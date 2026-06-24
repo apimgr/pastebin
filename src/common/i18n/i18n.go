@@ -93,6 +93,19 @@ func IsSupported(lang string) bool {
 	return supportedLangs[strings.ToLower(strings.TrimSpace(lang))]
 }
 
+// Direction returns the text direction ("ltr" or "rtl") for the given language.
+// Reads meta.direction from the locale file; falls back to "ltr".
+func Direction(lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if !IsSupported(lang) {
+		lang = "en"
+	}
+	if val, ok := translations[lang]["meta.direction"]; ok && val == "rtl" {
+		return "rtl"
+	}
+	return "ltr"
+}
+
 // Translate returns the translated string for the given key.
 // If lang is unsupported, falls back to "en". If key is missing, falls back to "en" then returns key.
 func Translate(lang, key string) string {

@@ -195,17 +195,17 @@ test:
 # DEV - Quick build for local development (random temp dir, no version info)
 # =============================================================================
 dev:
-	@$(GO_DOCKER) go mod tidy
-	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)" && \
-		BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
+	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)"
+	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
-		$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
-		echo "Built: $$BUILD_DIR/$(PROJECTNAME)" && \
-		if [ -d "src/client" ]; then \
-			$(GO_DOCKER) go build -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
-			echo "Built: $$BUILD_DIR/$(PROJECTNAME)-cli"; \
-		fi && \
-		echo "Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
+		$(GO_DOCKER) exec sh -c "go mod tidy && \
+			go build -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
+			echo 'Built: $$BUILD_DIR/$(PROJECTNAME)' && \
+			if [ -d 'src/client' ]; then \
+				go build -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
+				echo 'Built: $$BUILD_DIR/$(PROJECTNAME)-cli'; \
+			fi && \
+			echo 'Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help'"
 
 # =============================================================================
 # CLEAN - Remove build artifacts

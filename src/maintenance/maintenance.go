@@ -186,7 +186,15 @@ func Backup(opts BackupOptions) error {
 }
 
 // Restore extracts a backup archive into the config and data directories.
+// Per PART 21, the backup is fully verified before any data is written;
+// restore only proceeds when every verification check passes.
 func Restore(archivePath, configDir, dataDir, password string) error {
+	// Verify the backup before touching any live config or data (PART 21:
+	// "Only proceed with restore if ALL verification checks pass").
+	if err := VerifyBackup(archivePath, password); err != nil {
+		return fmt.Errorf("backup verification failed: %w", err)
+	}
+
 	data, err := os.ReadFile(archivePath)
 	if err != nil {
 		return fmt.Errorf("reading backup: %w", err)

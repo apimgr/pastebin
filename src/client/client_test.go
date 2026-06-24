@@ -391,7 +391,7 @@ func TestSaveCLIConfig_CreatesFile(t *testing.T) {
 // ─── checkCLIUpdate ───────────────────────────────────────────────────────────
 
 func TestCheckCLIUpdate_EmptyServerReturnsNil(t *testing.T) {
-	if err := checkCLIUpdate(""); err != nil {
+	if err := checkCLIUpdate("", ""); err != nil {
 		t.Errorf("expected nil for empty server, got %v", err)
 	}
 }
@@ -401,7 +401,7 @@ func TestCheckCLIUpdate_DevVersionReturnsNil(t *testing.T) {
 	Version = "dev"
 	defer func() { Version = orig }()
 
-	if err := checkCLIUpdate("https://example.com"); err != nil {
+	if err := checkCLIUpdate("https://example.com", ""); err != nil {
 		t.Errorf("expected nil for dev version, got %v", err)
 	}
 }
@@ -412,7 +412,7 @@ func TestCheckCLIUpdate_UnreachableServerReturnsNil(t *testing.T) {
 	defer func() { Version = orig }()
 
 	// Unreachable server — the function swallows network errors and returns nil.
-	if err := checkCLIUpdate("http://127.0.0.1:1/"); err != nil {
+	if err := checkCLIUpdate("http://127.0.0.1:1/", ""); err != nil {
 		t.Errorf("expected nil for unreachable server, got %v", err)
 	}
 }
@@ -662,7 +662,7 @@ func TestCheckCLIUpdate_MinVersionEnforced_ReturnsError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := checkCLIUpdate(srv.URL)
+	err := checkCLIUpdate(srv.URL, "")
 	if err == nil {
 		t.Error("expected error when CLI is below min_version, got nil")
 	}
@@ -688,7 +688,7 @@ func TestCheckCLIUpdate_NoticeWhenNewerAvailable(t *testing.T) {
 	defer srv.Close()
 
 	// Should return nil (notice printed to stderr, no enforcement).
-	err := checkCLIUpdate(srv.URL)
+	err := checkCLIUpdate(srv.URL, "")
 	if err != nil {
 		t.Errorf("expected nil for update notice, got %v", err)
 	}
@@ -704,7 +704,7 @@ func TestCheckCLIUpdate_NonOKStatus_ReturnsNil(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := checkCLIUpdate(srv.URL); err != nil {
+	if err := checkCLIUpdate(srv.URL, ""); err != nil {
 		t.Errorf("expected nil for non-200 status, got %v", err)
 	}
 }
@@ -719,7 +719,7 @@ func TestCheckCLIUpdate_InvalidJSONBody_ReturnsNil(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := checkCLIUpdate(srv.URL); err != nil {
+	if err := checkCLIUpdate(srv.URL, ""); err != nil {
 		t.Errorf("expected nil for invalid JSON, got %v", err)
 	}
 }

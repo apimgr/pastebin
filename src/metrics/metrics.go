@@ -3,6 +3,7 @@
 package metrics
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -184,7 +185,7 @@ var (
 			Namespace: ns,
 			Name:      "scheduler_task_duration_seconds",
 			Help:      "Scheduled task execution duration distribution.",
-			Buckets:   []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 10, 30, 60, 300},
+			Buckets:   []float64{0.1, 0.5, 1, 5, 10, 30, 60, 300, 600},
 		},
 		[]string{"task"},
 	)
@@ -281,7 +282,9 @@ func (c *Collector) Handler() http.Handler {
 		// Enforce bearer token auth if configured.
 		if c.token != "" {
 			auth := r.Header.Get("Authorization")
-			if auth != "Bearer "+c.token {
+			// Constant-time comparison to prevent token timing attacks.
+			expected := "Bearer " + c.token
+			if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return

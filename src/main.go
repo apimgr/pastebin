@@ -103,9 +103,9 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		}
 
 		switch arg {
-		case "--help":
+		case "--help", "-h":
 			showHelp = true
-		case "--version":
+		case "--version", "-v":
 			showVersion = true
 		case "--status":
 			showStatus = true
@@ -1149,7 +1149,7 @@ func newHTTPRequest(ctx context.Context, method, url string, body io.Reader) (*h
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "pastebin-cli/"+Version)
+	req.Header.Set("User-Agent", "pastebin/"+Version)
 	return req, nil
 }
 

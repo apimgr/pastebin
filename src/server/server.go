@@ -2110,7 +2110,10 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		data = make(map[string]interface{})
 	}
 	// Inject language for i18n — templates access it as .Lang
-	data["Lang"] = i18n.LangFromRequest(r)
+	lang := i18n.LangFromRequest(r)
+	data["Lang"] = lang
+	// Inject text direction for RTL languages (Arabic) — templates access it as .Dir
+	data["Dir"] = i18n.Direction(lang)
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("template %s error: %v", name, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -2126,7 +2129,9 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	if data == nil {
 		data = make(map[string]interface{})
 	}
-	data["Lang"] = i18n.LangFromRequest(r)
+	lang := i18n.LangFromRequest(r)
+	data["Lang"] = lang
+	data["Dir"] = i18n.Direction(lang)
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
 		return "", err

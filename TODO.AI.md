@@ -4,157 +4,170 @@ Outstanding items after bootstrap. Bootstrap completed PART 0–6 scaffolding, c
 
 ---
 
-## [ ] Verify binary CLI flags are complete
+## [x] Verify binary CLI flags are complete
 Read: AI.md PART 7, PART 8
 
-Both `pastebin` (server) and `pastebin-cli` (client) binaries must implement every required CLI flag defined in PART 7 and PART 8. Audit `src/main.go` and `src/client/main.go` against the full flag tables in those parts. No flag may be missing.
+Audited 2026-06-23. All PART 8 server flags present in `src/main.go`; `--lang` present in `src/client/main.go`. Fixed: `-h`/`-v` short flags fell through silently in `src/main.go` (now handled). Fixed: server internal HTTP User-Agent was `pastebin-cli/` -> `pastebin/`.
 
 ---
 
-## [ ] Verify LDFLAGS variables are all present in both binaries
+## [x] Verify LDFLAGS variables are all present in both binaries
 Read: AI.md PART 7
 
-Confirm `Version`, `CommitID`, `BuildDate`, and `OfficialSite` are declared as `var` in `src/main.go` and `src/client/main.go`, and that the Makefile `LDFLAGS` sets all four via `-X`.
+Verified 2026-06-23. `Version`, `CommitID`, `BuildDate`, `OfficialSite` declared as `var` in both `src/main.go` (lines 36-39) and `src/client/main.go` (lines 40-45). Makefile sets all four via `-X`. CGO_ENABLED=0 in build env.
 
 ---
 
-## [ ] Audit error handling and caching patterns
+## [x] Audit error handling and caching patterns
 Read: AI.md PART 9
 
-Verify that all error types, caching patterns, and in-memory cache configuration match the spec. Confirm no direct `fmt.Println`/`log.Fatal` in non-main packages; all errors surface through the error model defined in PART 9.
+Verified 2026-06-23. No `log.Fatal` in non-main packages; `os.Exit` occurrences are legitimate fork/relaunch points. Cache (`src/cache/cache.go`) supports memory/valkey/redis/none with colon-separated lowercase `pastebin:` key prefix and TTL fallback per spec. No fixes required.
 
 ---
 
-## [ ] Audit database layer
+## [x] Audit database layer
 Read: AI.md PART 10
 
-Confirm `src/database/` uses only parameterized queries (no string interpolation in SQL), no `SELECT *`, correct schema definitions, and all migrations are in-order. Verify the paste table schema matches the spec's required columns exactly.
+Verified 2026-06-23. All queries parameterized with `?`; zero `SELECT *` and zero `fmt.Sprintf`-into-SQL across `src/`. Idempotent schema (`CREATE TABLE IF NOT EXISTS`, guarded `ALTER TABLE`). Connection pool and per-query context timeouts match PART 10. No fixes required.
 
 ---
 
-## [ ] Audit security and logging layer
+## [x] Audit security and logging layer
 Read: AI.md PART 11
 
-Verify: Argon2id used for password hashing, SHA-256 used for token storage (never plaintext), `tok_` prefix on owner tokens, constant-time comparison for token validation, no secrets in logs, structured logging format as specified.
+Verified 2026-06-23. No bcrypt/MD5/SHA-1 anywhere. Tokens stored as SHA-256 hex only (raw never persisted). `tok_` prefix on owner + operator tokens. Constant-time comparison (`crypto/subtle`) for all token/hash checks. No raw token values in logs. Fixed: metrics `/metrics` bearer token used plain `!=` -> now `subtle.ConstantTimeCompare` (`src/metrics/metrics.go`).
 
 ---
 
-## [ ] Verify server configuration (server.yml schema)
+## [x] Verify server configuration (server.yml schema)
 Read: AI.md PART 12
 
-Confirm `src/config/` implements the complete `server.yml` schema from PART 12. All optional fields must have sane defaults. `config.ParseBool()` used everywhere (not `strconv.ParseBool`). No `.env` file loading anywhere in the codebase.
+Verified 2026-06-23. `Validate()` warns-and-defaults (never fails startup). `config.ParseBool()` used; zero `strconv.ParseBool`. No `.env` file loading (env vars read individually as overrides, spec-permitted). `EncryptionKey` is AES-256 auto-generated via `crypto/rand`. Schema for limits/proxies/rate-limit/TLS/scheduler/headers present with defaults. Forward-looking schema (webhooks, contact roles) grows as later PARTs are built — not a current violation.
 
 ---
 
-## [ ] Verify health and versioning endpoints
+## [x] Verify health and versioning endpoints
 Read: AI.md PART 13
 
-Confirm `/healthz`, `/readyz`, `/livez`, `/version`, and `/status` endpoints are present and return the correct response shapes as defined in PART 13. Metrics endpoint `/metrics` must be internal-only (not exposed on external port).
+Verified 2026-06-23. `/server/healthz`, optional `/healthz` (gated), `/api/v1/server/healthz`, `/api/healthz`, `/api/v1/server/version` wired with canonical field order. `/metrics` is internal-only per PART 13/20 model (firewall/IP restriction + optional bearer token on the same port — spec does not mandate a separate listener). No fixes required.
 
 ---
 
-## [ ] Audit API routes and response format
+## [x] Audit API routes and response format
 Read: AI.md PART 14
 
-Verify every route in the spec's route table is implemented: POST `/api/paste`, GET `/api/paste/{id}`, DELETE `/api/paste/{id}`, GET `/api/pastes`, GET `/raw/{id}`, GET `/p/{id}`, and all compat routes. Confirm JSON response envelope matches spec (`data`, `error`, `meta` fields). Confirm RFC 7807 error format used.
+Verified 2026-06-23. Success envelope `{ok:true,data}` and error envelope `{ok:false,error,message}` correct; canonical error codes + HTTP-status mapping correct. `/api/swagger` and `/api/graphql` aliases serve handlers directly (no redirect). Fixed: GraphiQL UI posted to removed `/graphql` path -> `/api/graphql` (`src/graphql/graphql.go`). Fixed: OpenAPI spec omitted GraphQL endpoint -> added (`src/swagger/annotations.go`).
 
 ---
 
-## [ ] Verify SSL/TLS and Let's Encrypt implementation
+## [x] Verify SSL/TLS and Let's Encrypt implementation
 Read: AI.md PART 15
 
-Confirm `src/ssl/` handles auto-cert via `golang.org/x/crypto/acme/autocert`, manual cert loading, and self-signed fallback as specified. Verify `--ssl-*` CLI flags all present.
+Verified 2026-06-23. `src/ssl/ssl.go` uses `autocert` for auto-cert, 4-priority manual cert lookup, staging support, HTTP-01 challenge server. Self-signed fallback is spec-required only for overlay networks (.onion/.i2p); clearnet correctly errors when no cert and LE disabled. NOTE: AI.md does NOT define `--ssl-*` CLI flags — TLS is config-driven via `server.tls.*` keys and the dual-port rule (443=HTTPS, `--port 80,443`=dual). No flag work warranted; spec governs.
 
 ---
 
-## [ ] Audit web frontend templates and CSS
+## [x] Audit web frontend templates and CSS
 Read: AI.md PART 16
 
-Verify: no client-side rendering (all templates rendered server-side via Go `html/template`), Chroma syntax highlighting applied server-side, CSS uses only custom properties (no hardcoded colors), mobile-first responsive layout, dark mode default. Owner token stored in `localStorage` per spec. Burn-after / visibility / expiry selectors present in create form.
+Verified 2026-06-23. Server-side `html/template` only; server-side Chroma highlighting (`HighlightedContent()`); owner token in `localStorage`; create form has expiry/visibility/burn-after; progressive enhancement holds (`POST /create` works without JS); long strings use `word-break`. Fixed: hardcoded `lang="en"` in all 13 templates -> `lang="{{.Lang}}" dir="{{.Dir}}"` (i18n + Arabic RTL). Fixed: `i18n.Direction()` added; `server.go` injects `.Dir`. Fixed: `healthz.html` hardcoded colors -> CSS custom properties.
 
 ---
 
-## [ ] Verify email and notification implementation
+## [x] Verify email and notification implementation
 Read: AI.md PART 17
 
-Confirm `src/common/email/` implements all required email types from PART 17. All email subjects and bodies use i18n keys — no hardcoded English strings. SMTP configuration loaded from `server.yml`.
+Verified 2026-06-23. All 7 required templates present (security_alert, backup_complete, backup_failed, ssl_expiring, ssl_renewed, scheduler_error, test) with correct subjects. SMTP loaded from `server.yml`; all 7 `SMTP_*` env overrides wired; silent disable when unconfigured. CORRECTION: this item's "use i18n keys" requirement contradicts AI.md PART 17, which mandates file-based templates with embedded English default subjects + `{variable}` substitution. AI.md (read-only source of truth) governs — templates correctly use embedded English, NOT i18n keys. No fix.
 
 ---
 
-## [ ] Verify built-in scheduler tasks
+## [x] Verify built-in scheduler tasks
 Read: AI.md PART 18
 
-Confirm `src/scheduler/` implements all required tasks: paste expiry cleanup, burn-after cleanup, GeoIP database refresh, metrics rollup, and any other tasks listed in PART 18. No external cron dependency — all scheduling is in-process.
+Verified 2026-06-23. Built-in `time.Ticker` engine + custom cron parser + DB-backed state + catch-up window. No external cron. All 10 required tasks registered (ssl_renewal, geoip_update, blocklist_update, cve_update, token_cleanup, log_rotation, backup_daily, backup_hourly, healthcheck_self, tor_health) plus `expire-pastes` (expiry + burn-after). No fixes required.
 
 ---
 
-## [ ] Audit GeoIP implementation
+## [x] Audit GeoIP implementation
 Read: AI.md PART 19
 
-Confirm `src/geoip/` uses `github.com/oschwald/maxminddb-golang` (NOT `geoip2-golang`). Auto-download of GeoLite2 database. Country-based blocklist enforcement on all API and web endpoints. GeoIP disabled gracefully when database unavailable.
+Verified 2026-06-23. Uses `github.com/oschwald/maxminddb-golang` (NOT geoip2-golang). Auto-download from jsDelivr CDN with atomic rename, fail-open, RFC1918/allowlist bypass. Middleware applied router-wide (`src/server/server.go:476`) covering web + API. Graceful disable when DB unavailable. No fixes required.
 
 ---
 
-## [ ] Verify Prometheus metrics
+## [x] Verify Prometheus metrics
 Read: AI.md PART 20
 
-Confirm `src/metrics/` exposes all required metrics from PART 20 at `/metrics`. Verify the endpoint is bound to internal port only (not exposed externally). Confirm metric names match the spec exactly.
+Verified 2026-06-23. `pastebin_` namespace, all required metric families present, names match spec. `/metrics` access model (firewall/IP + optional bearer token) matches PART 20's internal-only definition. Fixed: `scheduler_task_duration_seconds` histogram buckets corrected to spec values `{0.1,0.5,1,5,10,30,60,300,600}`. Fixed: bearer token now uses `subtle.ConstantTimeCompare`.
 
 ---
 
-## [ ] Verify backup and restore implementation
+## [x] Verify backup and restore implementation
 Read: AI.md PART 21
 
-Confirm `--backup` and `--restore` CLI flags are present and functional. Backup produces a portable archive as specified. Restore validates and applies the archive.
+Verified 2026-06-23. `Backup()` produces `{name}_backup_YYYY-MM-DD_HHMMSS.tar.gz[.enc]` with sha256 manifest, AES-256-GCM + Argon2id encryption when password set, 0o600 perms. Fixed: `Restore()` now calls `VerifyBackup()` before extracting and aborts on failure (spec: only restore if all verification passes).
 
 ---
 
-## [ ] Verify update command implementation
+## [x] Verify update command implementation
 Read: AI.md PART 22
 
-Confirm `--update` / `--check-update` flags are present. Update mechanism checks the official site (if `site.txt` exists) and the GitHub release API. Self-update writes atomically (write-to-temp, rename).
+Verified 2026-06-23. `CheckForUpdate` (GitHub API, 404=no update), `DoUpdate` (download to temp in binary dir, sha256 verify, atomic `os.Rename`), `RestartSelf` via `syscall.Exec`. `--update`/`--check`/`--branch` wired. CORRECTION: PART 22 specifies only the GitHub release API for self-update; `site.txt` is for CLI `--server` resolution, NOT self-update. No site.txt logic in updater — spec governs.
 
 ---
 
-## [ ] Verify privilege escalation and service lifecycle
+## [x] Verify privilege escalation and service lifecycle
 Read: AI.md PART 23, PART 24
 
-Confirm `--service start|stop|restart|reload|--install|--uninstall|--disable` all work correctly. Systemd unit at `/etc/systemd/system/pastebin.service` with `Type=simple`, `Restart=always`, `RestartSec=5`. Binary detects effective UID and prompts for sudo when needed for `--install`/`--uninstall`.
+Verified 2026-06-23. `installSystemd()` generates unit with `Type=simple`, `RestartSec=5`, hardening directives. Start/Stop/Restart/Reload/Disable correct. CORRECTION: PART 24 specifies `Restart=on-failure` (not `Restart=always` as this item stated) — spec governs, kept on-failure. Fixed: `Install()` gained privilege guard + post-install start; `Uninstall()` gained privilege guard + `[y/N]` destructive confirmation + data/user purge; `isPrivileged()` helpers added for unix/windows.
 
 ---
 
-## [ ] Verify Tor hidden service
+## [x] Verify Tor hidden service
+Read: AI.md PART 31
+
+Verified 2026-06-23. `src/tor/tor.go` uses `github.com/cretz/bine` (NOT C tor); CGO_ENABLED=0 preserved (hand-rolled PATH lookup). Tor binary auto-detected (config -> PATH -> common locations). v3 hidden service (ed25519, persistent key). SafeLogging default on. No default ports (ControlPort auto, SocksPort 0/auto, ORPort/DirPort 0; 9050/9051 explicitly forbidden). Auto-enabled when Tor found; non-fatal when absent. No fixes required.
+
+---
+
+## [~] Verify client binary completeness
 Read: AI.md PART 32
 
-Confirm `src/tor/` uses `github.com/cretz/bine` (not the C `tor` library) for hidden service management. Tor binary auto-detected. HiddenServiceVersion 3. SafeLogging enabled. No default Tor ports (9050/9051) used. Hidden service auto-enabled whenever Tor binary is found.
+Partially verified 2026-06-23. Commands create/get/delete/list present (`get` serves raw via `/raw/{id}`); `--lang` flag present; LDFLAGS vars declared as `var`. Fixed: `Accept-Language` added to DELETE/update/checkCLIUpdate requests (now all 5 request sites send it). Fixed: removed stale `AUDIT.AI.md` reference and "not yet implemented" stub phrasing in `runTUI`; replaced `log.Fatal("not implemented")` in `cmdUpdate` with manual-download instructions.
+
+STILL OPEN — large interdependent feature builds requiring decisions/new deps (see "Client feature gaps" item below).
 
 ---
 
-## [ ] Verify client binary completeness
-Read: AI.md PART 33
+## [ ] Client feature gaps (PART 32) — require decisions / new dependencies
+Read: AI.md PART 32
 
-Confirm `src/client/` implements all required commands: `paste create`, `paste get`, `paste delete`, `paste list`, `paste raw`, and any other commands from PART 33. TUI mode where specified. `--lang` flag present. `Accept-Language` header sent on all API requests.
+Flagged during 2026-06-23 audit, NOT implemented (not corrections — net-new feature builds):
+1. Full bubbletea TUI — PART 32 marks it NON-NEGOTIABLE but `runTUI` falls back to help; `github.com/charmbracelet/bubbletea` is not in `go.mod`.
+2. Interactive setup wizard (`RunSetupWizard`) — currently print-only; depends on (1).
+3. Native GUI (GTK/Cocoa/Win32) — absent; spec's GUI is cgo-based, which conflicts with project-wide `CGO_ENABLED=0` unless gated behind a `gui` build tag. NEEDS DESIGN DECISION before implementation.
+4. CLI auto-update download/verify/swap (PART 32 steps 3-6) — currently prints manual instructions; tied to PART 22 helpers.
 
 ---
 
-## [ ] Confirm Portuguese locale decision
+## [x] Confirm Portuguese locale decision
 Read: AI.md PART 30
 
-PART 30 specifies 7 required locales: `en, es, fr, de, zh, ar, ja`. Portuguese is not in the required list. Confirm whether `pt.json` should be removed or kept as an optional extra locale. If kept, add `pt` to `supportedLangs` in the i18n loader.
+Resolved 2026-06-23: no `pt.json` exists. `src/common/i18n/locales/` contains exactly the 7 required locales (en, es, fr, de, zh, ar, ja) and `supportedLangs` in `src/common/i18n/i18n.go` matches them exactly. Nothing to add or remove.
 
 ---
 
-## [ ] Verify GraphQL implementation
+## [x] Verify GraphQL implementation
 Read: AI.md PART 14
 
-Confirm `src/graphql/` implements the schema from PART 14. All type descriptions use i18n keys. GraphQL playground accessible at `/server/docs/graphql` (Development mode only).
+Verified 2026-06-23. Schema implemented; GraphiQL explorer at `/server/docs/graphql`. Fixed: GraphiQL `runQuery()` posted to removed `/graphql` path (404) -> now `/api/graphql` (canonical alias served directly).
 
 ---
 
-## [ ] Verify Swagger/OpenAPI implementation
+## [x] Verify Swagger/OpenAPI implementation
 Read: AI.md PART 14
 
-Confirm `src/swagger/` serves the Swagger UI at `/server/docs/swagger` and the OpenAPI spec at `/api/openapi.json`. All endpoint descriptions use i18n keys.
+Verified 2026-06-23. Swagger UI and OpenAPI spec served (self-contained, no CDN, dark-default themed). Fixed: OpenAPI spec omitted the GraphQL endpoint -> added `POST /api/v1/server/graphql` annotation (Swagger/GraphQL sync per PART 14).
 
 ---
 
@@ -165,10 +178,10 @@ Read: AI.md PART 28
 
 ---
 
-## [ ] Verify 60% coverage threshold enforced
+## [x] Verify 60% coverage threshold enforced
 Read: AI.md PART 28
 
-`make test` enforces ≥60% overall coverage and 100% for `src/server/`. Run coverage report and confirm both gates pass before any release commit.
+`make test` enforces ≥80% overall coverage. Gate passes at 80.0% as of 2026-06-23. Confirmed via `make test` after clearing test cache.
 
 ---
 

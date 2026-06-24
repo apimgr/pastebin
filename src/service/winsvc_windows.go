@@ -18,6 +18,11 @@ func IsWindowsService() bool {
 	return ok
 }
 
+// isPrivileged reports whether the process has the privileges required to
+// install or remove a system service. On Windows, sc.exe enforces elevation
+// itself, so this returns true and lets sc.exe surface any access error.
+func isPrivileged() bool { return true }
+
 // windowsService wraps a user-supplied start function as a svc.Handler.
 // The function is expected to block for the lifetime of the service.
 type windowsService struct {

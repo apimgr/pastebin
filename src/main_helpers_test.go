@@ -157,8 +157,8 @@ func TestNewHTTPRequest(t *testing.T) {
 			t.Fatalf("newHTTPRequest: %v", err)
 		}
 		ua := req.Header.Get("User-Agent")
-		if !strings.HasPrefix(ua, "pastebin-cli/") {
-			t.Fatalf("User-Agent = %q, want pastebin-cli/ prefix", ua)
+		if !strings.HasPrefix(ua, "pastebin/") {
+			t.Fatalf("User-Agent = %q, want pastebin/ prefix", ua)
 		}
 	})
 
@@ -173,7 +173,7 @@ func TestNewHTTPRequest(t *testing.T) {
 // TestDoHTTP verifies the helper executes a request against a live test server.
 func TestDoHTTP(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "pastebin-cli/") {
+		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "pastebin/") {
 			t.Errorf("server saw User-Agent %q", got)
 		}
 		w.WriteHeader(http.StatusNoContent)

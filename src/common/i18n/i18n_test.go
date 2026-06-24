@@ -384,3 +384,39 @@ func TestTranslatePlural_FallbackPath(t *testing.T) {
 		t.Error("TranslatePlural with nonexistent key returned empty string")
 	}
 }
+
+// ─── Direction ────────────────────────────────────────────────────────────────
+
+// TestDirection covers the RTL branch ("ar"), the LTR branch (all other
+// supported languages), the unsupported-language fallback to "ltr", and
+// normalization (uppercase, whitespace).
+func TestDirection(t *testing.T) {
+	cases := []struct {
+		name string
+		lang string
+		want string
+	}{
+		{"ar_is_rtl", "ar", "rtl"},
+		{"en_is_ltr", "en", "ltr"},
+		{"fr_is_ltr", "fr", "ltr"},
+		{"de_is_ltr", "de", "ltr"},
+		{"es_is_ltr", "es", "ltr"},
+		{"zh_is_ltr", "zh", "ltr"},
+		{"ja_is_ltr", "ja", "ltr"},
+		// Unsupported language falls back to "en" which is ltr.
+		{"unsupported_falls_back_ltr", "ru", "ltr"},
+		{"empty_falls_back_ltr", "", "ltr"},
+		// Normalization: uppercase and whitespace.
+		{"ar_uppercase_normalized", "AR", "rtl"},
+		{"ar_space_normalized", " ar ", "rtl"},
+		{"en_uppercase_normalized", "EN", "ltr"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Direction(tc.lang)
+			if got != tc.want {
+				t.Errorf("Direction(%q) = %q; want %q", tc.lang, got, tc.want)
+			}
+		})
+	}
+}
