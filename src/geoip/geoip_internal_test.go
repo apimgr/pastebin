@@ -218,7 +218,7 @@ func TestLookup_ValidIP_NoDBsLoaded(t *testing.T) {
 	ip := net.ParseIP("8.8.8.8")
 	got := db.Lookup(ip)
 	if got == nil {
-		t.Error("Lookup(8.8.8.8) = nil; want non-nil info")
+		t.Fatal("Lookup(8.8.8.8) = nil; want non-nil info")
 	}
 	if got.IP != "8.8.8.8" {
 		t.Errorf("info.IP = %q; want 8.8.8.8", got.IP)

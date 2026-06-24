@@ -211,28 +211,6 @@ func TestLogRotation_GzFileRemoveError(t *testing.T) {
 
 // ─── SSLRenewal — extra PEM/DER paths ────────────────────────────────────────
 
-// makeSelfSignedCertPEM is an internal helper (matches the public one in
-// task_test.go; redefined here because internal tests live in package task).
-func makeSelfSignedCertPEM(t *testing.T, dur time.Duration) []byte {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "internal-test"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(dur),
-		IsCA:         true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-}
-
 // TestSSLRenewal_DERCertFile exercises the DER-parse branch (x509.ParseCertificate
 // called directly on raw bytes, not PEM).  We write a raw DER file with a .crt
 // extension so the walker picks it up.
