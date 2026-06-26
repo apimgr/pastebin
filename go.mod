@@ -1,6 +1,6 @@
 module github.com/apimgr/pastebin
 
-go 1.25.0
+go 1.25.11
 
 require (
 	github.com/alecthomas/chroma/v2 v2.24.1
