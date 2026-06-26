@@ -139,14 +139,16 @@ STILL OPEN — large interdependent feature builds requiring decisions/new deps 
 
 ---
 
-## [ ] Client feature gaps (PART 32) — require decisions / new dependencies
+## [x] Client feature gaps (PART 32) — bubbletea TUI + auto-update
 Read: AI.md PART 32
 
-Flagged during 2026-06-23 audit, NOT implemented (not corrections — net-new feature builds):
-1. Full bubbletea TUI — PART 32 marks it NON-NEGOTIABLE but `runTUI` falls back to help; `github.com/charmbracelet/bubbletea` is not in `go.mod`.
-2. Interactive setup wizard (`RunSetupWizard`) — currently print-only; depends on (1).
-3. Native GUI (GTK/Cocoa/Win32) — absent; spec's GUI is cgo-based, which conflicts with project-wide `CGO_ENABLED=0` unless gated behind a `gui` build tag. NEEDS DESIGN DECISION before implementation.
-4. CLI auto-update download/verify/swap (PART 32 steps 3-6) — currently prints manual instructions; tied to PART 22 helpers.
+Implemented 2026-06-26 (commit f35c4da):
+1. Full bubbletea TUI — `src/client/tui/` (8 files): tui.go, theme.go, list.go, detail.go, setup.go, help.go, api.go, size.go. Dracula dark/light palette, vim keybindings, 7 size breakpoints, /search, ?help overlay, first-run setup wizard. `github.com/charmbracelet/bubbletea`, `bubbles`, `lipgloss` added to go.mod.
+2. Interactive setup wizard — `setup.go` in TUI package; prompts for server URL on first run.
+3. CLI auto-update — `downloadAndApplyUpdate()` in main.go: download → SHA-256 verify → atomic `os.Rename` → `syscall.Exec` re-exec. Platform-gated: `reexec_unix.go` / `reexec_windows.go`.
+
+STILL OPEN:
+4. Native GUI (GTK/Cocoa/Win32) — CGO conflict with CGO_ENABLED=0 unless gated behind a `gui` build tag. Requires design decision before implementation.
 
 ---
 

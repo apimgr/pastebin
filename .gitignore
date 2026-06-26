@@ -120,12 +120,23 @@ volumes/
 *.swp
 *.swo
 
-# AI config directories (regenerated from AI.md rules, not committed)
-.claude/
-.cursor/
+# AI config — personal/runtime files are gitignored; team config is committed
+# Claude Code: ignore runtime/personal files
+.claude/settings.local.json
+.claude/*.lock
+.claude/backups/
+.claude/cache/
+.claude/history.jsonl
+.claude/worktrees/
+.claude/plans/
+# Cursor: ignore personal settings
+.cursor/settings.json
+# Aider: ignore all (no team config convention)
 .aider/
+# Generic AI: ignore all
 .ai/
-.windsurf/
+# Windsurf: ignore personal settings
+.windsurf/settings.json
 
 # Claude Code personal files (always gitignored)
 CLAUDE.local.md
