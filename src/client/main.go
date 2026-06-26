@@ -15,6 +15,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -30,6 +31,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/apimgr/pastebin/src/client/tui"
 	"github.com/apimgr/pastebin/src/paths"
 	"github.com/apimgr/pastebin/src/shell"
 	"golang.org/x/term"
@@ -421,32 +423,32 @@ func main() {
 	}
 }
 
-// runTUI launches the interactive TUI mode.
-// When no server is configured it acts as a setup wizard prompting for a server URL.
-// The full bubbletea TUI/GUI application is a separate, larger work item; this
-// fallback keeps the CLI usable in interactive terminals until then.
+// saveCLIConfigURL updates the server URL field in cli.yml.
+func saveCLIConfigURL(serverURL string) error {
+	cfg, _ := loadCLIConfig()
+	cfg.Server = serverURL
+	return saveCLIConfig(cfg)
+}
+
+// runTUI launches the interactive bubbletea TUI mode.
+// When no server is configured, the TUI setup wizard collects it.
 func runTUI(server, lang string, cfg cliConfig) {
-	binaryName := filepath.Base(os.Args[0])
-	if server == "" {
-		fmt.Printf("%s: interactive setup\n", binaryName)
-		fmt.Printf("No server configured. Set one with:\n")
-		fmt.Printf("  %s --server https://your-server.example.com list\n", binaryName)
-		fmt.Printf("  or export PASTEBIN_SERVER=https://your-server.example.com\n")
-		fmt.Printf("  or edit %s\n", cliConfigPath())
-		os.Exit(0)
+	// Auto-update check in TUI mode (non-fatal for version notices).
+	if server != "" {
+		if err := checkCLIUpdate(server, lang); err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	// Auto-update check in TUI mode.
-	if err := checkCLIUpdate(server, lang); err != nil {
+	tuiCfg := tui.ClientConfig{
+		Server:  server,
+		Lang:    lang,
+		SaveURL: saveCLIConfigURL,
+		CfgPath: cliConfigPath(),
+	}
+	if err := tui.Run(tuiCfg); err != nil {
 		log.Fatal(err)
 	}
-
-	// Interactive bubbletea TUI is a separate work item; fall back to help so
-	// the CLI remains fully usable in command-line mode.
-	fmt.Fprintf(os.Stderr, "%s: interactive TUI is not available in this build.\n", binaryName)
-	fmt.Fprintf(os.Stderr, "Use command-line mode: %s <command> [args]\n", binaryName)
-	printUsage()
-	os.Exit(1)
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -740,9 +742,69 @@ func (c *client) cmdUpdate(action string) {
 		return
 	}
 
-	fmt.Printf("update available: download pastebin-cli %s for %s from:\n", info.Version, osArch)
-	fmt.Printf("  %s/cli/binaries/pastebin-cli-%s-%s\n", c.server, runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("verify SHA-256: %s\n", info.SHA256)
+	if err := c.downloadAndApplyUpdate(
+		fmt.Sprintf("%s/cli/binaries/pastebin-cli-%s-%s", c.server, runtime.GOOS, runtime.GOARCH),
+		info.SHA256,
+	); err != nil {
+		log.Fatalf("update failed: %v", err)
+	}
+}
+
+// downloadAndApplyUpdate downloads the CLI binary, verifies SHA-256, and replaces the current binary.
+func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
+	// Determine current binary path.
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("find executable: %w", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return fmt.Errorf("resolve symlinks: %w", err)
+	}
+
+	// Download to a temp file in the same directory for an atomic rename.
+	tmpFile := exe + ".new"
+	f, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+
+	httpClient := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := httpClient.Get(downloadURL)
+	if err != nil {
+		f.Close()
+		os.Remove(tmpFile)
+		return fmt.Errorf("download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Write and hash simultaneously so we only stream the body once.
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
+		f.Close()
+		os.Remove(tmpFile)
+		return fmt.Errorf("write: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("close: %w", err)
+	}
+
+	// Verify SHA-256.
+	got := fmt.Sprintf("%x", h.Sum(nil))
+	if !strings.EqualFold(got, expectedSHA) {
+		os.Remove(tmpFile)
+		return fmt.Errorf("SHA-256 mismatch: got %s, want %s", got, expectedSHA)
+	}
+
+	// Atomically replace the current binary.
+	if err := os.Rename(tmpFile, exe); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("replace binary: %w", err)
+	}
+
+	// Re-exec or inform the user on Windows.
+	return reExec(exe)
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
