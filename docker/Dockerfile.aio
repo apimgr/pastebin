@@ -1,0 +1,94 @@
+# =============================================================================
+# Build Stage - Compile Go binary
+# =============================================================================
+FROM casjaysdev/go:latest AS builder
+
+# Install git and bash (git: required for go mod download; bash: for build scripts)
+RUN apk add --no-cache git bash
+
+ARG TARGETARCH
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG COMMIT_ID
+ARG OFFICIAL_SITE
+
+WORKDIR /app
+
+# Copy go.mod first for layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build server binary
+COPY . .
+RUN mkdir -p /app/binary && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+    -buildvcs=false -trimpath \
+    -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+    -o /app/binary/pastebin ./src
+
+# Build client binary if src/client/ exists
+RUN if [ -d ./src/client ]; then \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+        -buildvcs=false -trimpath \
+        -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+        -o /app/binary/pastebin-cli ./src/client; \
+fi
+
+# =============================================================================
+# Runtime Stage - All-in-one Debian image (app + redis/valkey-compatible + tor)
+# All OCI image metadata is applied at build time via --annotation flags.
+# =============================================================================
+FROM debian:bookworm-slim
+
+# Install runtime packages:
+# - redis-server: valkey-compatible in-process cache (bundled, no external container needed)
+# - tor: hidden service support (binary controls; auto-detected when found in PATH)
+# - tini: minimal init system for signal propagation and zombie reaping
+# - curl, git, bash, ca-certificates: runtime utilities
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        redis-server \
+        tor \
+        tini \
+        curl \
+        git \
+        bash \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy all built binaries from builder stage (pastebin and pastebin-cli if built)
+COPY --from=builder /app/binary/ /usr/local/bin/
+
+# Copy standard BUILD-TIME overlay (service configs, helpers)
+COPY docker/rootfs/ /
+
+# Copy AIO-specific overlay (overrides standard entrypoint.sh with multi-service version)
+COPY docker/rootfs.aio/ /
+
+# Copy this Dockerfile to image for reference
+COPY docker/Dockerfile.aio /root/Dockerfile.aio
+
+# Make all binaries/scripts in /usr/local/bin executable (755)
+RUN chmod 755 /usr/local/bin/*
+
+# Set environment
+# MODE=production: AIO is typically used as a standalone, self-contained deployment
+# CACHE_URL: points to bundled redis instance; set by AIO entrypoint
+# DATABASE_DIR: SQLite location (binary auto-detects container, but explicit is clearer)
+ENV MODE=production \
+    TZ=America/New_York \
+    DATABASE_DIR=/data/db/sqlite
+
+# Internal port (always 80 in container per PART 8 / PART 26)
+EXPOSE 80
+
+# Stop signal for graceful shutdown
+STOPSIGNAL SIGRTMIN+3
+
+# Health check (long start period for services that need initialization)
+HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
+    CMD /usr/local/bin/pastebin --status || exit 1
+
+# Use tini as init with signal propagation
+# -p SIGTERM: propagate SIGTERM to all children (redis-server + binary)
+ENTRYPOINT ["tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh"]
