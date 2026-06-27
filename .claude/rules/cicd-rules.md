@@ -23,9 +23,9 @@
 - Then: `build` (needs: lint, test)
 - Then: `coverage`, `image-scan`, `upload-artifacts` (need: build)
 
-## Go build in CI (NO `container:` directive)
-- Use `actions/setup-go` with `go-version-file: 'go.mod'` and `cache: true`
-- DO NOT use `container: image: casjaysdev/go:latest` — Docker Hub unreliable on GitHub runners
+## Go build in CI (container: image: casjaysdev/go:latest)
+- ALL Go jobs use `container: image: casjaysdev/go:latest` — tools pre-installed; never install inline
+- DO NOT use `actions/setup-go` — the container already has the correct Go version
 - All build steps: `CGO_ENABLED: "0"` env var explicitly set
 
 ## Permissions
