@@ -179,7 +179,7 @@ docker:
 # =============================================================================
 test:
 	@echo "Running tests with coverage..."
-	@$(GO_DOCKER) exec sh -c " \
+	@$(GO_DOCKER) sh -c " \
 		mkdir -p \"/tmp/$(PROJECTORG)\" && \
 		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX\") && \
 		go mod download && \
@@ -198,7 +198,7 @@ dev:
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)"
 	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
-		$(GO_DOCKER) exec sh -c "go mod tidy && \
+		$(GO_DOCKER) sh -c "go mod tidy && \
 			go build -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
 			echo 'Built: $$BUILD_DIR/$(PROJECTNAME)' && \
 			if [ -d 'src/client' ]; then \

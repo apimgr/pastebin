@@ -110,9 +110,9 @@ func (m detailModel) update(msg tea.Msg) (detailModel, tea.Cmd) {
 func (m detailModel) updateNav(msg tea.KeyMsg) (detailModel, tea.Cmd) {
 	switch msg.String() {
 	case "j", "down":
-		m.vp.LineDown(1)
+		m.vp.ScrollDown(1)
 	case "k", "up":
-		m.vp.LineUp(1)
+		m.vp.ScrollUp(1)
 	case "d":
 		m.deleting = true
 		m.deleteInput.SetValue("")
