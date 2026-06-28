@@ -179,7 +179,14 @@
     "subject": "Asunto",
     "message": "Mensaje",
     "send": "Enviar mensaje",
-    "success": "Gracias por tu mensaje. Responderemos pronto."
+    "success": "Gracias por tu mensaje. Responderemos pronto.",
+    "general": "Contacto General",
+    "general_desc": "Para consultas generales, comentarios o preguntas sobre este servicio, contáctenos en:",
+    "email_label": "Contacto",
+    "security": "Problemas de Seguridad",
+    "security_desc": "Para reportar una vulnerabilidad de seguridad, consulte nuestra política de seguridad en",
+    "abuse": "Reportes de Abuso",
+    "abuse_desc": "Para reportar contenido abusivo o violaciones de política, contáctenos en:"
   },
   "help": {
     "title": "Ayuda",

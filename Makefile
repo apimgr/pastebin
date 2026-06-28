@@ -19,7 +19,7 @@ BUILD_DATE := $(shell date +"%B %-d, %Y at %H:%M:%S")
 OFFICIALSITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIALSITE:-}")
 
 # Linker flags to embed build info
-LDFLAGS := -s -w \
+LDFLAGS := -s -w -trimpath \
 	-X 'main.Version=$(VERSION)' \
 	-X 'main.CommitID=$(COMMIT_ID)' \
 	-X 'main.BuildDate=$(BUILD_DATE)' \

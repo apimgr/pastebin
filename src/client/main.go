@@ -221,7 +221,7 @@ func checkCLIUpdate(serverURL, lang string) error {
 	// Enforce minimum version requirement.
 	if disc.CLIMinVersion != "" && versionLessThan(Version, disc.CLIMinVersion) {
 		return fmt.Errorf(
-			"this CLI is too old; the server requires %s — run 'pastebin-cli --update yes' to upgrade",
+			"this CLI is too old; the server requires %s — run 'pastebin-cli update yes' to upgrade",
 			disc.CLIMinVersion,
 		)
 	}
@@ -415,11 +415,19 @@ func main() {
 		c.cmdDelete(args[1:])
 	case "list", "ls":
 		c.cmdList(args[1:])
+	case "update":
+		// Positional form: pastebin-cli update [check|yes]
+		// Equivalent to --update flag; defaults to "check" when no sub-arg given.
+		action := "check"
+		if len(args) >= 2 {
+			action = args[1]
+		}
+		c.cmdUpdate(action)
 	case "version":
 		binaryName := filepath.Base(os.Args[0])
 		fmt.Printf("%s %s (commit %s, built %s)\n", binaryName, Version, CommitID, BuildDate)
 	default:
-		log.Fatalf("unknown command %q (try: create, get, delete, list)", args[0])
+		log.Fatalf("unknown command %q (try: create, get, delete, list, update, tui, completions)", args[0])
 	}
 }
 
@@ -738,7 +746,7 @@ func (c *client) cmdUpdate(action string) {
 
 	fmt.Printf("update available: %s → %s\n", Version, info.Version)
 	if action != "yes" {
-		fmt.Printf("run 'pastebin-cli --update yes' to install\n")
+		fmt.Printf("run 'pastebin-cli update yes' to install\n")
 		return
 	}
 
@@ -889,6 +897,8 @@ COMMANDS
     get <id>             Fetch and print raw paste content
     delete <id> <token>  Delete paste using its delete token
     list [--limit N]     List recent public pastes
+    update [check|yes]   Check for or apply CLI updates (default: check)
+    tui                  Launch interactive terminal UI
 
 CREATE FLAGS
     --lang <lang>        Syntax language (default: text)

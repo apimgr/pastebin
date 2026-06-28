@@ -179,7 +179,14 @@
     "subject": "Betreff",
     "message": "Nachricht",
     "send": "Nachricht senden",
-    "success": "Danke für Ihre Nachricht. Wir werden uns in Kürze melden."
+    "success": "Danke für Ihre Nachricht. Wir werden uns in Kürze melden.",
+    "general": "Allgemeiner Kontakt",
+    "general_desc": "Für allgemeine Anfragen, Feedback oder Fragen zu diesem Dienst erreichen Sie uns unter:",
+    "email_label": "Kontakt",
+    "security": "Sicherheitsprobleme",
+    "security_desc": "Um eine Sicherheitslücke zu melden, lesen Sie unsere Sicherheitsrichtlinie unter",
+    "abuse": "Missbrauchsmeldungen",
+    "abuse_desc": "Um missbräuchliche Inhalte oder Richtlinienverstöße zu melden, kontaktieren Sie uns unter:"
   },
   "help": {
     "title": "Hilfe",

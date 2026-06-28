@@ -520,6 +520,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/help", s.handleHelp)
 	r.Get("/server/privacy", s.handlePrivacy)
 	r.Get("/server/terms", s.handleTerms)
+	r.Get("/server/contact", s.handleContact)
 	r.Get("/server/healthz", s.handleHealthz)
 	// /healthz root alias — only when server.healthz.root.enabled: true (PART 13).
 	if s.liveCfg().Web.Healthz.Root.Enabled {
@@ -1809,6 +1810,25 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderTemplate(w, r, "help.html", data)
+}
+
+func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
+	data := map[string]interface{}{
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
+		"Contact":   s.liveCfg().Web.Security.Contact,
+	}
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "contact.html", data)
+		if err != nil {
+			fmt.Fprintf(w, "Contact: %s\n", s.liveCfg().Web.Security.Contact)
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
+	s.renderTemplate(w, r, "contact.html", data)
 }
 
 func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {

@@ -766,6 +766,15 @@ Examples:
 
 	if dataFlag != "" {
 		dataDir = dataFlag
+		// Spec (PART 4): cache and backup are subdirectories of dataDir.
+		// Cascade the override so --data moves all data-relative dirs together,
+		// unless the operator has explicitly overridden each one separately.
+		if cacheFlag == "" {
+			cacheDir = filepath.Join(dataDir, "cache")
+		}
+		if backupFlag == "" {
+			backupDir = filepath.Join(dataDir, "backup")
+		}
 	}
 	if logFlag != "" {
 		logsDir = logFlag
@@ -890,7 +899,9 @@ Examples:
 	// ── Database ──────────────────────────────────────────────────────────────
 
 	if cfg.Database.Path == "" {
-		cfg.Database.Path = paths.GetDBPath(appName)
+		// Derive from the (possibly --data-overridden) dataDir, not the global
+		// paths.GetDBPath() which ignores the --data flag.
+		cfg.Database.Path = filepath.Join(dataDir, "db", "server.db")
 	}
 	if err := paths.EnsureDir(filepath.Dir(cfg.Database.Path)); err != nil {
 		log.Printf("warning: db dir: %v", err)

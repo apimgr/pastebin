@@ -258,7 +258,14 @@
     "subject": "Subject",
     "message": "Message",
     "send": "Send message",
-    "success": "Thank you for your message. We will respond shortly."
+    "success": "Thank you for your message. We will respond shortly.",
+    "general": "General Contact",
+    "general_desc": "For general enquiries, feedback, or questions about this service, reach us at:",
+    "email_label": "Contact",
+    "security": "Security Issues",
+    "security_desc": "To report a security vulnerability, consult our security policy at",
+    "abuse": "Abuse Reports",
+    "abuse_desc": "To report abusive content or policy violations, contact us at:"
   },
   "help": {
     "title": "Help",
