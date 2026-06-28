@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# @@License : WTFPL
 # Integration test runner — auto-detects incus or docker.
 # Usage: ./tests/run_tests.sh
 set -euo pipefail

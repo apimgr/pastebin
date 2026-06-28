@@ -170,6 +170,14 @@ var (
 		},
 		[]string{"cache"},
 	)
+	CacheBytes = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: ns,
+			Name:      "cache_bytes",
+			Help:      "Estimated bytes used by the cache backend.",
+		},
+		[]string{"cache"},
+	)
 
 	// Scheduler metrics (PART 20; project uses the built-in scheduler, PART 18).
 	SchedulerTasksTotal = promauto.NewCounterVec(
@@ -189,11 +197,14 @@ var (
 		},
 		[]string{"task"},
 	)
-	SchedulerTasksRunning = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: ns,
-		Name:      "scheduler_tasks_running",
-		Help:      "Number of scheduled tasks currently running.",
-	})
+	SchedulerTasksRunning = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: ns,
+			Name:      "scheduler_tasks_running",
+			Help:      "Number of scheduled tasks currently running, by task name.",
+		},
+		[]string{"task"},
+	)
 	SchedulerLastRunTimestamp = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: ns,
@@ -259,12 +270,18 @@ var (
 		Name:      "go_gc_runs_total",
 		Help:      "Total number of completed GC cycles.",
 	})
+	GoGCPauseTotalSeconds = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: ns,
+		Name:      "go_gc_pause_total_seconds",
+		Help:      "Cumulative seconds spent in GC stop-the-world pauses.",
+	})
 )
 
 // Collector bundles scrape-time collection dependencies.
 type Collector struct {
-	startTime time.Time
-	token     string // bearer token for access control; empty = no auth
+	startTime        time.Time
+	token            string // bearer token for access control; empty = no auth
+	lastPauseTotalNs uint64 // tracks accumulated GC pause nanoseconds between scrapes
 }
 
 // New creates a Collector and seeds the static app_info gauge.
@@ -308,6 +325,13 @@ func (c *Collector) collectRuntime() {
 	runtime.ReadMemStats(&ms)
 	GoMemAllocBytes.Set(float64(ms.Alloc))
 	GoMemSysBytes.Set(float64(ms.Sys))
+
+	// Accumulate delta GC pause time since last scrape.
+	if ms.PauseTotalNs > c.lastPauseTotalNs {
+		delta := ms.PauseTotalNs - c.lastPauseTotalNs
+		GoGCPauseTotalSeconds.Add(float64(delta) / 1e9)
+		c.lastPauseTotalNs = ms.PauseTotalNs
+	}
 }
 
 // Middleware returns a chi-compatible middleware that records HTTP metrics.

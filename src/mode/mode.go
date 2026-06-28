@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/apimgr/pastebin/src/config"
 )
 
 // Mode represents the application execution mode
@@ -46,6 +48,12 @@ func Set(mode string) error {
 	defer mu.Unlock()
 	currentMode = parsed
 	return nil
+}
+
+// SetAppMode is the spec-required name for setting the application mode (PART 6, AI.md line 9009).
+// Invalid mode values are silently ignored; use Set() when error handling is needed.
+func SetAppMode(m string) {
+	_ = Set(m)
 }
 
 // ParseMode parses a mode string into a Mode constant
@@ -92,6 +100,18 @@ func Initialize(cliMode string) error {
 	return nil
 }
 
+// FromEnv reads MODE and DEBUG environment variables and applies them (PART 6, AI.md line 9068).
+// Priority: CLI flag overrides already applied before this call take precedence.
+// Reads MODE env var via Set() and DEBUG env var via config.IsTruthy().
+func FromEnv() {
+	if envMode := os.Getenv("MODE"); envMode != "" {
+		_ = Set(envMode)
+	}
+	if config.IsTruthy(os.Getenv("DEBUG")) {
+		SetDebugEnabled(true)
+	}
+}
+
 // SetDebug enables or disables debug mode (--debug flag / DEBUG env var).
 // Debug enables pprof, /debug/* endpoints, and full error detail regardless of mode.
 func SetDebug(enabled bool) {
@@ -100,11 +120,21 @@ func SetDebug(enabled bool) {
 	debugEnabled = enabled
 }
 
+// SetDebugEnabled is the spec-required alias for SetDebug (PART 6, AI.md line 9020).
+func SetDebugEnabled(enabled bool) {
+	SetDebug(enabled)
+}
+
 // IsDebug returns true when debug mode is active (--debug was passed or DEBUG env truthy).
 func IsDebug() bool {
 	mu.RLock()
 	defer mu.RUnlock()
 	return debugEnabled
+}
+
+// IsDebugEnabled is the spec-required alias for IsDebug (PART 6, AI.md line 9053).
+func IsDebugEnabled() bool {
+	return IsDebug()
 }
 
 // GetErrorDetail returns error details based on the current mode

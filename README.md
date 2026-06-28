@@ -1,5 +1,7 @@
 # Pastebin
 
+[![License](https://img.shields.io/github/license/apimgr/pastebin)](LICENSE.md)
+
 A fast, full-stack Go web application for creating and sharing text snippets anonymously.
 Drop-in replacement for pastebin.com, microbin, and lenpaste — existing scripts, CLIs,
 and integrations work without modification.

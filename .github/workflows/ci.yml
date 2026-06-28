@@ -110,3 +110,94 @@ jobs:
             exit 1
           fi
           echo "All third-party Actions are pinned to commit SHAs."
+
+  coverage:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Generate coverage report
+        run: |
+          REPO_NAME=$(basename "$GITHUB_REPOSITORY")
+          mkdir -p "/tmp/$GITHUB_REPOSITORY_OWNER"
+          COVDIR=$(mktemp -d "/tmp/$GITHUB_REPOSITORY_OWNER/${REPO_NAME}-XXXXXX")
+          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          go tool cover -html="$COVDIR/coverage.out" -o "$COVDIR/coverage.html"
+          PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+          echo "Total coverage: $PCT%"
+          cp "$COVDIR/coverage.out" coverage.out
+          cp "$COVDIR/coverage.html" coverage.html
+      - name: Upload coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 30
+
+  image-scan:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Build Docker image for scanning
+        run: docker build -f docker/Dockerfile -t pastebin:scan-${{ github.sha }} .
+      - name: Scan image with trivy
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --no-progress \
+            pastebin:scan-${{ github.sha }}
+
+  upload-artifacts:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Set build info
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=devel" >> "$GITHUB_ENV"
+          fi
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> "$GITHUB_ENV"
+      - name: Build linux/amd64 server
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}'"
+          go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o pastebin-linux-amd64 ./src
+      - name: Build linux/amd64 CLI
+        if: hashFiles('src/client/') != ''
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}'"
+          go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o pastebin-cli-linux-amd64 ./src/client
+      - name: Upload CI binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ci-binaries-${{ github.sha }}
+          path: |
+            pastebin-linux-amd64
+            pastebin-cli-linux-amd64
+          retention-days: 7

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QR Code - {{.SiteTitle}}</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -24,30 +25,35 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
-            <div class="container container-sm" style="text-align:center;">
+            <div class="container container-sm page-centered">
                 <div class="section-header">
                     <h1 class="section-title">{{t .Lang "qr.title"}}</h1>
                     <p class="section-description">Scan to open paste <code>{{.ID}}</code></p>
                 </div>
 
-                <div class="paste-view" style="display:inline-block; padding:var(--space-6);">
+                <div class="paste-view qr-container">
                     <img
-                        id="qr-img"
+                        class="qr-image"
+                        src="/qr/{{.ID}}/image"
                         alt="QR code for {{.Link}}"
-                        style="display:block; margin:0 auto; max-width:300px; width:100%;"
+                        width="300"
+                        height="300"
                     >
-                    <p style="margin-top:var(--space-4); color:var(--color-text-muted); font-size:var(--text-sm); word-break:break-all;">
-                        {{.Link}}
-                    </p>
-                    <div class="form-actions" style="justify-content:center; margin-top:var(--space-4);">
+                    <p class="qr-link-text">{{.Link}}</p>
+                    <div class="form-actions qr-actions">
                         <a href="/{{.ID}}" class="btn btn-primary">{{t .Lang "qr.view_paste"}}</a>
-                        <button id="dl-btn" class="btn btn-secondary">{{t .Lang "qr.download_qr"}}</button>
+                        <button
+                            class="btn btn-secondary"
+                            data-qr-download="/qr/{{.ID}}/image"
+                            data-qr-name="paste-{{.ID}}-qr.png"
+                        >{{t .Lang "qr.download_qr"}}</button>
                     </div>
                 </div>
             </div>
@@ -68,19 +74,10 @@
         </div>
     </footer>
 
-    <script>
-        // Generate QR code using the free qr-code-generator API (bundled-compatible: data URL via Canvas).
-        // We use the open API at api.qrserver.com which requires no key and no CDN JS.
-        const link = {{.Link}};
-        const img = document.getElementById('qr-img');
-        img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(link);
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
 
-        document.getElementById('dl-btn').addEventListener('click', () => {
-            const a = document.createElement('a');
-            a.href = img.src;
-            a.download = 'paste-{{.ID}}-qr.png';
-            a.click();
-        });
-    </script>
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

@@ -5,23 +5,28 @@
 
 /* CSS Custom Properties - Design Tokens */
 :root {
+    /* Dracula-inspired palette (PART 16) — canonical theme variables */
+    --bg: #1e1e2e;
+    --fg: #cdd6f4;
+    --accent: #89b4fa;
+
     /* Colors - Dark Theme (Default) */
-    --color-bg-primary: #0a0a0f;
-    --color-bg-secondary: #12121a;
-    --color-bg-tertiary: #1a1a24;
-    --color-bg-elevated: #22222e;
-    --color-bg-hover: #2a2a38;
+    --color-bg-primary: #1e1e2e;
+    --color-bg-secondary: #181825;
+    --color-bg-tertiary: #1e1e2e;
+    --color-bg-elevated: #313244;
+    --color-bg-hover: #45475a;
 
-    --color-text-primary: #f4f4f6;
-    --color-text-secondary: #a0a0b0;
-    --color-text-muted: #6a6a7a;
-    --color-text-inverse: #0a0a0f;
+    --color-text-primary: #cdd6f4;
+    --color-text-secondary: #bac2de;
+    --color-text-muted: #6c7086;
+    --color-text-inverse: #1e1e2e;
 
-    --color-accent-primary: #6366f1;
-    --color-accent-secondary: #8b5cf6;
-    --color-accent-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    --color-accent-hover: #818cf8;
-    --color-accent-glow: rgba(99, 102, 241, 0.4);
+    --color-accent-primary: #89b4fa;
+    --color-accent-secondary: #cba6f7;
+    --color-accent-gradient: linear-gradient(135deg, #89b4fa 0%, #cba6f7 100%);
+    --color-accent-hover: #b4d0ff;
+    --color-accent-glow: rgba(137, 180, 250, 0.4);
 
     --color-success: #10b981;
     --color-warning: #f59e0b;
@@ -36,11 +41,11 @@
     --color-on-accent: #ffffff;
 
     /* Translucent surface overlay used behind the sticky header */
-    --color-surface-blur: rgba(10, 10, 15, 0.85);
+    --color-surface-blur: rgba(30, 30, 46, 0.85);
 
     /* Tinted status / accent backgrounds (subtle fills) */
-    --color-accent-tint: rgba(99, 102, 241, 0.1);
-    --color-accent-tint-strong: rgba(99, 102, 241, 0.15);
+    --color-accent-tint: rgba(137, 180, 250, 0.1);
+    --color-accent-tint-strong: rgba(137, 180, 250, 0.15);
     --color-success-tint: rgba(16, 185, 129, 0.15);
     --color-success-tint-soft: rgba(16, 185, 129, 0.1);
     --color-success-tint-12: rgba(16, 185, 129, 0.12);
@@ -1091,8 +1096,8 @@ main {
     }
 }
 
-/* Desktop (1025px+): full desktop grid layouts */
-@media (min-width: 1025px) {
+/* Desktop (1024px+): full desktop grid layouts */
+@media (min-width: 1024px) {
     .features-grid {
         grid-template-columns: repeat(3, 1fr);
     }
@@ -1143,6 +1148,23 @@ main {
 .mt-8 { margin-top: var(--space-8); }
 .mb-4 { margin-bottom: var(--space-4); }
 .mb-8 { margin-bottom: var(--space-8); }
+.ml-auto { margin-left: auto; }
+
+/* ============================================
+   Long String Utilities (PART 16)
+   Required for IPv6, .onion, tokens, hashes, UUIDs, Base64
+   ============================================ */
+.long-string,
+.ip-address,
+.onion-address,
+.api-token,
+.hash,
+.uuid,
+.monospace-data {
+    word-break: break-all;
+    overflow-wrap: break-word;
+    font-family: monospace;
+}
 
 /* ============================================
    Extended Form Styles
@@ -1375,7 +1397,7 @@ main {
     }
 }
 
-@media (min-width: 1025px) {
+@media (min-width: 1024px) {
     .api-overview {
         grid-template-columns: repeat(4, 1fr);
     }
@@ -1824,5 +1846,279 @@ main {
     background: var(--color-success-tint-12);
     border: 1px solid var(--color-success);
     color: var(--color-success);
+}
+
+/* ============================================
+   Feature List (about page)
+   ============================================ */
+.feature-list {
+    line-height: 2;
+    padding-left: var(--space-6);
+}
+
+/* ============================================
+   Spacing Utilities
+   ============================================ */
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mb-2 { margin-bottom: var(--space-2); }
+.d-block { display: block; }
+
+/* ============================================
+   Text Color Utilities
+   ============================================ */
+.text-success { color: var(--color-success); }
+.text-warning { color: var(--color-warning); }
+
+/* ============================================
+   Toast Notification System (PART 16)
+   ============================================ */
+#toast-container {
+    position: fixed;
+    bottom: var(--space-4);
+    right: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    z-index: 10000;
+    pointer-events: none;
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    box-shadow: var(--shadow-lg);
+    pointer-events: auto;
+    animation: toastIn 0.2s ease forwards;
+    min-width: 200px;
+    max-width: 400px;
+}
+
+.toast--info { border-left: 4px solid var(--color-info); }
+.toast--success { border-left: 4px solid var(--color-success); }
+.toast--warning { border-left: 4px solid var(--color-warning); }
+.toast--error { border-left: 4px solid var(--color-error); }
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(8px); }
+}
+
+.toast--dismissing {
+    animation: toastOut 0.2s ease forwards;
+}
+
+/* ============================================
+   Skip Link (WCAG 2.1 AA — PART 16)
+   ============================================ */
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: var(--space-4);
+    z-index: 20000;
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-accent-primary);
+    color: var(--color-on-accent);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-decoration: none;
+    transition: top var(--transition-fast);
+}
+
+.skip-link:focus {
+    top: var(--space-4);
+}
+
+/* ============================================
+   Theme Toggle Button (PART 16)
+   ============================================ */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 18px;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-hover);
+}
+
+/* ============================================
+   Offline Indicator (PART 16)
+   ============================================ */
+#offline-indicator {
+    position: fixed;
+    bottom: var(--space-4);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: var(--space-2) var(--space-5);
+    background: var(--color-warning);
+    color: var(--color-text-inverse);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    z-index: 9000;
+    box-shadow: var(--shadow-md);
+}
+
+/* ============================================
+   SW Update Banner (PART 16)
+   ============================================ */
+.sw-update-banner {
+    position: fixed;
+    bottom: var(--space-4);
+    right: var(--space-4);
+    background: var(--accent, var(--color-accent-primary));
+    color: #fff;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-lg);
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    font-size: var(--font-size-sm);
+    z-index: 9999;
+    box-shadow: var(--shadow-lg);
+}
+
+.sw-update-banner__btn-apply {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: inherit;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.sw-update-banner__btn-apply:hover {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.sw-update-banner__btn-dismiss {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: var(--space-1);
+}
+
+/* ============================================
+   QR Page Utilities (PART 16)
+   ============================================ */
+.qr-container {
+    display: inline-block;
+    padding: var(--space-6);
+}
+
+.qr-image {
+    display: block;
+    margin: 0 auto;
+    max-width: 300px;
+    width: 100%;
+}
+
+.qr-link-text {
+    margin-top: var(--space-4);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+    word-break: break-all;
+}
+
+.qr-actions {
+    justify-content: center;
+    margin-top: var(--space-4);
+}
+
+/* ============================================
+   Page Section Utilities (PART 16)
+   ============================================ */
+.page-view {
+    padding: var(--space-6);
+}
+
+.section-mt {
+    margin-top: var(--space-6);
+}
+
+.section-mt-sm {
+    margin-top: var(--space-4);
+}
+
+.page-centered {
+    text-align: center;
+}
+
+.delete-success-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-4);
+}
+
+.delete-hint {
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-6);
+}
+
+.help-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--space-3);
+}
+
+.help-table th,
+.help-table td {
+    text-align: left;
+    padding: var(--space-1) var(--space-3);
+}
+
+.help-table th {
+    font-weight: 600;
+}
+
+.form-mono {
+    font-family: monospace;
+}
+
+.token-hint {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+    margin-top: var(--space-2);
+}
+
+/* ============================================
+   Reduced Motion (WCAG 2.1 AA — PART 16)
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 

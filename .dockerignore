@@ -2,6 +2,9 @@
 .gitignore
 .gitattributes
 .github/
+.gitea/
+.forgejo/
+.gitlab-ci.yml
 .claude/
 .cursor/
 .aider/
@@ -18,3 +21,9 @@ tests/
 *.log
 .env*
 CLAUDE.local.md
+Makefile
+Jenkinsfile
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delete Paste - {{.SiteTitle}}</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -24,11 +25,12 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
@@ -37,10 +39,10 @@
                 </div>
 
                 {{if .Success}}
-                <div class="paste-view" style="text-align:center; padding:var(--space-8);">
-                    <div style="font-size:3rem; margin-bottom:var(--space-4);">🗑️</div>
+                <div class="paste-view page-view page-centered">
+                    <div class="delete-success-icon">🗑️</div>
                     <h2>{{t .Lang "paste.deleted_title"}}</h2>
-                    <p style="color:var(--color-text-muted); margin-bottom:var(--space-6);">
+                    <p class="delete-hint">
                         Paste <code>{{.ID}}</code> has been permanently deleted.
                     </p>
                     <a href="/" class="btn btn-primary">{{t .Lang "paste.go_home"}}</a>
@@ -49,25 +51,25 @@
                 {{else}}
                 <div class="paste-view">
                     {{if .Error}}
-                    <div class="alert alert-error" style="margin-bottom:var(--space-4);">
+                    <div class="alert alert-error">
                         {{.Error}}
                     </div>
                     {{end}}
 
                     <form action="/remove/{{.ID}}" method="POST" class="paste-form">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                         <div class="form-group">
                             <label for="token" class="form-label">{{t .Lang "paste.delete_token_label"}}</label>
                             <input
                                 type="text"
                                 id="token"
                                 name="token"
-                                class="form-input"
+                                class="form-input form-mono"
                                 placeholder="Paste your delete token here"
                                 required
                                 autocomplete="off"
-                                style="font-family: monospace;"
                             >
-                            <p style="color:var(--color-text-muted); font-size:var(--text-sm); margin-top:var(--space-2);">
+                            <p class="token-hint">
                                 This is the token you received when the paste was created. This action cannot be undone.
                             </p>
                         </div>
@@ -95,5 +97,11 @@
             </div>
         </div>
     </footer>
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

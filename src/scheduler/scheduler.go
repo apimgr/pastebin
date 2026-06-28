@@ -247,9 +247,9 @@ func (s *Scheduler) execute(e *taskEntry) error {
 	start := time.Now()
 	log.Printf("scheduler: running %s", e.id)
 
-	metrics.SchedulerTasksRunning.Inc()
+	metrics.SchedulerTasksRunning.WithLabelValues(e.id).Inc()
 	taskErr := e.fn()
-	metrics.SchedulerTasksRunning.Dec()
+	metrics.SchedulerTasksRunning.WithLabelValues(e.id).Dec()
 
 	finished := time.Now()
 	durationMS := finished.Sub(start).Milliseconds()

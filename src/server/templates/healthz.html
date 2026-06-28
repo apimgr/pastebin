@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.SiteTitle}} - Health Status</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -46,6 +46,7 @@
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -57,11 +58,12 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <div class="container container-sm">
 
             <!-- 1. Project Info -->
@@ -233,5 +235,11 @@
             </div>
         </div>
     </footer>
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

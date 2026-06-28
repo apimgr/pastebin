@@ -312,31 +312,50 @@
   },
   "plurals": {
     "items": {
-      "other": "{count} 个项目",
+      "zero": "项",
       "one": "项",
-      "zero": "项"
+      "two": "{count} 个项目",
+      "few": "{count} 个项目",
+      "many": "{count} 个项目",
+      "other": "{count} 个项目"
     },
     "results": {
-      "other": "{count} 个结果",
+      "zero": "结果",
       "one": "结果",
-      "zero": "结果"
+      "two": "{count} 个结果",
+      "few": "{count} 个结果",
+      "many": "{count} 个结果",
+      "other": "{count} 个结果"
     },
     "users": {
-      "other": "{count} 个用户",
+      "zero": "用户",
       "one": "用户",
-      "zero": "用户"
+      "two": "{count} 个用户",
+      "few": "{count} 个用户",
+      "many": "{count} 个用户",
+      "other": "{count} 个用户"
     },
     "days": {
-      "other": "{count} 天",
-      "one": "天"
+      "zero": "{count} 天",
+      "one": "天",
+      "two": "{count} 天",
+      "few": "{count} 天",
+      "many": "{count} 天",
+      "other": "{count} 天"
     },
     "hours": {
-      "other": "{count} 小时",
-      "one": "小时"
+      "one": "小时",
+      "two": "{count} 小时",
+      "few": "{count} 小时",
+      "many": "{count} 小时",
+      "other": "{count} 小时"
     },
     "minutes": {
-      "other": "{count} 分钟",
-      "one": "分钟"
+      "one": "分钟",
+      "two": "{count} 分钟",
+      "few": "{count} 分钟",
+      "many": "{count} 分钟",
+      "other": "{count} 分钟"
     }
   },
   "swagger": {

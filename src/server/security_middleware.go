@@ -47,7 +47,7 @@ func (s *Server) pathSecurityMiddleware(next http.Handler) http.Handler {
 		if strings.Contains(original, "..") ||
 			strings.Contains(rawPath, "..") ||
 			strings.Contains(strings.ToLower(rawPath), "%2e") {
-			http.Error(w, "bad request", http.StatusBadRequest)
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "BAD_REQUEST", "message": "bad request"})
 			return
 		}
 
@@ -222,7 +222,7 @@ func (s *Server) blocklistMiddleware(next http.Handler) http.Handler {
 			host = r.RemoteAddr
 		}
 		if ip := net.ParseIP(host); ip != nil && bs.contains(ip) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "FORBIDDEN", "message": "forbidden"})
 			return
 		}
 		next.ServeHTTP(w, r)

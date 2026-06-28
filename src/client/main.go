@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/client/tui"
-	"github.com/apimgr/pastebin/src/paths"
 	"github.com/apimgr/pastebin/src/shell"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
@@ -50,12 +49,23 @@ var (
 // Display uses filepath.Base(os.Args[0]) per PART 32.
 const projectName = "pastebin"
 
+// Exit codes per PART 32.
+const (
+	exitSuccess    = 0
+	exitGeneral    = 1
+	exitConfig     = 2
+	exitConnection = 3
+	exitAuth       = 4
+	exitNotFound   = 5
+	exitUsage      = 64
+)
+
 // ─── CLI config (cli.yml) ─────────────────────────────────────────────────────
 
-// cliConfig mirrors the structure of cli.yml.
+// cliConfig mirrors the complete structure of cli.yml (PART 32).
 type cliConfig struct {
-	Server  string `yaml:"server"`
-	Update  struct {
+	Server string `yaml:"server"`
+	Update struct {
 		Auto          bool   `yaml:"auto"`
 		CheckInterval string `yaml:"check_interval"`
 		Channel       string `yaml:"channel"`
@@ -63,17 +73,65 @@ type cliConfig struct {
 	Display struct {
 		Mode string `yaml:"mode"`
 	} `yaml:"display"`
+	Auth struct {
+		Token     string `yaml:"token"`
+		TokenFile string `yaml:"token_file"`
+	} `yaml:"auth"`
+	Output struct {
+		Format  string `yaml:"format"`
+		Color   string `yaml:"color"`
+		Pager   string `yaml:"pager"`
+		Quiet   bool   `yaml:"quiet"`
+		Verbose bool   `yaml:"verbose"`
+	} `yaml:"output"`
+	TUI struct {
+		Enabled bool   `yaml:"enabled"`
+		Theme   string `yaml:"theme"`
+		Mouse   bool   `yaml:"mouse"`
+		Unicode bool   `yaml:"unicode"`
+	} `yaml:"tui"`
+	Logging struct {
+		Level    string `yaml:"level"`
+		File     string `yaml:"file"`
+		MaxSize  int    `yaml:"max_size"`
+		MaxFiles int    `yaml:"max_files"`
+	} `yaml:"logging"`
+	Cache struct {
+		Enabled bool   `yaml:"enabled"`
+		TTL     string `yaml:"ttl"`
+		MaxSize int    `yaml:"max_size"`
+	} `yaml:"cache"`
+	Debug    bool `yaml:"debug"`
+	Defaults struct {
+		Lang    string `yaml:"lang"`
+		Public  bool   `yaml:"public"`
+		Expire  string `yaml:"expire"`
+		Syntax  string `yaml:"syntax"`
+		Output  string `yaml:"output"`
+		Limit   int    `yaml:"limit"`
+	} `yaml:"defaults"`
 }
 
 // cliConfigPath returns the platform-correct path to cli.yml.
+// The CLI always uses user-scope directories regardless of privilege level;
+// it never falls back to system directories like /etc/.
 func cliConfigPath() string {
 	if p := os.Getenv("CLI_CONFIG"); p != "" {
 		return p
 	}
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return filepath.Join(os.Getenv("APPDATA"), "apimgr", projectName, "cli.yml")
+	case "darwin":
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, "Library", "Application Support", "apimgr", projectName, "cli.yml")
+	default:
+		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			return filepath.Join(xdg, "apimgr", projectName, "cli.yml")
+		}
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".config", "apimgr", projectName, "cli.yml")
 	}
-	return filepath.Join(paths.GetConfigDir(projectName), "cli.yml")
 }
 
 // loadCLIConfig reads cli.yml; returns zero-value config if absent.
@@ -82,6 +140,15 @@ func loadCLIConfig() (cliConfig, error) {
 	cfg.Update.Channel = "stable"
 	cfg.Update.CheckInterval = "per_invocation"
 	cfg.Display.Mode = "auto"
+	cfg.Output.Format = "text"
+	cfg.Output.Color = "auto"
+	cfg.TUI.Enabled = true
+	cfg.TUI.Unicode = true
+	cfg.Cache.TTL = "5m"
+	cfg.Cache.MaxSize = 100
+	cfg.Defaults.Expire = "never"
+	cfg.Defaults.Syntax = "text"
+	cfg.Defaults.Limit = 20
 
 	data, err := os.ReadFile(cliConfigPath())
 	if err != nil {
@@ -273,9 +340,26 @@ func versionLessThan(a, b string) bool {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
+// ensureDirs creates the standard user-scope directories for the CLI client
+// (config, data, cache, log). Called at startup before any config is loaded.
+func ensureDirs() {
+	home, _ := os.UserHomeDir()
+	dirs := []string{
+		filepath.Join(home, ".config", "apimgr", projectName),
+		filepath.Join(home, ".local", "share", "apimgr", projectName),
+		filepath.Join(home, ".cache", "apimgr", projectName),
+		filepath.Join(home, ".local", "log", "apimgr", projectName),
+	}
+	for _, d := range dirs {
+		os.MkdirAll(d, 0o700)
+	}
+}
+
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix(filepath.Base(os.Args[0]) + ": ")
+
+	ensureDirs()
 
 	// Load cli.yml.
 	fileCfg, err := loadCLIConfig()
@@ -285,7 +369,7 @@ func main() {
 
 	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", fileCfg.Server), "server base URL")
 	asJSON := flag.Bool("json", false, "machine-readable JSON output")
-	colorFlag := flag.String("color", "auto", "color output: auto, yes, no")
+	colorFlag := flag.String("color", "auto", "color output: auto, always, never")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	showHelp := flag.Bool("help", false, "show help and exit")
 	debugFlag := flag.Bool("debug", false, "enable debug output")
@@ -301,11 +385,12 @@ func main() {
 	flag.Parse()
 
 	// Honour NO_COLOR env var (https://no-color.org/) and --color flag.
-	// Spec PART 8 values: auto, yes, no. always/never are tolerated aliases.
+	// Spec canonical values: auto, always, never (PART 8 / binary-rules.md).
+	// yes/no are accepted as backward-compatible aliases.
 	switch *colorFlag {
-	case "no", "never":
+	case "never", "no":
 		os.Setenv("NO_COLOR", "1")
-	case "yes", "always":
+	case "always", "yes":
 		os.Unsetenv("NO_COLOR")
 	}
 
@@ -342,7 +427,7 @@ func main() {
 			}
 			if err := shell.PrintInit(filepath.Base(os.Args[0]), shellShell); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: --shell init: %v\n", filepath.Base(os.Args[0]), err)
-				os.Exit(1)
+				os.Exit(exitUsage)
 			}
 		case "completions":
 			shellShell := ""
@@ -351,12 +436,12 @@ func main() {
 			}
 			if err := shell.PrintClientCompletions(filepath.Base(os.Args[0]), shellShell); err != nil {
 				fmt.Fprintf(os.Stderr, "%s: --shell completions: %v\n", filepath.Base(os.Args[0]), err)
-				os.Exit(1)
+				os.Exit(exitUsage)
 			}
 		default:
 			fmt.Fprintf(os.Stderr, "%s: --shell: unknown subcommand %q\n", filepath.Base(os.Args[0]), shellArg)
 			fmt.Fprintf(os.Stderr, "Run '%s --shell --help' for usage.\n", filepath.Base(os.Args[0]))
-			os.Exit(1)
+			os.Exit(exitUsage)
 		}
 		return
 	}
@@ -392,16 +477,18 @@ func main() {
 
 	if len(args) == 0 {
 		printUsage()
-		os.Exit(1)
+		os.Exit(exitUsage)
 	}
 
 	if *server == "" {
-		log.Fatal("no server URL set — use --server <url> or set $PASTEBIN_SERVER")
+		fmt.Fprintf(os.Stderr, "%s: no server URL set — use --server <url> or set $PASTEBIN_SERVER\n", filepath.Base(os.Args[0]))
+		os.Exit(exitConnection)
 	}
 
 	// Check for CLI updates (non-blocking; only blocks on min_version violation).
 	if err := checkCLIUpdate(*server, locale); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s: update check: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitConnection)
 	}
 
 	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale}
@@ -427,7 +514,8 @@ func main() {
 		binaryName := filepath.Base(os.Args[0])
 		fmt.Printf("%s %s (commit %s, built %s)\n", binaryName, Version, CommitID, BuildDate)
 	default:
-		log.Fatalf("unknown command %q (try: create, get, delete, list, update, tui, completions)", args[0])
+		fmt.Fprintf(os.Stderr, "%s: unknown command %q (try: create, get, delete, list, update)\n", filepath.Base(os.Args[0]), args[0])
+		os.Exit(exitUsage)
 	}
 }
 
@@ -444,7 +532,8 @@ func runTUI(server, lang string, cfg cliConfig) {
 	// Auto-update check in TUI mode (non-fatal for version notices).
 	if server != "" {
 		if err := checkCLIUpdate(server, lang); err != nil {
-			log.Fatal(err)
+			fmt.Fprintf(os.Stderr, "%s: update check: %v\n", filepath.Base(os.Args[0]), err)
+			os.Exit(exitConnection)
 		}
 	}
 
@@ -455,7 +544,8 @@ func runTUI(server, lang string, cfg cliConfig) {
 		CfgPath: cliConfigPath(),
 	}
 	if err := tui.Run(tuiCfg); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s: tui: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 }
 
@@ -502,7 +592,8 @@ func (c *client) cmdCreate(args []string) {
 	unlisted := fs.Bool("unlisted", false, "create as unlisted (not shown in recent)")
 	title := fs.String("title", "", "paste title")
 	if err := fs.Parse(args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s: create: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitUsage)
 	}
 
 	var content []byte
@@ -511,7 +602,8 @@ func (c *client) cmdCreate(args []string) {
 	if fs.NArg() > 0 {
 		content, err = os.ReadFile(fs.Arg(0))
 		if err != nil {
-			log.Fatalf("read file: %v", err)
+			fmt.Fprintf(os.Stderr, "%s: read file: %v\n", filepath.Base(os.Args[0]), err)
+			os.Exit(exitGeneral)
 		}
 		// Auto-detect language from extension if not set.
 		if *lang == "text" {
@@ -523,7 +615,8 @@ func (c *client) cmdCreate(args []string) {
 	} else {
 		content, err = io.ReadAll(os.Stdin)
 		if err != nil {
-			log.Fatalf("read stdin: %v", err)
+			fmt.Fprintf(os.Stderr, "%s: read stdin: %v\n", filepath.Base(os.Args[0]), err)
+			os.Exit(exitGeneral)
 		}
 	}
 
@@ -543,18 +636,26 @@ func (c *client) cmdCreate(args []string) {
 
 	resp, err := c.postJSON("/api/v1/pastes", body)
 	if err != nil {
-		log.Fatalf("create: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: create: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitConnection)
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Fatalf("decode response: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: decode response: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		errMsg, _ := result["error"].(string)
+		fmt.Fprintf(os.Stderr, "%s: create: authentication failed (%d): %s\n", filepath.Base(os.Args[0]), resp.StatusCode, errMsg)
+		os.Exit(exitAuth)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		errMsg, _ := result["error"].(string)
-		log.Fatalf("server error %d: %s", resp.StatusCode, errMsg)
+		fmt.Fprintf(os.Stderr, "%s: create: server error %d: %s\n", filepath.Base(os.Args[0]), resp.StatusCode, errMsg)
+		os.Exit(exitGeneral)
 	}
 
 	if c.asJSON {
@@ -576,48 +677,61 @@ func (c *client) cmdCreate(args []string) {
 func (c *client) cmdGet(args []string) {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	if err := fs.Parse(args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s: get: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitUsage)
 	}
 	if fs.NArg() < 1 {
-		log.Fatal("usage: get <id>")
+		fmt.Fprintf(os.Stderr, "%s: usage: get <id>\n", filepath.Base(os.Args[0]))
+		os.Exit(exitUsage)
 	}
 	id := fs.Arg(0)
 
-	resp, err := c.get("/raw/" + id)
+	resp, err := c.get("/raw/" + url.PathEscape(id))
 	if err != nil {
-		log.Fatalf("get: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: get: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitConnection)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		log.Fatalf("paste %q not found or has expired", id)
+		fmt.Fprintf(os.Stderr, "%s: paste %q not found or has expired\n", filepath.Base(os.Args[0]), id)
+		os.Exit(exitNotFound)
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		fmt.Fprintf(os.Stderr, "%s: get: authentication required (%d)\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		os.Exit(exitAuth)
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("server returned %d", resp.StatusCode)
+		fmt.Fprintf(os.Stderr, "%s: get: server returned %d\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		os.Exit(exitGeneral)
 	}
 
 	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
-		log.Fatalf("read response: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: get: read response: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 }
 
 func (c *client) cmdDelete(args []string) {
 	fs := flag.NewFlagSet("delete", flag.ExitOnError)
 	if err := fs.Parse(args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s: delete: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitUsage)
 	}
 	if fs.NArg() < 2 {
-		log.Fatal("usage: delete <id> <token>")
+		fmt.Fprintf(os.Stderr, "%s: usage: delete <id> <token>\n", filepath.Base(os.Args[0]))
+		os.Exit(exitUsage)
 	}
 	id, token := fs.Arg(0), fs.Arg(1)
 
 	req, err := http.NewRequest(
 		http.MethodDelete,
-		c.url("/api/v1/pastes/"+id+"?token="+url.QueryEscape(token)),
+		c.url("/api/v1/pastes/"+url.PathEscape(id)+"?token="+url.QueryEscape(token)),
 		nil,
 	)
 	if err != nil {
-		log.Fatalf("build request: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: delete: build request: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
 	if c.lang != "" {
@@ -627,15 +741,22 @@ func (c *client) cmdDelete(args []string) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Fatalf("delete: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: delete: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitConnection)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		log.Fatalf("paste %q not found or invalid token", id)
+		fmt.Fprintf(os.Stderr, "%s: paste %q not found or invalid token\n", filepath.Base(os.Args[0]), id)
+		os.Exit(exitNotFound)
+	}
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		fmt.Fprintf(os.Stderr, "%s: delete: authentication failed (%d)\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		os.Exit(exitAuth)
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("server returned %d", resp.StatusCode)
+		fmt.Fprintf(os.Stderr, "%s: delete: server returned %d\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		os.Exit(exitGeneral)
 	}
 
 	if c.asJSON {
@@ -650,14 +771,21 @@ func (c *client) cmdList(args []string) {
 	limit := fs.Int("limit", 20, "number of pastes to list (max 100)")
 	page := fs.Int("page", 1, "page number")
 	if err := fs.Parse(args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "%s: list: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitUsage)
 	}
 
 	resp, err := c.get(fmt.Sprintf("/api/v1/pastes?page=%d&limit=%d", *page, *limit))
 	if err != nil {
-		log.Fatalf("list: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: list: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitConnection)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		fmt.Fprintf(os.Stderr, "%s: list: authentication required (%d)\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		os.Exit(exitAuth)
+	}
 
 	var result struct {
 		Pastes []struct {
@@ -673,7 +801,8 @@ func (c *client) cmdList(args []string) {
 		} `json:"pagination"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Fatalf("decode: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: list: decode: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 
 	if c.asJSON {
@@ -708,13 +837,15 @@ func (c *client) cmdList(args []string) {
 // cmdUpdate handles 'pastebin-cli --update check|yes'.
 func (c *client) cmdUpdate(action string) {
 	if c.server == "" {
-		log.Fatal("no server URL set — use --server <url> or set $PASTEBIN_SERVER")
+		fmt.Fprintf(os.Stderr, "%s: no server URL set — use --server <url> or set $PASTEBIN_SERVER\n", filepath.Base(os.Args[0]))
+		os.Exit(exitConnection)
 	}
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, c.url("/api/autodiscover"), nil)
 	if err != nil {
-		log.Fatalf("update: build request: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: update: build request: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
 	if c.lang != "" {
@@ -723,13 +854,15 @@ func (c *client) cmdUpdate(action string) {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Fatalf("update: autodiscover: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: update: autodiscover: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitConnection)
 	}
 	defer resp.Body.Close()
 
 	var disc autodiscoverResponse
 	if err := json.NewDecoder(resp.Body).Decode(&disc); err != nil {
-		log.Fatalf("update: decode: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: update: decode: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 
 	osArch := runtime.GOOS + "-" + runtime.GOARCH
@@ -754,7 +887,8 @@ func (c *client) cmdUpdate(action string) {
 		fmt.Sprintf("%s/cli/binaries/pastebin-cli-%s-%s", c.server, runtime.GOOS, runtime.GOARCH),
 		info.SHA256,
 	); err != nil {
-		log.Fatalf("update failed: %v", err)
+		fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", filepath.Base(os.Args[0]), err)
+		os.Exit(exitGeneral)
 	}
 }
 
@@ -898,7 +1032,8 @@ COMMANDS
     delete <id> <token>  Delete paste using its delete token
     list [--limit N]     List recent public pastes
     update [check|yes]   Check for or apply CLI updates (default: check)
-    tui                  Launch interactive terminal UI
+
+    When no command is given in an interactive terminal, the TUI launches automatically.
 
 CREATE FLAGS
     --lang <lang>        Syntax language (default: text)
@@ -914,7 +1049,7 @@ LIST FLAGS
 GLOBAL FLAGS
     --server <url>       Server base URL (required; or set $PASTEBIN_SERVER)
     --json               Output machine-readable JSON
-    --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
+    --color <when>       Color output: auto, always, never (default: auto; honors NO_COLOR)
     --lang <code>        Output language (default: auto-detect from LANG)
     --debug              Enable debug output
     --update check|yes   Check for or apply CLI updates

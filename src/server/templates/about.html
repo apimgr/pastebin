@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>About - {{.SiteTitle}}</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -24,26 +25,27 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
                     <h1 class="section-title">{{t .Lang "about.title"}} {{.SiteTitle}}</h1>
                 </div>
 
-                <div class="paste-view" style="padding:var(--space-6);">
+                <div class="paste-view page-view">
                     <h2>What is {{.SiteTitle}}?</h2>
                     <p>
                         {{.SiteTitle}} is a fast, public paste sharing service. Share code snippets, configuration files,
                         logs, and any text content instantly — no account required.
                     </p>
 
-                    <h2 style="margin-top:var(--space-6);">{{t .Lang "about.features"}}</h2>
-                    <ul style="line-height:2; padding-left:var(--space-6);">
+                    <h2 class="section-mt">{{t .Lang "about.features"}}</h2>
+                    <ul class="feature-list">
                         <li>Syntax highlighting for 20+ languages</li>
                         <li>Configurable expiry (1 hour to 2 years, or never)</li>
                         <li>Burn-after-N-views for ephemeral content</li>
@@ -54,13 +56,13 @@
                         <li>No accounts, no tracking, no ads</li>
                     </ul>
 
-                    <h2 style="margin-top:var(--space-6);">API Compatibility</h2>
+                    <h2 class="section-mt">API Compatibility</h2>
                     <p>
                         This service is a drop-in replacement for pastebin.com, microbin, and lenpaste.
                         Existing scripts targeting those services work without changes by pointing them at this server.
                     </p>
 
-                    <h2 style="margin-top:var(--space-6);">Source</h2>
+                    <h2 class="section-mt">Source</h2>
                     <p>
                         Built by <a href="https://github.com/apimgr" target="_blank">apimgr</a>.
                         Open source, MIT licensed.
@@ -83,5 +85,11 @@
             </div>
         </div>
     </footer>
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# @@License : WTFPL
 # tests/docker.sh — Docker integration tests for pastebin
 # Runs the server in a Docker container and exercises the API with full
 # content negotiation and endpoint coverage per PART 28 requirements.

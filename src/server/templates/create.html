@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Paste - {{.SiteTitle}}</title>
     <meta name="description" content="Create a new paste with syntax highlighting">
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <!-- Header -->
     <header class="header">
         <nav class="nav">
@@ -26,11 +27,12 @@
                 <a href="/create" class="nav-link active">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
@@ -39,6 +41,7 @@
                 </div>
 
                 <form id="paste-form" class="paste-form" action="/create" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                     <div class="form-row">
                         <div class="form-group">
                             <label for="title" class="form-label">{{t .Lang "paste.title_optional"}}</label>
@@ -168,6 +171,9 @@
         </div>
     </footer>
 
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="/static/js/main.js"></script>
     <script>
@@ -235,8 +241,8 @@
 
                     const isReused = activeToken && paste.owner_token === activeToken;
                     const tokenNote = isReused
-                        ? '<span style="color:var(--color-success)">✓ Your existing token was reused for this paste.</span>'
-                        : '<span style="color:var(--color-warning)">Save this token — it controls deletion of your pastes.</span>';
+                        ? '<span class="text-success">✓ Your existing token was reused for this paste.</span>'
+                        : '<span class="text-warning">Save this token — it controls deletion of your pastes.</span>';
 
                     resultDiv.innerHTML = `
                         <div class="success">
@@ -244,16 +250,15 @@
                             <p>View: <a href="${paste.link}" target="_blank">${paste.link}</a></p>
                             <p>Raw: <a href="/raw/${paste.id}" target="_blank">/raw/${paste.id}</a></p>
                             <p>Download: <a href="/dl/${paste.id}" target="_blank">/dl/${paste.id}</a></p>
-                            <div class="alert alert-warning" style="margin-top: var(--space-3);">
-                                <p style="margin:0 0 var(--space-2)">${tokenNote}</p>
-                                <code style="word-break:break-all;">${paste.owner_token || ''}</code>
+                            <div class="alert alert-warning mt-3">
+                                <p class="mb-2">${tokenNote}</p>
+                                <code class="long-string">${paste.owner_token || ''}</code>
                                 <button
                                     onclick="navigator.clipboard.writeText('${paste.owner_token || ''}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Token',1500)"
-                                    class="btn btn-secondary"
-                                    style="margin-top: var(--space-2); display:block;"
+                                    class="btn btn-secondary d-block mt-2"
                                 >Copy Token</button>
                             </div>
-                            <div class="form-actions" style="margin-top: var(--space-4);">
+                            <div class="form-actions mt-4">
                                 <button onclick="navigator.clipboard.writeText('${paste.link}')" class="btn btn-secondary">
                                     Copy Link
                                 </button>

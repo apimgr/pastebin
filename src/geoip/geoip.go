@@ -26,12 +26,18 @@ const (
 	urlASN     = "https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb"
 	urlCountry = "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
 	urlCity    = "https://cdn.jsdelivr.net/npm/@ip-location-db/dbip-city-mmdb/dbip-city-ipv4.mmdb"
+	urlWHOIS   = "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
 )
 
 // ASNRecord holds ASN lookup fields from the asn.mmdb database.
 type ASNRecord struct {
 	ASN uint32 `maxminddb:"autonomous_system_number"`
 	Org string `maxminddb:"autonomous_system_organization"`
+}
+
+// WHOISRecord holds registrant organisation from the whois.mmdb database.
+type WHOISRecord struct {
+	RegistrantOrg string `maxminddb:"registrant_org"`
 }
 
 // CountryRecord holds country lookup fields from the country/whois database.
@@ -53,15 +59,16 @@ type CityRecord struct {
 
 // Info is the combined GeoIP result for a single IP address.
 type Info struct {
-	IP          string
-	CountryCode string
-	City        string
-	State1      string
-	Timezone    string
-	Latitude    float64
-	Longitude   float64
-	ASN         uint32
-	ASNOrg      string
+	IP            string
+	CountryCode   string
+	City          string
+	State1        string
+	Timezone      string
+	Latitude      float64
+	Longitude     float64
+	ASN           uint32
+	ASNOrg        string
+	RegistrantOrg string
 }
 
 // Config is consumed by Open; mirrors config.GeoIPConfig.
@@ -82,6 +89,7 @@ type DB struct {
 	asnDB   *maxminddb.Reader
 	countDB *maxminddb.Reader
 	cityDB  *maxminddb.Reader
+	whoisDB *maxminddb.Reader
 	cfg     Config
 }
 
@@ -132,6 +140,20 @@ func Open(cfg Config) (*DB, error) {
 				log.Printf("geoip: warning: open city.mmdb: %v", err)
 			} else {
 				d.cityDB = r
+			}
+		}
+	}
+
+	if cfg.EnableWHOIS {
+		path := filepath.Join(cfg.Dir, "whois.mmdb")
+		if err := ensureFile(path, urlWHOIS); err != nil {
+			log.Printf("geoip: warning: WHOIS database unavailable: %v", err)
+		} else {
+			r, err := maxminddb.Open(path)
+			if err != nil {
+				log.Printf("geoip: warning: open whois.mmdb: %v", err)
+			} else {
+				d.whoisDB = r
 			}
 		}
 	}
@@ -193,6 +215,21 @@ func (d *DB) Update() error {
 		}
 	}
 
+	if d.cfg.EnableWHOIS {
+		path := filepath.Join(d.cfg.Dir, "whois.mmdb")
+		_ = os.Remove(path)
+		if err := ensureFile(path, urlWHOIS); err != nil {
+			errs = append(errs, fmt.Sprintf("whois: %v", err))
+		} else if r, err := maxminddb.Open(path); err != nil {
+			errs = append(errs, fmt.Sprintf("open whois: %v", err))
+		} else {
+			if d.whoisDB != nil {
+				_ = d.whoisDB.Close()
+			}
+			d.whoisDB = r
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("geoip update errors: %s", strings.Join(errs, "; "))
 	}
@@ -214,6 +251,10 @@ func (d *DB) Close() {
 	if d.cityDB != nil {
 		_ = d.cityDB.Close()
 		d.cityDB = nil
+	}
+	if d.whoisDB != nil {
+		_ = d.whoisDB.Close()
+		d.whoisDB = nil
 	}
 }
 
@@ -254,6 +295,13 @@ func (d *DB) Lookup(ip net.IP) *Info {
 			info.Timezone = rec.Timezone
 			info.Latitude = rec.Latitude
 			info.Longitude = rec.Longitude
+		}
+	}
+
+	if d.whoisDB != nil {
+		var rec WHOISRecord
+		if err := d.whoisDB.Lookup(ip, &rec); err == nil {
+			info.RegistrantOrg = rec.RegistrantOrg
 		}
 	}
 

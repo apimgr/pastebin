@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Offline - {{.SiteTitle}}</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -40,6 +40,7 @@
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -49,7 +50,7 @@
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <div class="offline-page">
             <div class="offline-icon">📡</div>
             <h1 class="offline-title">You are offline</h1>
@@ -68,6 +69,9 @@
             <p>{{.SiteTitle}}</p>
         </div>
     </footer>
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="/static/js/main.js"></script>

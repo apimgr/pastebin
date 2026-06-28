@@ -150,9 +150,11 @@ func (m *Manager) startLocked() error {
 
 	torrcPath := filepath.Join(m.cfg.ConfigDir, "tor", "torrc")
 	torDataDir := filepath.Join(m.cfg.DataDir, "tor")
-	torrcContent := getTorConfig(&m.cfg)
-	if err := writeIfChanged(torrcPath, []byte(torrcContent), 0o600); err != nil {
-		return fmt.Errorf("write torrc: %w", err)
+	// Create torrc only when absent — never overwrite an existing operator-customised file.
+	if _, err := os.Stat(torrcPath); os.IsNotExist(err) {
+		if writeErr := os.WriteFile(torrcPath, []byte(getTorConfig(&m.cfg)), 0o600); writeErr != nil {
+			return fmt.Errorf("write torrc: %w", writeErr)
+		}
 	}
 
 	conf := &binettor.StartConf{
@@ -283,6 +285,74 @@ func (m *Manager) GetHTTPClient(useTor bool) *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
+// Restart closes the current Tor process and starts a fresh one, preserving
+// the existing torrc and hidden-service keys.
+func (m *Manager) Restart() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.svc != nil {
+		_ = m.svc.t.Close()
+		m.svc = nil
+	}
+	return m.startLocked()
+}
+
+// UpdateConfig applies a new Config to the Manager and restarts the Tor
+// process so the change takes effect.
+func (m *Manager) UpdateConfig(cfg Config) error {
+	m.mu.Lock()
+	m.cfg = cfg
+	m.mu.Unlock()
+	return m.Restart()
+}
+
+// RegenerateAddress removes the existing hidden-service key so that Start()
+// generates a fresh .onion address, and returns the new address on success.
+func (m *Manager) RegenerateAddress() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keyPath := filepath.Join(m.cfg.DataDir, "tor", "site", "hs_ed25519_secret_key")
+	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("remove onion key: %w", err)
+	}
+	if m.svc != nil {
+		_ = m.svc.t.Close()
+		m.svc = nil
+	}
+	if err := m.startLocked(); err != nil {
+		return "", err
+	}
+	if m.svc != nil {
+		return m.svc.serviceID + ".onion", nil
+	}
+	return "", nil
+}
+
+// ApplyKeys persists new hidden-service key material to disk, restarts Tor so
+// the new .onion address becomes active, and returns the new address on success.
+func (m *Manager) ApplyKeys(keyBlob []byte) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keyPath := filepath.Join(m.cfg.DataDir, "tor", "site", "hs_ed25519_secret_key")
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+		return "", fmt.Errorf("applykeys mkdir: %w", err)
+	}
+	if err := os.WriteFile(keyPath, keyBlob, 0o600); err != nil {
+		return "", fmt.Errorf("applykeys write: %w", err)
+	}
+	if m.svc != nil {
+		_ = m.svc.t.Close()
+		m.svc = nil
+	}
+	if err := m.startLocked(); err != nil {
+		return "", err
+	}
+	if m.svc != nil {
+		return m.svc.serviceID + ".onion", nil
+	}
+	return "", nil
+}
+
 // Monitor watches the control connection and restarts Tor if it becomes
 // unresponsive.  Runs in its own goroutine; exits when ctx is cancelled.
 func (m *Manager) Monitor() {
@@ -313,20 +383,38 @@ func (m *Manager) Monitor() {
 	}
 }
 
-// ensureTorDirs creates all required Tor directories with 0700 permissions.
+// ensureTorDirs creates all required Tor directories with 0700 permissions
+// and applies Chown to match the process UID/GID (non-fatal on Windows).
 func ensureTorDirs(configDir, dataDir string) error {
 	dirs := []string{
 		filepath.Join(configDir, "tor"),
 		filepath.Join(dataDir, "tor"),
 		filepath.Join(dataDir, "tor", "site"),
 	}
+	uid := os.Getuid()
+	gid := os.Getgid()
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return fmt.Errorf("mkdir %s: %w", d, err)
 		}
-		if err := os.Chmod(d, 0o700); err != nil && runtime.GOOS != "windows" {
-			return fmt.Errorf("chmod %s: %w", d, err)
+		if runtime.GOOS != "windows" {
+			if err := os.Chmod(d, 0o700); err != nil {
+				return fmt.Errorf("chmod %s: %w", d, err)
+			}
+			// Best-effort ownership correction — non-fatal when running as non-root.
+			_ = os.Chown(d, uid, gid)
 		}
+	}
+	return nil
+}
+
+// updateTorrc overwrites the torrc with fresh generated content and restarts
+// Tor so the new configuration takes effect. Callers use this for config
+// changes after initial startup (initial startup uses create-only semantics).
+func (m *Manager) updateTorrc() error {
+	torrcPath := filepath.Join(m.cfg.ConfigDir, "tor", "torrc")
+	if err := os.WriteFile(torrcPath, []byte(getTorConfig(&m.cfg)), 0o600); err != nil {
+		return fmt.Errorf("updateTorrc write: %w", err)
 	}
 	return nil
 }

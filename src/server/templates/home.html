@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.SiteTitle}} - Paste Sharing Service</title>
     <meta name="description" content="Simple, fast paste sharing service with syntax highlighting and API access">
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <!-- Header -->
     <header class="header">
         <nav class="nav">
@@ -26,11 +27,12 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <!-- Hero Section -->
         <section class="hero">
             <div class="container">
@@ -109,7 +111,7 @@
                 <div class="code-block">
                     <div class="code-header">
                         <span class="code-lang">Upload Text File</span>
-                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
                         <pre>curl -X POST --data-binary @file.txt {{.BaseURL}}/create</pre>
@@ -119,7 +121,7 @@
                 <div class="code-block">
                     <div class="code-header">
                         <span class="code-lang">Upload via Form</span>
-                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
                         <pre>curl -X POST -F "files=@code.py" {{.BaseURL}}/create</pre>
@@ -129,7 +131,7 @@
                 <div class="code-block">
                     <div class="code-header">
                         <span class="code-lang">JSON API</span>
-                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
                         <pre>curl -H "Content-Type: application/json" \
@@ -142,7 +144,7 @@
                 <div class="code-block">
                     <div class="code-header">
                         <span class="code-lang">Pipe Content</span>
-                        <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                        <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
                         <pre>echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/create</pre>
@@ -167,16 +169,10 @@
         </div>
     </footer>
 
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="/static/js/main.js"></script>
-    <script>
-        function copyCode(btn) {
-            const code = btn.closest('.code-block').querySelector('pre').textContent;
-            navigator.clipboard.writeText(code).then(() => {
-                btn.textContent = 'Copied!';
-                setTimeout(() => btn.textContent = 'Copy', 2000);
-            });
-        }
-    </script>
 </body>
 </html>

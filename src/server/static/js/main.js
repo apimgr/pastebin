@@ -21,12 +21,39 @@ const I18N_FALLBACK = {
     searching: 'Searching…',
     uploading: 'Uploading…',
     working: '…',
+    offline: 'You are offline',
 };
 
 // t returns the localized string for key, falling back to English.
 function t(key) {
     const bundle = window.PB_I18N || {};
     return bundle[key] || I18N_FALLBACK[key] || key;
+}
+
+// ─── Toast Notifications ─────────────────────────────────────────────────────
+
+// showToast displays a transient notification in the #toast-container element.
+// type: 'info' | 'success' | 'warning' | 'error'
+function showToast(message, type) {
+    var toastType = type || 'info';
+    var container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast toast--' + toastType;
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(function () {
+        toast.classList.add('toast--dismissing');
+        toast.addEventListener('animationend', function () {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        });
+    }, 3000);
 }
 
 // ─── Service worker ───────────────────────────────────────────────────────────
@@ -60,24 +87,32 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// showUpdateBanner injects an update-available banner into the DOM.
+// showUpdateBanner injects an update-available banner into the DOM using CSS classes.
 function showUpdateBanner(registration) {
     if (document.getElementById('sw-update-banner')) return;
     const banner = document.createElement('div');
     banner.id = 'sw-update-banner';
+    banner.className = 'sw-update-banner';
     banner.setAttribute('role', 'status');
     banner.setAttribute('aria-live', 'polite');
-    banner.style.cssText = [
-        'position:fixed', 'bottom:1rem', 'right:1rem',
-        'background:var(--accent,#6366f1)', 'color:#fff',
-        'padding:0.75rem 1rem', 'border-radius:0.5rem',
-        'display:flex', 'gap:0.5rem', 'align-items:center',
-        'font-size:0.875rem', 'z-index:9999',
-        'box-shadow:0 4px 12px rgba(0,0,0,.25)'
-    ].join(';');
-    banner.innerHTML = '<span>' + t('update_available') + '</span>' +
-        '<button onclick="applyUpdate()" style="background:rgba(255,255,255,.2);border:none;color:inherit;padding:0.25rem 0.75rem;border-radius:0.25rem;cursor:pointer">' + t('update_now') + '</button>' +
-        '<button onclick="this.parentElement.remove()" style="background:none;border:none;color:inherit;cursor:pointer;padding:0.25rem" aria-label="' + t('dismiss') + '">✕</button>';
+
+    const msg = document.createElement('span');
+    msg.textContent = t('update_available');
+
+    const applyBtn = document.createElement('button');
+    applyBtn.className = 'sw-update-banner__btn-apply';
+    applyBtn.textContent = t('update_now');
+    applyBtn.addEventListener('click', applyUpdate);
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.className = 'sw-update-banner__btn-dismiss';
+    dismissBtn.textContent = '✕';
+    dismissBtn.setAttribute('aria-label', t('dismiss'));
+    dismissBtn.addEventListener('click', () => banner.remove());
+
+    banner.appendChild(msg);
+    banner.appendChild(applyBtn);
+    banner.appendChild(dismissBtn);
     document.body.appendChild(banner);
     window.__swRegistration = registration;
 }
@@ -89,6 +124,24 @@ function applyUpdate() {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
     }
 }
+
+// ─── Offline Detection ───────────────────────────────────────────────────────
+
+// Toggle the #offline-indicator element based on network connectivity.
+function updateOfflineIndicator() {
+    const indicator = document.getElementById('offline-indicator');
+    if (!indicator) return;
+    if (navigator.onLine) {
+        indicator.hidden = true;
+    } else {
+        indicator.hidden = false;
+    }
+}
+
+window.addEventListener('online', updateOfflineIndicator);
+window.addEventListener('offline', updateOfflineIndicator);
+
+document.addEventListener('DOMContentLoaded', updateOfflineIndicator);
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +162,50 @@ function toggleTheme() {
     localStorage.setItem('theme', next);
 }
 
-// ─── Copy to clipboard ────────────────────────────────────────────────────────
+// ─── Copy: code blocks (home page quick-start) ───────────────────────────────
+
+// copyCode copies the <pre> text in the nearest .code-block ancestor.
+// Called via data-copy-code attribute buttons.
+function copyCode(btn) {
+    const block = btn.closest('.code-block');
+    if (!block) return;
+    const pre = block.querySelector('pre');
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.textContent).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = t('copied');
+        setTimeout(() => { btn.textContent = orig || t('copy'); }, 2000);
+    }).catch(() => {
+        // Fallback: select the text.
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    });
+}
+
+// copyToClipboard copies the text content of the element with the given id.
+// Called via data-copy-paste attribute buttons.
+function copyToClipboard(elementId) {
+    const el = document.getElementById(elementId || 'paste-code');
+    const btn = document.querySelector('[data-copy-paste]');
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent).then(() => {
+        if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = t('copied');
+            setTimeout(() => { btn.textContent = orig; }, 2000);
+        }
+    }).catch(() => {
+        if (btn) {
+            btn.textContent = 'Failed';
+            setTimeout(() => { btn.textContent = t('copy'); }, 2000);
+        }
+    });
+}
+
+// ─── Copy to clipboard (data-copy attribute) ─────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-copy]').forEach(btn => {
@@ -139,6 +235,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
+    });
+});
+
+// ─── data-copy-code buttons ───────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-copy-code]').forEach(btn => {
+        btn.addEventListener('click', () => copyCode(btn));
+    });
+});
+
+// ─── data-copy-paste buttons ─────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-copy-paste]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-copy-paste');
+            copyToClipboard(targetId);
+        });
+    });
+});
+
+// ─── QR download ─────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    const dlBtn = document.querySelector('[data-qr-download]');
+    if (!dlBtn) return;
+    dlBtn.addEventListener('click', () => {
+        const src = dlBtn.getAttribute('data-qr-download');
+        const name = dlBtn.getAttribute('data-qr-name') || 'paste-qr.png';
+        const a = document.createElement('a');
+        a.href = src;
+        a.download = name;
+        a.click();
     });
 });
 
@@ -173,14 +303,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 
-async function fetchAPI(endpoint, options = {}) {
+async function fetchAPI(endpoint, options) {
+    const opts = options || {};
     const defaults = {
         headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         },
     };
-    const response = await fetch(endpoint, { ...defaults, ...options });
+    const response = await fetch(endpoint, Object.assign({}, defaults, opts));
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         throw new Error(err.detail || err.error || t('api_error'));

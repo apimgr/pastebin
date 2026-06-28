@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	crand "crypto/rand"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"expvar"
 	"fmt"
@@ -38,6 +40,7 @@ import (
 	"github.com/apimgr/pastebin/src/tor"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 //go:embed templates/*.html
@@ -92,7 +95,6 @@ type HealthResponse struct {
 	Uptime         string       `json:"uptime"`
 	Mode           string       `json:"mode"`
 	Timestamp      time.Time    `json:"timestamp"`
-	Cluster        ClusterInfo  `json:"cluster"`
 	Features       FeaturesInfo `json:"features"`
 	Checks         ChecksInfo   `json:"checks"`
 	Stats          StatsInfo    `json:"stats"`
@@ -109,11 +111,6 @@ type ProjectInfo struct {
 type BuildInfo struct {
 	Commit string `json:"commit"`
 	Date   string `json:"date"`
-}
-
-// ClusterInfo reports cluster state (single-node for now).
-type ClusterInfo struct {
-	Enabled bool `json:"enabled"`
 }
 
 // FeaturesInfo reports which optional features are active.
@@ -191,6 +188,8 @@ type Server struct {
 	// pendingRestartMu guards pendingRestartKeys.
 	pendingRestartMu   sync.Mutex
 	pendingRestartKeys []string
+	// csrfSecret is the HMAC key for CSRF token signing, loaded from the DB at startup.
+	csrfSecret []byte
 }
 
 // SetSchedulerHealthFn registers a callback that reports whether the scheduler is running.
@@ -366,6 +365,10 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 			log.Printf("warning: could not initialize app secret %q: %v", secretKey, err)
 		}
 	}
+	// Cache the CSRF signing secret for use in csrfMiddleware.
+	if csrfSec, err := db.EnsureAppSecret("csrf_token_secret"); err == nil {
+		s.csrfSecret = csrfSec
+	}
 
 	s.setupRoutes()
 	return s
@@ -469,6 +472,7 @@ func (s *Server) setupRoutes() {
 	r.Use(s.pathSecurityMiddleware)
 	r.Use(s.securityHeadersMiddleware)
 	r.Use(s.secFetchMiddleware)
+	r.Use(s.csrfMiddleware)
 	r.Use(s.corsMiddleware)
 	r.Use(s.allowlistMiddleware)
 	r.Use(s.blocklistMiddleware)
@@ -512,7 +516,7 @@ func (s *Server) setupRoutes() {
 		if endpoint == "" {
 			endpoint = "/metrics"
 		}
-		r.Handle(endpoint, s.metricsCollector.Handler())
+		r.With(s.metricsIPAllowlistMiddleware).Handle(endpoint, s.metricsCollector.Handler())
 	}
 
 	// ── Server info pages ────────────────────────────────────────────────────
@@ -651,6 +655,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/file/{id}", s.handleDownload) // microbin alias
 	r.Get("/emb/{id}", s.handleEmbed)
 	r.Get("/qr/{id}", s.handleQR)
+	r.Get("/qr/{id}/image", s.handleQRImage)
 	r.Get("/remove/{id}", s.handleRemovePage)
 	r.Post("/remove/{id}", s.maybeDeleteRateLimit(s.handleRemoveSubmit))
 	r.Post("/upload", s.maybeRateLimit(s.pasteHandler.CreatePaste)) // microbin upload
@@ -937,6 +942,40 @@ func newRequestID() string {
 	return fmt.Sprintf("%x", b)
 }
 
+// metricsIPAllowlistMiddleware restricts /metrics to loopback addresses plus any
+// IPs or CIDRs listed in cfg.Server.Metrics.AllowedIPs (PART 20).
+// Loopback (127.0.0.1, ::1) is always permitted regardless of the configured list.
+// When AllowedIPs is empty the endpoint is loopback-only; add CIDRs to permit
+// additional internal networks (e.g. "10.0.0.0/8").
+func (s *Server) metricsIPAllowlistMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		// Always allow loopback so monitoring on the same host works without config.
+		if ip != nil && ip.IsLoopback() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		cfg := s.liveCfg()
+		allowed := cfg.Server.Metrics.AllowedIPs
+		if len(allowed) > 0 {
+			al := newAllowlistSet(allowed)
+			if ip != nil && al.contains(ip) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		writeJSON(w, http.StatusForbidden, map[string]interface{}{
+			"ok":      false,
+			"error":   "FORBIDDEN",
+			"message": "metrics access denied",
+		})
+	})
+}
+
 // secFetchMiddleware rejects cross-site state-changing requests per PART 11.
 // Validation rules (when sec_fetch_validation=true):
 //   - Reject POST/PUT/PATCH/DELETE where Sec-Fetch-Site: cross-site AND no Bearer/API token.
@@ -1038,6 +1077,122 @@ var reservedSlugs = map[string]struct{}{
 func isReservedSlug(id string) bool {
 	_, ok := reservedSlugs[strings.ToLower(id)]
 	return ok
+}
+
+// csrfTokenKey is the context key under which the generated CSRF token string is stored.
+type csrfTokenKeyType struct{}
+
+var csrfTokenKey csrfTokenKeyType
+
+// generateCSRFToken creates a new HMAC-SHA256 signed CSRF token using the server's csrfSecret.
+// Format: base64(32-random-bytes) + "." + base64(HMAC of those bytes).
+func (s *Server) generateCSRFToken() (string, error) {
+	nonce := make([]byte, 32)
+	if _, err := crand.Read(nonce); err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, s.csrfSecret)
+	mac.Write(nonce)
+	sig := mac.Sum(nil)
+	token := base64.RawURLEncoding.EncodeToString(nonce) + "." + base64.RawURLEncoding.EncodeToString(sig)
+	return token, nil
+}
+
+// validateCSRFToken reports whether token is a valid HMAC-signed CSRF token (constant-time).
+func (s *Server) validateCSRFToken(token string) bool {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	nonce, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil || len(nonce) != 32 {
+		return false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, s.csrfSecret)
+	mac.Write(nonce)
+	expected := mac.Sum(nil)
+	return subtle.ConstantTimeCompare(sig, expected) == 1
+}
+
+// csrfMiddleware implements the double-submit CSRF protection pattern (PART 11).
+// It issues a signed CSRF token cookie on every response and, on state-mutating
+// requests with cookie-based auth, validates the X-CSRF-Token header or form field.
+// Bearer-token and API-token requests, and paths in ExemptPaths, are always exempt.
+func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.liveCfg()
+		if !cfg.Web.CSRF.Enabled || len(s.csrfSecret) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Bearer / API-token requests are not cookie-based — no CSRF risk.
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Token") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// State-mutating methods require validation.
+		isMutating := r.Method == http.MethodPost || r.Method == http.MethodPut ||
+			r.Method == http.MethodPatch || r.Method == http.MethodDelete
+
+		if isMutating && !isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) {
+			// Read token from X-CSRF-Token header, falling back to the form field.
+			submitted := r.Header.Get(cfg.Web.CSRF.HeaderName)
+			if submitted == "" {
+				_ = r.ParseForm()
+				submitted = r.FormValue("csrf_token")
+			}
+			// Also compare against the cookie value using constant-time compare.
+			cookie, cookieErr := r.Cookie(cfg.Web.CSRF.CookieName)
+			cookieVal := ""
+			if cookieErr == nil {
+				cookieVal = cookie.Value
+			}
+			if cookieVal == "" || !s.validateCSRFToken(submitted) ||
+				subtle.ConstantTimeCompare([]byte(submitted), []byte(cookieVal)) != 1 {
+				writeJSON(w, http.StatusForbidden, map[string]interface{}{
+					"ok":      false,
+					"error":   "CSRF_INVALID",
+					"message": "CSRF token invalid or missing",
+				})
+				return
+			}
+		}
+
+		// Generate (or refresh) the CSRF token and set the cookie.
+		token, err := s.generateCSRFToken()
+		if err != nil {
+			// Fail open — log and continue without setting cookie.
+			log.Printf("csrf: token generation failed: %v", err)
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		secure := r.TLS != nil
+		if cfg.Web.CSRF.Secure == "true" {
+			secure = true
+		} else if cfg.Web.CSRF.Secure == "false" {
+			secure = false
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     cfg.Web.CSRF.CookieName,
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteStrictMode,
+		})
+
+		// Store token in context so renderTemplate can inject it into page data.
+		ctx := context.WithValue(r.Context(), csrfTokenKey, token)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // isCSRFExempt reports whether path matches any of the exempt glob patterns.
@@ -1187,7 +1342,9 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		http.Error(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}`, http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}` + "\n"))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1275,9 +1432,6 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		Uptime:    formatUptime(time.Since(s.startTime)),
 		Mode:      s.cfg.Server.Mode,
 		Timestamp: time.Now().UTC(),
-		Cluster: ClusterInfo{
-			Enabled: false,
-		},
 		Features: FeaturesInfo{
 			Tor:   torInfo,
 			GeoIP: s.geoipDB != nil,
@@ -1303,7 +1457,7 @@ func (s *Server) buildTorInfo() TorInfo {
 	onion := s.torManager.OnionAddress()
 	status := "starting"
 	if running {
-		status = "running"
+		status = "healthy"
 	}
 	return TorInfo{
 		Enabled:  true,
@@ -1602,7 +1756,7 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 
 	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
 		return
 	}
 	if paste == nil {
@@ -1660,6 +1814,21 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleQRImage generates a QR code PNG server-side and streams it directly to
+// the client. This avoids any external API dependency per PART 16.
+func (s *Server) handleQRImage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	link := s.baseURL(r) + "/" + id
+	png, err := qrcode.Encode(link, qrcode.Medium, 300)
+	if err != nil {
+		http.Error(w, "qr generation failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(png) //nolint:errcheck
+}
+
 func (s *Server) handleRemovePage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	s.renderTemplate(w, r, "remove.html", map[string]interface{}{
@@ -1674,7 +1843,7 @@ func (s *Server) handleRemovePage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "BAD_REQUEST", "message": "bad request"})
 		return
 	}
 	token := r.FormValue("token")
@@ -1869,11 +2038,11 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 		"description":      "A fast, public pastebin service",
 		"start_url":        "/",
 		"display":          "standalone",
-		"background_color": "#0d1117",
-		"theme_color":      "#238636",
+		"background_color": "#1e1e2e",
+		"theme_color":      "#89b4fa",
 		"icons": []map[string]interface{}{
-			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable"},
-			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable"},
+			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
 		},
 	})
 }
@@ -2123,7 +2292,7 @@ func (s *Server) handleSchedulerHistory(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
 	if s.templates == nil {
-		http.Error(w, "templates not loaded", http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "templates not loaded"})
 		return
 	}
 	if data == nil {
@@ -2134,9 +2303,15 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	data["Lang"] = lang
 	// Inject text direction for RTL languages (Arabic) — templates access it as .Dir
 	data["Dir"] = i18n.Direction(lang)
+	// Inject CSRF token for forms — templates access it as .CSRFToken
+	if tok, ok := r.Context().Value(csrfTokenKey).(string); ok && tok != "" {
+		data["CSRFToken"] = tok
+	} else {
+		data["CSRFToken"] = ""
+	}
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("template %s error: %v", name, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
 	}
 }
 

@@ -312,31 +312,50 @@
   },
   "plurals": {
     "items": {
-      "other": "{count}件",
+      "zero": "件",
       "one": "件",
-      "zero": "件"
+      "two": "{count}件",
+      "few": "{count}件",
+      "many": "{count}件",
+      "other": "{count}件"
     },
     "results": {
-      "other": "{count}件の結果",
+      "zero": "結果",
       "one": "結果",
-      "zero": "結果"
+      "two": "{count}件の結果",
+      "few": "{count}件の結果",
+      "many": "{count}件の結果",
+      "other": "{count}件の結果"
     },
     "users": {
-      "other": "{count}人のユーザー",
+      "zero": "ユーザー",
       "one": "ユーザー",
-      "zero": "ユーザー"
+      "two": "{count}人のユーザー",
+      "few": "{count}人のユーザー",
+      "many": "{count}人のユーザー",
+      "other": "{count}人のユーザー"
     },
     "days": {
-      "other": "{count}日",
-      "one": "日"
+      "zero": "{count}日",
+      "one": "日",
+      "two": "{count}日",
+      "few": "{count}日",
+      "many": "{count}日",
+      "other": "{count}日"
     },
     "hours": {
-      "other": "{count}時間",
-      "one": "時間"
+      "one": "時間",
+      "two": "{count}時間",
+      "few": "{count}時間",
+      "many": "{count}時間",
+      "other": "{count}時間"
     },
     "minutes": {
-      "other": "{count}分",
-      "one": "分"
+      "one": "分",
+      "two": "{count}分",
+      "few": "{count}分",
+      "many": "{count}分",
+      "other": "{count}分"
     }
   },
   "swagger": {

@@ -45,6 +45,7 @@ theme:
 
 extra_css:
   - stylesheets/dark.css
+  - stylesheets/light.css
 
 plugins:
   - search

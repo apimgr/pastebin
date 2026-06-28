@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
@@ -78,18 +80,19 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 
 	// Subcommands that take optional secondary positional arguments.
 	var (
-		shellCmd       string
-		shellArg       string
-		serviceCmd     string
-		maintenanceCmd string
-		maintenanceArg string // second positional arg after --maintenance subcommand
-		updateCmd      string
-		emailCmd       string // --email <subcommand>
-		emailTo        string // --email test <address>
-		schedulerCmd   string // scheduler <subcommand>
-		schedulerArg   string // scheduler <subcommand> <id>
-		tokenCmd       string // token <subcommand>
-		tokenArg       string // token <subcommand> <prefix>
+		shellCmd        string
+		shellArg        string
+		serviceCmd      string
+		maintenanceCmd  string
+		maintenanceArg  string // second positional arg after --maintenance subcommand
+		maintenancePass string // --password flag for --maintenance backup/restore
+		updateCmd       string
+		emailCmd        string // --email <subcommand>
+		emailTo         string // --email test <address>
+		schedulerCmd    string // scheduler <subcommand>
+		schedulerArg    string // scheduler <subcommand> <id>
+		tokenCmd        string // token <subcommand>
+		tokenArg        string // token <subcommand> <prefix>
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -103,9 +106,9 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		}
 
 		switch arg {
-		case "--help", "-h":
+		case "--help", "-h", "-help":
 			showHelp = true
-		case "--version", "-v":
+		case "--version", "-v", "-version":
 			showVersion = true
 		case "--status":
 			showStatus = true
@@ -144,6 +147,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			shellArg = val() // optional SHELL name (bash, zsh, fish, …)
 		case "--service":
 			serviceCmd = val()
+		case "--password":
+			maintenancePass = val()
 		case "--maintenance":
 			maintenanceCmd = val()
 			// Capture an optional second positional argument (e.g. filename for
@@ -195,7 +200,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				tokenArg = args[i]
 			}
 		default:
-			if strings.HasPrefix(arg, "--") {
+			if strings.HasPrefix(arg, "--") || (strings.HasPrefix(arg, "-") && len(arg) > 2) {
 				fmt.Fprintf(stderr, "%s: unknown flag: %s\n", binaryName, arg)
 				fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", binaryName)
 				return 2
@@ -315,6 +320,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				DataDir:    mcDataDir,
 				BackupDir:  filepath.Join(mcDataDir, "backups"),
 				AppVersion: Version,
+				Password:   maintenancePass,
 				Filename:   maintenanceArg, // optional custom filename
 			}
 			if err := maintenance.Backup(opts); err != nil {
@@ -327,7 +333,19 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "Usage: %s --maintenance restore <backup-file>\n", binaryName)
 				return 2
 			}
-			if err := maintenance.Restore(maintenanceArg, mcConfigDir, mcDataDir, ""); err != nil {
+			restorePass := maintenancePass
+			// Prompt for password when restoring an encrypted backup and none was provided.
+			if strings.HasSuffix(maintenanceArg, ".enc") && restorePass == "" {
+				fmt.Fprint(stderr, "Backup password: ")
+				pw, pwErr := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Fprintln(stderr)
+				if pwErr != nil {
+					fmt.Fprintf(stderr, "%s: reading password: %v\n", binaryName, pwErr)
+					return 1
+				}
+				restorePass = string(pw)
+			}
+			if err := maintenance.Restore(maintenanceArg, mcConfigDir, mcDataDir, restorePass); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance restore: %v\n", binaryName, err)
 				return 1
 			}
@@ -367,6 +385,14 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 	// ── Update ────────────────────────────────────────────────────────────────
 
 	if updateCmd != "" {
+		// Load config to resolve configured update branch.
+		updateCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
+		updateCfg, _ := config.Load(updateCfgFile)
+		configuredBranch := updateCfg.Server.UpdateBranch
+		if configuredBranch == "" {
+			configuredBranch = "stable"
+		}
+
 		switch {
 		case updateCmd == "--help":
 			fmt.Fprintf(stdout, `Update: %s --update [command]
@@ -386,13 +412,13 @@ Examples:
 		case updateCmd == "check":
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			rel, err := updater.CheckForUpdate(ctx, Version, "stable")
+			rel, err := updater.CheckForUpdate(ctx, Version, configuredBranch)
 			if err != nil {
 				fmt.Fprintf(stderr, "%s: update check: %v\n", binaryName, err)
 				return 1
 			}
 			if rel == nil {
-				fmt.Fprintf(stdout, "%s is up to date (%s).\n", binaryName, Version)
+				fmt.Fprintf(stdout, "%s is up to date (%s) on branch %s.\n", binaryName, Version, configuredBranch)
 			} else {
 				fmt.Fprintf(stdout, "Update available: %s → %s\n", Version, rel.TagName)
 				fmt.Fprintf(stdout, "Run '%s --update yes' to install.\n", binaryName)
@@ -402,13 +428,13 @@ Examples:
 		case updateCmd == "yes":
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
-			rel, err := updater.CheckForUpdate(ctx, Version, "stable")
+			rel, err := updater.CheckForUpdate(ctx, Version, configuredBranch)
 			if err != nil {
 				fmt.Fprintf(stderr, "%s: update check: %v\n", binaryName, err)
 				return 1
 			}
 			if rel == nil {
-				fmt.Fprintf(stdout, "%s is already up to date (%s).\n", binaryName, Version)
+				fmt.Fprintf(stdout, "%s is already up to date (%s) on branch %s.\n", binaryName, Version, configuredBranch)
 				return 0
 			}
 			fmt.Fprintf(stdout, "Downloading %s %s…\n", binaryName, rel.TagName)
@@ -432,10 +458,12 @@ Examples:
 			branch := parts[1]
 			switch branch {
 			case "stable", "beta", "daily":
+				// Persist the branch choice to the config file.
+				if writeErr := maintenance.SetYAMLField(updateCfgFile, "update_branch", branch); writeErr != nil {
+					fmt.Fprintf(stderr, "%s: could not persist update branch: %v\n", binaryName, writeErr)
+					return 1
+				}
 				fmt.Fprintf(stdout, "Update branch set to: %s\n", branch)
-				// Branch preference is informational here; the actual setting
-				// lives in the config file. Full config integration is handled
-				// via the admin UI / config file.
 			default:
 				fmt.Fprintf(stderr, "%s: unknown branch: %s (use stable|beta|daily)\n", binaryName, branch)
 				return 2
@@ -745,14 +773,23 @@ Examples:
 
 	// ── Application mode ─────────────────────────────────────────────────────
 
-	if err := mode.Initialize(modeFlag); err != nil {
-		log.Printf("warning: %v", err)
+	// Priority order for mode: (1) --mode CLI flag, (2) MODE env var, (3) default "production" (PART 6).
+	// Priority order for debug: (1) --debug CLI flag, (2) DEBUG env var, (3) default false (PART 6).
+	// Apply env vars first (lowest priority), then CLI flags override.
+	mode.FromEnv()
+	if modeFlag != "" {
+		if err := mode.Set(modeFlag); err != nil {
+			log.Printf("warning: %v", err)
+		}
 	}
 
 	if debugFlag {
-		mode.SetDebug(true)
+		mode.SetDebugEnabled(true)
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 		log.Printf("debug mode enabled")
+	} else if mode.IsDebugEnabled() {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		log.Printf("debug mode enabled via DEBUG env var")
 	}
 
 	// ── Directory resolution ─────────────────────────────────────────────────
@@ -834,6 +871,21 @@ Examples:
 	if configFlag != "" {
 		cfgFile = configFlag
 	}
+
+	// Auto-migrate server.yaml → server.yml if the old filename exists and the new one does not.
+	if configFlag == "" {
+		yamlPath := filepath.Join(configDir, "server.yaml")
+		if _, statErr := os.Stat(yamlPath); statErr == nil {
+			if _, statErr2 := os.Stat(cfgFile); os.IsNotExist(statErr2) {
+				if renameErr := os.Rename(yamlPath, cfgFile); renameErr == nil {
+					log.Printf("config: migrated server.yaml → server.yml")
+				} else {
+					log.Printf("config: could not migrate server.yaml → server.yml: %v", renameErr)
+				}
+			}
+		}
+	}
+
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		log.Printf("warning: config load: %v", err)
@@ -983,6 +1035,17 @@ Examples:
 		return nil
 	}))
 
+	// ── Runtime detection (PART 7/8) ──────────────────────────────────────────
+	// Detect hostname and CPU count at startup — never hardcode these values.
+
+	hostname, hostErr := os.Hostname()
+	if hostErr != nil {
+		hostname = "unknown"
+		log.Printf("warning: could not detect hostname: %v", hostErr)
+	}
+	numCPU := runtime.NumCPU()
+	log.Printf("host: %s | cpus: %d | mode: %s", hostname, numCPU, mode.Get())
+
 	// ── HTTP server ───────────────────────────────────────────────────────────
 
 	srv := server.New(db, cfg, cfgMgr, Version, CommitID, BuildDate, configDir, dataDir)
@@ -1058,8 +1121,9 @@ Examples:
 	return 0
 }
 
-// normalizeArgs converts single-dash long flags (-flag) to double-dash (--flag)
-// and expands -h → --help, -v → --version.
+// normalizeArgs expands the two spec-allowed short flags: -h → --help, -v → --version.
+// All other arguments are passed through unchanged. Single-dash multi-character flags
+// are NOT converted — spec mandates short flags are ONLY -h and -v (PART 8).
 func normalizeArgs(args []string) []string {
 	out := make([]string, 0, len(args))
 	for _, a := range args {
@@ -1069,24 +1133,20 @@ func normalizeArgs(args []string) []string {
 		case "-v":
 			out = append(out, "--version")
 		default:
-			// Convert -flag to --flag (single dash long flags)
-			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && len(a) > 2 {
-				out = append(out, "-"+a)
-			} else {
-				out = append(out, a)
-			}
+			out = append(out, a)
 		}
 	}
 	return out
 }
 
 // applyColor applies the --color flag, updating NO_COLOR as needed.
-// Spec PART 8 values: auto, yes, no. always/never are tolerated aliases.
+// Spec canonical values: auto, always, never (PART 8 / binary-rules.md).
+// yes/no are accepted as backward-compatible aliases.
 func applyColor(v string) {
 	switch v {
-	case "no", "never":
+	case "never", "no":
 		os.Setenv("NO_COLOR", "1")
-	case "yes", "always":
+	case "always", "yes":
 		os.Unsetenv("NO_COLOR")
 	}
 	// "auto" or empty: leave NO_COLOR as-is
@@ -1122,7 +1182,7 @@ Server Configuration:
       --baseurl PATH                URL path prefix (default: /)
       --daemon                      Run as daemon (detach from terminal)
       --debug                       Enable debug mode
-      --color {auto|yes|no}         Color output (default: auto)
+      --color {auto|always|never}   Color output (default: auto)
       --lang CODE                   Language for output (default: auto)
 
 Service Management:

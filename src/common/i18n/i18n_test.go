@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -369,6 +370,79 @@ func TestToString_FloatValue(t *testing.T) {
 	got := toString(3.14)
 	if got != "3.14" {
 		t.Errorf("toString(3.14) = %q, want %q", got, "3.14")
+	}
+}
+
+// flattenKeys recursively flattens a nested map into a sorted slice of dot-separated keys.
+func flattenKeys(m map[string]interface{}, prefix string) []string {
+	var keys []string
+	for k, v := range m {
+		full := k
+		if prefix != "" {
+			full = prefix + "." + k
+		}
+		if nested, ok := v.(map[string]interface{}); ok {
+			keys = append(keys, flattenKeys(nested, full)...)
+		} else {
+			keys = append(keys, full)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// TestKeyParity asserts that every locale file has exactly the same set of keys as en.json.
+// This is a build-time check required by PART 30: all 7 locale files MUST have identical keys.
+func TestKeyParity(t *testing.T) {
+	fs := LocaleFS()
+
+	loadKeys := func(lang string) []string {
+		data, err := fs.ReadFile("locales/" + lang + ".json")
+		if err != nil {
+			t.Fatalf("TestKeyParity: cannot read %s.json: %v", lang, err)
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("TestKeyParity: cannot parse %s.json: %v", lang, err)
+		}
+		return flattenKeys(m, "")
+	}
+
+	enKeys := loadKeys("en")
+	enSet := make(map[string]struct{}, len(enKeys))
+	for _, k := range enKeys {
+		enSet[k] = struct{}{}
+	}
+
+	for _, lang := range []string{"ar", "de", "es", "fr", "ja", "zh"} {
+		t.Run(lang, func(t *testing.T) {
+			otherKeys := loadKeys(lang)
+			otherSet := make(map[string]struct{}, len(otherKeys))
+			for _, k := range otherKeys {
+				otherSet[k] = struct{}{}
+			}
+
+			var missing, extra []string
+			for k := range enSet {
+				if _, ok := otherSet[k]; !ok {
+					missing = append(missing, k)
+				}
+			}
+			for k := range otherSet {
+				if _, ok := enSet[k]; !ok {
+					extra = append(extra, k)
+				}
+			}
+			sort.Strings(missing)
+			sort.Strings(extra)
+
+			if len(missing) > 0 {
+				t.Errorf("%s.json is missing %d keys present in en.json: %v", lang, len(missing), missing)
+			}
+			if len(extra) > 0 {
+				t.Errorf("%s.json has %d extra keys not in en.json: %v", lang, len(extra), extra)
+			}
+		})
 	}
 }
 

@@ -126,6 +126,14 @@ func AutoDetect(fqdn string) (host string, port int, ok bool) {
 			struct{ host string; port int }{gatewayIP, 25},
 		)
 	}
+	// Bare FQDN is probed before the global IP (PART 17 priority order).
+	if fqdn != "" && fqdn != "localhost" {
+		candidates = append(candidates,
+			struct{ host string; port int }{fqdn, 587},
+			struct{ host string; port int }{fqdn, 465},
+			struct{ host string; port int }{fqdn, 25},
+		)
+	}
 	if globalIP != "" {
 		candidates = append(candidates,
 			struct{ host string; port int }{globalIP, 587},
@@ -133,8 +141,9 @@ func AutoDetect(fqdn string) (host string, port int, ok bool) {
 			struct{ host string; port int }{globalIP, 25},
 		)
 	}
+	// mail.fqdn and smtp.fqdn are tried last, after the global IP.
 	if fqdn != "" && fqdn != "localhost" {
-		for _, prefix := range []string{"", "mail.", "smtp."} {
+		for _, prefix := range []string{"mail.", "smtp."} {
 			h := prefix + fqdn
 			candidates = append(candidates,
 				struct{ host string; port int }{h, 587},

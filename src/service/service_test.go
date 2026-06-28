@@ -12,8 +12,8 @@ import (
 func TestDetectServiceManager_ReturnsValidType(t *testing.T) {
 	got := DetectServiceManager()
 	validTypes := []ServiceType{
-		ServiceUnknown, ServiceSystemd, ServiceRunit,
-		ServiceLaunchd, ServiceWindows, ServiceBSDRC,
+		ServiceUnknown, ServiceSystemd, ServiceOpenRC, ServiceSysV,
+		ServiceRunit, ServiceLaunchd, ServiceWindows, ServiceBSDRC,
 	}
 	for _, v := range validTypes {
 		if got == v {
@@ -39,9 +39,11 @@ func TestDetectServiceManager_MatchesOS(t *testing.T) {
 			t.Errorf("on BSD expected ServiceBSDRC, got %d", got)
 		}
 	case "linux":
-		// Linux can be SystemUnknown, Systemd, or Runit depending on environment.
-		if got != ServiceUnknown && got != ServiceSystemd && got != ServiceRunit {
-			t.Errorf("on Linux expected Systemd, Runit, or Unknown, got %d", got)
+		// Linux can be any of: Unknown, Systemd, OpenRC, SysV, or Runit.
+		linuxOK := got == ServiceUnknown || got == ServiceSystemd ||
+			got == ServiceOpenRC || got == ServiceSysV || got == ServiceRunit
+		if !linuxOK {
+			t.Errorf("on Linux expected Systemd/OpenRC/SysV/Runit/Unknown, got %d", got)
 		}
 	}
 }

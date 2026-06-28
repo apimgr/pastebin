@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -59,7 +58,12 @@ type ServerConfig struct {
 	Tor           TorConfig           `yaml:"tor"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Notifications NotificationsConfig `yaml:"notifications"`
-	TLS           TLSConfig           `yaml:"ssl"`
+	TLS           TLSConfig           `yaml:"tls"`
+	// Backup configures backup encryption, compliance, and retention (PART 21).
+	Backup BackupConfig `yaml:"backup"`
+	// UpdateBranch controls which release channel is used for self-updates (PART 22).
+	// Accepted values: "stable" (default), "beta", "daily".
+	UpdateBranch string `yaml:"update_branch"`
 	// Cache configures the in-process or remote cache driver (PART 9/12).
 	Cache CacheConfig `yaml:"cache"`
 	// Limits controls HTTP server request and body limits (PART 12).
@@ -164,6 +168,10 @@ type MetricsConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	Endpoint string `yaml:"endpoint"`
 	Token    string `yaml:"token"`
+	// AllowedIPs lists additional IPs or CIDRs that may reach /metrics (PART 20).
+	// Loopback (127.0.0.1, ::1) is always allowed. Non-loopback requests from IPs
+	// not in this list are rejected with 403 before the bearer-token check.
+	AllowedIPs []string `yaml:"allowed_ips"`
 }
 
 // LoggingConfig controls access log format and log level.
@@ -300,7 +308,7 @@ type SecurityConfig struct {
 }
 
 // TLSConfig holds SSL/TLS and Let's Encrypt settings (PART 12/15).
-// The yaml key is `ssl` per the authoritative server.yml schema.
+// The yaml key is `tls` per PART 15: "TLS config: server.tls.* keys in config".
 type TLSConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Cert and Key are optional manual certificate override paths.
@@ -318,7 +326,7 @@ type TLSConfig struct {
 	DNSCredentialsEncrypted string `yaml:"dns_credentials_encrypted"`
 }
 
-// LetsEncryptConfig holds ACME settings nested under server.ssl.letsencrypt (PART 12/15).
+// LetsEncryptConfig holds ACME settings nested under server.tls.letsencrypt (PART 12/15).
 type LetsEncryptConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Email   string `yaml:"email"`
@@ -338,6 +346,35 @@ type BrandingConfig struct {
 // SEOConfig holds search-engine metadata (PART 12/16).
 type SEOConfig struct {
 	Keywords []string `yaml:"keywords"`
+}
+
+// BackupConfig holds backup, encryption, compliance, and retention settings (PART 21).
+type BackupConfig struct {
+	Encryption BackupEncryptionConfig `yaml:"encryption"`
+	Compliance BackupComplianceConfig `yaml:"compliance"`
+	Retention  BackupRetentionConfig  `yaml:"retention"`
+}
+
+// BackupEncryptionConfig controls AES-256-GCM + Argon2id backup encryption (PART 21).
+type BackupEncryptionConfig struct {
+	// Enabled turns on AES-256-GCM encryption for all backup archives.
+	// Password is prompted interactively; never stored in config.
+	Enabled bool `yaml:"enabled"`
+}
+
+// BackupComplianceConfig enables compliance metadata in backup manifests (PART 21).
+type BackupComplianceConfig struct {
+	// Enabled includes compliance metadata (retention policy, legal hold) in manifests.
+	Enabled bool `yaml:"enabled"`
+}
+
+// BackupRetentionConfig controls how many backup archives are kept (PART 21).
+type BackupRetentionConfig struct {
+	// MaxBackups is the total maximum number of backup files to retain.
+	MaxBackups  int `yaml:"max_backups"`
+	KeepWeekly  int `yaml:"keep_weekly"`
+	KeepMonthly int `yaml:"keep_monthly"`
+	KeepYearly  int `yaml:"keep_yearly"`
 }
 
 // SchedulerConfig configures the built-in task scheduler (PART 12/18).
@@ -414,9 +451,10 @@ func DefaultConfig() *Config {
 				Tasks:   map[string]SchedulerTask{},
 			},
 			Metrics: MetricsConfig{
-				Enabled:  false,
-				Endpoint: "/metrics",
-				Token:    "",
+				Enabled:    false,
+				Endpoint:   "/metrics",
+				Token:      "",
+				AllowedIPs: []string{},
 			},
 			GeoIP: GeoIPConfig{
 				Enabled:        false,
@@ -458,6 +496,16 @@ func DefaultConfig() *Config {
 						Port: 587,
 						TLS:  "auto",
 					},
+				},
+			},
+			Backup: BackupConfig{
+				Encryption: BackupEncryptionConfig{Enabled: false},
+				Compliance: BackupComplianceConfig{Enabled: false},
+				Retention: BackupRetentionConfig{
+					MaxBackups:  30,
+					KeepWeekly:  4,
+					KeepMonthly: 12,
+					KeepYearly:  3,
 				},
 			},
 			Cache: CacheConfig{
@@ -957,64 +1005,4 @@ func (m *ConfigManager) applyHotSettings(prev, next *Config) {
 	}
 }
 
-// ParseBool converts common boolean string representations to bool.
-// Accepts: "true", "1", "yes", "on" → true; "false", "0", "no", "off" → false.
-// Returns an error for any unrecognised value.
-// truthyValues lists every accepted truthy token (case-insensitive) per PART 5.
-var truthyValues = map[string]bool{
-	"1": true, "y": true, "t": true,
-	"yes": true, "true": true, "on": true, "ok": true,
-	"enable": true, "enabled": true,
-	"yep": true, "yup": true, "yeah": true,
-	"aye": true, "si": true, "oui": true, "da": true, "hai": true,
-	"affirmative": true, "accept": true, "allow": true, "grant": true,
-	"sure": true, "totally": true,
-}
-
-// falsyValues lists every accepted falsy token (case-insensitive) per PART 5.
-var falsyValues = map[string]bool{
-	"0": true, "n": true, "f": true,
-	"no": true, "false": true, "off": true,
-	"disable": true, "disabled": true,
-	"nope": true, "nah": true, "nay": true,
-	"nein": true, "non": true, "niet": true, "iie": true, "lie": true,
-	"negative": true, "reject": true, "block": true, "revoke": true,
-	"deny": true, "never": true, "noway": true,
-}
-
-// ParseBool parses a string into a boolean using the truthy/falsy value sets.
-// An empty string returns defaultVal; an unrecognised value returns an error.
-func ParseBool(s string, defaultVal bool) (bool, error) {
-	s = strings.TrimSpace(strings.ToLower(s))
-	if s == "" {
-		return defaultVal, nil
-	}
-	if truthyValues[s] {
-		return true, nil
-	}
-	if falsyValues[s] {
-		return false, nil
-	}
-	return false, fmt.Errorf("invalid boolean value: %q", s)
-}
-
-// MustParseBool parses a string into a boolean and panics on an invalid value.
-// Use only during initialization where invalid config should halt startup.
-func MustParseBool(s string, defaultVal bool) bool {
-	val, err := ParseBool(s, defaultVal)
-	if err != nil {
-		panic(err)
-	}
-	return val
-}
-
-// IsTruthy reports whether s is a recognised truthy value (case-insensitive).
-func IsTruthy(s string) bool {
-	return truthyValues[strings.TrimSpace(strings.ToLower(s))]
-}
-
-// IsFalsy reports whether s is a recognised falsy value (case-insensitive).
-func IsFalsy(s string) bool {
-	return falsyValues[strings.TrimSpace(strings.ToLower(s))]
-}
 

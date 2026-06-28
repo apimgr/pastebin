@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Contact - {{.SiteTitle}}</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -24,41 +25,42 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
                     <h1 class="section-title">{{t .Lang "contact.title"}}</h1>
                 </div>
 
-                <div class="paste-view" style="padding:var(--space-6);">
+                <div class="paste-view page-view">
                     <h2>{{t .Lang "contact.general"}}</h2>
                     <p>
                         {{t .Lang "contact.general_desc"}}
                     </p>
                     {{if .Contact}}
-                    <p style="margin-top:var(--space-4);">
+                    <p class="section-mt-sm">
                         <strong>{{t .Lang "contact.email_label"}}:</strong>
                         <a href="{{.Contact}}" class="long-string">{{.Contact}}</a>
                     </p>
                     {{end}}
 
-                    <h2 style="margin-top:var(--space-6);">{{t .Lang "contact.security"}}</h2>
+                    <h2 class="section-mt">{{t .Lang "contact.security"}}</h2>
                     <p>
                         {{t .Lang "contact.security_desc"}}
                         <a href="/security.txt">/security.txt</a>.
                     </p>
 
-                    <h2 style="margin-top:var(--space-6);">{{t .Lang "contact.abuse"}}</h2>
+                    <h2 class="section-mt">{{t .Lang "contact.abuse"}}</h2>
                     <p>
                         {{t .Lang "contact.abuse_desc"}}
                     </p>
                     {{if .Contact}}
-                    <p style="margin-top:var(--space-4);">
+                    <p class="section-mt-sm">
                         <a href="{{.Contact}}" class="long-string">{{.Contact}}</a>
                     </p>
                     {{end}}
@@ -80,5 +82,11 @@
             </div>
         </div>
     </footer>
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

@@ -31,6 +31,7 @@ type Manifest struct {
 	Version          string   `json:"version"`
 	CreatedAt        string   `json:"created_at"`
 	AppVersion       string   `json:"app_version"`
+	CreatedBy        string   `json:"created_by"`
 	Contents         []string `json:"contents"`
 	Encrypted        bool     `json:"encrypted"`
 	EncryptionMethod string   `json:"encryption_method,omitempty"`
@@ -96,10 +97,34 @@ func Backup(opts BackupOptions) error {
 	addDir(filepath.Join(opts.ConfigDir, "template"), "template")
 	addDir(filepath.Join(opts.ConfigDir, "theme"), "theme")
 
-	// Build the archive into memory so we can compute a checksum and
-	// optionally encrypt without writing a plaintext file to disk.
-	var buf strings.Builder
-	_ = buf // use bytes.Buffer instead
+	// Compute content checksum: SHA-256 of all data file bytes in archive order,
+	// excluding the manifest. This avoids the circular-dependency that would arise
+	// from hashing an archive that itself contains the checksum.
+	contentHash := sha256.New()
+	for _, e := range entries {
+		b, readErr := os.ReadFile(e.src)
+		if readErr == nil {
+			contentHash.Write(b)
+		}
+	}
+
+	// Build and add manifest (with checksum already set — single archive pass).
+	hostname, _ := os.Hostname()
+	manifest := Manifest{
+		Version:    "1.0.0",
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+		AppVersion: opts.AppVersion,
+		CreatedBy:  orgName + "/" + projectName + "@" + hostname,
+		Contents:   contents,
+		Encrypted:  opts.Password != "",
+		Checksum:   "sha256:" + hex.EncodeToString(contentHash.Sum(nil)),
+	}
+	if opts.Password != "" {
+		manifest.EncryptionMethod = "AES-256-GCM"
+	}
+
+	// Build the archive into memory so we can optionally encrypt without
+	// writing a plaintext file to disk.
 	archiveBuf := &memBuf{}
 
 	gz := gzip.NewWriter(archiveBuf)
@@ -109,18 +134,6 @@ func Backup(opts BackupOptions) error {
 		if err := addToTar(tw, e.src, e.name); err != nil {
 			return fmt.Errorf("archiving %s: %w", e.name, err)
 		}
-	}
-
-	// Build and add manifest.
-	manifest := Manifest{
-		Version:    "1.0.0",
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-		AppVersion: opts.AppVersion,
-		Contents:   contents,
-		Encrypted:  opts.Password != "",
-	}
-	if opts.Password != "" {
-		manifest.EncryptionMethod = "AES-256-GCM"
 	}
 
 	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
@@ -144,28 +157,6 @@ func Backup(opts BackupOptions) error {
 	gz.Close()
 
 	archiveBytes := archiveBuf.Bytes()
-
-	// Compute SHA-256 of the unencrypted archive.
-	sum := sha256.Sum256(archiveBytes)
-	manifest.Checksum = "sha256:" + hex.EncodeToString(sum[:])
-
-	// Re-encode the manifest with the checksum and rewrite. For simplicity we
-	// re-archive with the updated manifest.
-	archiveBuf2 := &memBuf{}
-	gz2 := gzip.NewWriter(archiveBuf2)
-	tw2 := tar.NewWriter(gz2)
-	for _, e := range entries {
-		if err := addToTar(tw2, e.src, e.name); err != nil {
-			return fmt.Errorf("re-archiving %s: %w", e.name, err)
-		}
-	}
-	manifestJSON2, _ := json.MarshalIndent(manifest, "", "  ")
-	hdr2 := &tar.Header{Name: "manifest.json", Size: int64(len(manifestJSON2)), Mode: 0o600, ModTime: time.Now().UTC()}
-	tw2.WriteHeader(hdr2)
-	tw2.Write(manifestJSON2)
-	tw2.Close()
-	gz2.Close()
-	archiveBytes = archiveBuf2.Bytes()
 
 	var finalBytes []byte
 	if opts.Password != "" {
@@ -235,6 +226,32 @@ func Restore(archivePath, configDir, dataDir, password string) error {
 	}
 
 	fmt.Printf("Restore complete from: %s\n", archivePath)
+	return nil
+}
+
+// SetYAMLField updates a top-level YAML key in the given config file.
+// If the file does not exist it is created with the key set to value.
+// Intended for programmatic updates (e.g. persisting update_branch from the CLI).
+func SetYAMLField(cfgPath, key, value string) error {
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("reading config: %w", err)
+		}
+		// File does not exist — create it with just the requested key.
+		content := fmt.Sprintf("%s: %s\n", key, value)
+		if writeErr := os.WriteFile(cfgPath, []byte(content), 0o600); writeErr != nil {
+			return fmt.Errorf("writing config: %w", writeErr)
+		}
+		return nil
+	}
+	updated := strings.Join(replaceYAMLField(strings.Split(string(data), "\n"), key, value), "\n")
+	if err := os.WriteFile(cfgPath, []byte(updated), 0o600); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
 	return nil
 }
 
@@ -349,8 +366,12 @@ func VerifyBackup(path, password string) error {
 
 	tr := tar.NewReader(gr)
 
-	// Check 4 + 5 + 6: walk entries.
+	// Check 4 + 5 + 6: walk entries in a single pass.
+	// Accumulate SHA-256 of all non-manifest content bytes to verify against
+	// the checksum field embedded in the manifest (same algorithm as Backup).
+	contentHash := sha256.New()
 	var manifestFound bool
+	var manifestChecksum string
 	tmpDir, err := os.MkdirTemp("", "pastebin-verify-*")
 	if err != nil {
 		return fmt.Errorf("verify: temp dir: %w", err)
@@ -368,21 +389,24 @@ func VerifyBackup(path, password string) error {
 
 		if hdr.Name == "manifest.json" {
 			manifestFound = true
-			// Check 4: parse the manifest.
+			// Check 4: parse the manifest to retrieve the expected checksum.
 			var m Manifest
 			if jsonErr := json.NewDecoder(tr).Decode(&m); jsonErr != nil {
 				return fmt.Errorf("verify: invalid manifest: %w", jsonErr)
 			}
+			manifestChecksum = m.Checksum
 			continue
 		}
 
-		// Check 5: extract entry to temp dir.
+		// Check 5: extract entry to temp dir while feeding bytes to the content hasher.
 		dest := filepath.Join(tmpDir, filepath.Base(hdr.Name))
 		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			return fmt.Errorf("verify: extract %s: %w", hdr.Name, err)
 		}
-		if _, err := io.Copy(f, tr); err != nil {
+		lr := io.LimitReader(tr, 256<<20) // 256 MiB cap per entry
+		tee := io.TeeReader(lr, contentHash)
+		if _, err := io.Copy(f, tee); err != nil {
 			f.Close()
 			return fmt.Errorf("verify: read entry %s: %w", hdr.Name, err)
 		}
@@ -398,6 +422,17 @@ func VerifyBackup(path, password string) error {
 
 	if !manifestFound {
 		return fmt.Errorf("verify: manifest.json missing from archive")
+	}
+
+	// Validate SHA-256 of content files against the manifest checksum field.
+	// Both Backup() and VerifyBackup() hash non-manifest entry bytes only,
+	// which avoids the circular-dependency of hashing an archive that contains
+	// the checksum itself.
+	if manifestChecksum != "" {
+		computedHex := "sha256:" + hex.EncodeToString(contentHash.Sum(nil))
+		if manifestChecksum != computedHex {
+			return fmt.Errorf("verify: checksum mismatch: expected %s, got %s", manifestChecksum, computedHex)
+		}
 	}
 
 	return nil

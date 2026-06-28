@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# @@License : WTFPL
 # tests/incus.sh — Incus VM integration tests for pastebin
 # Launches an Incus VM, copies the binary, and exercises the full systemd
 # service workflow including install/start/stop/status/uninstall.

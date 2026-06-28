@@ -23,9 +23,9 @@ func TestNormalizeArgs(t *testing.T) {
 			want: []string{"--help", "--version"},
 		},
 		{
-			name: "single dash long flag gains second dash",
+			name: "single dash long flag passes through unchanged (spec: only -h/-v are short flags)",
 			in:   []string{"-config", "/etc"},
-			want: []string{"--config", "/etc"},
+			want: []string{"-config", "/etc"},
 		},
 		{
 			name: "double dash flag is untouched",

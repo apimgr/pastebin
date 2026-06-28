@@ -35,7 +35,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.servePost(w, r)
 	default:
 		w.Header().Set("Allow", "GET, POST")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]interface{}{
+			"errors": []map[string]interface{}{{"message": "method not allowed"}},
+		})
 	}
 }
 
@@ -76,7 +78,9 @@ func (h *Handler) serveUI(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		http.Error(w, "json encode error", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"errors":[{"message":"internal server error"}]}` + "\n"))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

@@ -314,28 +314,47 @@
     "items": {
       "zero": "Aucun élément",
       "one": "{count} élément",
+      "two": "{count} éléments",
+      "few": "{count} éléments",
+      "many": "{count} éléments",
       "other": "{count} éléments"
     },
     "results": {
       "zero": "Aucun résultat",
       "one": "{count} résultat",
+      "two": "{count} résultats",
+      "few": "{count} résultats",
+      "many": "{count} résultats",
       "other": "{count} résultats"
     },
     "users": {
       "zero": "Aucun utilisateur",
       "one": "{count} utilisateur",
+      "two": "{count} utilisateurs",
+      "few": "{count} utilisateurs",
+      "many": "{count} utilisateurs",
       "other": "{count} utilisateurs"
     },
     "days": {
+      "zero": "{count} jours",
       "one": "{count} jour",
+      "two": "{count} jours",
+      "few": "{count} jours",
+      "many": "{count} jours",
       "other": "{count} jours"
     },
     "hours": {
       "one": "{count} heure",
+      "two": "{count} heures",
+      "few": "{count} heures",
+      "many": "{count} heures",
       "other": "{count} heures"
     },
     "minutes": {
       "one": "{count} minute",
+      "two": "{count} minutes",
+      "few": "{count} minutes",
+      "many": "{count} minutes",
       "other": "{count} minutes"
     }
   },

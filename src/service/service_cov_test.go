@@ -458,10 +458,15 @@ func TestConstants_LaunchdLabel(t *testing.T) {
 	}
 }
 
-// TestConstants_ServiceUID verifies the service UID is within the required
-// range 200–899 for reproducible deployments.
-func TestConstants_ServiceUID(t *testing.T) {
-	if serviceUID < 200 || serviceUID > 899 {
-		t.Errorf("serviceUID = %d; must be in range 200–899", serviceUID)
+// TestFindAvailableSystemID verifies the function returns a UID in the required
+// range 200–899 or an error when all IDs are taken.
+func TestFindAvailableSystemID(t *testing.T) {
+	id, err := findAvailableSystemID()
+	if err != nil {
+		// All IDs reserved — acceptable on a heavily populated system; skip.
+		t.Skipf("findAvailableSystemID: %v (all IDs in range may be taken)", err)
+	}
+	if id < 200 || id > 899 {
+		t.Errorf("findAvailableSystemID() = %d; must be in range 200–899", id)
 	}
 }

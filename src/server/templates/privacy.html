@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy - {{.SiteTitle}}</title>
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
             <a href="/" class="nav-brand">
@@ -24,18 +25,19 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
                     <h1 class="section-title">{{t .Lang "privacy.title"}}</h1>
                 </div>
 
-                <div class="paste-view" style="padding:var(--space-6);">
+                <div class="paste-view page-view">
                     <h2>What we collect</h2>
                     <p>
                         When you create a paste, we store its content, title, language, visibility setting,
@@ -43,28 +45,28 @@
                         We do not collect or store IP addresses, browser fingerprints, or personal identifiers.
                     </p>
 
-                    <h2 style="margin-top:var(--space-6);">What we do not collect</h2>
-                    <ul style="line-height:2; padding-left:var(--space-6);">
+                    <h2 class="section-mt">What we do not collect</h2>
+                    <ul class="feature-list">
                         <li>No user accounts or authentication data</li>
                         <li>No cookies beyond any set by your browser for HTTPS</li>
                         <li>No tracking pixels, analytics scripts, or third-party telemetry</li>
                         <li>No advertising identifiers</li>
                     </ul>
 
-                    <h2 style="margin-top:var(--space-6);">Data retention</h2>
+                    <h2 class="section-mt">Data retention</h2>
                     <p>
                         Pastes are deleted automatically when they expire or reach their burn-after view limit.
                         You can delete your paste at any time using your delete token.
                         Unlisted pastes are not shown in public listings but remain accessible via their direct link.
                     </p>
 
-                    <h2 style="margin-top:var(--space-6);">Public data</h2>
+                    <h2 class="section-mt">Public data</h2>
                     <p>
                         All public pastes are visible to anyone who visits this service.
                         Do not paste sensitive data such as passwords, tokens, or private keys.
                     </p>
 
-                    <h2 style="margin-top:var(--space-6);">Contact</h2>
+                    <h2 class="section-mt">Contact</h2>
                     <p>
                         For questions or concerns, see <a href="/security.txt">/security.txt</a>.
                     </p>
@@ -86,5 +88,11 @@
             </div>
         </div>
     </footer>
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Paste.Title}} - {{.SiteTitle}}</title>
     <meta name="description" content="View paste: {{.Paste.Title}}">
-    <meta name="theme-color" content="#6366f1">
+    <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <!-- Header -->
     <header class="header">
         <nav class="nav">
@@ -26,11 +27,12 @@
                 <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <a href="/api" class="nav-link">{{t .Lang "nav.api"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
     </header>
 
-    <main>
+    <main id="main-content">
         <section class="search-section">
             <div class="container">
                 <div class="paste-view">
@@ -47,7 +49,7 @@
                             <a href="/emb/{{.ID}}" class="btn btn-secondary" target="_blank">{{t .Lang "paste.embed"}}</a>
                             <a href="/qr/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.qr"}}</a>
                             <a href="/remove/{{.ID}}" class="btn btn-danger">{{t .Lang "common.delete"}}</a>
-                            <button onclick="copyToClipboard()" class="btn btn-primary" id="copyBtn">
+                            <button data-copy-paste="paste-code" class="btn btn-primary" id="copyBtn">
                                 {{t .Lang "paste.copy"}}
                             </button>
                         </div>
@@ -75,26 +77,10 @@
         </div>
     </footer>
 
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="/static/js/main.js"></script>
-    <script>
-        function copyToClipboard() {
-            const content = document.getElementById('paste-code').textContent;
-            const btn = document.getElementById('copyBtn');
-
-            navigator.clipboard.writeText(content).then(() => {
-                btn.textContent = 'Copied!';
-                setTimeout(() => {
-                    btn.textContent = 'Copy Code';
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                btn.textContent = 'Failed';
-                setTimeout(() => {
-                    btn.textContent = 'Copy Code';
-                }, 2000);
-            });
-        }
-    </script>
 </body>
 </html>

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -16,9 +18,44 @@ const (
 	serviceUser = "pastebin"
 	// launchdLabel is the reverse-DNS identifier for the macOS launchd plist.
 	launchdLabel = "io." + orgName + "." + appName
-	// serviceUID is the numeric UID/GID for the service user (must be 200-899).
-	serviceUID = 300
 )
+
+// reservedIDs is the set of system UID/GID values that must not be used for the
+// service account. These cover well-known daemon UIDs on common Linux distros.
+var reservedIDs = map[int]bool{}
+
+func init() {
+	// Reserve ranges 980-999 and 101-110 and 170-179 per spec.
+	for i := 980; i <= 999; i++ {
+		reservedIDs[i] = true
+	}
+	for i := 101; i <= 110; i++ {
+		reservedIDs[i] = true
+	}
+	for i := 170; i <= 179; i++ {
+		reservedIDs[i] = true
+	}
+}
+
+// findAvailableSystemID scans from 899 down to 200 and returns the first UID/GID
+// that is not reserved, not in /etc/passwd, and not in /etc/group (PART 23).
+func findAvailableSystemID() (int, error) {
+	for id := 899; id >= 200; id-- {
+		if reservedIDs[id] {
+			continue
+		}
+		// Check if UID is already in use.
+		if _, err := user.LookupId(strconv.Itoa(id)); err == nil {
+			continue
+		}
+		// Check if GID is already in use.
+		if _, err := user.LookupGroupId(strconv.Itoa(id)); err == nil {
+			continue
+		}
+		return id, nil
+	}
+	return 0, fmt.Errorf("no available system UID/GID in range 200-899")
+}
 
 // ok returns "✅ " when color/emoji output is enabled, or "[ok] " when NO_COLOR is set.
 func ok() string {
@@ -34,6 +71,8 @@ type ServiceType int
 const (
 	ServiceUnknown ServiceType = iota
 	ServiceSystemd
+	ServiceOpenRC
+	ServiceSysV
 	ServiceRunit
 	ServiceLaunchd
 	ServiceWindows
@@ -48,13 +87,25 @@ func DetectServiceManager() ServiceType {
 		if _, err := os.Stat("/run/systemd/system"); err == nil {
 			return ServiceSystemd
 		}
+		if _, err := os.Stat("/etc/systemd"); err == nil {
+			return ServiceSystemd
+		}
+		// Check for OpenRC (Alpine, Gentoo, Devuan)
+		if _, err := os.Stat("/sbin/openrc-run"); err == nil {
+			return ServiceOpenRC
+		}
 		// Check for runit
 		if _, err := os.Stat("/run/runit"); err == nil {
 			return ServiceRunit
 		}
-		// Fallback to systemd if /etc/systemd exists
-		if _, err := os.Stat("/etc/systemd"); err == nil {
-			return ServiceSystemd
+		// Check for SysVinit — /etc/init.d exists with update-rc.d or chkconfig
+		if _, err := os.Stat("/etc/init.d"); err == nil {
+			if _, err2 := exec.LookPath("update-rc.d"); err2 == nil {
+				return ServiceSysV
+			}
+			if _, err2 := exec.LookPath("chkconfig"); err2 == nil {
+				return ServiceSysV
+			}
 		}
 		return ServiceUnknown
 
@@ -85,6 +136,10 @@ func Install() error {
 	switch serviceType {
 	case ServiceSystemd:
 		err = installSystemd()
+	case ServiceOpenRC:
+		err = installOpenRC()
+	case ServiceSysV:
+		err = installSysV()
 	case ServiceRunit:
 		err = installRunit()
 	case ServiceLaunchd:
@@ -128,6 +183,10 @@ func Uninstall() error {
 	switch serviceType {
 	case ServiceSystemd:
 		err = uninstallSystemd()
+	case ServiceOpenRC:
+		err = uninstallOpenRC()
+	case ServiceSysV:
+		err = uninstallSysV()
 	case ServiceRunit:
 		err = uninstallRunit()
 	case ServiceLaunchd:
@@ -223,6 +282,7 @@ StandardOutput=journal
 StandardError=journal
 
 # Security hardening (binary drops privileges after port binding)
+NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -237,10 +297,15 @@ WantedBy=multi-user.target
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
-	// Create system user and group with fixed UID/GID for reproducible deployments.
-	uidStr := fmt.Sprintf("%d", serviceUID)
+	// Dynamically find an available UID/GID in the system range 200-899.
+	sysID, idErr := findAvailableSystemID()
+	if idErr != nil {
+		return fmt.Errorf("could not find available system UID/GID: %w", idErr)
+	}
+	uidStr := strconv.Itoa(sysID)
+	homeDir := fmt.Sprintf("/etc/%s/%s", orgName, appName)
 	exec.Command("groupadd", "-r", "-g", uidStr, serviceUser).Run()
-	exec.Command("useradd", "-r", "-u", uidStr, "-g", uidStr, "-d", "/nonexistent",
+	exec.Command("useradd", "-r", "-u", uidStr, "-g", uidStr, "-d", homeDir,
 		"-s", "/sbin/nologin", "-c", "Pastebin service account", serviceUser).Run()
 
 	// Create directories
@@ -308,6 +373,158 @@ func uninstallSystemd() error {
 	exec.Command("systemctl", "daemon-reload").Run()
 
 	fmt.Printf("%sService uninstalled: %s\n", ok(), servicePath)
+	return nil
+}
+
+// installOpenRC creates an OpenRC service file for Alpine, Gentoo, and Devuan.
+func installOpenRC() error {
+	binaryPath := GetBinaryPath()
+	rcPath := fmt.Sprintf("/etc/init.d/%s", appName)
+
+	rcContent := fmt.Sprintf(`#!/sbin/openrc-run
+
+description="%s API Server"
+command="%s"
+command_background=true
+pidfile="/run/%s.pid"
+command_args=""
+
+depend() {
+	need net
+	after firewall
+}
+`, appName, binaryPath, appName)
+
+	if err := os.WriteFile(rcPath, []byte(rcContent), 0755); err != nil {
+		return fmt.Errorf("failed to write OpenRC init script: %w", err)
+	}
+
+	// Copy binary
+	if exePath, err := os.Executable(); err == nil && exePath != binaryPath {
+		if err := copyBinary(exePath, binaryPath); err != nil {
+			return fmt.Errorf("failed to copy binary: %w", err)
+		}
+	}
+
+	// Enable on default runlevel
+	if err := exec.Command("rc-update", "add", appName, "default").Run(); err != nil {
+		return fmt.Errorf("failed to enable OpenRC service: %w", err)
+	}
+
+	fmt.Printf("%sOpenRC service installed at: %s\n", ok(), rcPath)
+	return nil
+}
+
+// uninstallOpenRC removes an OpenRC service file.
+func uninstallOpenRC() error {
+	rcPath := fmt.Sprintf("/etc/init.d/%s", appName)
+
+	exec.Command("rc-service", appName, "stop").Run()
+	exec.Command("rc-update", "del", appName).Run()
+
+	if err := os.Remove(rcPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove OpenRC init script: %w", err)
+	}
+
+	fmt.Printf("%sOpenRC service uninstalled\n", ok())
+	return nil
+}
+
+// installSysV creates a SysVinit init.d script (Debian/Ubuntu update-rc.d or
+// RHEL/CentOS chkconfig).
+func installSysV() error {
+	binaryPath := GetBinaryPath()
+	initPath := fmt.Sprintf("/etc/init.d/%s", appName)
+
+	initContent := fmt.Sprintf(`#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          %s
+# Required-Start:    $network $syslog
+# Required-Stop:     $network $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: %s API Server
+### END INIT INFO
+
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+DAEMON="%s"
+PIDFILE=/var/run/%s.pid
+NAME=%s
+
+case "$1" in
+  start)
+    echo "Starting $NAME..."
+    start-stop-daemon --start --quiet --pidfile "$PIDFILE" \
+      --background --make-pidfile --exec "$DAEMON"
+    ;;
+  stop)
+    echo "Stopping $NAME..."
+    start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
+    ;;
+  restart)
+    $0 stop
+    $0 start
+    ;;
+  reload)
+    echo "Reloading $NAME..."
+    start-stop-daemon --stop --signal HUP --quiet --pidfile "$PIDFILE"
+    ;;
+  status)
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      echo "$NAME is running"
+    else
+      echo "$NAME is not running"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|reload|status}" >&2
+    exit 1
+    ;;
+esac
+exit 0
+`, appName, appName, binaryPath, appName, appName)
+
+	if err := os.WriteFile(initPath, []byte(initContent), 0755); err != nil {
+		return fmt.Errorf("failed to write SysV init script: %w", err)
+	}
+
+	// Copy binary
+	if exePath, err := os.Executable(); err == nil && exePath != binaryPath {
+		if err := copyBinary(exePath, binaryPath); err != nil {
+			return fmt.Errorf("failed to copy binary: %w", err)
+		}
+	}
+
+	// Enable on boot
+	if _, err := exec.LookPath("update-rc.d"); err == nil {
+		exec.Command("update-rc.d", appName, "defaults").Run()
+	} else if _, err := exec.LookPath("chkconfig"); err == nil {
+		exec.Command("chkconfig", "--add", appName).Run()
+		exec.Command("chkconfig", appName, "on").Run()
+	}
+
+	fmt.Printf("%sSysV init script installed at: %s\n", ok(), initPath)
+	return nil
+}
+
+// uninstallSysV removes a SysVinit init.d script.
+func uninstallSysV() error {
+	initPath := fmt.Sprintf("/etc/init.d/%s", appName)
+
+	exec.Command(initPath, "stop").Run()
+
+	if _, err := exec.LookPath("update-rc.d"); err == nil {
+		exec.Command("update-rc.d", "-f", appName, "remove").Run()
+	} else if _, err := exec.LookPath("chkconfig"); err == nil {
+		exec.Command("chkconfig", "--del", appName).Run()
+	}
+
+	if err := os.Remove(initPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove SysV init script: %w", err)
+	}
+
+	fmt.Printf("%sSysV init script uninstalled\n", ok())
 	return nil
 }
 
@@ -444,55 +661,6 @@ func uninstallLaunchd() error {
 	return nil
 }
 
-// installWindows creates Windows service
-func installWindows() error {
-	binaryPath := GetBinaryPath()
-
-	// Copy binary
-	binDir := filepath.Dir(binaryPath)
-	if err := os.MkdirAll(binDir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	if exePath, err := os.Executable(); err == nil && exePath != binaryPath {
-		if err := copyBinary(exePath, binaryPath); err != nil {
-			return fmt.Errorf("failed to copy binary: %w", err)
-		}
-	}
-
-	// Create service using sc.exe
-	displayName := strings.ToUpper(appName[:1]) + appName[1:] + " API"
-	cmd := exec.Command("sc.exe", "create", appName,
-		"binPath=", binaryPath,
-		"DisplayName=", displayName,
-		"start=", "auto")
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create Windows service: %w", err)
-	}
-
-	fmt.Printf("%sWindows service '%s' installed\n", ok(), appName)
-	fmt.Println()
-	fmt.Println("To start the service:")
-	fmt.Printf("  sc.exe start %s\n", appName)
-
-	return nil
-}
-
-// uninstallWindows removes Windows service
-func uninstallWindows() error {
-	// Stop service
-	exec.Command("sc.exe", "stop", appName).Run()
-
-	// Delete service
-	if err := exec.Command("sc.exe", "delete", appName).Run(); err != nil {
-		return fmt.Errorf("failed to delete Windows service: %w", err)
-	}
-
-	fmt.Printf("%sWindows service '%s' uninstalled\n", ok(), appName)
-	return nil
-}
-
 // installBSDRC creates BSD rc.d script
 func installBSDRC() error {
 	binaryPath := GetBinaryPath()
@@ -582,6 +750,10 @@ func Start() error {
 	switch serviceType {
 	case ServiceSystemd:
 		return exec.Command("systemctl", "start", appName).Run()
+	case ServiceOpenRC:
+		return exec.Command("rc-service", appName, "start").Run()
+	case ServiceSysV:
+		return exec.Command("/etc/init.d/"+appName, "start").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "start", appName).Run()
 	case ServiceLaunchd:
@@ -603,6 +775,10 @@ func Stop() error {
 	switch serviceType {
 	case ServiceSystemd:
 		return exec.Command("systemctl", "stop", appName).Run()
+	case ServiceOpenRC:
+		return exec.Command("rc-service", appName, "stop").Run()
+	case ServiceSysV:
+		return exec.Command("/etc/init.d/"+appName, "stop").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "stop", appName).Run()
 	case ServiceLaunchd:
@@ -624,6 +800,10 @@ func Restart() error {
 	switch serviceType {
 	case ServiceSystemd:
 		return exec.Command("systemctl", "restart", appName).Run()
+	case ServiceOpenRC:
+		return exec.Command("rc-service", appName, "restart").Run()
+	case ServiceSysV:
+		return exec.Command("/etc/init.d/"+appName, "restart").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "restart", appName).Run()
 	case ServiceLaunchd:
@@ -646,6 +826,10 @@ func Reload() error {
 	switch serviceType {
 	case ServiceSystemd:
 		return exec.Command("systemctl", "reload", appName).Run()
+	case ServiceOpenRC:
+		return exec.Command("rc-service", appName, "reload").Run()
+	case ServiceSysV:
+		return exec.Command("/etc/init.d/"+appName, "reload").Run()
 	case ServiceRunit:
 		return exec.Command("sv", "hup", appName).Run()
 	default:
@@ -663,6 +847,15 @@ func Disable() error {
 	case ServiceSystemd:
 		exec.Command("systemctl", "stop", appName).Run()
 		return exec.Command("systemctl", "disable", appName).Run()
+	case ServiceOpenRC:
+		exec.Command("rc-service", appName, "stop").Run()
+		return exec.Command("rc-update", "del", appName).Run()
+	case ServiceSysV:
+		exec.Command("/etc/init.d/"+appName, "stop").Run()
+		if _, err := exec.LookPath("update-rc.d"); err == nil {
+			return exec.Command("update-rc.d", appName, "disable").Run()
+		}
+		return exec.Command("chkconfig", appName, "off").Run()
 	case ServiceRunit:
 		svDir := fmt.Sprintf("/etc/sv/%s", appName)
 		enabledDir := fmt.Sprintf("/var/service/%s", appName)
