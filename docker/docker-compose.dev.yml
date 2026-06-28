@@ -1,4 +1,4 @@
-# pastebin - development compose
+# pastebin - development
 # ⚠️ FOR HUMAN USE ONLY — AI must never use this file directly.
 # Use temp dir workflow: cp docker/docker-compose.dev.yml $TEMP_DIR/docker-compose.yml
 
@@ -15,7 +15,7 @@ services:
     image: ghcr.io/apimgr/pastebin:devel
     pull_policy: always
     container_name: pastebin-app
-    hostname: ${BASE_HOST_NAME:-pastebin}
+    hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     logging: *default-logging
     environment:
@@ -24,13 +24,18 @@ services:
       - DEBUG=true
       - TZ=${TZ:-America/New_York}
     ports:
-      # Development: accessible from all interfaces
-      - "64580:80"
+      - '172.17.0.1:64580:80'
     volumes:
       # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
       # NEVER run from project directory — always use temp dir workflow
-      - ./volumes/config:/config:z
-      - ./volumes/data:/data:z
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    healthcheck:
+      test: /usr/local/bin/pastebin --status
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     networks:
       - pastebin
 

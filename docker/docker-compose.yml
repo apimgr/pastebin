@@ -13,7 +13,7 @@ services:
   pastebin:
     image: ghcr.io/apimgr/pastebin:latest
     container_name: pastebin-app
-    hostname: ${BASE_HOST_NAME:-pastebin}
+    hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     pull_policy: always
     logging: *default-logging
@@ -21,7 +21,7 @@ services:
       - MODE=production
       - PORT=80
       - DEBUG=false
-      - TZ=America/New_York
+      - TZ=${TZ:-America/New_York}
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
