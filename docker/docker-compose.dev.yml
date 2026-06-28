@@ -2,7 +2,7 @@
 # ⚠️ FOR HUMAN USE ONLY — AI must never use this file directly.
 # Use temp dir workflow: cp docker/docker-compose.dev.yml $TEMP_DIR/docker-compose.yml
 
-name: pastebin-dev
+name: pastebin
 
 x-logging: &default-logging
   options:
@@ -12,17 +12,17 @@ x-logging: &default-logging
 
 services:
   pastebin:
-    image: ghcr.io/apimgr/pastebin:latest
+    image: ghcr.io/apimgr/pastebin:devel
     pull_policy: always
-    container_name: pastebin-dev
+    container_name: pastebin-app
+    hostname: ${BASE_HOST_NAME:-pastebin}
     restart: always
     logging: *default-logging
     environment:
-      # Development: relaxed security, verbose logging, no caching
       - MODE=development
-      - TZ=America/New_York
-      # Uncomment to enable debug endpoints (pprof, expvar, detailed logging)
-      # - DEBUG=true
+      - PORT=80
+      - DEBUG=true
+      - TZ=${TZ:-America/New_York}
     ports:
       # Development: accessible from all interfaces
       - "64580:80"
@@ -32,9 +32,9 @@ services:
       - ./volumes/config:/config:z
       - ./volumes/data:/data:z
     networks:
-      - pastebin-dev
+      - pastebin
 
 networks:
-  pastebin-dev:
-    name: pastebin-dev
+  pastebin:
+    name: pastebin
     external: false

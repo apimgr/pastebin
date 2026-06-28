@@ -5,6 +5,7 @@
 # =============================================================================
 FROM casjaysdev/go:latest AS builder
 
+ARG TARGETARCH
 ARG VERSION=devel
 ARG BUILD_DATE
 ARG COMMIT_ID
@@ -15,8 +16,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags "-X 'main.Version=${VERSION}' \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build \
+    -buildvcs=false -trimpath \
+    -ldflags "-s -w -X 'main.Version=${VERSION}' \
               -X 'main.CommitID=${COMMIT_ID}' \
               -X 'main.BuildDate=${BUILD_DATE}'" \
     -o /app/pastebin ./src
@@ -39,11 +41,14 @@ RUN chmod 755 /usr/local/bin/pastebin
 # Development defaults
 ENV TZ=America/New_York \
     MODE=development \
-    DEBUG=true
+    DEBUG=true \
+    DATABASE_DIR=/data/db/sqlite
 
 EXPOSE 80
 
-HEALTHCHECK --start-period=2m --interval=1m --timeout=10s --retries=3 \
+STOPSIGNAL SIGRTMIN+3
+
+HEALTHCHECK --start-period=10m --interval=5m --timeout=15s --retries=3 \
     CMD /usr/local/bin/pastebin --status || exit 1
 
 ENTRYPOINT ["tini", "-p", "SIGTERM", "--", "/usr/local/bin/entrypoint.sh"]

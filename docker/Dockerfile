@@ -22,12 +22,14 @@ RUN go mod download
 COPY . .
 RUN mkdir -p /app/binary && \
     CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+    -buildvcs=false -trimpath \
     -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/pastebin ./src
 
 # Build client binary if src/client/ exists
 RUN if [ -d ./src/client ]; then \
     CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+        -buildvcs=false -trimpath \
         -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildDate=${BUILD_DATE}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
         -o /app/binary/pastebin-cli ./src/client; \
 fi
