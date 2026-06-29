@@ -542,7 +542,15 @@
     "visibility_public": "公開 (一覧表示)",
     "visibility_unlisted": "非公開 (リンクのみ)",
     "owner_token_label": "オーナートークン",
-    "owner_token_hint": "以前のペーストやAPIのトークンを再利用できます。ブラウザに自動保存されます。"
+    "owner_token_hint": "以前のペーストやAPIのトークンを再利用できます。ブラウザに自動保存されます。",
+    "create_error": "ペーストの作成エラー",
+    "created_title": "ペーストを作成しました！",
+    "view_label": "表示",
+    "raw_label": "ロー",
+    "download_label": "ダウンロード",
+    "owner_token_warning": "このトークンを保存してください — ペーストの削除を制御します。",
+    "copy_token": "トークンをコピー",
+    "view_paste": "ペーストを表示"
   },
   "qr": {
     "download_qr": "QRをダウンロード",

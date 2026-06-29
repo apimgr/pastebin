@@ -542,7 +542,15 @@
     "visibility_public": "Public (listé)",
     "visibility_unlisted": "Non listé (lien uniquement)",
     "owner_token_label": "Jeton propriétaire",
-    "owner_token_hint": "Réutilisez un jeton d'une création précédente ou de l'API. Sauvegardé automatiquement dans votre navigateur."
+    "owner_token_hint": "Réutilisez un jeton d'une création précédente ou de l'API. Sauvegardé automatiquement dans votre navigateur.",
+    "create_error": "Erreur lors de la création du paste",
+    "created_title": "Paste créé !",
+    "view_label": "Voir",
+    "raw_label": "Brut",
+    "download_label": "Télécharger",
+    "owner_token_warning": "Conservez ce jeton — il contrôle la suppression de vos pastes.",
+    "copy_token": "Copier le jeton",
+    "view_paste": "Voir le paste"
   },
   "qr": {
     "download_qr": "Télécharger le QR",

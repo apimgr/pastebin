@@ -40,6 +40,35 @@
                     <p class="section-description">{{t .Lang "paste.create_desc"}}</p>
                 </div>
 
+                {{if .Error}}
+                <div class="alert alert-error" role="alert">
+                    <p>{{t .Lang "paste.create_error"}}: {{.Error}}</p>
+                </div>
+                {{end}}
+
+                {{if .Created}}
+                <div class="result" role="status">
+                    <div class="success">
+                        <h3>{{t .Lang "paste.created_title"}}</h3>
+                        <p>{{t .Lang "paste.view_label"}}: <a href="{{.Created.Link}}" class="long-string">{{.Created.Link}}</a></p>
+                        <p>{{t .Lang "paste.raw_label"}}: <a href="/raw/{{.Created.ID}}" class="long-string">/raw/{{.Created.ID}}</a></p>
+                        <p>{{t .Lang "paste.download_label"}}: <a href="/dl/{{.Created.ID}}" class="long-string">/dl/{{.Created.ID}}</a></p>
+                        <div class="alert alert-warning mt-3">
+                            <p class="mb-2">{{t .Lang "paste.owner_token_warning"}}</p>
+                            <code class="long-string" id="created-token">{{.Created.OwnerToken}}</code>
+                            <button
+                                type="button"
+                                data-copy-target="created-token"
+                                class="btn btn-secondary d-block mt-2"
+                            >{{t .Lang "paste.copy_token"}}</button>
+                        </div>
+                        <div class="form-actions mt-4">
+                            <a href="{{.Created.Link}}" class="btn btn-primary">{{t .Lang "paste.view_paste"}}</a>
+                        </div>
+                    </div>
+                </div>
+                {{end}}
+
                 <form id="paste-form" class="paste-form" action="/create" method="POST">
                     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                     <div class="form-row">
@@ -150,8 +179,6 @@
                         </button>
                     </div>
                 </form>
-
-                <div id="result" class="result hidden"></div>
             </div>
         </section>
     </main>
@@ -177,118 +204,55 @@
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="/static/js/main.js"></script>
     <script>
-        // Load saved owner token from localStorage (set by a previous paste creation
-        // or manually entered by the user after using the API via CLI/curl).
-        const TOKEN_KEY = 'pastebin_owner_token';
-        const savedToken = localStorage.getItem(TOKEN_KEY) || '';
+        // Progressive enhancement only — the form works as a plain POST without
+        // any of this. These handlers add convenience for JS-capable browsers.
+        (function () {
+            const TOKEN_KEY = 'pastebin_owner_token';
 
-        // Pre-fill the token field if one is saved.
-        window.addEventListener('DOMContentLoaded', () => {
+            // Persist a freshly issued owner token (rendered server-side after a
+            // successful create) so the next paste can reuse it.
+            const createdToken = document.getElementById('created-token');
+            if (createdToken && createdToken.textContent.trim()) {
+                localStorage.setItem(TOKEN_KEY, createdToken.textContent.trim());
+            }
+
+            // Pre-fill the token field from a previously saved token.
             const tokenField = document.getElementById('owner_token');
-            if (tokenField && savedToken) {
-                tokenField.value = savedToken;
-            }
-        });
-
-        document.getElementById('paste-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const content = document.getElementById('content').value;
-            const title = document.getElementById('title').value;
-            const language = document.getElementById('language').value;
-            const expiresIn = document.getElementById('expires').value;
-            const visibility = parseInt(document.getElementById('visibility').value, 10);
-            const burnAfter = parseInt(document.getElementById('burn_after').value, 10) || 0;
-            const manualToken = (document.getElementById('owner_token').value || '').trim();
-
-            const resultDiv = document.getElementById('result');
-            resultDiv.classList.remove('hidden');
-            resultDiv.innerHTML = '<div class="loading-state"><div class="loading-spinner"></div><p>Creating paste...</p></div>';
-
-            // Build request headers; include token if available.
-            const headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            };
-            const activeToken = manualToken || savedToken;
-            if (activeToken) {
-                headers['Authorization'] = 'Bearer ' + activeToken;
-            }
-
-            try {
-                const response = await fetch('/api/v1/paste', {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({
-                        content,
-                        title: title || 'Untitled',
-                        language,
-                        expires_in: expiresIn === 'never' ? '' : expiresIn,
-                        visibility,
-                        burn_after: burnAfter
-                    })
-                });
-
-                const envelope = await response.json();
-                const paste = envelope.data || {};
-
-                if (response.ok && envelope.ok) {
-                    // Persist the returned token — may be the same one or a newly generated one.
-                    if (paste.owner_token) {
-                        localStorage.setItem(TOKEN_KEY, paste.owner_token);
-                        document.getElementById('owner_token').value = paste.owner_token;
-                    }
-
-                    const isReused = activeToken && paste.owner_token === activeToken;
-                    const tokenNote = isReused
-                        ? '<span class="text-success">✓ Your existing token was reused for this paste.</span>'
-                        : '<span class="text-warning">Save this token — it controls deletion of your pastes.</span>';
-
-                    resultDiv.innerHTML = `
-                        <div class="success">
-                            <h3>Paste Created!</h3>
-                            <p>View: <a href="${paste.link}" target="_blank">${paste.link}</a></p>
-                            <p>Raw: <a href="/raw/${paste.id}" target="_blank">/raw/${paste.id}</a></p>
-                            <p>Download: <a href="/dl/${paste.id}" target="_blank">/dl/${paste.id}</a></p>
-                            <div class="alert alert-warning mt-3">
-                                <p class="mb-2">${tokenNote}</p>
-                                <code class="long-string">${paste.owner_token || ''}</code>
-                                <button
-                                    onclick="navigator.clipboard.writeText('${paste.owner_token || ''}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy Token',1500)"
-                                    class="btn btn-secondary d-block mt-2"
-                                >Copy Token</button>
-                            </div>
-                            <div class="form-actions mt-4">
-                                <button onclick="navigator.clipboard.writeText('${paste.link}')" class="btn btn-secondary">
-                                    Copy Link
-                                </button>
-                                <a href="${paste.link}" class="btn btn-primary">
-                                    View Paste
-                                </a>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    resultDiv.innerHTML = `<p class="error">Error: ${envelope.message || envelope.error || 'Unknown error'}</p>`;
+            if (tokenField && !tokenField.value) {
+                const saved = localStorage.getItem(TOKEN_KEY) || '';
+                if (saved) {
+                    tokenField.value = saved;
                 }
-            } catch (error) {
-                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
             }
-        });
 
-        // Tab key support in textarea
-        document.getElementById('content').addEventListener('keydown', function(e) {
-            if (e.key === 'Tab') {
-                e.preventDefault();
-                const start = this.selectionStart;
-                const end = this.selectionEnd;
-                this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
-                this.selectionStart = this.selectionEnd = start + 4;
+            // Copy-token button (server-rendered result block).
+            const copyBtn = document.querySelector('[data-copy-target]');
+            if (copyBtn && navigator.clipboard) {
+                copyBtn.addEventListener('click', function () {
+                    const el = document.getElementById(this.dataset.copyTarget);
+                    if (!el) return;
+                    navigator.clipboard.writeText(el.textContent.trim());
+                    const original = this.textContent;
+                    this.textContent = 'Copied!';
+                    setTimeout(() => { this.textContent = original; }, 1500);
+                });
             }
-        });
 
-        // Focus textarea on page load
-        document.getElementById('content').focus();
+            // Tab key inserts spaces in the textarea instead of moving focus.
+            const content = document.getElementById('content');
+            if (content) {
+                content.addEventListener('keydown', function (e) {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const start = this.selectionStart;
+                        const end = this.selectionEnd;
+                        this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+                        this.selectionStart = this.selectionEnd = start + 4;
+                    }
+                });
+                content.focus();
+            }
+        })();
     </script>
 </body>
 </html>

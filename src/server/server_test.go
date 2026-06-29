@@ -1431,7 +1431,8 @@ func TestMarkPendingRestart(t *testing.T) {
 
 	s.MarkPendingRestart("server.port")
 	s.MarkPendingRestart("database")
-	s.MarkPendingRestart("server.port") // duplicate — should not be added twice
+	// duplicate — should not be added twice
+	s.MarkPendingRestart("server.port")
 
 	s.pendingRestartMu.Lock()
 	keys := s.pendingRestartKeys
@@ -3027,7 +3028,8 @@ func TestRun(t *testing.T) {
 	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel before Run — server should stop immediately after binding
+	// cancel before Run — server should stop immediately after binding
+	cancel()
 
 	// Use port 0 so the OS picks a free port.
 	err := s.Run(ctx, "127.0.0.1:0")
@@ -3174,4 +3176,58 @@ func TestOnConfigChangeTLSRestart(t *testing.T) {
 	if !found {
 		t.Errorf("TLS change should mark pending restart, got keys: %v", keys)
 	}
+}
+
+// TestHandleWebCreate exercises the no-JS web create flow: a urlencoded POST
+// renders the result (including the one-time owner token) server-side, an empty
+// body renders the error, and a JSON request is delegated to the API handler.
+func TestHandleWebCreate(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+
+	t.Run("urlencoded_success_renders_token", func(t *testing.T) {
+		body := strings.NewReader("content=hello+world&title=Test&language=go&visibility=0&expires_in=never&burn_after=0")
+		r := httptest.NewRequest(http.MethodPost, "/create", body)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleWebCreate(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+		if !strings.Contains(w.Body.String(), "created-token") {
+			t.Error("response should render the created owner token block")
+		}
+	})
+
+	t.Run("urlencoded_empty_content_renders_error", func(t *testing.T) {
+		body := strings.NewReader("content=&title=Test")
+		r := httptest.NewRequest(http.MethodPost, "/create", body)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleWebCreate(w, r)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "alert-error") {
+			t.Error("response should render the error alert")
+		}
+	})
+
+	t.Run("json_delegates_to_api_handler", func(t *testing.T) {
+		body := strings.NewReader(`{"content":"hi","language":"text"}`)
+		r := httptest.NewRequest(http.MethodPost, "/create", body)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Accept", "application/json")
+		w := httptest.NewRecorder()
+		s.handleWebCreate(w, r)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201; body: %q", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), `"ok": true`) {
+			t.Error("JSON delegation should return the API success envelope")
+		}
+	})
 }

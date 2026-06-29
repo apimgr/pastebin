@@ -178,7 +178,15 @@
     "visibility_public": "عام (مدرج)",
     "visibility_unlisted": "غير مدرج (رابط فقط)",
     "owner_token_label": "رمز المالك",
-    "owner_token_hint": "أعد استخدام رمز من لصقة سابقة أو API. يُحفظ تلقائيًا في متصفحك."
+    "owner_token_hint": "أعد استخدام رمز من لصقة سابقة أو API. يُحفظ تلقائيًا في متصفحك.",
+    "create_error": "خطأ في إنشاء اللصق",
+    "created_title": "تم إنشاء اللصق!",
+    "view_label": "عرض",
+    "raw_label": "خام",
+    "download_label": "تنزيل",
+    "owner_token_warning": "احفظ هذا الرمز — فهو يتحكم في حذف لصقاتك.",
+    "copy_token": "نسخ الرمز",
+    "view_paste": "عرض اللصق"
   },
   "recent": {
     "title": "اللصقات الأخيرة",

@@ -178,7 +178,15 @@
     "visibility_public": "Public (listed)",
     "visibility_unlisted": "Unlisted (link only)",
     "owner_token_label": "Owner Token",
-    "owner_token_hint": "Reuse a token from a previous paste or the API. Saved automatically in your browser."
+    "owner_token_hint": "Reuse a token from a previous paste or the API. Saved automatically in your browser.",
+    "create_error": "Error creating paste",
+    "created_title": "Paste Created!",
+    "view_label": "View",
+    "raw_label": "Raw",
+    "download_label": "Download",
+    "owner_token_warning": "Save this token — it controls deletion of your pastes.",
+    "copy_token": "Copy Token",
+    "view_paste": "View Paste"
   },
   "recent": {
     "title": "Recent Pastes",

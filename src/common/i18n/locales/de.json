@@ -542,7 +542,15 @@
     "visibility_public": "Öffentlich (gelistet)",
     "visibility_unlisted": "Nicht gelistet (nur per Link)",
     "owner_token_label": "Eigentümer-Token",
-    "owner_token_hint": "Verwenden Sie ein Token aus einem früheren Paste oder der API. Wird automatisch im Browser gespeichert."
+    "owner_token_hint": "Verwenden Sie ein Token aus einem früheren Paste oder der API. Wird automatisch im Browser gespeichert.",
+    "create_error": "Fehler beim Erstellen des Pastes",
+    "created_title": "Paste erstellt!",
+    "view_label": "Ansehen",
+    "raw_label": "Rohtext",
+    "download_label": "Herunterladen",
+    "owner_token_warning": "Speichern Sie dieses Token — es steuert das Löschen Ihrer Pastes.",
+    "copy_token": "Token kopieren",
+    "view_paste": "Paste ansehen"
   },
   "qr": {
     "download_qr": "QR herunterladen",

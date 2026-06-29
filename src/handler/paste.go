@@ -31,8 +31,9 @@ const idCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345678
 
 // PasteHandler handles all paste HTTP operations.
 type PasteHandler struct {
-	db      database.DB
-	baseURL string // optional override, e.g. "https://paste.example.com"
+	db database.DB
+	// baseURL is an optional override, e.g. "https://paste.example.com".
+	baseURL string
 	// operatorTokenHash is SHA-256(server.token), cached at construction time.
 	// A constant-time compare against this lets operator tokens bypass the api_tokens
 	// lookup and delete any paste unconditionally (PART 11).
@@ -114,6 +115,12 @@ func extractToken(r *http.Request) string {
 	if v := r.URL.Query().Get("token"); v != "" {
 		return v
 	}
+	// Web form (no-JS create) supplies the token as a urlencoded field.
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+		if v := r.PostFormValue("owner_token"); v != "" {
+			return v
+		}
+	}
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		var body struct {
 			Token string `json:"token"`
@@ -131,16 +138,21 @@ func extractToken(r *http.Request) string {
 
 // CreateRequest is the JSON body for paste creation.
 type CreateRequest struct {
-	Content    string `json:"content"`
-	Title      string `json:"title"`
-	Language   string `json:"language"`
-	Visibility string `json:"visibility"` // "public" | "unlisted"
-	ExpiresIn  string `json:"expires_in"` // "1h","1d","1w","1m","3m","6m","1y","18m","2y","never", or seconds
-	BurnAfter  int    `json:"burn_after"` // 0=disabled, 1-9999
+	Content  string `json:"content"`
+	Title    string `json:"title"`
+	Language string `json:"language"`
+	// Visibility is "public" | "unlisted".
+	Visibility string `json:"visibility"`
+	// ExpiresIn is "1h","1d","1w","1m","3m","6m","1y","18m","2y","never", or seconds.
+	ExpiresIn string `json:"expires_in"`
+	// BurnAfter is 0=disabled, 1-9999.
+	BurnAfter int `json:"burn_after"`
 }
 
-// CreatePaste handles paste creation via JSON, multipart, or raw body.
-func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
+// createFromRequest parses the request body (JSON, multipart, urlencoded, or
+// raw), creates the paste, and returns the result. It writes NO HTTP response;
+// callers render the outcome. On failure it returns an HTTP status and error.
+func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse, int, error) {
 	var req CreateRequest
 
 	ct := r.Header.Get("Content-Type")
@@ -149,14 +161,12 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(ct, "application/json"):
 		dec := json.NewDecoder(io.LimitReader(r.Body, 10<<20))
 		if err := dec.Decode(&req); err != nil {
-			h.errJSON(w, "invalid JSON", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, fmt.Errorf("invalid JSON")
 		}
 
 	case strings.HasPrefix(ct, "multipart/form-data"):
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			h.errJSON(w, "failed to parse form", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, fmt.Errorf("failed to parse form")
 		}
 		file, header, err := r.FormFile("files")
 		if err == nil {
@@ -178,8 +188,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
 		if err := r.ParseForm(); err != nil {
-			h.errJSON(w, "failed to parse form", http.StatusBadRequest)
-			return
+			return nil, http.StatusBadRequest, fmt.Errorf("failed to parse form")
 		}
 		req.Content = r.FormValue("content")
 		req.Title = r.FormValue("title")
@@ -201,8 +210,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 
 	req.Content = strings.TrimRight(req.Content, "\n")
 	if strings.TrimSpace(req.Content) == "" {
-		h.errJSON(w, "content is required", http.StatusBadRequest)
-		return
+		return nil, http.StatusBadRequest, fmt.Errorf("content is required")
 	}
 
 	// Visibility
@@ -241,8 +249,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	for range 10 {
 		id, err := generateID()
 		if err != nil {
-			h.errJSON(w, "failed to generate ID", http.StatusInternalServerError)
-			return
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to generate ID")
 		}
 		existing, _ := h.db.GetPasteByID(id)
 		if existing == nil {
@@ -251,8 +258,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if pasteID == "" {
-		h.errJSON(w, "could not generate unique ID", http.StatusInternalServerError)
-		return
+		return nil, http.StatusInternalServerError, fmt.Errorf("could not generate unique ID")
 	}
 
 	// Resolve owner token: reuse an existing valid token if the caller provides one,
@@ -272,8 +278,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		var err error
 		plainToken, tokenHash, err = generateOwnerToken()
 		if err != nil {
-			h.errJSON(w, "failed to generate token", http.StatusInternalServerError)
-			return
+			return nil, http.StatusInternalServerError, fmt.Errorf("failed to generate token")
 		}
 	}
 
@@ -289,8 +294,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.db.CreatePaste(paste); err != nil {
-		h.errJSON(w, "failed to create paste", http.StatusInternalServerError)
-		return
+		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create paste")
 	}
 	metrics.PastesCreatedTotal.Inc()
 
@@ -309,7 +313,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link := h.pasteURL(r, paste.ID)
-	resp := model.CreateResponse{
+	resp := &model.CreateResponse{
 		ID:         paste.ID,
 		Title:      paste.Title,
 		Language:   paste.Language,
@@ -321,14 +325,33 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 		Link:       link,
 		OwnerToken: plainToken,
 	}
+	return resp, 0, nil
+}
 
+// CreateFromForm creates a paste from an HTML form POST and returns the result
+// for server-side template rendering — the no-JS web create flow (PART 16).
+func (h *PasteHandler) CreateFromForm(r *http.Request) (*model.CreateResponse, int, error) {
+	return h.createFromRequest(r)
+}
+
+// CreatePaste handles paste creation for API and CLI callers (JSON, multipart,
+// raw, or urlencoded) and writes the response per content negotiation.
+func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
+	resp, status, err := h.createFromRequest(r)
+	if err != nil {
+		h.errJSON(w, err.Error(), status)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
 	accept := r.Header.Get("Accept")
 	isAPI := strings.HasPrefix(r.URL.Path, "/api/")
 	isJSON := strings.Contains(accept, "application/json")
 
-	// Browser form submit (no JS): redirect to the paste view.
+	// Browser form submit without JS that reaches the API handler directly:
+	// redirect to the paste view (the /create web route renders a confirmation).
 	if !isAPI && !isJSON && strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
-		http.Redirect(w, r, "/"+paste.ID, http.StatusSeeOther)
+		http.Redirect(w, r, "/"+resp.ID, http.StatusSeeOther)
 		return
 	}
 
@@ -336,7 +359,7 @@ func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	if !isAPI && !isJSON {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintln(w, link)
+		fmt.Fprintln(w, resp.Link)
 		return
 	}
 

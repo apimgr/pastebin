@@ -542,7 +542,15 @@
     "visibility_public": "公开 (列出)",
     "visibility_unlisted": "未列出 (仅链接)",
     "owner_token_label": "所有者令牌",
-    "owner_token_hint": "重用之前粘贴或API的令牌，自动保存到浏览器中。"
+    "owner_token_hint": "重用之前粘贴或API的令牌，自动保存到浏览器中。",
+    "create_error": "创建粘贴失败",
+    "created_title": "粘贴已创建！",
+    "view_label": "查看",
+    "raw_label": "原始",
+    "download_label": "下载",
+    "owner_token_warning": "请保存此令牌——它用于控制删除您的粘贴。",
+    "copy_token": "复制令牌",
+    "view_paste": "查看粘贴"
   },
   "qr": {
     "download_qr": "下载二维码",

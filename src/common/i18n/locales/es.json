@@ -542,7 +542,15 @@
     "visibility_public": "Público (listado)",
     "visibility_unlisted": "No listado (solo enlace)",
     "owner_token_label": "Token de propietario",
-    "owner_token_hint": "Reutilice un token de una creación anterior o de la API. Se guarda automáticamente en su navegador."
+    "owner_token_hint": "Reutilice un token de una creación anterior o de la API. Se guarda automáticamente en su navegador.",
+    "create_error": "Error al crear el paste",
+    "created_title": "¡Paste creado!",
+    "view_label": "Ver",
+    "raw_label": "Sin formato",
+    "download_label": "Descargar",
+    "owner_token_warning": "Guarda este token — controla la eliminación de tus pastes.",
+    "copy_token": "Copiar token",
+    "view_paste": "Ver paste"
   },
   "qr": {
     "download_qr": "Descargar QR",

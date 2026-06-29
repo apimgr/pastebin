@@ -17,7 +17,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	_ "net/http/pprof" // side-effect: registers pprof handlers on DefaultServeMux
+	// blank import side-effect: registers pprof handlers on DefaultServeMux
+	_ "net/http/pprof"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -551,7 +552,8 @@ func (s *Server) setupRoutes() {
 		r.Post(path, handler.AuthStubRedirect)
 	}
 	// microbin auth-gate redirects
-	r.Get("/u/{username}", handler.AuthStubRedirect) // user profiles → home
+	// user profiles → home
+	r.Get("/u/{username}", handler.AuthStubRedirect)
 	r.Get("/auth/{id}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+chi.URLParam(r, "id"), http.StatusFound)
 	})
@@ -571,7 +573,8 @@ func (s *Server) setupRoutes() {
 	r.Post("/api/new", s.maybeRateLimit(s.compatHandler.LenCreate))
 	r.Get("/api/get", s.compatHandler.LenGet)
 	r.Delete("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove))
-	r.Get("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove)) // some clients use GET
+	// some clients use GET
+	r.Get("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove))
 	r.Get("/api/list", s.compatHandler.LenList)
 
 	// ── Versioned API (native) ───────────────────────────────────────────────
@@ -631,10 +634,13 @@ func (s *Server) setupRoutes() {
 	// POST / — lenpaste form-POST to root creates a paste and redirects to /{id}
 	r.Post("/", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 	r.Get("/recent", s.handleRecent)
-	r.Get("/list", s.handleRecent)    // microbin alias
-	r.Get("/archive", s.handleRecent) // pastebin.com alias
-	r.Get("/trends", s.handleRecent)  // pastebin.com alias
-	r.Post("/create", s.maybeRateLimit(s.pasteHandler.CreatePaste))
+	// microbin alias
+	r.Get("/list", s.handleRecent)
+	// pastebin.com alias
+	r.Get("/archive", s.handleRecent)
+	// pastebin.com alias
+	r.Get("/trends", s.handleRecent)
+	r.Post("/create", s.maybeRateLimit(s.handleWebCreate))
 	r.Get("/create", s.handleCreatePage)
 
 	// ── Redirect aliases ────────────────────────────────────────────────────
@@ -653,18 +659,25 @@ func (s *Server) setupRoutes() {
 	r.Get("/r/{id}", s.pasteHandler.GetRawPaste)
 	r.Get("/dl/{id}", s.handleDownload)
 	r.Get("/download/{id}", s.handleDownload)
-	r.Get("/file/{id}", s.handleDownload) // microbin alias
+	// microbin alias
+	r.Get("/file/{id}", s.handleDownload)
 	r.Get("/emb/{id}", s.handleEmbed)
 	r.Get("/qr/{id}", s.handleQR)
 	r.Get("/qr/{id}/image", s.handleQRImage)
 	r.Get("/remove/{id}", s.handleRemovePage)
 	r.Post("/remove/{id}", s.maybeDeleteRateLimit(s.handleRemoveSubmit))
-	r.Post("/upload", s.maybeRateLimit(s.pasteHandler.CreatePaste)) // microbin upload
-	r.Get("/upload/{id}", s.handleViewPaste)          // microbin upload alias
-	r.Get("/p/{id}", s.handleViewPaste)               // microbin short URL
-	r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)   // pastebin.com /id/raw
-	r.Get("/url/{id}", s.handleURLRedirect)           // microbin URL-paste redirect
-	r.Get("/u/{id}", s.handleURLRedirect)             // microbin short URL redirect
+	// microbin upload
+	r.Post("/upload", s.maybeRateLimit(s.pasteHandler.CreatePaste))
+	// microbin upload alias
+	r.Get("/upload/{id}", s.handleViewPaste)
+	// microbin short URL
+	r.Get("/p/{id}", s.handleViewPaste)
+	// pastebin.com /id/raw
+	r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)
+	// microbin URL-paste redirect
+	r.Get("/url/{id}", s.handleURLRedirect)
+	// microbin short URL redirect
+	r.Get("/u/{id}", s.handleURLRedirect)
 
 	// Swagger UI (human-readable docs page)
 	r.Get("/server/swagger", s.swaggerHandler.ServeUI)
@@ -1727,6 +1740,38 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
 	})
+}
+
+// handleWebCreate handles browser form submissions to POST /create. The form
+// submits as a standard urlencoded POST (no JavaScript required, PART 16); the
+// result — including the one-time owner token — is rendered server-side back
+// into create.html. Non-browser callers (JSON/multipart/raw) are delegated to
+// the content-negotiating API handler.
+func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
+		s.pasteHandler.CreatePaste(w, r)
+		return
+	}
+
+	data := map[string]interface{}{
+		"SiteTitle": s.liveCfg().Web.SiteTitle,
+		"Theme":     s.liveCfg().Web.Theme,
+	}
+
+	resp, status, err := s.pasteHandler.CreateFromForm(r)
+	if err != nil {
+		if status == 0 {
+			status = http.StatusBadRequest
+		}
+		data["Error"] = err.Error()
+		w.WriteHeader(status)
+		s.renderTemplate(w, r, "create.html", data)
+		return
+	}
+
+	data["Created"] = resp
+	s.renderTemplate(w, r, "create.html", data)
 }
 
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {

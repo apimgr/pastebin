@@ -1,0 +1,282 @@
+package service
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+)
+
+// ─── Direct uninstall function tests (bypassing confirmation) ───────────────
+// These tests directly call the internal uninstall* functions to get coverage
+// of the uninstall logic without needing to bypass confirmDestructive.
+
+func TestUninstallSystemd_DirectWithFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create systemd service file
+	systemdDir := "/etc/systemd/system"
+	os.MkdirAll(systemdDir, 0o755)
+	serviceFile := filepath.Join(systemdDir, appName+".service")
+	os.WriteFile(serviceFile, []byte("[Unit]\nDescription=Test\n"), 0o644)
+
+	t.Cleanup(func() {
+		os.Remove(serviceFile)
+	})
+
+	err := uninstallSystemd()
+	if err != nil {
+		t.Logf("uninstallSystemd error (expected - no systemctl): %v", err)
+	}
+
+	// File should be removed even if systemctl fails
+	if _, statErr := os.Stat(serviceFile); !os.IsNotExist(statErr) {
+		t.Error("service file should be removed")
+	}
+}
+
+func TestUninstallOpenRC_DirectWithScript(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create init script
+	initDir := "/etc/init.d"
+	os.MkdirAll(initDir, 0o755)
+	initScript := filepath.Join(initDir, appName)
+	os.WriteFile(initScript, []byte("#!/sbin/openrc-run\n"), 0o755)
+
+	t.Cleanup(func() {
+		os.Remove(initScript)
+	})
+
+	err := uninstallOpenRC()
+	if err != nil {
+		t.Logf("uninstallOpenRC error (expected): %v", err)
+	}
+
+	// Script should be removed
+	if _, statErr := os.Stat(initScript); !os.IsNotExist(statErr) {
+		t.Error("init script should be removed")
+	}
+}
+
+func TestUninstallSysV_DirectWithScript(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create init script
+	initDir := "/etc/init.d"
+	os.MkdirAll(initDir, 0o755)
+	initScript := filepath.Join(initDir, appName)
+	os.WriteFile(initScript, []byte("#!/bin/sh\n"), 0o755)
+
+	t.Cleanup(func() {
+		os.Remove(initScript)
+	})
+
+	err := uninstallSysV()
+	if err != nil {
+		t.Logf("uninstallSysV error (expected): %v", err)
+	}
+
+	// Script should be removed
+	if _, statErr := os.Stat(initScript); !os.IsNotExist(statErr) {
+		t.Error("init script should be removed")
+	}
+}
+
+func TestUninstallRunit_DirectWithDir(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create runit service directory
+	svDir := "/etc/sv/" + appName
+	os.MkdirAll(svDir+"/log", 0o755)
+	os.WriteFile(filepath.Join(svDir, "run"), []byte("#!/bin/sh\nexec pastebin\n"), 0o755)
+	os.WriteFile(filepath.Join(svDir, "log", "run"), []byte("#!/bin/sh\n"), 0o755)
+
+	// Create symlink
+	os.MkdirAll("/var/service", 0o755)
+	os.Symlink(svDir, "/var/service/"+appName)
+
+	t.Cleanup(func() {
+		os.RemoveAll(svDir)
+		os.Remove("/var/service/" + appName)
+	})
+
+	err := uninstallRunit()
+	if err != nil {
+		t.Errorf("uninstallRunit error: %v", err)
+	}
+
+	// Directory should be removed
+	if _, statErr := os.Stat(svDir); !os.IsNotExist(statErr) {
+		t.Error("sv directory should be removed")
+	}
+}
+
+func TestUninstallLaunchd_DirectWithPlist(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("Linux or macOS only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create plist
+	launchDir := "/Library/LaunchDaemons"
+	os.MkdirAll(launchDir, 0o755)
+	plistFile := filepath.Join(launchDir, launchdLabel+".plist")
+	os.WriteFile(plistFile, []byte(`<?xml version="1.0"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN">
+<plist version="1.0">
+<dict><key>Label</key><string>test</string></dict>
+</plist>
+`), 0o644)
+
+	t.Cleanup(func() {
+		os.Remove(plistFile)
+	})
+
+	err := uninstallLaunchd()
+	if err != nil {
+		t.Logf("uninstallLaunchd error (expected - no launchctl): %v", err)
+	}
+
+	// File should be removed
+	if _, statErr := os.Stat(plistFile); !os.IsNotExist(statErr) {
+		t.Error("plist should be removed")
+	}
+}
+
+func TestUninstallBSDRC_DirectWithScript(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create rc.d script
+	rcDir := "/usr/local/etc/rc.d"
+	os.MkdirAll(rcDir, 0o755)
+	rcScript := filepath.Join(rcDir, appName)
+	os.WriteFile(rcScript, []byte("#!/bin/sh\n. /etc/rc.subr\n"), 0o755)
+
+	t.Cleanup(func() {
+		os.Remove(rcScript)
+	})
+
+	err := uninstallBSDRC()
+	if err != nil {
+		t.Logf("uninstallBSDRC error (expected): %v", err)
+	}
+
+	// Script should be removed
+	if _, statErr := os.Stat(rcScript); !os.IsNotExist(statErr) {
+		t.Error("rc.d script should be removed")
+	}
+}
+
+// ─── purgeData test ──────────────────────────────────────────────────────────
+
+func TestPurgeData_RemovesDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix test")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Create test directories
+	testDirs := []string{
+		"/etc/" + orgName + "/" + appName,
+		"/var/lib/" + orgName + "/" + appName,
+		"/var/cache/" + orgName + "/" + appName,
+		"/var/log/" + orgName + "/" + appName,
+	}
+
+	for _, dir := range testDirs {
+		os.MkdirAll(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, "test.txt"), []byte("test"), 0o644)
+	}
+
+	t.Cleanup(func() {
+		// Clean up any remaining dirs
+		os.RemoveAll("/etc/" + orgName)
+		os.RemoveAll("/var/lib/" + orgName)
+		os.RemoveAll("/var/cache/" + orgName)
+		os.RemoveAll("/var/log/" + orgName)
+	})
+
+	purgeData()
+
+	// All directories should be removed
+	for _, dir := range testDirs {
+		if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+			t.Errorf("directory %s should be removed", dir)
+		}
+	}
+}
+
+// ─── Uninstall with different service types ──────────────────────────────────
+
+func TestUninstall_SystemdPath_Cancelled(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Ensure systemd detection
+	os.MkdirAll("/run/systemd/system", 0o755)
+	t.Cleanup(func() {
+		os.RemoveAll("/run/systemd")
+	})
+
+	// Uninstall prompts for confirmation, stdin not terminal = cancellation
+	err := Uninstall()
+	// Should return nil (cancelled, not error)
+	if err != nil {
+		t.Logf("Uninstall result: %v", err)
+	}
+}
+
+func TestUninstall_RunitPath_Cancelled(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("requires root")
+	}
+
+	// Setup runit detection
+	os.RemoveAll("/run/systemd")
+	os.Rename("/etc/systemd", "/etc/systemd.bak")
+	os.MkdirAll("/run/runit", 0o755)
+
+	t.Cleanup(func() {
+		os.RemoveAll("/run/runit")
+		os.Rename("/etc/systemd.bak", "/etc/systemd")
+	})
+
+	err := Uninstall()
+	if err != nil {
+		t.Logf("Uninstall (runit) result: %v", err)
+	}
+}

@@ -465,3 +465,65 @@ func TestCreatePaste_HTTPSLink(t *testing.T) {
 		t.Errorf("link: got %q, want https:// prefix", link)
 	}
 }
+
+// ─── CreateFromForm (no-JS web create flow, PART 16) ────────────────────────────
+
+// TestCreateFromForm_Success verifies that a urlencoded form POST produces a
+// CreateResponse with the populated fields the confirmation template renders.
+func TestCreateFromForm_Success(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	form := url.Values{
+		"content":  {"hello no-js world"},
+		"title":    {"my paste"},
+		"language": {"text"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/create",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, status, err := h.CreateFromForm(req)
+	if err != nil {
+		t.Fatalf("CreateFromForm: status=%d err=%v", status, err)
+	}
+	if status != 0 {
+		t.Errorf("status: got %d, want 0 on success", status)
+	}
+	if resp == nil {
+		t.Fatal("resp is nil")
+	}
+	if resp.ID == "" {
+		t.Error("ID is empty")
+	}
+	if resp.Title != "my paste" {
+		t.Errorf("Title: got %q, want %q", resp.Title, "my paste")
+	}
+	if resp.Link == "" {
+		t.Error("Link is empty")
+	}
+	if resp.OwnerToken == "" {
+		t.Error("OwnerToken is empty")
+	}
+}
+
+// TestCreateFromForm_EmptyContent verifies that an empty form submission returns
+// a non-zero HTTP status and an error rather than creating an empty paste.
+func TestCreateFromForm_EmptyContent(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	form := url.Values{"content": {""}}
+	req := httptest.NewRequest(http.MethodPost, "/create",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, status, err := h.CreateFromForm(req)
+	if err == nil {
+		t.Fatal("expected error for empty content, got nil")
+	}
+	if status == 0 {
+		t.Error("expected non-zero status for empty content")
+	}
+	if resp != nil {
+		t.Errorf("expected nil resp on error, got %+v", resp)
+	}
+}
