@@ -379,6 +379,61 @@ func TestValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("termbin_disabled_skips_validation", func(t *testing.T) {
+		cfg := fresh()
+		cfg.Server.Termbin.Enabled = false
+		cfg.Server.Termbin.Port = -5
+		cfg.Server.Termbin.MaxSize = -1
+		cfg.Server.Termbin.Timeout = "garbage"
+		config.Validate(cfg)
+		// Disabled listener: invalid values are left untouched (never used).
+		if cfg.Server.Termbin.Port != -5 {
+			t.Errorf("disabled termbin port was changed: got %d", cfg.Server.Termbin.Port)
+		}
+	})
+
+	t.Run("termbin_invalid_values_get_defaulted", func(t *testing.T) {
+		d := config.DefaultConfig()
+		cfg := fresh()
+		cfg.Server.Termbin.Enabled = true
+		cfg.Server.Termbin.Port = 0
+		cfg.Server.Termbin.MaxSize = 0
+		cfg.Server.Termbin.Timeout = "not-a-duration"
+		config.Validate(cfg)
+		if cfg.Server.Termbin.Port != d.Server.Termbin.Port {
+			t.Errorf("port not defaulted: got %d, want %d", cfg.Server.Termbin.Port, d.Server.Termbin.Port)
+		}
+		if cfg.Server.Termbin.MaxSize != d.Server.Termbin.MaxSize {
+			t.Errorf("max_size not defaulted: got %d, want %d", cfg.Server.Termbin.MaxSize, d.Server.Termbin.MaxSize)
+		}
+		if cfg.Server.Termbin.Timeout != d.Server.Termbin.Timeout {
+			t.Errorf("timeout not defaulted: got %q, want %q", cfg.Server.Termbin.Timeout, d.Server.Termbin.Timeout)
+		}
+	})
+
+	t.Run("termbin_port_out_of_range_gets_defaulted", func(t *testing.T) {
+		d := config.DefaultConfig()
+		cfg := fresh()
+		cfg.Server.Termbin.Enabled = true
+		cfg.Server.Termbin.Port = 70000
+		config.Validate(cfg)
+		if cfg.Server.Termbin.Port != d.Server.Termbin.Port {
+			t.Errorf("out-of-range port not defaulted: got %d", cfg.Server.Termbin.Port)
+		}
+	})
+
+	t.Run("termbin_valid_values_unchanged", func(t *testing.T) {
+		cfg := fresh()
+		cfg.Server.Termbin.Enabled = true
+		cfg.Server.Termbin.Port = 9999
+		cfg.Server.Termbin.MaxSize = 1024
+		cfg.Server.Termbin.Timeout = "10s"
+		config.Validate(cfg)
+		if cfg.Server.Termbin.Port != 9999 || cfg.Server.Termbin.MaxSize != 1024 || cfg.Server.Termbin.Timeout != "10s" {
+			t.Errorf("valid termbin config was changed: %+v", cfg.Server.Termbin)
+		}
+	})
+
 	t.Run("valid_log_levels_not_changed", func(t *testing.T) {
 		for _, level := range []string{"debug", "info", "warn", "error"} {
 			cfg := fresh()

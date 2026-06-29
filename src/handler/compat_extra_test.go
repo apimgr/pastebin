@@ -7,12 +7,15 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ─── stikked ────────────────────────────────────────────────────────────────
@@ -226,6 +229,56 @@ func TestRootUpload_ZeroXMultipartFile(t *testing.T) {
 	}
 	if rr.Header().Get("X-Token") == "" {
 		t.Fatal("0x0 response missing X-Token header")
+	}
+}
+
+// ─── termbin / fiche (raw TCP) ────────────────────────────────────────────────
+
+// termbinRoundTrip drives TermbinServe over an in-memory socket pair: it writes
+// content, half-closes, and returns the server's response line.
+func termbinRoundTrip(t *testing.T, h *CompatHandler, content string, maxSize int64) string {
+	t.Helper()
+	srvConn, cliConn := net.Pipe()
+	// net.Pipe has no half-close, so the server's read ends on the deadline; a
+	// short timeout keeps the test fast.
+	go h.TermbinServe(srvConn, "http://paste.example", maxSize, 250*time.Millisecond)
+
+	_ = cliConn.SetDeadline(time.Now().Add(3 * time.Second))
+	// Write in a goroutine: when the server reads less than the full input
+	// (over-limit case) the remaining write blocks until the server closes, so
+	// the write error here is expected and ignored.
+	go func() {
+		_, _ = cliConn.Write([]byte(content))
+	}()
+	resp, _ := io.ReadAll(cliConn)
+	cliConn.Close()
+	return string(resp)
+}
+
+func TestTermbinServe_Success(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	resp := termbinRoundTrip(t, h, "termbin content\n", 32768)
+	if !strings.HasPrefix(resp, "http://paste.example/") {
+		t.Fatalf("response = %q, want a base URL line", resp)
+	}
+	if !strings.HasSuffix(resp, "\n") {
+		t.Fatalf("response = %q, want trailing newline", resp)
+	}
+}
+
+func TestTermbinServe_Empty(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	resp := termbinRoundTrip(t, h, "   \n", 32768)
+	if !strings.HasPrefix(resp, "Error:") {
+		t.Fatalf("response = %q, want an Error: line", resp)
+	}
+}
+
+func TestTermbinServe_TooLarge(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	resp := termbinRoundTrip(t, h, strings.Repeat("x", 64), 16)
+	if !strings.Contains(resp, "too large") {
+		t.Fatalf("response = %q, want a too-large error", resp)
 	}
 }
 

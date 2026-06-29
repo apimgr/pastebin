@@ -1325,6 +1325,58 @@ func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
 // Run starts the HTTP server and blocks until ctx is cancelled.
+// startTermbin starts the raw-TCP termbin/fiche compatibility listener when
+// enabled in config. It returns a stop function that closes the listener; the
+// function is a no-op when the listener is disabled or fails to bind (non-fatal,
+// so the HTTP server still starts). The listener is also closed when ctx ends.
+func (s *Server) startTermbin(ctx context.Context, cfg *config.Config) func() {
+	tb := cfg.Server.Termbin
+	if !tb.Enabled {
+		return func() {}
+	}
+
+	addr := net.JoinHostPort(cfg.Server.Address, strconv.Itoa(tb.Port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Printf("termbin: listen on %s failed: %v — disabled", addr, err)
+		return func() {}
+	}
+
+	timeout := 5 * time.Second
+	if d, perr := time.ParseDuration(tb.Timeout); perr == nil && d > 0 {
+		timeout = d
+	}
+
+	base := cfg.Server.BaseURL
+	if base == "" {
+		fqdn := cfg.Server.FQDN
+		if fqdn == "" {
+			fqdn = "localhost"
+		}
+		base = "http://" + fqdn
+	}
+
+	log.Printf("termbin: listening on %s (max %d bytes, timeout %s)", addr, tb.MaxSize, timeout)
+
+	go func() {
+		for {
+			conn, aerr := ln.Accept()
+			if aerr != nil {
+				// Accept fails permanently once the listener is closed.
+				return
+			}
+			go s.compatHandler.TermbinServe(conn, base, tb.MaxSize, timeout)
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
+	return func() { _ = ln.Close() }
+}
+
 func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.geoipDB != nil {
 		defer s.geoipDB.Close()
@@ -1344,6 +1396,10 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	}
 
 	cfg := s.liveCfg()
+
+	// Start the termbin/fiche raw-TCP listener when enabled; the returned stop
+	// function closes the listener on shutdown.
+	defer s.startTermbin(ctx, cfg)()
 
 	// Parse HTTP server timeouts from config, falling back to safe defaults.
 	readTimeout := 30 * time.Second

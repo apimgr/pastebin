@@ -71,6 +71,22 @@ type ServerConfig struct {
 	// TrustedProxies lists additional proxy IPs/CIDRs beyond the private ranges
 	// that are always trusted (loopback, RFC 1918, etc.) (PART 12).
 	TrustedProxies TrustedProxiesConfig `yaml:"trusted_proxies"`
+	// Termbin configures the raw-TCP termbin/fiche compatibility listener.
+	Termbin TermbinConfig `yaml:"termbin"`
+}
+
+// TermbinConfig configures the raw-TCP termbin/fiche-protocol listener.
+// Clients connect, stream content, half-close, and receive a single
+// "{base}/{id}\n" URL line. Disabled by default; opt-in per operator.
+type TermbinConfig struct {
+	// Enabled turns the raw-TCP listener on. Default false.
+	Enabled bool `yaml:"enabled"`
+	// Port is the TCP port to listen on. termbin/fiche default is 9999.
+	Port int `yaml:"port"`
+	// MaxSize is the maximum bytes accepted per connection. Default 32768.
+	MaxSize int64 `yaml:"max_size"`
+	// Timeout is the read deadline for a single upload. Default "5s".
+	Timeout string `yaml:"timeout"`
 }
 
 // LimitsConfig controls HTTP server timeouts and body size limits (PART 12).
@@ -527,6 +543,12 @@ func DefaultConfig() *Config {
 			TrustedProxies: TrustedProxiesConfig{
 				Additional: []string{},
 			},
+			Termbin: TermbinConfig{
+				Enabled: false,
+				Port:    9999,
+				MaxSize: 32768,
+				Timeout: "5s",
+			},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -770,6 +792,25 @@ func Validate(cfg *Config) {
 		log.Printf("[config] WARNING: invalid max_body_size %d, using default %d",
 			cfg.Server.Limits.MaxBodySize, d.Server.Limits.MaxBodySize)
 		cfg.Server.Limits.MaxBodySize = d.Server.Limits.MaxBodySize
+	}
+
+	// Termbin: when enabled, port/size/timeout must be sane.
+	if cfg.Server.Termbin.Enabled {
+		if cfg.Server.Termbin.Port <= 0 || cfg.Server.Termbin.Port > 65535 {
+			log.Printf("[config] WARNING: invalid termbin.port %d, using default %d",
+				cfg.Server.Termbin.Port, d.Server.Termbin.Port)
+			cfg.Server.Termbin.Port = d.Server.Termbin.Port
+		}
+		if cfg.Server.Termbin.MaxSize <= 0 {
+			log.Printf("[config] WARNING: invalid termbin.max_size %d, using default %d",
+				cfg.Server.Termbin.MaxSize, d.Server.Termbin.MaxSize)
+			cfg.Server.Termbin.MaxSize = d.Server.Termbin.MaxSize
+		}
+		if dur, err := time.ParseDuration(cfg.Server.Termbin.Timeout); err != nil || dur <= 0 {
+			log.Printf("[config] WARNING: invalid termbin.timeout %q, using default %s",
+				cfg.Server.Termbin.Timeout, d.Server.Termbin.Timeout)
+			cfg.Server.Termbin.Timeout = d.Server.Termbin.Timeout
+		}
 	}
 
 	// Web theme must be one of the valid values.

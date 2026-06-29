@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -754,6 +755,44 @@ func (c *CompatHandler) curlRespond(w http.ResponseWriter, r *http.Request, cont
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintln(w, c.rawURL(r, pasteID))
+}
+
+// TermbinServe handles a single termbin/fiche raw-TCP connection: it reads up
+// to maxSize bytes until the client half-closes the connection or the deadline
+// elapses, creates a paste, and writes back "{base}/{id}\n". base is the URL
+// origin without a trailing slash. The connection is always closed on return.
+func (c *CompatHandler) TermbinServe(conn net.Conn, base string, maxSize int64, timeout time.Duration) {
+	defer conn.Close()
+
+	if timeout > 0 {
+		// SetReadDeadline error is non-fatal; the read below still bounds the work.
+		_ = conn.SetReadDeadline(time.Now().Add(timeout))
+	}
+
+	// Read one extra byte so an over-limit upload can be detected and rejected.
+	data, err := io.ReadAll(io.LimitReader(conn, maxSize+1))
+	if err != nil && len(data) == 0 {
+		fmt.Fprintln(conn, "Error: read failed")
+		return
+	}
+	if int64(len(data)) > maxSize {
+		fmt.Fprintln(conn, "Error: paste too large")
+		return
+	}
+
+	content := strings.TrimRight(string(data), "\r\n")
+	if strings.TrimSpace(content) == "" {
+		fmt.Fprintln(conn, "Error: no content")
+		return
+	}
+
+	pasteID, _, err := c.ph.createPasteInternal("", content, "text", model.VisibilityPublic, 0, nil)
+	if err != nil {
+		fmt.Fprintln(conn, "Error: could not create paste")
+		return
+	}
+
+	fmt.Fprintf(conn, "%s/%s\n", strings.TrimRight(base, "/"), pasteID)
 }
 
 // origin returns the scheme+host base URL for this request, honouring the

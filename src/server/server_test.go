@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3263,4 +3265,138 @@ func TestHandleWebCreate(t *testing.T) {
 			t.Error("CLI form-encoded request must not render the HTML result page")
 		}
 	})
+}
+
+// ─── startTermbin ──────────────────────────────────────────────────────────────
+
+// newTermbinServer builds a Server with a working compat handler over stubDB.
+func newTermbinServer() *Server {
+	db := &stubDB{}
+	ph := handler.NewPasteHandler(db, "", [32]byte{})
+	return &Server{
+		db:            db,
+		pasteHandler:  ph,
+		compatHandler: handler.NewCompatHandler(ph, db, "test"),
+		startTime:     time.Now(),
+	}
+}
+
+// freeTCPPort grabs an OS-assigned port, then frees it for the caller to reuse.
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
+}
+
+func TestStartTermbin_Disabled(t *testing.T) {
+	s := newTermbinServer()
+	cfg := &config.Config{}
+	cfg.Server.Termbin = config.TermbinConfig{Enabled: false}
+	stop := s.startTermbin(context.Background(), cfg)
+	defer stop()
+	if stop == nil {
+		t.Fatal("startTermbin returned nil stop func")
+	}
+}
+
+func TestStartTermbin_BindFailure(t *testing.T) {
+	s := newTermbinServer()
+	cfg := &config.Config{}
+	cfg.Server.Address = "127.0.0.1"
+	// Port 0 with an unusable address forces a bind failure path; use an
+	// out-of-range port to guarantee net.Listen errors.
+	cfg.Server.Termbin = config.TermbinConfig{Enabled: true, Port: 1, MaxSize: 32768, Timeout: "5s"}
+	cfg.Server.Address = "240.0.0.1"
+	stop := s.startTermbin(context.Background(), cfg)
+	defer stop()
+	if stop == nil {
+		t.Fatal("startTermbin returned nil stop func on bind failure")
+	}
+}
+
+func TestStartTermbin_RoundTrip(t *testing.T) {
+	s := newTermbinServer()
+	port := freeTCPPort(t)
+	cfg := &config.Config{}
+	cfg.Server.Address = "127.0.0.1"
+	cfg.Server.BaseURL = "http://paste.example"
+	cfg.Server.Termbin = config.TermbinConfig{Enabled: true, Port: port, MaxSize: 32768, Timeout: "2s"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := s.startTermbin(ctx, cfg)
+	defer stop()
+
+	var conn net.Conn
+	var err error
+	// The accept loop starts in a goroutine; retry the dial briefly.
+	for i := 0; i < 50; i++ {
+		conn, err = net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("dial termbin: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("termbin tcp content\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if tc, ok := conn.(*net.TCPConn); ok {
+		_ = tc.CloseWrite()
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	resp, _ := io.ReadAll(conn)
+	if !strings.HasPrefix(string(resp), "http://paste.example/") {
+		t.Fatalf("response = %q, want a base URL line", string(resp))
+	}
+}
+
+func TestStartTermbin_BaseURLFallback(t *testing.T) {
+	s := newTermbinServer()
+	port := freeTCPPort(t)
+	cfg := &config.Config{}
+	cfg.Server.Address = "127.0.0.1"
+	// No BaseURL and no FQDN → falls back to http://localhost.
+	cfg.Server.Termbin = config.TermbinConfig{Enabled: true, Port: port, MaxSize: 32768, Timeout: "bad-duration"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := s.startTermbin(ctx, cfg)
+	defer stop()
+
+	var conn net.Conn
+	var err error
+	for i := 0; i < 50; i++ {
+		conn, err = net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("dial termbin: %v", err)
+	}
+	if _, err := conn.Write([]byte("fallback content\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if tc, ok := conn.(*net.TCPConn); ok {
+		_ = tc.CloseWrite()
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	resp, _ := io.ReadAll(conn)
+	conn.Close()
+	if !strings.HasPrefix(string(resp), "http://localhost/") {
+		t.Fatalf("response = %q, want localhost fallback", string(resp))
+	}
+	// Cancelling the context must close the listener (covers the ctx.Done path).
+	cancel()
+	time.Sleep(50 * time.Millisecond)
 }
