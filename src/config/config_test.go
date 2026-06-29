@@ -821,6 +821,50 @@ func TestLoadEnv_AllVars(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:  "TERMBIN_ENABLED",
+			key:   "TERMBIN_ENABLED",
+			value: "yes",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if !cfg.Server.Termbin.Enabled {
+					t.Error("Termbin.Enabled: got false, want true")
+				}
+			},
+		},
+		{
+			name:  "TERMBIN_PORT",
+			key:   "TERMBIN_PORT",
+			value: "9001",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.Termbin.Port != 9001 {
+					t.Errorf("Termbin.Port: got %d, want 9001", cfg.Server.Termbin.Port)
+				}
+			},
+		},
+		{
+			name:  "TERMBIN_MAX_SIZE",
+			key:   "TERMBIN_MAX_SIZE",
+			value: "65536",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.Termbin.MaxSize != 65536 {
+					t.Errorf("Termbin.MaxSize: got %d, want 65536", cfg.Server.Termbin.MaxSize)
+				}
+			},
+		},
+		{
+			name:  "TERMBIN_TIMEOUT",
+			key:   "TERMBIN_TIMEOUT",
+			value: "12s",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.Termbin.Timeout != "12s" {
+					t.Errorf("Termbin.Timeout: got %q, want %q", cfg.Server.Termbin.Timeout, "12s")
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {

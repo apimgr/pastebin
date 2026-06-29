@@ -45,6 +45,8 @@ ENV TZ=America/New_York \
     DATABASE_DIR=/data/db/sqlite
 
 EXPOSE 80
+# termbin/fiche raw-TCP compat listener (only binds when TERMBIN_ENABLED is truthy)
+EXPOSE 9999
 
 STOPSIGNAL SIGRTMIN+3
 

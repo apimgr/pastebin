@@ -76,6 +76,8 @@ ENV MODE=development \
 
 # Internal port (always 80 in container per PART 8 / PART 26)
 EXPOSE 80
+# termbin/fiche raw-TCP compat listener (only binds when TERMBIN_ENABLED is truthy)
+EXPOSE 9999
 
 # Stop signal for graceful shutdown
 STOPSIGNAL SIGRTMIN+3

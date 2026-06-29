@@ -23,8 +23,10 @@ services:
       - PORT=80
       - DEBUG=true
       - TZ=${TZ:-America/New_York}
+      - TERMBIN_ENABLED=${TERMBIN_ENABLED:-false}
     ports:
       - '172.17.0.1:64580:80'
+      - '172.17.0.1:${TERMBIN_PORT:-9999}:9999'
     volumes:
       # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
       # NEVER run from project directory — always use temp dir workflow

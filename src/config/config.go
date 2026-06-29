@@ -764,6 +764,24 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("SMTP_FROM_EMAIL"); v != "" {
 		c.Server.Notifications.Email.From.Email = v
 	}
+	if v := os.Getenv("TERMBIN_ENABLED"); v != "" {
+		if b, err := ParseBool(v, c.Server.Termbin.Enabled); err == nil {
+			c.Server.Termbin.Enabled = b
+		}
+	}
+	if v := os.Getenv("TERMBIN_PORT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Server.Termbin.Port = n
+		}
+	}
+	if v := os.Getenv("TERMBIN_MAX_SIZE"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			c.Server.Termbin.MaxSize = n
+		}
+	}
+	if v := os.Getenv("TERMBIN_TIMEOUT"); v != "" {
+		c.Server.Termbin.Timeout = v
+	}
 }
 
 // Validate checks all config values, replaces invalid ones with defaults, and

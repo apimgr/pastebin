@@ -52,6 +52,12 @@ database:
 rate_limit:
   enabled: true
   create_per_minute: 30
+
+termbin:
+  enabled: false     # raw-TCP termbin/fiche compat listener (off by default)
+  port: 9999
+  max_size: 32768    # max payload in bytes
+  timeout: "5s"      # idle/read timeout
 ```
 
 ## Environment Variables
@@ -61,3 +67,7 @@ rate_limit:
 | `PORT`   | Override listen port (useful in Docker) |
 | `TZ`     | Timezone (default: `America/New_York`) |
 | `MODE`   | Application mode (`production` or `development`) |
+| `TERMBIN_ENABLED` | Enable the raw-TCP termbin/fiche compat listener (default: `false`) |
+| `TERMBIN_PORT`    | termbin listener port (default: `9999`) |
+| `TERMBIN_MAX_SIZE`| Max termbin payload in bytes (default: `32768`) |
+| `TERMBIN_TIMEOUT` | termbin idle/read timeout (default: `5s`) |

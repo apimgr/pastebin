@@ -1,6 +1,6 @@
 ## Project description
 
-Pastebin is a full-stack Go web application for creating and sharing text snippets anonymously. It is a drop-in replacement for pastebin.com, microbin, lenpaste (fork: forksmgr/lcomrade-lenpaste), stikked, hastebin/haste-server, dpaste, and the curl-upload family (0x0.st, sprunge.us, ix.io) — existing scripts, CLIs, and integrations targeting any of those services work against this server without modification. Users submit text or upload a file and receive a short shareable URL. No user accounts. Fully public. Deployed as a single self-contained static binary. The companion CLI (`pastebin-cli`) provides full API access from the terminal.
+Pastebin is a full-stack Go web application for creating and sharing text snippets anonymously. It is a drop-in replacement for pastebin.com, microbin, lenpaste (fork: forksmgr/lcomrade-lenpaste), stikked, hastebin/haste-server, dpaste, the curl-upload family (0x0.st, sprunge.us, ix.io), and termbin/fiche (raw-TCP, disabled by default) — existing scripts, CLIs, and integrations targeting any of those services work against this server without modification. Users submit text or upload a file and receive a short shareable URL. No user accounts. Fully public. Deployed as a single self-contained static binary. The companion CLI (`pastebin-cli`) provides full API access from the terminal.
 
 ## Project variables
 
@@ -36,7 +36,7 @@ coverage_minimum: 80
 - CLI client (`pastebin-cli`) — full API access from the terminal
 - OpenAPI/Swagger docs
 - GraphQL read-only query interface (create and delete are REST-only)
-- Drop-in compat layer for pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, and the curl-upload family (0x0.st, sprunge.us, ix.io) — compat routes use their own delete-token mechanism (stored in paste row) separate from the owner token system
+- Drop-in compat layer for pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, the curl-upload family (0x0.st, sprunge.us, ix.io), and termbin/fiche (raw-TCP listener, disabled by default; enable via `server.termbin.enabled` or `TERMBIN_ENABLED`) — compat routes use their own delete-token mechanism (stored in paste row) separate from the owner token system
 - Two-tier operator token: server operator may set a `server.token` in `server.yml`; this operator token allows deleting any paste unconditionally
 - i18n: 7 supported locales (en, es, fr, de, zh, ar, ja); automatic language selection via `Accept-Language` header; RTL layout for Arabic (`dir="rtl"` on `<html>`); fallback to English when locale unknown
 - Tor hidden service: auto-enabled when the `tor` binary is found on `$PATH` or in common locations; v3 .onion address with persistent ed25519 key; non-fatal when Tor is absent; uses `github.com/cretz/bine` (pure Go, CGO_ENABLED=0 preserved)
@@ -71,6 +71,7 @@ The server must be 100% wire-compatible with the following services — existing
 | **hastebin / haste-server** | `POST /documents` (raw request body) returns `{"key":"<id>"}`; `GET /documents/{key}` returns `{"data":"...","key":"..."}` (404 `{"message":"..."}`); `GET /raw/{key}` served by the native raw route |
 | **dpaste** | `POST /api/` and `POST /api/v2/` (form-urlencoded `content`/`lexer`/`syntax`/`filename`/`expires`/`format`) return the view URL — quoted by default, bare with `format=url`, or `{"url","content","lexer"}` with `format=json`; keyless |
 | **curl-upload family** (0x0.st, sprunge.us, ix.io) | `POST /` dispatches by field: multipart `file` (0x0.st, returns an `X-Token` header), form `sprunge` (sprunge.us), or form `f:1` (ix.io); each returns a bare raw-content URL `{base}/raw/{id}` followed by a newline. Absent any of these fields, the request falls through to the native paste-create handler |
+| **termbin / fiche** (raw-TCP) | Optional plain-TCP listener (disabled by default; enable via `server.termbin.enabled` / `TERMBIN_ENABLED`, default port `9999`): client connects, streams content, half-closes the write side; server stores the paste and responds with `{base}/{id}\n`, then closes. Max payload `server.termbin.max_size` (default 32768 bytes); idle/read timeout `server.termbin.timeout` (default `5s`). Wire-compatible with the `termbin.com` netcat workflow (`echo text \| nc host 9999`) and the fiche server protocol |
 
 Compatibility is wire-level only: URL paths, request/response field names, HTTP status codes, and content types must match. Internal implementation details (storage, ID format, auth mechanism, delete convention) do not need to match. Compat-created pastes use each target's own deletion convention — not the native owner token system — and the two systems must never be mixed.
 
