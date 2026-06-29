@@ -127,6 +127,9 @@ func DetectServiceManager() ServiceType {
 // and starts it (PART 23: --install installs, enables, and starts).
 func Install() error {
 	if !isPrivileged() {
+		if canEscalate() {
+			return execElevated()
+		}
 		return fmt.Errorf("installing a system service requires root; re-run with sudo: sudo %s --service --install", appName)
 	}
 
@@ -169,6 +172,9 @@ func Install() error {
 // confirmation prompt guards the destructive step.
 func Uninstall() error {
 	if !isPrivileged() {
+		if canEscalate() {
+			return execElevated()
+		}
 		return fmt.Errorf("uninstalling a system service requires root; re-run with sudo: sudo %s --service --uninstall", appName)
 	}
 

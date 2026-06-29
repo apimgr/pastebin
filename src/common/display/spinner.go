@@ -88,7 +88,7 @@ func NewSpinner(env *DisplayEnv, message string) Spinner {
 	if env == nil || env.IsDumbTerminal() || !CanUseANSI(env) {
 		return &TextSpinner{message: message}
 	}
-	frames := ansiFrames
+	var frames []string
 	if strings.Contains(env.TerminalType, "xterm") || strings.Contains(env.TerminalType, "256color") {
 		frames = ansiFrames
 	} else {

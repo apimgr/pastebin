@@ -303,6 +303,9 @@ func (m *Manager) UpdateConfig(cfg Config) error {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.mu.Unlock()
+	if err := m.updateTorrc(); err != nil {
+		return err
+	}
 	return m.Restart()
 }
 
