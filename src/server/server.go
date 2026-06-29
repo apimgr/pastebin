@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof" // side-effect: registers pprof handlers on DefaultServeMux
+	"net/url"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1118,10 +1119,15 @@ func (s *Server) validateCSRFToken(token string) bool {
 	return subtle.ConstantTimeCompare(sig, expected) == 1
 }
 
-// csrfMiddleware implements the double-submit CSRF protection pattern (PART 11).
-// It issues a signed CSRF token cookie on every response and, on state-mutating
-// requests with cookie-based auth, validates the X-CSRF-Token header or form field.
-// Bearer-token and API-token requests, and paths in ExemptPaths, are always exempt.
+// csrfMiddleware implements the double-submit CSRF protection pattern (PART 11,
+// AI.md "CSRF Protection"). The token cookie is stable across requests (reused
+// while valid, re-minted only when absent or invalid) so tokens embedded in
+// already-rendered forms keep working. Validation runs ONLY when the request is
+// state-mutating AND from a cross-site/unknown origin; Bearer/API-token,
+// read-only, WebSocket-upgrade, same-origin, and exempt-path requests are
+// bypassed. A cross-site mutating request that arrives without the cookie is
+// the signature of an attack (SameSite=Strict strips the cookie cross-site),
+// so it is rejected with 403, never bypassed.
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.liveCfg()
@@ -1130,47 +1136,69 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Bearer / API-token requests are not cookie-based — no CSRF risk.
-		if r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Token") != "" {
-			next.ServeHTTP(w, r)
-			return
+		// Inspect the request's existing CSRF cookie before issuing a new one.
+		reqCookie, cookieErr := r.Cookie(cfg.Web.CSRF.CookieName)
+		hasCookie := cookieErr == nil && reqCookie.Value != ""
+
+		// Reuse a valid existing token; mint a fresh one only when absent/invalid.
+		token := ""
+		if hasCookie && s.validateCSRFToken(reqCookie.Value) {
+			token = reqCookie.Value
+		}
+		if token == "" {
+			t, err := s.generateCSRFToken()
+			if err != nil {
+				// Fail open — log and continue without setting the cookie.
+				log.Printf("csrf: token generation failed: %v", err)
+				next.ServeHTTP(w, r)
+				return
+			}
+			token = t
 		}
 
-		// State-mutating methods require validation.
+		// Validate the token if and only if ALL hold (AI.md "When CSRF
+		// Validation Runs"): mutating method, cookie-authenticated, cross-site.
 		isMutating := r.Method == http.MethodPost || r.Method == http.MethodPut ||
 			r.Method == http.MethodPatch || r.Method == http.MethodDelete
 
-		if isMutating && !isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) {
-			// Read token from X-CSRF-Token header, falling back to the form field.
+		// Bypass conditions (any one is sufficient).
+		hasBearer := r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Token") != ""
+		bypass := !isMutating || hasBearer ||
+			isWebSocketUpgrade(r) ||
+			isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) ||
+			isSameOrigin(r)
+
+		if !bypass {
+			// Read the submitted token from the header, falling back to the form field.
 			submitted := r.Header.Get(cfg.Web.CSRF.HeaderName)
 			if submitted == "" {
 				_ = r.ParseForm()
 				submitted = r.FormValue("csrf_token")
 			}
-			// Also compare against the cookie value using constant-time compare.
-			cookie, cookieErr := r.Cookie(cfg.Web.CSRF.CookieName)
-			cookieVal := ""
-			if cookieErr == nil {
-				cookieVal = cookie.Value
+			reason := ""
+			switch {
+			case !hasCookie:
+				reason = "cookie absent"
+			case submitted == "":
+				reason = "token absent"
+			case !s.validateCSRFToken(submitted):
+				reason = "token signature invalid"
+			case subtle.ConstantTimeCompare([]byte(submitted), []byte(reqCookie.Value)) != 1:
+				reason = "token mismatch"
 			}
-			if cookieVal == "" || !s.validateCSRFToken(submitted) ||
-				subtle.ConstantTimeCompare([]byte(submitted), []byte(cookieVal)) != 1 {
+			if reason != "" {
+				clientHost, _, splitErr := net.SplitHostPort(r.RemoteAddr)
+				if splitErr != nil {
+					clientHost = r.RemoteAddr
+				}
+				log.Printf("security.csrf_failure ip=%s endpoint=%s reason=%q", clientHost, r.URL.Path, reason)
 				writeJSON(w, http.StatusForbidden, map[string]interface{}{
 					"ok":      false,
-					"error":   "CSRF_INVALID",
-					"message": "CSRF token invalid or missing",
+					"error":   "CSRF_FAILED",
+					"message": "CSRF token validation failed",
 				})
 				return
 			}
-		}
-
-		// Generate (or refresh) the CSRF token and set the cookie.
-		token, err := s.generateCSRFToken()
-		if err != nil {
-			// Fail open — log and continue without setting cookie.
-			log.Printf("csrf: token generation failed: %v", err)
-			next.ServeHTTP(w, r)
-			return
 		}
 
 		secure := r.TLS != nil
@@ -1180,11 +1208,14 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 			secure = false
 		}
 
+		// Double-submit cookie: HttpOnly=false so progressive-enhancement JS can
+		// echo the token into the X-CSRF-Token header; SameSite=Strict is the
+		// primary defense (blocks cross-site cookie attachment entirely).
 		http.SetCookie(w, &http.Cookie{
 			Name:     cfg.Web.CSRF.CookieName,
 			Value:    token,
 			Path:     "/",
-			HttpOnly: true,
+			HttpOnly: false,
 			Secure:   secure,
 			SameSite: http.SameSiteStrictMode,
 		})
@@ -1193,6 +1224,30 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), csrfTokenKey, token)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// isWebSocketUpgrade reports whether the request is a WebSocket upgrade handshake.
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+// isSameOrigin reports whether the request originates from the app's own host.
+// It compares the Origin header (or Referer when Origin is absent) host against
+// r.Host. A missing/unparseable source is treated as cross-site (not same-origin)
+// so it falls through to token validation per the CSRF spec.
+func isSameOrigin(r *http.Request) bool {
+	src := r.Header.Get("Origin")
+	if src == "" {
+		src = r.Header.Get("Referer")
+	}
+	if src == "" {
+		return false
+	}
+	u, err := url.Parse(src)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 // isCSRFExempt reports whether path matches any of the exempt glob patterns.

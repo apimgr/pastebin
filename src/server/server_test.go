@@ -86,6 +86,274 @@ func TestIsCSRFExempt(t *testing.T) {
 	}
 }
 
+// ─── isWebSocketUpgrade ───────────────────────────────────────────────────────
+
+func TestIsWebSocketUpgrade(t *testing.T) {
+	cases := []struct {
+		name    string
+		upgrade string
+		want    bool
+	}{
+		{"no header", "", false},
+		{"websocket lowercase", "websocket", true},
+		{"WebSocket mixed case", "WebSocket", true},
+		{"other value", "h2c", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.upgrade != "" {
+				r.Header.Set("Upgrade", tc.upgrade)
+			}
+			if got := isWebSocketUpgrade(r); got != tc.want {
+				t.Errorf("isWebSocketUpgrade(Upgrade=%q) = %v, want %v", tc.upgrade, got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── isSameOrigin ─────────────────────────────────────────────────────────────
+
+func TestIsSameOrigin(t *testing.T) {
+	cases := []struct {
+		name    string
+		origin  string
+		referer string
+		want    bool
+	}{
+		{"no origin or referer", "", "", false},
+		{"same origin", "http://example.com", "", true},
+		{"same origin https", "https://example.com", "", true},
+		{"cross origin", "http://evil.com", "", false},
+		{"referer fallback same", "", "http://example.com/page", true},
+		{"referer fallback cross", "", "http://evil.com/page", false},
+		{"unparseable origin", "::::", "", false},
+		{"origin takes precedence over referer", "http://evil.com", "http://example.com", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "http://example.com/create", nil)
+			if tc.origin != "" {
+				r.Header.Set("Origin", tc.origin)
+			}
+			if tc.referer != "" {
+				r.Header.Set("Referer", tc.referer)
+			}
+			if got := isSameOrigin(r); got != tc.want {
+				t.Errorf("isSameOrigin(origin=%q, referer=%q) = %v, want %v", tc.origin, tc.referer, got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── csrfMiddleware ───────────────────────────────────────────────────────────
+
+func newCSRFServer() *Server {
+	return &Server{
+		cfg: &config.Config{
+			Web: config.WebConfig{
+				CSRF: config.CSRFConfig{
+					Enabled:     true,
+					TokenLength: 32,
+					CookieName:  "csrf_token",
+					HeaderName:  "X-CSRF-Token",
+					Secure:      "false",
+				},
+			},
+		},
+		csrfSecret: []byte("test-csrf-secret-key-for-unit-tests"),
+	}
+}
+
+func TestCSRFMiddleware(t *testing.T) {
+	s := newCSRFServer()
+	validToken, err := s.generateCSRFToken()
+	if err != nil {
+		t.Fatalf("generateCSRFToken: %v", err)
+	}
+
+	newReq := func(method, target string) *http.Request {
+		return httptest.NewRequest(method, target, nil)
+	}
+
+	cases := []struct {
+		name       string
+		build      func() *http.Request
+		wantStatus int
+		wantNext   bool
+	}{
+		{
+			name:       "GET bypasses and reaches handler",
+			build:      func() *http.Request { return newReq(http.MethodGet, "http://example.com/create") },
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "same-origin POST bypasses",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/create")
+				r.Header.Set("Origin", "http://example.com")
+				r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+				return r
+			},
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "Bearer POST bypasses",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/api/v1/paste")
+				r.Header.Set("Origin", "http://evil.com")
+				r.Header.Set("Authorization", "Bearer tok_abc")
+				return r
+			},
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "cross-origin POST without cookie rejected",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/api/v1/paste")
+				r.Header.Set("Origin", "http://evil.com")
+				return r
+			},
+			wantStatus: http.StatusForbidden,
+			wantNext:   false,
+		},
+		{
+			name: "originless POST with matching cookie and token passes",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/create")
+				r.Header.Set("X-CSRF-Token", validToken)
+				r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+				return r
+			},
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "WebSocket upgrade POST bypasses",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/ws")
+				r.Header.Set("Origin", "http://evil.com")
+				r.Header.Set("Upgrade", "websocket")
+				r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+				return r
+			},
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "cross-origin POST with matching token passes",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/create")
+				r.Header.Set("Origin", "http://evil.com")
+				r.Header.Set("X-CSRF-Token", validToken)
+				r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+				return r
+			},
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "cross-origin POST with cookie but no token rejected",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/create")
+				r.Header.Set("Origin", "http://evil.com")
+				r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+				return r
+			},
+			wantStatus: http.StatusForbidden,
+			wantNext:   false,
+		},
+		{
+			name: "cross-origin POST with mismatched token rejected",
+			build: func() *http.Request {
+				other, _ := s.generateCSRFToken()
+				r := newReq(http.MethodPost, "http://example.com/create")
+				r.Header.Set("Origin", "http://evil.com")
+				r.Header.Set("X-CSRF-Token", other)
+				r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+				return r
+			},
+			wantStatus: http.StatusForbidden,
+			wantNext:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nextCalled := false
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				nextCalled = true
+				w.WriteHeader(http.StatusOK)
+			})
+			rec := httptest.NewRecorder()
+			s.csrfMiddleware(next).ServeHTTP(rec, tc.build())
+
+			if nextCalled != tc.wantNext {
+				t.Errorf("next called = %v, want %v", nextCalled, tc.wantNext)
+			}
+			if rec.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if tc.wantStatus == http.StatusForbidden {
+				var body map[string]interface{}
+				if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+					t.Fatalf("decode body: %v", err)
+				}
+				if body["error"] != "CSRF_FAILED" {
+					t.Errorf("error = %v, want CSRF_FAILED", body["error"])
+				}
+			}
+		})
+	}
+}
+
+func TestCSRFMiddlewareCookieNotHTTPOnly(t *testing.T) {
+	s := newCSRFServer()
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	s.csrfMiddleware(next).ServeHTTP(rec, r)
+
+	cookies := rec.Result().Cookies()
+	var found *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "csrf_token" {
+			found = c
+		}
+	}
+	if found == nil {
+		t.Fatal("expected csrf_token cookie to be set")
+	}
+	if found.HttpOnly {
+		t.Error("csrf_token cookie must NOT be HttpOnly (form/JS must read it)")
+	}
+	if found.SameSite != http.SameSiteStrictMode {
+		t.Errorf("csrf_token SameSite = %v, want Strict", found.SameSite)
+	}
+}
+
+func TestCSRFMiddlewareStableToken(t *testing.T) {
+	s := newCSRFServer()
+	validToken, err := s.generateCSRFToken()
+	if err != nil {
+		t.Fatalf("generateCSRFToken: %v", err)
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+	s.csrfMiddleware(next).ServeHTTP(rec, r)
+
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "csrf_token" && c.Value != validToken {
+			t.Errorf("valid existing token was regenerated: got %q, want %q", c.Value, validToken)
+		}
+	}
+}
+
 // ─── detectClientType ────────────────────────────────────────────────────────
 
 func TestDetectClientType(t *testing.T) {
