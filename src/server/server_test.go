@@ -3230,4 +3230,37 @@ func TestHandleWebCreate(t *testing.T) {
 			t.Error("JSON delegation should return the API success envelope")
 		}
 	})
+
+	// The canonical web resource routes (PART 16 dual-route table) must be
+	// registered: GET /pastes (list) and POST /pastes (create), mirroring
+	// GET/POST /api/v1/pastes. /create is retained as a compatibility alias.
+	t.Run("canonical_pastes_routes_registered", func(t *testing.T) {
+		want := map[string]bool{"GET /pastes": false, "POST /pastes": false, "POST /create": false}
+		_ = chi.Walk(s.router, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+			if _, ok := want[method+" "+route]; ok {
+				want[method+" "+route] = true
+			}
+			return nil
+		})
+		for k, seen := range want {
+			if !seen {
+				t.Errorf("route %q not registered", k)
+			}
+		}
+	})
+
+	// A CLI client posting form-encoded data is a non-browser client (PART 16
+	// Smart Content Detection): it must be delegated to the negotiating handler
+	// for text/redirect output, never rendered the HTML result page.
+	t.Run("cli_urlencoded_delegates_not_html", func(t *testing.T) {
+		body := strings.NewReader("content=hello&language=text")
+		r := httptest.NewRequest(http.MethodPost, "/create", body)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Accept", "text/plain")
+		w := httptest.NewRecorder()
+		s.handleWebCreate(w, r)
+		if strings.Contains(w.Body.String(), "created-token") {
+			t.Error("CLI form-encoded request must not render the HTML result page")
+		}
+	})
 }

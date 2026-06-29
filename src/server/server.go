@@ -633,6 +633,11 @@ func (s *Server) setupRoutes() {
 	r.Get("/", s.handleHome)
 	// POST / — lenpaste form-POST to root creates a paste and redirects to /{id}
 	r.Post("/", s.maybeRateLimit(s.pasteHandler.CreatePaste))
+	// Canonical web resource routes (PART 16 dual-route table): GET /pastes is
+	// the list page and POST /pastes is the no-JS HTML create form, mirroring
+	// GET/POST /api/v1/pastes. /create below is a compatibility alias.
+	r.Get("/pastes", s.handleRecent)
+	r.Post("/pastes", s.maybeRateLimit(s.handleWebCreate))
 	r.Get("/recent", s.handleRecent)
 	// microbin alias
 	r.Get("/list", s.handleRecent)
@@ -640,6 +645,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/archive", s.handleRecent)
 	// pastebin.com alias
 	r.Get("/trends", s.handleRecent)
+	// Compatibility aliases for the canonical /pastes create route.
 	r.Post("/create", s.maybeRateLimit(s.handleWebCreate))
 	r.Get("/create", s.handleCreatePage)
 
@@ -1749,7 +1755,11 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 // the content-negotiating API handler.
 func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
+	// Only browser form submissions render the server-side HTML result page.
+	// JSON/multipart/raw callers, and CLI clients posting form-encoded data,
+	// are delegated to the content-negotiating handler (PART 16 Smart Content
+	// Detection) so they receive text/JSON rather than an HTML page.
+	if !strings.HasPrefix(ct, "application/x-www-form-urlencoded") || detectClientType(r) != "html" {
 		s.pasteHandler.CreatePaste(w, r)
 		return
 	}

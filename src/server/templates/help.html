@@ -46,13 +46,13 @@
                     <h2 class="section-mt">Create via curl — raw body</h2>
                     <div class="code-block">
                         <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl --data-binary @file.txt {{.BaseURL}}/create</pre></div>
+                        <div class="code-content"><pre>curl --data-binary @file.txt {{.BaseURL}}/pastes</pre></div>
                     </div>
 
                     <h2 class="section-mt">Pipe to paste</h2>
                     <div class="code-block">
                         <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>cat myfile.py | curl --data-binary @- {{.BaseURL}}/create</pre></div>
+                        <div class="code-content"><pre>cat myfile.py | curl --data-binary @- {{.BaseURL}}/pastes</pre></div>
                     </div>
 
                     <h2 class="section-mt">JSON API — create</h2>
