@@ -577,6 +577,22 @@ func (s *Server) setupRoutes() {
 	r.Get("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove))
 	r.Get("/api/list", s.compatHandler.LenList)
 
+	// ── stikked API compatibility ────────────────────────────────────────────
+	r.Post("/api/create", s.maybeRateLimit(s.compatHandler.StikkedCreate))
+	r.Get("/api/paste/{id}", s.compatHandler.StikkedJSON)
+	r.Get("/view/raw/{id}", s.pasteHandler.GetRawPaste)
+	r.Get("/view/{id}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/"+chi.URLParam(r, "id"), http.StatusFound)
+	})
+
+	// ── hastebin / haste-server compatibility ────────────────────────────────
+	r.Post("/documents", s.maybeRateLimit(s.compatHandler.HastebinCreate))
+	r.Get("/documents/{id}", s.compatHandler.HastebinGet)
+
+	// ── dpaste compatibility ─────────────────────────────────────────────────
+	r.Post("/api/", s.maybeRateLimit(s.compatHandler.DpasteCreate))
+	r.Post("/api/v2/", s.maybeRateLimit(s.compatHandler.DpasteCreate))
+
 	// ── Versioned API (native) ───────────────────────────────────────────────
 	r.Get("/api", s.handleAPIInfo)
 
@@ -631,8 +647,10 @@ func (s *Server) setupRoutes() {
 
 	// ── Web: main pages ──────────────────────────────────────────────────────
 	r.Get("/", s.handleHome)
-	// POST / — lenpaste form-POST to root creates a paste and redirects to /{id}
-	r.Post("/", s.maybeRateLimit(s.pasteHandler.CreatePaste))
+	// POST / — curl-upload family dispatcher (sprunge/0x0/ix.io); falls through
+	// to the native create handler (lenpaste form-POST to root) when no
+	// curl-upload field is present.
+	r.Post("/", s.maybeRateLimit(s.compatHandler.RootUpload))
 	// Canonical web resource routes (PART 16 dual-route table): GET /pastes is
 	// the list page and POST /pastes is the no-JS HTML create form, mirroring
 	// GET/POST /api/v1/pastes. /create below is a compatibility alias.

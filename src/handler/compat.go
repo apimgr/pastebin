@@ -1,17 +1,23 @@
 package handler
 
-// compat.go — route handlers for pastebin.com, microbin, and lenpaste
-// compatibility so existing scripts and CLIs work without changes.
+// compat.go — route handlers for third-party paste-tool API compatibility so
+// existing scripts and CLIs work unmodified by pointing them at this server.
 //
-// pastebin.com API docs: https://pastebin.com/doc_api
-// microbin: https://github.com/szabodanika/microbin
-// lenpaste fork: https://github.com/forksmgr/lcomrade-lenpaste
+// Supported wire-compatible APIs and their reference docs:
+//   pastebin.com:        https://pastebin.com/doc_api
+//   microbin:            https://github.com/szabodanika/microbin
+//   lenpaste fork:       https://github.com/forksmgr/lcomrade-lenpaste
+//   stikked:             https://github.com/claudehohl/Stikked
+//   hastebin/haste:      https://github.com/toptal/haste-server
+//   dpaste:              https://github.com/bartTC/dpaste
+//   sprunge/0x0/ix.io:   curl-upload family (POST / with a single field)
 
 import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,6 +28,10 @@ import (
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
 )
+
+// maxCompatBody caps raw request bodies accepted by compatibility upload
+// handlers (hastebin, 0x0.st) at 10 MiB.
+const maxCompatBody = 10 << 20
 
 // CompatHandler handles compatibility routes.
 type CompatHandler struct {
@@ -529,6 +539,240 @@ func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ─── stikked compatibility ──────────────────────────────────────────────────
+
+// StikkedCreate handles POST /api/create (stikked API create).
+//
+// stikked form fields:
+//   text     — content (required)
+//   title    — paste title (optional)
+//   name     — author name (ignored)
+//   lang     — language (default "text")
+//   expire   — minutes until expiry (0/absent = never)
+//   private  — "1" marks the paste unlisted
+//   apikey   — ignored (open instance)
+// Responds with a plain-text view URL, or "Error: <msg>" on failure.
+func (c *CompatHandler) StikkedCreate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if err := r.ParseForm(); err != nil {
+		fmt.Fprint(w, "Error: invalid form")
+		return
+	}
+	content := r.FormValue("text")
+	if strings.TrimSpace(content) == "" {
+		fmt.Fprint(w, "Error: No paste data sent.")
+		return
+	}
+	title := r.FormValue("title")
+	lang := r.FormValue("lang")
+	if lang == "" {
+		lang = "text"
+	}
+	vis := model.VisibilityPublic
+	if r.FormValue("private") == "1" {
+		vis = model.VisibilityUnlisted
+	}
+	var expiresAt *time.Time
+	if m, err := strconv.Atoi(r.FormValue("expire")); err == nil && m > 0 {
+		t := time.Now().Add(time.Duration(m) * time.Minute)
+		expiresAt = &t
+	}
+	pasteID, _, err := c.ph.createPasteInternal(title, content, lang, vis, 0, expiresAt)
+	if err != nil {
+		fmt.Fprint(w, "Error: could not create paste")
+		return
+	}
+	fmt.Fprint(w, c.origin(r)+"/view/"+pasteID)
+}
+
+// StikkedJSON handles GET /api/paste/{id} — stikked JSON metadata + raw body.
+func (c *CompatHandler) StikkedJSON(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	paste, err := c.db.GetPasteByID(id)
+	if err != nil || paste == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "paste not found"})
+		return
+	}
+	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
+		c.db.DeletePaste(id)
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "paste not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"pid":     paste.ID,
+		"title":   paste.Title,
+		"name":    "",
+		"created": paste.CreatedAt.Unix(),
+		"lang":    paste.Language,
+		"raw":     paste.Content,
+		"hits":    paste.Views,
+	})
+}
+
+// ─── hastebin / haste-server compatibility ──────────────────────────────────
+
+// HastebinCreate handles POST /documents (haste-server create).
+// The request body is the raw paste content. Responds {"key":"<id>"} on success;
+// raw retrieval is served by the native GET /raw/{id} route.
+func (c *CompatHandler) HastebinCreate(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCompatBody))
+	if err != nil || strings.TrimSpace(string(body)) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "no content"})
+		return
+	}
+	pasteID, _, err := c.ph.createPasteInternal("", string(body), "text", model.VisibilityPublic, 0, nil)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "could not create document"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"key": pasteID})
+}
+
+// HastebinGet handles GET /documents/{id} (haste-server fetch).
+func (c *CompatHandler) HastebinGet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	paste, err := c.db.GetPasteByID(id)
+	if err != nil || paste == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "document not found"})
+		return
+	}
+	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
+		c.db.DeletePaste(id)
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "document not found"})
+		return
+	}
+	c.db.IncrementPasteViews(id)
+	writeJSON(w, http.StatusOK, map[string]string{"key": paste.ID, "data": paste.Content})
+}
+
+// ─── dpaste compatibility ────────────────────────────────────────────────────
+
+// DpasteCreate handles POST /api/ and POST /api/v2/ (dpaste create).
+//
+// dpaste form fields:
+//   content  — content (required)
+//   lexer    — language (aliases: "syntax", "filename")
+//   expires  — days until expiry (0/absent = never)
+//   format   — "default" (quoted URL), "url" (bare URL), "json"
+// The native GET /{id}/raw route serves raw content for dpaste clients.
+func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	content := r.FormValue("content")
+	if strings.TrimSpace(content) == "" {
+		http.Error(w, "This field is required.", http.StatusBadRequest)
+		return
+	}
+	lang := r.FormValue("lexer")
+	if lang == "" {
+		lang = r.FormValue("syntax")
+	}
+	if lang == "" {
+		lang = r.FormValue("filename")
+	}
+	if lang == "" {
+		lang = "text"
+	}
+	var expiresAt *time.Time
+	if d, err := strconv.Atoi(r.FormValue("expires")); err == nil && d > 0 {
+		t := time.Now().Add(time.Duration(d) * 24 * time.Hour)
+		expiresAt = &t
+	}
+	pasteID, _, err := c.ph.createPasteInternal("", content, lang, model.VisibilityPublic, 0, expiresAt)
+	if err != nil {
+		http.Error(w, "could not create snippet", http.StatusInternalServerError)
+		return
+	}
+	link := c.origin(r) + "/" + pasteID
+	switch r.FormValue("format") {
+	case "url":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintln(w, link)
+	case "json":
+		writeJSON(w, http.StatusOK, map[string]string{
+			"url":     link,
+			"content": content,
+			"lexer":   lang,
+		})
+	default:
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintf(w, "%q", link)
+	}
+}
+
+// ─── curl-upload family (sprunge / 0x0.st / ix.io) ───────────────────────────
+
+// RootUpload handles POST / for the curl-upload family. It inspects the form
+// fields to identify the client and replies with a bare raw URL; when no
+// recognised field is present it delegates to the native create handler so the
+// lenpaste form-POST-to-root behaviour is preserved.
+//
+//   0x0.st:  multipart file field "file" (delete token returned in X-Token)
+//   sprunge: form field "sprunge"
+//   ix.io:   form field "f:1"
+func (c *CompatHandler) RootUpload(w http.ResponseWriter, r *http.Request) {
+	if file, _, err := r.FormFile("file"); err == nil {
+		defer file.Close()
+		body, _ := io.ReadAll(io.LimitReader(file, maxCompatBody))
+		c.curlRespond(w, r, string(body), r.FormValue("expires"), true)
+		return
+	}
+	if v := r.FormValue("sprunge"); strings.TrimSpace(v) != "" {
+		c.curlRespond(w, r, v, "", false)
+		return
+	}
+	if v := r.FormValue("f:1"); strings.TrimSpace(v) != "" {
+		c.curlRespond(w, r, v, "", false)
+		return
+	}
+	c.ph.CreatePaste(w, r)
+}
+
+// curlRespond creates a paste from raw content and writes a bare raw URL plus a
+// trailing newline, matching sprunge/0x0/ix.io behaviour. When withToken is set
+// (0x0.st) the compat delete token is returned in the X-Token response header.
+// expires is an optional 0x0-style hours value; non-positive means never.
+func (c *CompatHandler) curlRespond(w http.ResponseWriter, r *http.Request, content, expires string, withToken bool) {
+	if strings.TrimSpace(content) == "" {
+		http.Error(w, "no content", http.StatusBadRequest)
+		return
+	}
+	var expiresAt *time.Time
+	if h, err := strconv.Atoi(expires); err == nil && h > 0 {
+		t := time.Now().Add(time.Duration(h) * time.Hour)
+		expiresAt = &t
+	}
+	pasteID, deleteToken, err := c.ph.createPasteInternal("", content, "text", model.VisibilityPublic, 0, expiresAt)
+	if err != nil {
+		http.Error(w, "could not create paste", http.StatusInternalServerError)
+		return
+	}
+	if withToken {
+		w.Header().Set("X-Token", deleteToken)
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, c.rawURL(r, pasteID))
+}
+
+// origin returns the scheme+host base URL for this request, honouring the
+// configured base URL override when set.
+func (c *CompatHandler) origin(r *http.Request) string {
+	if c.ph.baseURL != "" {
+		return c.ph.baseURL
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
+// rawURL returns the raw-content URL for a paste ID.
+func (c *CompatHandler) rawURL(r *http.Request, id string) string {
+	return c.origin(r) + "/raw/" + id
+}
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	data, err := json.MarshalIndent(v, "", "  ")
