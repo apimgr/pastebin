@@ -114,7 +114,7 @@
                         <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
-                        <pre>curl -X POST --data-binary @file.txt {{.BaseURL}}/create</pre>
+                        <pre>curl -X POST --data-binary @file.txt {{.BaseURL}}/api/v1/pastes</pre>
                     </div>
                 </div>
 
@@ -124,7 +124,7 @@
                         <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
-                        <pre>curl -X POST -F "files=@code.py" {{.BaseURL}}/create</pre>
+                        <pre>curl -X POST -F "files=@code.py" {{.BaseURL}}/api/v1/pastes</pre>
                     </div>
                 </div>
 
@@ -147,7 +147,7 @@
                         <button class="code-copy" data-copy-code>Copy</button>
                     </div>
                     <div class="code-content">
-                        <pre>echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/create</pre>
+                        <pre>echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/api/v1/pastes</pre>
                     </div>
                 </div>
             </div>
