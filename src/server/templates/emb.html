@@ -1,26 +1,10 @@
 <!DOCTYPE html>
-<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="dark">
+<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Paste.Title}}</title>
     <link rel="stylesheet" href="/static/css/main.css">
-    <style>
-        body { margin: 0; background: var(--color-bg-primary); }
-        .emb-wrap { padding: var(--space-2); }
-        .emb-header {
-            display: flex;
-            align-items: center;
-            gap: var(--space-2);
-            padding: var(--space-1) var(--space-2);
-            border-bottom: 1px solid var(--color-border);
-            font-size: var(--font-size-sm);
-            color: var(--color-text-muted);
-        }
-        .emb-header .lang { font-weight: 600; color: var(--color-text-primary); }
-        .emb-body { overflow: auto; max-height: 90vh; }
-        pre { margin: 0; padding: var(--space-3); font-size: var(--font-size-sm); }
-    </style>
 </head>
 <body>
     <div class="emb-wrap">
