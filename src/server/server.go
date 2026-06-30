@@ -1855,6 +1855,11 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data["Created"] = resp
+	// Derive full raw/download URLs from the same base as the view Link
+	// (Link is "{base}/{id}") so all three URLs share an identical origin.
+	base := strings.TrimSuffix(resp.Link, "/"+resp.ID)
+	data["RawLink"] = base + "/raw/" + resp.ID
+	data["DownloadLink"] = base + "/dl/" + resp.ID
 	s.renderTemplate(w, r, "create.html", data)
 }
 

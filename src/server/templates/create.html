@@ -51,8 +51,8 @@
                     <div class="success">
                         <h3>{{t .Lang "paste.created_title"}}</h3>
                         <p>{{t .Lang "paste.view_label"}}: <a href="{{.Created.Link}}" class="long-string">{{.Created.Link}}</a></p>
-                        <p>{{t .Lang "paste.raw_label"}}: <a href="/raw/{{.Created.ID}}" class="long-string">/raw/{{.Created.ID}}</a></p>
-                        <p>{{t .Lang "paste.download_label"}}: <a href="/dl/{{.Created.ID}}" class="long-string">/dl/{{.Created.ID}}</a></p>
+                        <p>{{t .Lang "paste.raw_label"}}: <a href="{{.RawLink}}" class="long-string">{{.RawLink}}</a></p>
+                        <p>{{t .Lang "paste.download_label"}}: <a href="{{.DownloadLink}}" class="long-string">{{.DownloadLink}}</a></p>
                         <div class="alert alert-warning mt-3">
                             <p class="mb-2">{{t .Lang "paste.owner_token_warning"}}</p>
                             <code class="long-string" id="created-token">{{.Created.OwnerToken}}</code>

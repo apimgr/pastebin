@@ -3201,6 +3201,15 @@ func TestHandleWebCreate(t *testing.T) {
 		if !strings.Contains(w.Body.String(), "created-token") {
 			t.Error("response should render the created owner token block")
 		}
+		// Raw and Download links must be absolute URLs sharing the view origin,
+		// not bare relative paths (regression: "/raw/{id}", "/dl/{id}").
+		rendered := w.Body.String()
+		if !strings.Contains(rendered, `href="http://example.com/raw/`) {
+			t.Error("raw link should be an absolute URL matching the view origin")
+		}
+		if !strings.Contains(rendered, `href="http://example.com/dl/`) {
+			t.Error("download link should be an absolute URL matching the view origin")
+		}
 	})
 
 	t.Run("urlencoded_empty_content_renders_error", func(t *testing.T) {
