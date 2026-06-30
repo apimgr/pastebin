@@ -20,6 +20,8 @@ import (
 	// blank import side-effect: registers pprof handlers on DefaultServeMux
 	_ "net/http/pprof"
 	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -192,6 +194,86 @@ type Server struct {
 	pendingRestartKeys []string
 	// csrfSecret is the HMAC key for CSRF token signing, loaded from the DB at startup.
 	csrfSecret []byte
+	// privDrop holds privilege-drop parameters set by main before Run (PART 23 step 8g).
+	privDrop *privDropConfig
+}
+
+// privDropConfig describes the unprivileged service account to switch to after
+// privileged ports are bound, plus the runtime paths that must be chowned to that
+// account first so the dropped process can still read and write them (PART 23).
+type privDropConfig struct {
+	user  string
+	group string
+	chown []string
+}
+
+// SetPrivilegeDrop registers the service user/group and the runtime paths to chown
+// before dropping privileges. Call from main after constructing the server and
+// resolving all runtime directories, before Run. A nil/empty user means the default
+// service account ("pastebin"); the drop is a no-op when not running as root.
+func (s *Server) SetPrivilegeDrop(user, group string, chownPaths []string) {
+	s.privDrop = &privDropConfig{user: user, group: group, chown: chownPaths}
+}
+
+// bindAndDrop binds the TCP listener for addr while still privileged (so ports below
+// 1024 succeed), then chowns the runtime paths and drops to the unprivileged service
+// account (PART 23 step 8g). The returned listener is ready for Serve/ServeTLS.
+func (s *Server) bindAndDrop(addr string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.applyPrivilegeDrop(); err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return ln, nil
+}
+
+// applyPrivilegeDrop chowns runtime paths and permanently drops privileges to the
+// configured service account. It is a no-op unless privilege drop was configured and
+// the process is currently running as root. When no unprivileged target can be
+// resolved it logs and keeps running as root rather than failing startup.
+func (s *Server) applyPrivilegeDrop() error {
+	if s.privDrop == nil || !currentlyRoot() {
+		return nil
+	}
+	uid, gid, name, ok := resolvePrivDropTarget(s.privDrop.user, s.privDrop.group)
+	if !ok {
+		log.Printf("privilege: no drop target resolved; continuing as root")
+		return nil
+	}
+	// Chown runtime paths so the dropped account retains read/write access.
+	for _, p := range s.privDrop.chown {
+		if p == "" {
+			continue
+		}
+		if err := chownRecursive(p, uid, gid); err != nil {
+			log.Printf("privilege: chown %s: %v", p, err)
+		}
+	}
+	if err := dropPrivileges(uid, gid); err != nil {
+		return fmt.Errorf("drop privileges to %s: %w", name, err)
+	}
+	log.Printf("privilege: dropped to %s (uid=%d gid=%d)", name, uid, gid)
+	return nil
+}
+
+// chownRecursive changes ownership of root and everything beneath it to uid/gid.
+// Missing paths are skipped; per-entry errors are returned to the caller.
+func chownRecursive(root string, uid, gid int) error {
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return filepath.Walk(root, func(path string, _ os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chown(path, uid, gid)
+	})
 }
 
 // SetSchedulerHealthFn registers a callback that reports whether the scheduler is running.
@@ -1450,8 +1532,12 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			srv.TLSConfig = tlsCfg
 			// Wrap the router so autocert HTTP-01 challenges are handled on port 80.
 			srv.Handler = sslMgr.GetHTTPHandler(s.router)
+			ln, err := s.bindAndDrop(addr)
+			if err != nil {
+				return err
+			}
 			go func() {
-				if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				if err := srv.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
 					errCh <- err
 				}
 			}()
@@ -1468,8 +1554,12 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	}
 
 	// Plain HTTP (no TLS, or TLS setup failed).
+	ln, err := s.bindAndDrop(addr)
+	if err != nil {
+		return err
+	}
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()

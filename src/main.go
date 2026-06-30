@@ -1081,6 +1081,12 @@ Examples:
 
 	addr := cfg.Server.Address + ":" + cfg.Server.Port
 
+	// Register privilege drop: after binding the listen port as root, switch to the
+	// unprivileged service account, chowning runtime paths first (PART 23 step 8g).
+	srv.SetPrivilegeDrop(cfg.Server.User, cfg.Server.Group, []string{
+		configDir, dataDir, logsDir, cacheDir, backupDir, filepath.Dir(pidFile),
+	})
+
 	// runServer is the shared startup closure used both for interactive mode
 	// and for the Windows Service Control Manager path.
 	runServer := func() {

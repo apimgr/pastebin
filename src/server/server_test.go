@@ -3042,6 +3042,18 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestRunBindError(t *testing.T) {
+	db := &stubDB{}
+	cfg := config.DefaultConfig()
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+
+	// An unbindable address makes bindAndDrop fail; Run must surface the error.
+	err := s.Run(context.Background(), "127.0.0.1:99999")
+	if err == nil {
+		t.Error("expected a bind error for an invalid port")
+	}
+}
+
 // TestNewHandlersWithTemplates tests handlers that need real templates
 // (loaded by New via embedded FS) to exercise the renderTemplate non-error path.
 func TestNewHandlersWithTemplates(t *testing.T) {
