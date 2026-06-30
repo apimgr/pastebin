@@ -99,7 +99,7 @@ build: clean
 # LOCAL - Fast host-platform build into binaries/ (production test build)
 # =============================================================================
 local: clean
-	@mkdir -p $(BINDIR)
+	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
 	@echo "Building local binaries version $(VERSION)..."
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
@@ -178,6 +178,7 @@ docker:
 #     Never override downward.
 # =============================================================================
 test:
+	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
 		mkdir -p \"/tmp/$(PROJECTORG)\" && \
@@ -195,6 +196,7 @@ test:
 # DEV - Quick build for local development (random temp dir, no version info)
 # =============================================================================
 dev:
+	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)"
 	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
