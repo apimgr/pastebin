@@ -482,8 +482,11 @@
     "search_results": "{count} resultados de búsqueda encontrados"
   },
   "footer": {
-    "api_docs": "Documentación API",
-    "status": "Estado"
+    "about": "Acerca de",
+    "privacy": "Privacidad",
+    "contact": "Contacto",
+    "help": "Ayuda",
+    "last_update": "Última actualización"
   },
   "home": {
     "browse_recent": "Ver recientes",

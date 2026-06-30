@@ -482,8 +482,11 @@
     "search_results": "找到 {count} 个搜索结果"
   },
   "footer": {
-    "api_docs": "API 文档",
-    "status": "状态"
+    "about": "关于",
+    "privacy": "隐私",
+    "contact": "联系",
+    "help": "帮助",
+    "last_update": "最后更新"
   },
   "home": {
     "browse_recent": "浏览最新",

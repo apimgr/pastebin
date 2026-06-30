@@ -118,8 +118,11 @@
     "main_navigation": "Main navigation"
   },
   "footer": {
-    "api_docs": "API Docs",
-    "status": "Status"
+    "about": "About",
+    "privacy": "Privacy",
+    "contact": "Contact",
+    "help": "Help",
+    "last_update": "Last update"
   },
   "home": {
     "create_paste": "Create Paste",

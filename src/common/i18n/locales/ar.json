@@ -118,8 +118,11 @@
     "main_navigation": "التنقل الرئيسي"
   },
   "footer": {
-    "api_docs": "توثيق API",
-    "status": "الحالة"
+    "about": "حول",
+    "privacy": "الخصوصية",
+    "contact": "اتصل",
+    "help": "مساعدة",
+    "last_update": "آخر تحديث"
   },
   "home": {
     "create_paste": "إنشاء لصقة",

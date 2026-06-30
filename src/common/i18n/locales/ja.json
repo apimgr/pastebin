@@ -482,8 +482,11 @@
     "search_results": "{count}件の検索結果が見つかりました"
   },
   "footer": {
-    "api_docs": "API ドキュメント",
-    "status": "ステータス"
+    "about": "概要",
+    "privacy": "プライバシー",
+    "contact": "お問い合わせ",
+    "help": "ヘルプ",
+    "last_update": "最終更新"
   },
   "home": {
     "browse_recent": "最近のペースト",

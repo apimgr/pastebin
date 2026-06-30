@@ -933,6 +933,19 @@ main {
     color: var(--color-text-primary);
 }
 
+.footer-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+}
+
+.footer-version {
+    font-family: var(--font-mono);
+}
+
 /* ============================================
    Loading & Empty States
    ============================================ */
@@ -1093,6 +1106,10 @@ main {
     .footer-content {
         flex-direction: row;
         text-align: left;
+    }
+
+    .footer-meta {
+        align-items: flex-end;
     }
 }
 

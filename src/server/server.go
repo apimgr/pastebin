@@ -2498,6 +2498,9 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	} else {
 		data["CSRFToken"] = ""
 	}
+	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
+	data["Version"] = s.version
+	data["BuildDate"] = s.buildDate
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("template %s error: %v", name, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
@@ -2516,6 +2519,9 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	lang := i18n.LangFromRequest(r)
 	data["Lang"] = lang
 	data["Dir"] = i18n.Direction(lang)
+	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
+	data["Version"] = s.version
+	data["BuildDate"] = s.buildDate
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
 		return "", err
