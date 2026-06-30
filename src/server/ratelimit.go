@@ -123,9 +123,12 @@ func rateLimitMiddleware(rl *rateLimiter) func(http.Handler) http.Handler {
 				w.Header().Set("Retry-After", fmt.Sprint(retryAfter))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error":       "rate limit exceeded",
-					"retry_after": fmt.Sprintf("%ds", retryAfter),
+				// Canonical envelope per PART 14/15 (AI.md:15353).
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"ok":          false,
+					"error":       "RATE_LIMITED",
+					"message":     "Too many requests",
+					"retry_after": retryAfter,
 				})
 				return
 			}
