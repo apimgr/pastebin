@@ -91,6 +91,10 @@ type DB struct {
 	cityDB  *maxminddb.Reader
 	whoisDB *maxminddb.Reader
 	cfg     Config
+	// countryOverride, when non-nil, supplies the country code for an IP in
+	// place of the MMDB lookup. It lets tests exercise the country-policy paths
+	// without a committed binary database fixture; it is always nil in production.
+	countryOverride func(net.IP) string
 }
 
 // Open downloads any missing MMDB files and opens the configured databases.
@@ -305,6 +309,10 @@ func (d *DB) Lookup(ip net.IP) *Info {
 		}
 	}
 
+	if d.countryOverride != nil {
+		info.CountryCode = d.countryOverride(ip)
+	}
+
 	return info
 }
 
@@ -313,7 +321,8 @@ func (d *DB) Lookup(ip net.IP) *Info {
 // Blocking logic (from spec PART 19):
 //   - RFC 1918 / loopback / link-local IPs are never blocked
 //   - IPs in the allowlist always pass
-//   - If AllowCountries is non-empty: block unless country is in the list
+//   - If AllowCountries is non-empty: block unless country is in the list,
+//     but fail-open (never block) when the country cannot be determined
 //   - Else if DenyCountries is non-empty: block if country is in the list
 //   - Both empty: never block
 func (d *DB) IsBlocked(ip net.IP) bool {
@@ -344,6 +353,12 @@ func (d *DB) IsBlocked(ip net.IP) bool {
 	}
 
 	if len(d.cfg.AllowCountries) > 0 {
+		// Fail-open: if the country cannot be determined (DB missing, stale, or
+		// lookup failed) never block — GeoIP is a risk signal, not an auth gate
+		// (PART 19, AI.md:26584).
+		if cc == "" {
+			return false
+		}
 		for _, c := range d.cfg.AllowCountries {
 			if strings.ToUpper(c) == cc {
 				return false

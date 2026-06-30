@@ -373,11 +373,12 @@ func TestMiddleware_AllowsNonBlockedIP(t *testing.T) {
 	}
 }
 
-func TestMiddleware_BlocksPublicIPWhenAllowCountriesSet(t *testing.T) {
+func TestMiddleware_BlocksPublicIPNotInAllowCountries(t *testing.T) {
 	tmp := t.TempDir()
-	// No country DB loaded; AllowCountries=["US"] → any public IP gets country=""
-	// which does not match "US" → IsBlocked returns true.
+	// AllowCountries=["US"] and the IP resolves to CN (override stands in for a
+	// real MMDB) → CN is not allowed → the request must be blocked with 403.
 	db, _ := Open(Config{Dir: tmp, AllowCountries: []string{"US"}})
+	db.countryOverride = func(net.IP) string { return "CN" }
 	defer db.Close()
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -397,14 +398,26 @@ func TestMiddleware_BlocksPublicIPWhenAllowCountriesSet(t *testing.T) {
 
 // ─── IsBlocked — additional paths ────────────────────────────────────────────
 
-func TestIsBlocked_AllowCountries_BlocksPublicIP(t *testing.T) {
+func TestIsBlocked_AllowCountries_BlocksNonAllowedCountry(t *testing.T) {
+	tmp := t.TempDir()
+	db, _ := Open(Config{Dir: tmp, AllowCountries: []string{"US"}})
+	db.countryOverride = func(net.IP) string { return "CN" }
+	defer db.Close()
+
+	// 8.8.8.8 resolves to CN which is not in AllowCountries=[US] → blocked.
+	if !db.IsBlocked(net.ParseIP("8.8.8.8")) {
+		t.Error("CN IP should be blocked when AllowCountries=[US]")
+	}
+}
+
+func TestIsBlocked_AllowCountries_FailOpenUnknownCountry(t *testing.T) {
 	tmp := t.TempDir()
 	db, _ := Open(Config{Dir: tmp, AllowCountries: []string{"US"}})
 	defer db.Close()
 
-	// 8.8.8.8 is public; without a country DB, cc="" which doesn't match "US" → blocked.
-	if !db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("8.8.8.8 should be blocked when AllowCountries=[US] and no country DB")
+	// No country DB → cc="" → fail-open, never blocked (PART 19, AI.md:26584).
+	if db.IsBlocked(net.ParseIP("8.8.8.8")) {
+		t.Error("8.8.8.8 must not be blocked when its country is undeterminable")
 	}
 }
 

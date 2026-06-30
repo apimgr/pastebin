@@ -220,12 +220,11 @@ func TestMiddleware_PassesNonBlocked(t *testing.T) {
 	}
 }
 
-func TestMiddleware_BlocksWithDenyList(t *testing.T) {
+func TestMiddleware_FailOpenWhenCountryUnknown(t *testing.T) {
 	dir := t.TempDir()
-	// With no databases loaded, country lookups return empty string.
-	// Block the empty-country case by using AllowCountries with something.
-	// Actually, with no databases the country is always empty.
-	// Use AllowCountries=["US"] — empty country won't match, so it'll be blocked.
+	// With no databases loaded, country lookups return an empty string. Per PART 19
+	// (AI.md:26584) GeoIP must fail-open: a request whose country cannot be
+	// determined is never blocked, even in allow-countries (allowlist) mode.
 	db, _ := geoip.Open(geoip.Config{
 		Dir:            dir,
 		AllowCountries: []string{"US"},
@@ -240,7 +239,7 @@ func TestMiddleware_BlocksWithDenyList(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("expected 403 for non-allowed country, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 (fail-open) when country is unknown, got %d", rec.Code)
 	}
 }

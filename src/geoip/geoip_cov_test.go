@@ -421,8 +421,8 @@ func TestIsBlocked_AllowlistCIDR_ContainsIP(t *testing.T) {
 // allowlisted CIDR is still subject to country blocking.
 func TestIsBlocked_AllowlistCIDR_OutsideRange(t *testing.T) {
 	dir := t.TempDir()
-	// AllowCountries=["DE"] with no DB → cc="" → blocked for any non-private,
-	// non-allowlisted IP.
+	// AllowCountries=["DE"]; the IP resolves to FR (override stands in for a real
+	// MMDB) and is outside the allowlisted CIDR → it must be blocked.
 	db, err := Open(Config{
 		Dir:            dir,
 		AllowCountries: []string{"DE"},
@@ -431,11 +431,12 @@ func TestIsBlocked_AllowlistCIDR_OutsideRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.countryOverride = func(net.IP) string { return "FR" }
 	defer db.Close()
 
 	// 198.51.100.1 is in TEST-NET-2, routable, and outside 203.0.113.0/24.
 	if !db.IsBlocked(net.ParseIP("198.51.100.1")) {
-		t.Error("IP outside allowlist CIDR should be blocked when AllowCountries is set and no country DB")
+		t.Error("IP outside allowlist CIDR with a non-allowed country should be blocked")
 	}
 }
 
@@ -449,6 +450,8 @@ func TestMiddleware_BlockedResponse_Body(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Resolve the client IP to a non-allowed country so the block path renders.
+	db.countryOverride = func(net.IP) string { return "CN" }
 	defer db.Close()
 
 	handler := db.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
