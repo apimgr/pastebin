@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -609,6 +610,14 @@ func (s *Server) maybeDeleteRateLimit(h http.HandlerFunc) http.HandlerFunc {
 func (s *Server) setupRoutes() {
 	r := s.router
 
+	// Themed 404 / 405 handlers (PART 16) — never emit chi's plain text responses.
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		s.renderErrorPage(w, req, http.StatusNotFound, "The requested resource was not found.")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		s.renderErrorPage(w, req, http.StatusMethodNotAllowed, "That method is not allowed for this resource.")
+	})
+
 	// Middleware execution order per PART 5:
 	// RealIP (chi) — extract real client IP from trusted X-Forwarded-For headers
 	// Recoverer (chi) — panic recovery
@@ -620,7 +629,7 @@ func (s *Server) setupRoutes() {
 	// 6. GeoIP — country blocking (honours allowlist flag)
 	// 7. Logging + metrics + compression (request recording)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
+	r.Use(s.recoverer)
 	r.Use(middleware.CleanPath)
 	r.Use(s.noTrailingSlash)
 	r.Use(s.pathSecurityMiddleware)
@@ -2153,7 +2162,7 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 
 	// Reject reserved system slugs — these are never valid paste IDs.
 	if isReservedSlug(id) {
-		http.NotFound(w, r)
+		s.renderErrorPage(w, r, http.StatusNotFound, "The requested paste was not found.")
 		return
 	}
 
@@ -2163,7 +2172,7 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if paste == nil {
-		http.NotFound(w, r)
+		s.renderErrorPage(w, r, http.StatusNotFound, "The requested paste was not found.")
 		return
 	}
 
@@ -2195,7 +2204,7 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 
 	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil || paste == nil {
-		http.NotFound(w, r)
+		s.renderErrorPage(w, r, http.StatusNotFound, "The requested paste was not found.")
 		return
 	}
 
@@ -2310,7 +2319,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil || paste == nil {
-		http.NotFound(w, r)
+		s.renderErrorPage(w, r, http.StatusNotFound, "The requested paste was not found.")
 		return
 	}
 
@@ -2330,7 +2339,7 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil || paste == nil {
-		http.NotFound(w, r)
+		s.renderErrorPage(w, r, http.StatusNotFound, "The requested paste was not found.")
 		return
 	}
 	content := strings.TrimSpace(paste.Content)
@@ -2747,6 +2756,81 @@ func (s *Server) pageData() map[string]interface{} {
 	return map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
+	}
+}
+
+// recoverer recovers from panics and renders a themed 500 error page (PART 16),
+// replacing chi's plain-text Recoverer. Full detail is logged server-side; the
+// client never receives a stack trace.
+func (s *Server) recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil && rec != http.ErrAbortHandler {
+				log.Printf("panic recovered: %v\n%s", rec, debug.Stack())
+				s.renderErrorPage(w, r, http.StatusInternalServerError, "An internal server error occurred.")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// errorCodeForStatus maps an HTTP status to its canonical API error code (PART 14).
+func errorCodeForStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "BAD_REQUEST"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusMethodNotAllowed:
+		return "METHOD_NOT_ALLOWED"
+	case http.StatusBadGateway:
+		return "BAD_GATEWAY"
+	case http.StatusServiceUnavailable:
+		return "SERVICE_UNAVAILABLE"
+	default:
+		return "SERVER_ERROR"
+	}
+}
+
+// renderErrorPage renders a themed error page for browser clients or a canonical
+// JSON envelope for API/non-interactive clients (PART 16 error-page requirements).
+// No plain/unstyled browser error pages are ever produced.
+func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status int, message string) {
+	statusText := http.StatusText(status)
+	if message == "" {
+		message = statusText
+	}
+	// API and non-interactive clients receive the canonical error envelope.
+	if detectClientType(r) != "html" {
+		writeJSON(w, status, map[string]interface{}{
+			"ok":      false,
+			"error":   errorCodeForStatus(status),
+			"message": message,
+		})
+		return
+	}
+	// Browser clients receive the themed error template.
+	data := s.pageData()
+	data["StatusCode"] = status
+	data["StatusText"] = statusText
+	data["Message"] = message
+	if s.templates == nil {
+		http.Error(w, message, status)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	lang := i18n.LangFromRequest(r)
+	data["Lang"] = lang
+	data["Dir"] = i18n.Direction(lang)
+	data["Version"] = s.version
+	data["BuildDate"] = s.buildDate
+	if err := s.templates.ExecuteTemplate(w, "error.html", data); err != nil {
+		log.Printf("error template render failed: %v", err)
 	}
 }
 

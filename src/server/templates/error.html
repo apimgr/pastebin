@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.StatusCode}} {{.StatusText}} - {{.SiteTitle}}</title>
+    <meta name="theme-color" content="#89b4fa">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
+    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content">
+        <div class="error-page">
+            <h1 class="error-code">{{.StatusCode}}</h1>
+            <h2 class="error-title">{{.StatusText}}</h2>
+            <p class="error-message">{{.Message}}</p>
+            <div class="error-actions">
+                <a href="/" class="btn btn-primary">{{t .Lang "nav.home"}}</a>
+                <a href="/server/help" class="btn">{{t .Lang "footer.help"}}</a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div class="footer-logo">📋</div>
+                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
+            </div>
+            <div class="footer-links">
+                <a href="/server/about" class="footer-link">{{t .Lang "footer.about"}}</a>
+                <a href="/server/privacy" class="footer-link">{{t .Lang "footer.privacy"}}</a>
+                <a href="/server/contact" class="footer-link">{{t .Lang "footer.contact"}}</a>
+                <a href="/server/help" class="footer-link">{{t .Lang "footer.help"}}</a>
+                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
+            </div>
+            <div class="footer-meta">
+                <span class="footer-version">v{{.Version}}</span>
+                <span class="footer-update">{{t .Lang "footer.last_update"}}: {{.BuildDate}}</span>
+            </div>
+        </div>
+    </footer>
+
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
