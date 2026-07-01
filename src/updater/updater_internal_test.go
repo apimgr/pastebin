@@ -352,3 +352,34 @@ func TestDoUpdate_ChecksumMismatch(t *testing.T) {
 		t.Errorf("expected checksum error, got: %v", err)
 	}
 }
+
+// TestDoUpdate_NoChecksumRefuses verifies the fail-closed policy: a release
+// that ships the binary but no matching .sha256 sidecar must be refused
+// rather than installed unverified.
+func TestDoUpdate_NoChecksumRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("replaceBinary Windows path differs")
+	}
+
+	assetName := binaryAssetName()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("unverified binary content"))
+	}))
+	defer srv.Close()
+
+	rel := &Release{
+		TagName: "v9.9.9",
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/bin"},
+		},
+	}
+
+	err := DoUpdate(context.Background(), rel)
+	if err == nil {
+		t.Fatal("expected refusal when no checksum is published, got nil")
+	}
+	if !strings.Contains(err.Error(), "no SHA-256 checksum") {
+		t.Errorf("expected unverified-update refusal, got: %v", err)
+	}
+}

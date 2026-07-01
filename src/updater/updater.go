@@ -173,11 +173,15 @@ func DoUpdate(ctx context.Context, release *Release) error {
 			break
 		}
 	}
-	if expectedHash != "" {
-		actualHash := hex.EncodeToString(h.Sum(nil))
-		if actualHash != expectedHash {
-			return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
-		}
+	// Fail closed: every published release MUST ship a SHA-256 checksum.
+	// Refusing an unverified binary prevents installing a tampered or
+	// MITM-substituted download.
+	if expectedHash == "" {
+		return fmt.Errorf("no SHA-256 checksum published for %s; refusing to install unverified update", assetName)
+	}
+	actualHash := hex.EncodeToString(h.Sum(nil))
+	if actualHash != expectedHash {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
 	}
 
 	return replaceBinary(currentPath, tmpPath)

@@ -135,6 +135,21 @@ jobs:
             --exclude='binaries' --exclude='releases' --exclude='*.tar.gz' \
             -czf binaries/${{ env.PROJECTNAME }}-${{ env.VERSION }}-source.tar.gz .
 
+      # Publish per-artifact SHA-256 sidecars (name.sha256) plus a combined
+      # checksums.txt. The self-updater requires the per-artifact sidecar to
+      # verify downloads before install (fail-closed on missing checksum).
+      - name: Generate SHA-256 checksums
+        working-directory: binaries
+        run: |
+          : > checksums.txt
+          for f in *; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.sha256 | checksums.txt) continue ;;
+            esac
+            sha256sum "$f" | tee -a checksums.txt > "$f.sha256"
+          done
+
       - name: Create Release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b  # v3.0.1
         with:
