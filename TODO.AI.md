@@ -102,6 +102,13 @@ Verified 2026-06-23. `pastebin_` namespace, all required metric families present
 
 ---
 
+## [x] Implement runtime self-healing Maintenance Mode
+Read: AI.md PART 20 (lines 7064-7326)
+
+Implemented 2026-07-01. Was entirely missing — only the metrics half of PART 20 existed. Added `src/health/monitor.go` state machine (starting/normal/maintenance) probing the two critical subsystems (DB connection, file-write) every retry interval (default 30s), with idempotent enter/exit, max-attempts cap (0=unlimited), disk cleanup on file_write faults, and enter/exit notifier. Wired into `src/server`: `maintenanceMiddleware` rejects writes (POST/PUT/PATCH/DELETE) with HTTP 503 + canonical `MAINTENANCE_MODE` envelope and `Retry-After`/`X-Maintenance-Mode`/`X-Maintenance-Reason` headers; reads/healthz/metrics pass through. `buildHealthResponse`/`writeHealthText` emit `status`/`mode: "maintenance"`, the `maintenance` block, and `checks.config`. `src/config`: `MaintenanceConfig` (self_healing/cleanup/notify) + DefaultConfig seed. Enter/exit send `security_alert` email when configured. Verified body/headers/healthz/config shapes match spec exactly. Coverage: health 95%, project 80.1%.
+
+---
+
 ## [x] Verify backup and restore implementation
 Read: AI.md PART 21
 
