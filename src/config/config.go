@@ -73,6 +73,49 @@ type ServerConfig struct {
 	TrustedProxies TrustedProxiesConfig `yaml:"trusted_proxies"`
 	// Termbin configures the raw-TCP termbin/fiche compatibility listener.
 	Termbin TermbinConfig `yaml:"termbin"`
+	// Maintenance configures the runtime self-healing maintenance mode (PART 20).
+	Maintenance MaintenanceConfig `yaml:"maintenance"`
+}
+
+// MaintenanceConfig configures the runtime self-healing maintenance mode (PART 20).
+// On a critical error (database connection loss or file-write failure) the server
+// enters maintenance mode, rejects write operations with HTTP 503, and continuously
+// attempts self-healing until the issue clears.
+type MaintenanceConfig struct {
+	// SelfHealing controls the background retry/recovery loop.
+	SelfHealing MaintenanceSelfHealingConfig `yaml:"self_healing"`
+	// Cleanup controls resource reclamation attempted during disk-related healing.
+	Cleanup MaintenanceCleanupConfig `yaml:"cleanup"`
+	// Notify controls maintenance enter/exit email notifications.
+	Notify MaintenanceNotifyConfig `yaml:"notify"`
+}
+
+// MaintenanceSelfHealingConfig controls the self-healing retry loop (PART 20).
+type MaintenanceSelfHealingConfig struct {
+	// Enabled gates the background retry loop. Default true.
+	Enabled bool `yaml:"enabled"`
+	// RetryInterval is the delay between self-healing attempts. Default "30s".
+	RetryInterval string `yaml:"retry_interval"`
+	// MaxAttempts caps retries; 0 means unlimited (keep trying forever). Default 0.
+	MaxAttempts int `yaml:"max_attempts"`
+}
+
+// MaintenanceCleanupConfig controls resource reclamation during healing (PART 20).
+type MaintenanceCleanupConfig struct {
+	// DiskThreshold is the disk-usage percentage that triggers cleanup. Default 90.
+	DiskThreshold int `yaml:"disk_threshold"`
+	// LogRetentionDays is how many days of logs to keep during cleanup. Default 7.
+	LogRetentionDays int `yaml:"log_retention_days"`
+	// BackupKeepCount is how many recent backups to retain during cleanup. Default 5.
+	BackupKeepCount int `yaml:"backup_keep_count"`
+}
+
+// MaintenanceNotifyConfig controls maintenance enter/exit notifications (PART 20).
+type MaintenanceNotifyConfig struct {
+	// OnEnter sends a notification when entering maintenance mode. Default true.
+	OnEnter bool `yaml:"on_enter"`
+	// OnExit sends a notification when exiting maintenance mode. Default true.
+	OnExit bool `yaml:"on_exit"`
 }
 
 // TermbinConfig configures the raw-TCP termbin/fiche-protocol listener.
@@ -588,6 +631,22 @@ func DefaultConfig() *Config {
 				Port:    9999,
 				MaxSize: 32768,
 				Timeout: "5s",
+			},
+			Maintenance: MaintenanceConfig{
+				SelfHealing: MaintenanceSelfHealingConfig{
+					Enabled:       true,
+					RetryInterval: "30s",
+					MaxAttempts:   0,
+				},
+				Cleanup: MaintenanceCleanupConfig{
+					DiskThreshold:    90,
+					LogRetentionDays: 7,
+					BackupKeepCount:  5,
+				},
+				Notify: MaintenanceNotifyConfig{
+					OnEnter: true,
+					OnExit:  true,
+				},
 			},
 		},
 		Database: DatabaseConfig{

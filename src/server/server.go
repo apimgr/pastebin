@@ -36,6 +36,7 @@ import (
 	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/geoip"
+	"github.com/apimgr/pastebin/src/health"
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/metrics"
@@ -99,9 +100,27 @@ type HealthResponse struct {
 	Uptime         string       `json:"uptime"`
 	Mode           string       `json:"mode"`
 	Timestamp      time.Time    `json:"timestamp"`
-	Features       FeaturesInfo `json:"features"`
-	Checks         ChecksInfo   `json:"checks"`
-	Stats          StatsInfo    `json:"stats"`
+	// Maintenance is populated only while the server is in maintenance mode (PART 20).
+	Maintenance *MaintenanceInfo `json:"maintenance,omitempty"`
+	Features    FeaturesInfo     `json:"features"`
+	Checks      ChecksInfo       `json:"checks"`
+	Stats       StatsInfo        `json:"stats"`
+}
+
+// MaintenanceInfo reports maintenance-mode state in the healthz response (PART 20).
+type MaintenanceInfo struct {
+	Reason      string          `json:"reason"`
+	Message     string          `json:"message"`
+	Since       time.Time       `json:"since"`
+	SelfHealing SelfHealingInfo `json:"self_healing"`
+}
+
+// SelfHealingInfo reports the self-healing loop state (PART 20).
+type SelfHealingInfo struct {
+	Enabled     bool       `json:"enabled"`
+	Attempts    int        `json:"attempts"`
+	LastAttempt *time.Time `json:"last_attempt,omitempty"`
+	NextAttempt *time.Time `json:"next_attempt,omitempty"`
 }
 
 // ProjectInfo holds public branding fields.
@@ -136,6 +155,7 @@ type ChecksInfo struct {
 	Database  string `json:"database"`
 	Cache     string `json:"cache"`
 	Disk      string `json:"disk"`
+	Config    string `json:"config"`
 	Scheduler string `json:"scheduler"`
 	Tor       string `json:"tor,omitempty"`
 }
@@ -179,7 +199,10 @@ type Server struct {
 	commitID         string
 	buildDate        string
 	configDir        string
-	startTime        time.Time
+	dataDir          string
+	// maintenance is the runtime self-healing maintenance-mode monitor (PART 20).
+	maintenance *health.Monitor
+	startTime   time.Time
 	stats            requestStats
 	// schedHealthFn is an optional callback that reports whether the scheduler
 	// is running — set by main after constructing the server.
@@ -322,6 +345,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		commitID:  commitID,
 		buildDate: buildDate,
 		configDir: configDir,
+		dataDir:   dataDir,
 		startTime: time.Now(),
 	}
 	s.stats.lastHour = time.Now().Hour()
@@ -471,6 +495,25 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		s.csrfSecret = csrfSec
 	}
 
+	// Runtime self-healing maintenance monitor (PART 20). Enters maintenance mode
+	// on a critical error (DB connection loss or file-write failure) and rejects
+	// writes with HTTP 503 while retrying recovery in the background.
+	mc := cfg.Server.Maintenance
+	retryInterval := 30 * time.Second
+	if d, err := time.ParseDuration(mc.SelfHealing.RetryInterval); err == nil && d > 0 {
+		retryInterval = d
+	}
+	s.maintenance = health.New(health.Config{
+		SelfHealingEnabled: mc.SelfHealing.Enabled,
+		RetryInterval:      retryInterval,
+		MaxAttempts:        mc.SelfHealing.MaxAttempts,
+		NotifyOnEnter:      mc.Notify.OnEnter,
+		NotifyOnExit:       mc.Notify.OnExit,
+	})
+	s.maintenance.SetChecker(s.criticalCheck)
+	s.maintenance.SetCleaner(s.maintenanceCleanup)
+	s.maintenance.SetNotifier(s.maintenanceNotify)
+
 	s.setupRoutes()
 	return s
 }
@@ -608,6 +651,11 @@ func (s *Server) setupRoutes() {
 		"application/xml",
 		"text/plain",
 	))
+
+	// Maintenance mode (PART 20) — after metrics/logging so blocked requests are
+	// still recorded; rejects write methods with HTTP 503 while healthz/metrics and
+	// all read operations continue to pass through.
+	r.Use(s.maintenanceMiddleware)
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -1506,6 +1554,12 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 
 	cfg := s.liveCfg()
 
+	// Start the runtime self-healing maintenance monitor (PART 20). It probes
+	// critical systems and toggles maintenance mode until ctx is cancelled.
+	if s.maintenance != nil {
+		go s.maintenance.Start(ctx)
+	}
+
 	// Start the termbin/fiche raw-TCP listener when enabled; the returned stop
 	// function closes the listener on shutdown.
 	defer s.startTermbin(ctx, cfg)()
@@ -1625,6 +1679,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		Database:  "ok",
 		Cache:     "ok",
 		Disk:      "ok",
+		Config:    "ok",
 		Scheduler: "ok",
 	}
 
@@ -1667,6 +1722,33 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		status = "degraded"
 	}
 
+	// Maintenance mode overrides both status and mode (PART 20).
+	mode := s.cfg.Server.Mode
+	var maint *MaintenanceInfo
+	if s.maintenance != nil && s.maintenance.InMaintenance() {
+		snap := s.maintenance.Snapshot()
+		status = "maintenance"
+		mode = "maintenance"
+		sh := SelfHealingInfo{
+			Enabled:  snap.SelfHealingEnabled,
+			Attempts: snap.Attempts,
+		}
+		if !snap.LastAttempt.IsZero() {
+			la := snap.LastAttempt.UTC()
+			sh.LastAttempt = &la
+		}
+		if !snap.NextAttempt.IsZero() {
+			na := snap.NextAttempt.UTC()
+			sh.NextAttempt = &na
+		}
+		maint = &MaintenanceInfo{
+			Reason:      snap.Reason,
+			Message:     snap.Message,
+			Since:       snap.Since.UTC(),
+			SelfHealing: sh,
+		}
+	}
+
 	// Fetch total paste count for stats (best-effort — zero on error).
 	var pastesTotal int64
 	if n, err := s.db.CountPastes(); err == nil {
@@ -1694,9 +1776,10 @@ func (s *Server) buildHealthResponse() HealthResponse {
 			Commit: s.commitID,
 			Date:   s.buildDate,
 		},
-		Uptime:    formatUptime(time.Since(s.startTime)),
-		Mode:      s.cfg.Server.Mode,
-		Timestamp: time.Now().UTC(),
+		Uptime:      formatUptime(time.Since(s.startTime)),
+		Mode:        mode,
+		Timestamp:   time.Now().UTC(),
+		Maintenance: maint,
 		Features: FeaturesInfo{
 			Tor:   torInfo,
 			GeoIP: s.geoipDB != nil,
@@ -1781,6 +1864,19 @@ func writeHealthText(w http.ResponseWriter, hr HealthResponse) {
 	fmt.Fprintf(w, "uptime: %s\n", hr.Uptime)
 	fmt.Fprintf(w, "mode: %s\n", hr.Mode)
 	fmt.Fprintf(w, "timestamp: %s\n", hr.Timestamp.UTC().Format(time.RFC3339))
+	if hr.Maintenance != nil {
+		fmt.Fprintf(w, "maintenance.reason: %s\n", hr.Maintenance.Reason)
+		fmt.Fprintf(w, "maintenance.message: %s\n", hr.Maintenance.Message)
+		fmt.Fprintf(w, "maintenance.since: %s\n", hr.Maintenance.Since.UTC().Format(time.RFC3339))
+		fmt.Fprintf(w, "maintenance.self_healing.enabled: %t\n", hr.Maintenance.SelfHealing.Enabled)
+		fmt.Fprintf(w, "maintenance.self_healing.attempts: %d\n", hr.Maintenance.SelfHealing.Attempts)
+		if hr.Maintenance.SelfHealing.LastAttempt != nil {
+			fmt.Fprintf(w, "maintenance.self_healing.last_attempt: %s\n", hr.Maintenance.SelfHealing.LastAttempt.UTC().Format(time.RFC3339))
+		}
+		if hr.Maintenance.SelfHealing.NextAttempt != nil {
+			fmt.Fprintf(w, "maintenance.self_healing.next_attempt: %s\n", hr.Maintenance.SelfHealing.NextAttempt.UTC().Format(time.RFC3339))
+		}
+	}
 	fmt.Fprintf(w, "features.tor.enabled: %t\n", hr.Features.Tor.Enabled)
 	fmt.Fprintf(w, "features.tor.running: %t\n", hr.Features.Tor.Running)
 	if hr.Features.Tor.Status != "" {
@@ -1793,6 +1889,7 @@ func writeHealthText(w http.ResponseWriter, hr HealthResponse) {
 	fmt.Fprintf(w, "checks.database: %s\n", hr.Checks.Database)
 	fmt.Fprintf(w, "checks.cache: %s\n", hr.Checks.Cache)
 	fmt.Fprintf(w, "checks.disk: %s\n", hr.Checks.Disk)
+	fmt.Fprintf(w, "checks.config: %s\n", hr.Checks.Config)
 	fmt.Fprintf(w, "checks.scheduler: %s\n", hr.Checks.Scheduler)
 	if hr.Checks.Tor != "" {
 		fmt.Fprintf(w, "checks.tor: %s\n", hr.Checks.Tor)
