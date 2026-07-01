@@ -321,6 +321,34 @@ type SecurityConfig struct {
 	// rate limiting, and geoip checks. Auth checks are never bypassed.
 	// Single IPs are automatically expanded to /32 (IPv4) or /128 (IPv6).
 	Allowlist []string `yaml:"allowlist"`
+	// Blocklists configures the IP/domain blocklist sources downloaded daily by
+	// the scheduler into {data_dir}/security/blocklists/ (PART 18/19).
+	Blocklists BlocklistsConfig `yaml:"blocklists"`
+	// CVE configures the CVE database source downloaded daily by the scheduler
+	// into {data_dir}/security/cve/ (PART 18/19).
+	CVE CVEConfig `yaml:"cve"`
+}
+
+// BlocklistSource is a single downloadable blocklist: File is the destination
+// filename within the blocklists directory; URL is the download source.
+type BlocklistSource struct {
+	File string `yaml:"file"`
+	URL  string `yaml:"url"`
+}
+
+// BlocklistsConfig holds the configurable blocklist download sources.
+type BlocklistsConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Sources []BlocklistSource `yaml:"sources"`
+}
+
+// CVEConfig holds the configurable CVE database download settings.
+type CVEConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// File is the destination filename within the cve directory.
+	File string `yaml:"file"`
+	// Source is the download URL for the CVE feed.
+	Source string `yaml:"source"`
 }
 
 // TLSConfig holds SSL/TLS and Let's Encrypt settings (PART 12/15).
@@ -578,6 +606,24 @@ func DefaultConfig() *Config {
 				Contact:       "mailto:admin@example.com",
 				CORS:          "*",
 				EncryptionKey: "", // auto-generated on first run
+				Blocklists: BlocklistsConfig{
+					Enabled: true,
+					Sources: []BlocklistSource{
+						{
+							File: "firehol_level1.txt",
+							URL:  "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset",
+						},
+						{
+							File: "spamhaus_drop.txt",
+							URL:  "https://www.spamhaus.org/drop/drop.txt",
+						},
+					},
+				},
+				CVE: CVEConfig{
+					Enabled: false,
+					File:    "nvd.json",
+					Source:  "https://nvd.nist.gov/feeds/json/cve/1.1",
+				},
 			},
 			HSTS: HSTSConfig{
 				Enabled:           true,

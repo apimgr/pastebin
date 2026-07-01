@@ -1000,9 +1000,9 @@ Examples:
 	logSchedErr(sched.Register("ssl_renewal", "SSL Renewal", "0 3 * * *", true,
 		task.SSLRenewal(configDir, cfg.Server.FQDN)))
 	logSchedErr(sched.Register("blocklist_update", "Blocklist Update", "0 4 * * *", true,
-		task.BlocklistUpdate(dataDir)))
+		task.BlocklistUpdate(dataDir, blocklistSources(cfg)...)))
 	logSchedErr(sched.Register("cve_update", "CVE Update", "0 5 * * *", true,
-		task.CVEUpdate(dataDir)))
+		task.CVEUpdate(dataDir, cveSources(cfg)...)))
 	logSchedErr(sched.Register("token_cleanup", "Token Cleanup", "@every 15m", true, func() error {
 		n, err := db.DeleteExpiredAPITokens()
 		if err != nil {
@@ -1218,6 +1218,34 @@ func logSchedErr(err error) {
 	if err != nil {
 		log.Printf("warning: scheduler registration: %v", err)
 	}
+}
+
+// blocklistSources maps the configured blocklist sources to task.Source values.
+// Returns nil when blocklists are disabled so the task only ensures the
+// directory exists (graceful degradation, PART 19).
+func blocklistSources(cfg *config.Config) []task.Source {
+	bl := cfg.Web.Security.Blocklists
+	if !bl.Enabled {
+		return nil
+	}
+	sources := make([]task.Source, 0, len(bl.Sources))
+	for _, s := range bl.Sources {
+		if s.File == "" || s.URL == "" {
+			continue
+		}
+		sources = append(sources, task.Source{Name: s.File, URL: s.URL})
+	}
+	return sources
+}
+
+// cveSources maps the configured CVE source to task.Source values. Returns nil
+// when CVE updates are disabled or unconfigured.
+func cveSources(cfg *config.Config) []task.Source {
+	c := cfg.Web.Security.CVE
+	if !c.Enabled || c.File == "" || c.Source == "" {
+		return nil
+	}
+	return []task.Source{{Name: c.File, URL: c.Source}}
 }
 
 // newHTTPRequest creates an HTTP request with no body and a User-Agent header.

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -106,40 +107,111 @@ func SSLRenewal(configDir, fqdn string) func() error {
 // Any blocklist sources configured externally (e.g., ip-location-db, ipsum)
 // should be placed in this directory by the operator or via a separate
 // sidecar process.  This task creates the directory and logs its content count.
-func BlocklistUpdate(dataDir string) func() error {
+// Source identifies a remote security-data file to download. Name is the
+// destination filename within the target directory; URL is the download source.
+type Source struct {
+	Name string
+	URL  string
+}
+
+// BlocklistUpdate returns a task that refreshes the IP/domain blocklists in
+// {dataDir}/security/blocklists/. Each configured source is downloaded
+// atomically; a failed download is logged and the existing copy (if any) is
+// kept — GeoIP/blocklist data is a risk signal, never a hard gate, so the task
+// degrades gracefully (PART 18/19, AI.md:9135). With no sources configured the
+// task only ensures the directory exists.
+func BlocklistUpdate(dataDir string, sources ...Source) func() error {
+	return securityFetchTask("blocklist_update",
+		filepath.Join(dataDir, "security", "blocklists"), sources)
+}
+
+// CVEUpdate returns a task that refreshes the CVE/security databases in
+// {dataDir}/security/cve/. Behaves identically to BlocklistUpdate: each
+// configured source is downloaded atomically with graceful degradation, and
+// with no sources configured the task only ensures the directory exists.
+func CVEUpdate(dataDir string, sources ...Source) func() error {
+	return securityFetchTask("cve_update",
+		filepath.Join(dataDir, "security", "cve"), sources)
+}
+
+// securityFetchTask builds the common download-with-graceful-degradation body
+// shared by BlocklistUpdate and CVEUpdate.
+func securityFetchTask(name, dir string, sources []Source) func() error {
 	return func() error {
-		dir := filepath.Join(dataDir, "security", "blocklists")
 		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("blocklist_update: mkdir %s: %w", dir, err)
+			return fmt.Errorf("%s: mkdir %s: %w", name, dir, err)
+		}
+
+		updated := 0
+		for _, src := range sources {
+			if src.Name == "" || src.URL == "" {
+				continue
+			}
+			dst := filepath.Join(dir, filepath.Base(src.Name))
+			if err := downloadFile(src.URL, dst); err != nil {
+				log.Printf("%s: %s: %v (keeping existing copy)", name, src.Name, err)
+				continue
+			}
+			updated++
 		}
 
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			return fmt.Errorf("blocklist_update: readdir: %w", err)
+			return fmt.Errorf("%s: readdir: %w", name, err)
 		}
 
-		log.Printf("blocklist_update: %s — %d file(s) present", dir, len(entries))
+		if updated > 0 {
+			if err := os.WriteFile(filepath.Join(dir, ".last_updated"),
+				[]byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o640); err != nil {
+				log.Printf("%s: write .last_updated: %v", name, err)
+			}
+		}
+
+		log.Printf("%s: %s — %d source(s) updated, %d file(s) present", name, dir, updated, len(entries))
 		return nil
 	}
 }
 
-// CVEUpdate returns a task that ensures the CVE database directory exists.
-// Actual CVE data files are expected to be placed here by the operator.
-func CVEUpdate(dataDir string) func() error {
-	return func() error {
-		dir := filepath.Join(dataDir, "security", "cve")
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("cve_update: mkdir %s: %w", dir, err)
-		}
-
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return fmt.Errorf("cve_update: readdir: %w", err)
-		}
-
-		log.Printf("cve_update: %s — %d file(s) present", dir, len(entries))
-		return nil
+// downloadFile fetches url and writes the body to dst atomically (temp file in
+// the same directory, then rename). An empty body or non-2xx status is treated
+// as an error and dst is left untouched.
+func downloadFile(url, dst string) error {
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("get %s: %w", url, err)
 	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("get %s: status %d", url, resp.StatusCode)
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".dl-*")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	n, err := io.Copy(tmp, resp.Body)
+	if err != nil {
+		tmp.Close()
+		return fmt.Errorf("write body: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("empty response body")
+	}
+	if err := os.Chmod(tmpName, 0o640); err != nil {
+		return fmt.Errorf("chmod: %w", err)
+	}
+	if err := os.Rename(tmpName, dst); err != nil {
+		return fmt.Errorf("rename: %w", err)
+	}
+	return nil
 }
 
 // LogRotation returns a task that rotates and compresses log files in logsDir.
