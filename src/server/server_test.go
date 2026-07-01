@@ -1490,6 +1490,13 @@ func TestServerStateHelpers(t *testing.T) {
 			t.Errorf("TorOnionAddress = %q, want empty", addr)
 		}
 	})
+
+	t.Run("TorRestart no-op when nil", func(t *testing.T) {
+		s := newMinimalServer(&config.Config{})
+		if err := s.TorRestart(); err != nil {
+			t.Errorf("TorRestart should be nil when torManager is nil, got %v", err)
+		}
+	})
 }
 
 // ─── Server.handleSchedulerList ───────────────────────────────────────────────

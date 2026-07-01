@@ -541,18 +541,34 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 }
 
 
-// TorHealth returns a task that checks whether Tor is running and logs the
-// result.  torRunning is a function that reports the current Tor state; it is
-// injected from server.TorRunning() so the task package has no import cycle.
-func TorHealth(torRunning func() bool) func() error {
+// TorHealth returns a task that checks whether Tor is running and restarts it
+// when it is unhealthy (PART 18, restart_on_fail). torRunning reports the
+// current Tor state and torRestart restarts the hidden service; both are
+// injected from the server so the task package has no import cycle. torRestart
+// may be nil, in which case an unhealthy service is only logged. When Tor is
+// not installed, torRestart is a no-op and torRunning stays false — the task
+// simply logs and never errors.
+func TorHealth(torRunning func() bool, torRestart func() error) func() error {
 	return func() error {
 		if torRunning == nil {
 			return nil
 		}
 		if torRunning() {
 			log.Printf("tor_health: Tor hidden service is running")
+			return nil
+		}
+		if torRestart == nil {
+			log.Printf("tor_health: Tor hidden service is not running (no restart configured)")
+			return nil
+		}
+		log.Printf("tor_health: Tor hidden service is not running — attempting restart")
+		if err := torRestart(); err != nil {
+			return fmt.Errorf("tor_health: restart failed: %w", err)
+		}
+		if torRunning() {
+			log.Printf("tor_health: Tor hidden service restarted successfully")
 		} else {
-			log.Printf("tor_health: Tor hidden service is not running (no Tor binary found or startup failed)")
+			log.Printf("tor_health: Tor hidden service still not running after restart (no Tor binary found or startup failed)")
 		}
 		return nil
 	}

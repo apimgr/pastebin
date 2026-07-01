@@ -1061,7 +1061,7 @@ Examples:
 
 	// Tor health check — registered after srv so it can query srv.TorRunning().
 	logSchedErr(sched.Register("tor_health", "Tor Health", "@every 10m", true,
-		task.TorHealth(srv.TorRunning)))
+		task.TorHealth(srv.TorRunning, srv.TorRestart)))
 
 	sched.Start()
 	defer sched.Stop()

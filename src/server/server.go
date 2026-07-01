@@ -510,6 +510,16 @@ func (s *Server) TorRunning() bool {
 	return s.torManager.Running()
 }
 
+// TorRestart restarts the Tor hidden service. It is a no-op when Tor is not
+// configured; when no Tor binary is present the underlying restart is itself a
+// no-op, so this never errors in that case.
+func (s *Server) TorRestart() error {
+	if s.torManager == nil {
+		return nil
+	}
+	return s.torManager.Restart()
+}
+
 // TorOnionAddress returns the .onion address, or empty string if not running.
 func (s *Server) TorOnionAddress() string {
 	if s.torManager == nil {

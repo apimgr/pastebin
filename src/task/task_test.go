@@ -259,25 +259,66 @@ func TestSSLRenewal_WithExpiringSoonCert(t *testing.T) {
 // ─── TorHealth ────────────────────────────────────────────────────────────────
 
 func TestTorHealth_NilFunc(t *testing.T) {
-	fn := task.TorHealth(nil)
+	fn := task.TorHealth(nil, nil)
 	if err := fn(); err != nil {
 		t.Fatalf("TorHealth(nil) should return nil, got: %v", err)
 	}
 }
 
 func TestTorHealth_Running(t *testing.T) {
-	fn := task.TorHealth(func() bool { return true })
+	fn := task.TorHealth(func() bool { return true }, nil)
 	if err := fn(); err != nil {
 		t.Fatalf("TorHealth running=true should return nil, got: %v", err)
 	}
 }
 
-func TestTorHealth_NotRunning(t *testing.T) {
-	fn := task.TorHealth(func() bool { return false })
+func TestTorHealth_NotRunning_NoRestart(t *testing.T) {
+	fn := task.TorHealth(func() bool { return false }, nil)
 	if err := fn(); err != nil {
 		t.Fatalf("TorHealth running=false should return nil, got: %v", err)
 	}
 }
+
+func TestTorHealth_RestartRecovers(t *testing.T) {
+	running := false
+	restarted := false
+	fn := task.TorHealth(
+		func() bool { return running },
+		func() error { restarted = true; running = true; return nil },
+	)
+	if err := fn(); err != nil {
+		t.Fatalf("TorHealth restart should return nil, got: %v", err)
+	}
+	if !restarted {
+		t.Error("expected restart to be attempted when Tor was down")
+	}
+}
+
+func TestTorHealth_RestartStillDown(t *testing.T) {
+	fn := task.TorHealth(
+		func() bool { return false },
+		func() error { return nil },
+	)
+	if err := fn(); err != nil {
+		t.Fatalf("TorHealth should not error when restart no-ops, got: %v", err)
+	}
+}
+
+func TestTorHealth_RestartError(t *testing.T) {
+	fn := task.TorHealth(
+		func() bool { return false },
+		func() error { return errTorRestart },
+	)
+	if err := fn(); err == nil {
+		t.Fatal("expected error when restart fails")
+	}
+}
+
+var errTorRestart = &torRestartError{}
+
+type torRestartError struct{}
+
+func (*torRestartError) Error() string { return "restart boom" }
 
 // ─── BackupDaily ──────────────────────────────────────────────────────────────
 
