@@ -1558,7 +1558,7 @@ func TestRateLimitMiddlewareAllowlisted(t *testing.T) {
 	// Exhaust the limit for this IP.
 	rl.allow("10.0.0.1")
 
-	mw := rateLimitMiddleware(rl)
+	mw := rateLimitMiddleware(rl, "create")
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -1581,7 +1581,7 @@ func TestRateLimitMiddlewareAllowlisted(t *testing.T) {
 
 func TestRateLimitMiddlewareRejected(t *testing.T) {
 	rl := newRateLimiter(1, time.Minute)
-	mw := rateLimitMiddleware(rl)
+	mw := rateLimitMiddleware(rl, "delete")
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

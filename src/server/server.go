@@ -336,7 +336,18 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
-	s.metricsCollector = metrics.New(version, commitID, buildDate, s.startTime, cfg.Server.Metrics.Token)
+	s.metricsCollector = metrics.NewWithOptions(metrics.Options{
+		Version:         version,
+		Commit:          commitID,
+		BuildDate:       buildDate,
+		Token:           cfg.Server.Metrics.Token,
+		StartTime:       s.startTime,
+		IncludeSystem:   cfg.Server.Metrics.IncludeSystem,
+		IncludeRuntime:  cfg.Server.Metrics.IncludeRuntime,
+		DurationBuckets: cfg.Server.Metrics.DurationBuckets,
+		SizeBuckets:     cfg.Server.Metrics.SizeBuckets,
+		DataDir:         dataDir,
+	})
 
 	if cfg.Server.GeoIP.Enabled {
 		gcfg := geoip.Config{
@@ -382,6 +393,12 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		serverPort = 3010
 	}
 	s.torManager = tor.NewManager(context.Background(), serverPort, torCfg)
+
+	// Report Tor state into the tor_* metrics at scrape time.
+	s.metricsCollector.SetTorProvider(func() (enabled, running bool) {
+		ti := s.buildTorInfo()
+		return ti.Enabled, ti.Running
+	})
 
 	// Initialize cache driver (PART 9/12). Falls back to in-process memory on error.
 	cacheCfg := cache.Config{
@@ -533,7 +550,7 @@ func (s *Server) maybeRateLimit(h http.HandlerFunc) http.HandlerFunc {
 	if s.createLimiter == nil {
 		return h
 	}
-	mw := rateLimitMiddleware(s.createLimiter)
+	mw := rateLimitMiddleware(s.createLimiter, "create")
 	return mw(h).ServeHTTP
 }
 
@@ -542,7 +559,7 @@ func (s *Server) maybeDeleteRateLimit(h http.HandlerFunc) http.HandlerFunc {
 	if s.deleteLimiter == nil {
 		return h
 	}
-	mw := rateLimitMiddleware(s.deleteLimiter)
+	mw := rateLimitMiddleware(s.deleteLimiter, "delete")
 	return mw(h).ServeHTTP
 }
 

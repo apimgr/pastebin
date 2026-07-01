@@ -5,6 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestNormalizePath(t *testing.T) {
@@ -189,5 +192,125 @@ func TestResponseWriter_Write(t *testing.T) {
 	}
 	if rr.Body.String() != string(body) {
 		t.Errorf("body = %q, want %q", rr.Body.String(), string(body))
+	}
+}
+
+// TestNewWithOptions_RuntimeAndSystem verifies that gating flags are honored
+// and that collectRuntime/collectSystem run without panic when enabled.
+func TestNewWithOptions_RuntimeAndSystem(t *testing.T) {
+	c := NewWithOptions(Options{
+		Version:         "2.0.0",
+		Commit:          "def",
+		BuildDate:       "2024-02-02",
+		StartTime:       time.Now(),
+		IncludeRuntime:  true,
+		IncludeSystem:   true,
+		DurationBuckets: []float64{0.01, 0.1, 1},
+		SizeBuckets:     []float64{10, 100, 1000},
+		DataDir:         t.TempDir(),
+	})
+	if c == nil {
+		t.Fatal("NewWithOptions returned nil")
+	}
+	if !c.includeRuntime {
+		t.Error("includeRuntime should be true")
+	}
+	// includeSystem is true only when the platform supports it.
+	if c.includeSystem != systemStatsSupported() {
+		t.Errorf("includeSystem = %v, want %v", c.includeSystem, systemStatsSupported())
+	}
+	// Two scrapes so CPU delta logic executes on the second pass.
+	c.collectRuntime()
+	c.collectRuntime()
+}
+
+// TestNewWithOptions_RuntimeDisabled verifies the runtime family is skipped.
+func TestNewWithOptions_RuntimeDisabled(t *testing.T) {
+	c := NewWithOptions(Options{
+		Version:        "2.0.0",
+		StartTime:      time.Now(),
+		IncludeRuntime: false,
+		IncludeSystem:  false,
+	})
+	if c.includeRuntime {
+		t.Error("includeRuntime should be false")
+	}
+	if c.includeSystem {
+		t.Error("includeSystem should be false")
+	}
+	// Should not panic and should still set uptime.
+	c.collectRuntime()
+}
+
+// TestSetTorProvider verifies the Tor callback drives the tor_* gauges.
+func TestSetTorProvider(t *testing.T) {
+	c := New("1.0.0", "abc", "2024-01-01", time.Now(), "")
+	c.SetTorProvider(func() (bool, bool) { return true, true })
+	c.collectRuntime()
+
+	if got := testutil.ToFloat64(TorEnabled); got != 1 {
+		t.Errorf("TorEnabled = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(TorRunning); got != 1 {
+		t.Errorf("TorRunning = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(TorCircuitEstablished); got != 1 {
+		t.Errorf("TorCircuitEstablished = %v, want 1", got)
+	}
+
+	c.SetTorProvider(func() (bool, bool) { return false, false })
+	c.collectRuntime()
+	if got := testutil.ToFloat64(TorRunning); got != 0 {
+		t.Errorf("TorRunning after disable = %v, want 0", got)
+	}
+}
+
+// TestSetBool verifies the gauge boolean helper.
+func TestSetBool(t *testing.T) {
+	g := prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_setbool_gauge"})
+	setBool(g, true)
+	if got := testutil.ToFloat64(g); got != 1 {
+		t.Errorf("setBool(true) = %v, want 1", got)
+	}
+	setBool(g, false)
+	if got := testutil.ToFloat64(g); got != 0 {
+		t.Errorf("setBool(false) = %v, want 0", got)
+	}
+}
+
+// TestMiddleware_TorOnionCounts verifies .onion Host requests increment the
+// Tor request counter.
+func TestMiddleware_TorOnionCounts(t *testing.T) {
+	c := New("1.0.0", "abc", "2024-01-01", time.Now(), "")
+	before := testutil.ToFloat64(TorRequestsTotal)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := c.Middleware()(inner)
+
+	req := httptest.NewRequest(http.MethodGet, "/paste", nil)
+	req.Host = "abcdef1234567890.onion"
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if after := testutil.ToFloat64(TorRequestsTotal); after != before+1 {
+		t.Errorf("TorRequestsTotal = %v, want %v", after, before+1)
+	}
+}
+
+// TestReadSystemStats exercises the platform system-stats reader. On Linux it
+// should return ok=true and a positive memory total; elsewhere ok=false.
+func TestReadSystemStats(t *testing.T) {
+	st, ok := readSystemStats(t.TempDir())
+	if systemStatsSupported() {
+		if !ok {
+			t.Fatal("readSystemStats returned ok=false on supported platform")
+		}
+		if st.memTotal == 0 {
+			t.Error("memTotal should be > 0 on Linux")
+		}
+	} else if ok {
+		t.Error("readSystemStats returned ok=true on unsupported platform")
 	}
 }

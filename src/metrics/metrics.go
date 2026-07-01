@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -15,6 +17,12 @@ import (
 )
 
 const ns = "pastebin"
+
+// Default histogram buckets, used when the config supplies no override.
+var (
+	defaultDurationBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+	defaultSizeBuckets     = []float64{100, 1000, 10000, 100000, 1000000, 10000000}
+)
 
 // Registered metric variables — exported so server/middleware can observe them.
 var (
@@ -46,33 +54,6 @@ var (
 			Help:      "Total number of HTTP requests processed.",
 		},
 		[]string{"method", "path", "status"},
-	)
-	HTTPRequestDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: ns,
-			Name:      "http_request_duration_seconds",
-			Help:      "HTTP request latency distribution.",
-			Buckets:   []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
-		},
-		[]string{"method", "path"},
-	)
-	HTTPRequestSize = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: ns,
-			Name:      "http_request_size_bytes",
-			Help:      "HTTP request body size distribution.",
-			Buckets:   []float64{100, 1000, 10000, 100000, 1000000, 10000000},
-		},
-		[]string{"method", "path"},
-	)
-	HTTPResponseSize = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: ns,
-			Name:      "http_response_size_bytes",
-			Help:      "HTTP response body size distribution.",
-			Buckets:   []float64{100, 1000, 10000, 100000, 1000000, 10000000},
-		},
-		[]string{"method", "path"},
 	)
 	HTTPActiveRequests = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: ns,
@@ -214,7 +195,27 @@ var (
 		[]string{"task"},
 	)
 
-	// Rate limiting
+	// Rate limiting (REQUIRED per PART 20). Labelled by endpoint_class only;
+	// never by ip — per-IP labels are an unbounded-cardinality memory-DoS
+	// vector. Per-IP detail belongs in structured logs, not metric labels.
+	RateLimitHits = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "rate_limit_hits_total",
+			Help:      "Rate limit triggers by endpoint class (every rate-limited request evaluated).",
+		},
+		[]string{"endpoint_class"},
+	)
+	RateLimitBlocks = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: ns,
+			Name:      "rate_limit_blocked_total",
+			Help:      "Requests blocked by rate limit, by endpoint class.",
+		},
+		[]string{"endpoint_class"},
+	)
+
+	// Rate limiting (optional detail per PART 20).
 	RateLimitRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: ns,
@@ -249,31 +250,90 @@ var (
 		Help:      "Total number of paste view events.",
 	})
 
-	// Go runtime (collected on scrape)
-	GoGoroutines = promauto.NewGauge(prometheus.GaugeOpts{
+	// Go runtime metrics (registered only when include_runtime is true).
+	GoGoroutines = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: ns,
 		Name:      "go_goroutines",
 		Help:      "Current number of goroutines.",
 	})
-	GoMemAllocBytes = promauto.NewGauge(prometheus.GaugeOpts{
+	GoMemAllocBytes = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: ns,
 		Name:      "go_mem_alloc_bytes",
 		Help:      "Bytes of heap memory currently allocated and in use.",
 	})
-	GoMemSysBytes = promauto.NewGauge(prometheus.GaugeOpts{
+	GoMemSysBytes = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: ns,
 		Name:      "go_mem_sys_bytes",
 		Help:      "Total bytes obtained from the OS.",
 	})
-	GoGCRunsTotal = promauto.NewCounter(prometheus.CounterOpts{
+	GoGCRunsTotal = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: ns,
 		Name:      "go_gc_runs_total",
 		Help:      "Total number of completed GC cycles.",
 	})
-	GoGCPauseTotalSeconds = promauto.NewCounter(prometheus.CounterOpts{
+	GoGCPauseTotalSeconds = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: ns,
 		Name:      "go_gc_pause_total_seconds",
 		Help:      "Cumulative seconds spent in GC stop-the-world pauses.",
+	})
+
+	// System metrics (registered only when include_system is true).
+	SystemCPUUsagePct = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_cpu_usage_percent",
+		Help:      "System CPU usage percentage (0-100).",
+	})
+	SystemMemUsagePct = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_memory_usage_percent",
+		Help:      "System memory usage percentage (0-100).",
+	})
+	SystemMemUsedBytes = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_memory_used_bytes",
+		Help:      "System memory in use, in bytes.",
+	})
+	SystemMemTotalBytes = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_memory_total_bytes",
+		Help:      "Total system memory, in bytes.",
+	})
+	SystemDiskUsagePct = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_disk_usage_percent",
+		Help:      "Disk usage percentage (0-100) for the data path.",
+	}, []string{"path"})
+	SystemDiskUsedBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_disk_used_bytes",
+		Help:      "Disk space used, in bytes, for the data path.",
+	}, []string{"path"})
+	SystemDiskTotalBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "system_disk_total_bytes",
+		Help:      "Total disk space, in bytes, for the data path.",
+	}, []string{"path"})
+
+	// Tor metrics (always registered; project ships Tor per PART 31).
+	TorEnabled = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "tor_enabled",
+		Help:      "1 when the Tor hidden service is enabled, else 0.",
+	})
+	TorRunning = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "tor_running",
+		Help:      "1 when the Tor hidden service is running, else 0.",
+	})
+	TorCircuitEstablished = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: ns,
+		Name:      "tor_circuit_established",
+		Help:      "1 when a Tor circuit is established, else 0.",
+	})
+	TorRequestsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: ns,
+		Name:      "tor_requests_total",
+		Help:      "Total requests received over the Tor hidden service (.onion Host).",
 	})
 )
 
@@ -282,13 +342,156 @@ type Collector struct {
 	startTime        time.Time
 	token            string // bearer token for access control; empty = no auth
 	lastPauseTotalNs uint64 // tracks accumulated GC pause nanoseconds between scrapes
+
+	includeSystem  bool
+	includeRuntime bool
+	dataDir        string
+
+	// Per-collector HTTP histograms, built from configured buckets.
+	httpReqDuration *prometheus.HistogramVec
+	httpReqSize     *prometheus.HistogramVec
+	httpRespSize    *prometheus.HistogramVec
+
+	// CPU sampling state for delta-based usage percentage (system metrics).
+	lastCPUTotal uint64
+	lastCPUIdle  uint64
+
+	torMu    sync.Mutex
+	torState func() (enabled, running bool)
 }
 
-// New creates a Collector and seeds the static app_info gauge.
+// Options configures a Collector. Buckets default to the package defaults
+// when empty; IncludeSystem/IncludeRuntime gate optional metric families.
+type Options struct {
+	Version         string
+	Commit          string
+	BuildDate       string
+	Token           string
+	StartTime       time.Time
+	IncludeSystem   bool
+	IncludeRuntime  bool
+	DurationBuckets []float64
+	SizeBuckets     []float64
+	DataDir         string
+}
+
+// New creates a Collector with the default metric set (runtime metrics on,
+// system metrics off, no Tor provider). Retained for callers and tests that
+// only need the core collector.
 func New(version, commit, buildDate string, startTime time.Time, token string) *Collector {
-	AppInfo.WithLabelValues(version, commit, buildDate, runtime.Version()).Set(1)
-	AppStartTimestamp.Set(float64(startTime.Unix()))
-	return &Collector{startTime: startTime, token: token}
+	return NewWithOptions(Options{
+		Version:        version,
+		Commit:         commit,
+		BuildDate:      buildDate,
+		Token:          token,
+		StartTime:      startTime,
+		IncludeRuntime: true,
+	})
+}
+
+// NewWithOptions creates a Collector, seeds app_info, builds the HTTP
+// histograms from the configured buckets, and conditionally registers the
+// optional runtime and system metric families.
+func NewWithOptions(o Options) *Collector {
+	AppInfo.WithLabelValues(o.Version, o.Commit, o.BuildDate, runtime.Version()).Set(1)
+	AppStartTimestamp.Set(float64(o.StartTime.Unix()))
+
+	dur := o.DurationBuckets
+	if len(dur) == 0 {
+		dur = defaultDurationBuckets
+	}
+	sz := o.SizeBuckets
+	if len(sz) == 0 {
+		sz = defaultSizeBuckets
+	}
+
+	c := &Collector{
+		startTime:      o.StartTime,
+		token:          o.Token,
+		includeSystem:  o.IncludeSystem && systemStatsSupported(),
+		includeRuntime: o.IncludeRuntime,
+		dataDir:        o.DataDir,
+	}
+
+	c.httpReqDuration = registerHistogramVec(prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: ns,
+			Name:      "http_request_duration_seconds",
+			Help:      "HTTP request latency distribution.",
+			Buckets:   dur,
+		},
+		[]string{"method", "path"},
+	))
+	c.httpReqSize = registerHistogramVec(prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: ns,
+			Name:      "http_request_size_bytes",
+			Help:      "HTTP request body size distribution.",
+			Buckets:   sz,
+		},
+		[]string{"method", "path"},
+	))
+	c.httpRespSize = registerHistogramVec(prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: ns,
+			Name:      "http_response_size_bytes",
+			Help:      "HTTP response body size distribution.",
+			Buckets:   sz,
+		},
+		[]string{"method", "path"},
+	))
+
+	if c.includeRuntime {
+		register(GoGoroutines, GoMemAllocBytes, GoMemSysBytes, GoGCRunsTotal, GoGCPauseTotalSeconds)
+	}
+	if c.includeSystem {
+		register(SystemCPUUsagePct, SystemMemUsagePct, SystemMemUsedBytes, SystemMemTotalBytes,
+			SystemDiskUsagePct, SystemDiskUsedBytes, SystemDiskTotalBytes)
+	}
+
+	return c
+}
+
+// SetTorProvider wires a callback that reports Tor hidden-service state at
+// scrape time. Set after the Tor manager is constructed.
+func (c *Collector) SetTorProvider(fn func() (enabled, running bool)) {
+	c.torMu.Lock()
+	c.torState = fn
+	c.torMu.Unlock()
+}
+
+// register registers collectors, ignoring AlreadyRegisteredError so that
+// multiple Collector instances (e.g. across tests) do not panic.
+func register(cs ...prometheus.Collector) {
+	for _, col := range cs {
+		if err := prometheus.Register(col); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+}
+
+// registerHistogramVec registers h and returns it, or returns the already
+// registered collector when one exists (so observations reach the scraped
+// instance rather than a dangling duplicate).
+func registerHistogramVec(h *prometheus.HistogramVec) *prometheus.HistogramVec {
+	if err := prometheus.Register(h); err != nil {
+		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			return are.ExistingCollector.(*prometheus.HistogramVec)
+		}
+		panic(err)
+	}
+	return h
+}
+
+// setBool sets a gauge to 1 when b is true, else 0.
+func setBool(g prometheus.Gauge, b bool) {
+	if b {
+		g.Set(1)
+		return
+	}
+	g.Set(0)
 }
 
 // Handler returns an http.Handler that serves Prometheus metrics.
@@ -319,18 +522,65 @@ func (c *Collector) Handler() http.Handler {
 func (c *Collector) collectRuntime() {
 	AppUptime.Set(time.Since(c.startTime).Seconds())
 
-	GoGoroutines.Set(float64(runtime.NumGoroutine()))
+	if c.includeRuntime {
+		GoGoroutines.Set(float64(runtime.NumGoroutine()))
 
-	var ms runtime.MemStats
-	runtime.ReadMemStats(&ms)
-	GoMemAllocBytes.Set(float64(ms.Alloc))
-	GoMemSysBytes.Set(float64(ms.Sys))
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		GoMemAllocBytes.Set(float64(ms.Alloc))
+		GoMemSysBytes.Set(float64(ms.Sys))
+		GoGCRunsTotal.Set(float64(ms.NumGC))
 
-	// Accumulate delta GC pause time since last scrape.
-	if ms.PauseTotalNs > c.lastPauseTotalNs {
-		delta := ms.PauseTotalNs - c.lastPauseTotalNs
-		GoGCPauseTotalSeconds.Add(float64(delta) / 1e9)
-		c.lastPauseTotalNs = ms.PauseTotalNs
+		// Accumulate delta GC pause time since last scrape.
+		if ms.PauseTotalNs > c.lastPauseTotalNs {
+			delta := ms.PauseTotalNs - c.lastPauseTotalNs
+			GoGCPauseTotalSeconds.Add(float64(delta) / 1e9)
+			c.lastPauseTotalNs = ms.PauseTotalNs
+		}
+	}
+
+	if c.includeSystem {
+		c.collectSystem()
+	}
+
+	c.torMu.Lock()
+	fn := c.torState
+	c.torMu.Unlock()
+	if fn != nil {
+		enabled, running := fn()
+		setBool(TorEnabled, enabled)
+		setBool(TorRunning, running)
+		// Running implies a bootstrapped circuit (Tor manager blocks on
+		// bootstrap before reporting running).
+		setBool(TorCircuitEstablished, running)
+	}
+}
+
+// collectSystem samples CPU, memory, and disk usage into the system_* gauges.
+func (c *Collector) collectSystem() {
+	st, ok := readSystemStats(c.dataDir)
+	if !ok {
+		return
+	}
+	if st.memTotal > 0 {
+		SystemMemTotalBytes.Set(float64(st.memTotal))
+		SystemMemUsedBytes.Set(float64(st.memUsed))
+		SystemMemUsagePct.Set(float64(st.memUsed) / float64(st.memTotal) * 100)
+	}
+	// CPU percentage is derived from the delta between consecutive scrapes.
+	if c.lastCPUTotal != 0 && st.cpuTotal > c.lastCPUTotal {
+		totalDelta := st.cpuTotal - c.lastCPUTotal
+		idleDelta := st.cpuIdle - c.lastCPUIdle
+		if totalDelta > 0 {
+			SystemCPUUsagePct.Set(float64(totalDelta-idleDelta) / float64(totalDelta) * 100)
+		}
+	}
+	c.lastCPUTotal = st.cpuTotal
+	c.lastCPUIdle = st.cpuIdle
+	if st.diskTotal > 0 && c.dataDir != "" {
+		SystemDiskTotalBytes.WithLabelValues(c.dataDir).Set(float64(st.diskTotal))
+		SystemDiskUsedBytes.WithLabelValues(c.dataDir).Set(float64(st.diskUsed))
+		SystemDiskUsagePct.WithLabelValues(c.dataDir).Set(float64(st.diskUsed) / float64(st.diskTotal) * 100)
 	}
 }
 
@@ -348,6 +598,11 @@ func (c *Collector) Middleware() func(http.Handler) http.Handler {
 			HTTPActiveRequests.Inc()
 			defer HTTPActiveRequests.Dec()
 
+			// Count requests arriving over the Tor hidden service.
+			if strings.Contains(strings.ToLower(r.Host), ".onion") {
+				TorRequestsTotal.Inc()
+			}
+
 			wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 			next.ServeHTTP(wrapped, r)
 
@@ -356,11 +611,11 @@ func (c *Collector) Middleware() func(http.Handler) http.Handler {
 			status := strconv.Itoa(wrapped.statusCode)
 
 			HTTPRequestsTotal.WithLabelValues(r.Method, path, status).Inc()
-			HTTPRequestDuration.WithLabelValues(r.Method, path).Observe(dur)
+			c.httpReqDuration.WithLabelValues(r.Method, path).Observe(dur)
 			if r.ContentLength > 0 {
-				HTTPRequestSize.WithLabelValues(r.Method, path).Observe(float64(r.ContentLength))
+				c.httpReqSize.WithLabelValues(r.Method, path).Observe(float64(r.ContentLength))
 			}
-			HTTPResponseSize.WithLabelValues(r.Method, path).Observe(float64(wrapped.written))
+			c.httpRespSize.WithLabelValues(r.Method, path).Observe(float64(wrapped.written))
 		})
 	}
 }

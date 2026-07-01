@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/apimgr/pastebin/src/metrics"
 )
 
 // ipBucket tracks request counts for a single IP within a sliding window.
@@ -103,8 +105,10 @@ func (rl *rateLimiter) gc() {
 }
 
 // rateLimitMiddleware returns a middleware that enforces the given rate limiter.
-// On rejection it returns 429 with a Retry-After header.
-func rateLimitMiddleware(rl *rateLimiter) func(http.Handler) http.Handler {
+// On rejection it returns 429 with a Retry-After header. endpointClass labels
+// the rate_limit_* metrics (e.g. "create", "delete"); per-IP detail is never
+// used as a metric label (unbounded cardinality — see PART 20).
+func rateLimitMiddleware(rl *rateLimiter, endpointClass string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Allowlisted clients bypass rate limiting (PART 5 middleware order).
@@ -118,7 +122,13 @@ func rateLimitMiddleware(rl *rateLimiter) func(http.Handler) http.Handler {
 				ip = r.RemoteAddr
 			}
 
+			metrics.RateLimitHits.WithLabelValues(endpointClass).Inc()
+
 			if !rl.allow(ip) {
+				metrics.RateLimitBlocks.WithLabelValues(endpointClass).Inc()
+				metrics.RateLimitRequestsTotal.WithLabelValues("per_ip", "limited").Inc()
+				metrics.RateLimitBlockedTotal.WithLabelValues("per_ip").Inc()
+
 				retryAfter := int(rl.window.Seconds())
 				w.Header().Set("Retry-After", fmt.Sprint(retryAfter))
 				w.Header().Set("Content-Type", "application/json")
@@ -132,6 +142,7 @@ func rateLimitMiddleware(rl *rateLimiter) func(http.Handler) http.Handler {
 				})
 				return
 			}
+			metrics.RateLimitRequestsTotal.WithLabelValues("per_ip", "allowed").Inc()
 			next.ServeHTTP(w, r)
 		})
 	}

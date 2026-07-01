@@ -183,7 +183,15 @@ type GeoIPDatabasesConfig struct {
 type MetricsConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	Endpoint string `yaml:"endpoint"`
-	Token    string `yaml:"token"`
+	// IncludeSystem exposes system_* gauges (CPU, memory, disk) when true.
+	IncludeSystem bool `yaml:"include_system"`
+	// IncludeRuntime exposes pastebin_go_* runtime gauges when true.
+	IncludeRuntime bool   `yaml:"include_runtime"`
+	Token          string `yaml:"token"`
+	// DurationBuckets overrides the http_request_duration_seconds histogram buckets.
+	DurationBuckets []float64 `yaml:"duration_buckets"`
+	// SizeBuckets overrides the http_request_size_bytes / http_response_size_bytes buckets.
+	SizeBuckets []float64 `yaml:"size_buckets"`
 	// AllowedIPs lists additional IPs or CIDRs that may reach /metrics (PART 20).
 	// Loopback (127.0.0.1, ::1) is always allowed. Non-loopback requests from IPs
 	// not in this list are rejected with 403 before the bearer-token check.
@@ -495,10 +503,14 @@ func DefaultConfig() *Config {
 				Tasks:   map[string]SchedulerTask{},
 			},
 			Metrics: MetricsConfig{
-				Enabled:    false,
-				Endpoint:   "/metrics",
-				Token:      "",
-				AllowedIPs: []string{},
+				Enabled:         false,
+				Endpoint:        "/metrics",
+				IncludeSystem:   true,
+				IncludeRuntime:  true,
+				Token:           "",
+				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
+				AllowedIPs:      []string{},
 			},
 			GeoIP: GeoIPConfig{
 				Enabled:        false,
