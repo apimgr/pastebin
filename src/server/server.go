@@ -2740,6 +2740,9 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
+	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
+	// link and onion address only when the service is enabled and running (PART 31)
+	s.injectTorData(data)
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
 		log.Printf("template %s error: %v", name, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
@@ -2761,6 +2764,7 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
+	s.injectTorData(data)
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
 		return "", err
@@ -2772,6 +2776,21 @@ func (s *Server) pageData() map[string]interface{} {
 	return map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
+	}
+}
+
+// injectTorData adds the Tor hidden-service status fields used by page footers
+// and the /server/help Tor Access section (PART 31). TorEnabled reflects that a
+// hidden service is configured; TorRunning that it is currently active; the
+// onion address is only meaningful while running.
+func (s *Server) injectTorData(data map[string]interface{}) {
+	running := s.TorRunning()
+	data["TorEnabled"] = s.torManager != nil
+	data["TorRunning"] = running
+	if running {
+		data["TorAddress"] = s.TorOnionAddress()
+	} else {
+		data["TorAddress"] = ""
 	}
 }
 

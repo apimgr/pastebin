@@ -101,6 +101,54 @@
                         <div class="code-content"><pre>curl -d "api_dev_key=x&api_paste_code=Hello&api_option=paste" \
      {{.BaseURL}}/api/api_post.php</pre></div>
                     </div>
+
+                    <h2 class="section-mt" id="api-docs">API Documentation</h2>
+                    <p>This service provides a full REST API and a GraphQL API, each with interactive documentation:</p>
+                    <ul>
+                        <li><a href="/server/docs/swagger">Swagger UI</a> — interactive REST API explorer (OpenAPI)</li>
+                        <li><a href="/server/docs/graphql">GraphiQL</a> — interactive GraphQL explorer</li>
+                    </ul>
+                    <p>The GraphQL endpoint is <code>{{.BaseURL}}/api/graphql</code>; the OpenAPI spec is served at <code>{{.BaseURL}}/api/swagger</code>.</p>
+
+                    {{if and .TorEnabled .TorRunning}}
+                    <h2 class="section-mt" id="tor-access">Tor Access</h2>
+                    <p>This service is available as a Tor hidden service for enhanced privacy.</p>
+                    <h3>Onion Address</h3>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Onion</span></div>
+                        <div class="code-content"><pre class="long-string">{{.TorAddress}}</pre></div>
+                        <button type="button" class="copy-btn" data-copy="{{.TorAddress}}" aria-label="Copy onion address">
+                            <span class="copy-icon">📋</span><span class="copy-text">Copy</span>
+                        </button>
+                    </div>
+                    <h3>How to Connect</h3>
+                    <ol>
+                        <li>Download <a href="https://www.torproject.org/download/" target="_blank" rel="noopener">Tor Browser</a></li>
+                        <li>Open Tor Browser and wait for it to connect</li>
+                        <li>Paste the onion address above into the Tor Browser address bar</li>
+                    </ol>
+                    <p>Using Tor hides your IP address and encrypts your connection through the Tor network.</p>
+                    {{end}}
+
+                    <h2 class="section-mt" id="faq">FAQ</h2>
+                    <h3>Do I need an account or API key?</h3>
+                    <p>No. Creating, reading, and deleting pastes requires no authentication. The delete token returned at creation is all you need to remove a paste.</p>
+                    <h3>How long are pastes kept?</h3>
+                    <p>Until their expiry elapses (see the expiry table above) or their burn-after view count is reached. Pastes set to <code>never</code> are kept until deleted.</p>
+                    <h3>Is there a size limit?</h3>
+                    <p>Yes. The server enforces a maximum paste size; oversized content is rejected with a <code>413</code> response.</p>
+                    <h3>Can I use it from scripts?</h3>
+                    <p>Yes — pipe to <code>curl --data-binary @-</code>, use the JSON API, or point existing <code>pastebin.com</code> scripts at this server.</p>
+
+                    <h2 class="section-mt" id="troubleshooting">Troubleshooting</h2>
+                    <h3>404 Not Found</h3>
+                    <p>The paste ID is wrong or the paste has expired or been burned. Check the URL.</p>
+                    <h3>413 Payload Too Large</h3>
+                    <p>Your content exceeds the maximum paste size. Split it or reduce the size.</p>
+                    <h3>429 Too Many Requests</h3>
+                    <p>You have hit the rate limit. Wait and retry; the <code>Retry-After</code> header tells you how long.</p>
+                    <h3>403 Forbidden on delete</h3>
+                    <p>The delete token is missing or incorrect. Only the correct token can delete a paste.</p>
                 </div>
             </div>
         </section>
@@ -117,6 +165,7 @@
                 <a href="/server/privacy" class="footer-link">{{t .Lang "footer.privacy"}}</a>
                 <a href="/server/contact" class="footer-link">{{t .Lang "footer.contact"}}</a>
                 <a href="/server/help" class="footer-link">{{t .Lang "footer.help"}}</a>
+                {{if and .TorEnabled .TorRunning}}<a href="/server/help#tor-access" class="footer-link">Tor Support</a>{{end}}
                 <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
             </div>
             <div class="footer-meta">
