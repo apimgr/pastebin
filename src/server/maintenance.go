@@ -161,7 +161,7 @@ func (s *Server) maintenanceNotify(event string, snap health.Snapshot) {
 	if !m.Enabled() {
 		return
 	}
-	to := strings.TrimSpace(strings.TrimPrefix(cfg.Web.Security.Contact, "mailto:"))
+	to := strings.TrimSpace(cfg.AdminEmail())
 	if to == "" {
 		return
 	}

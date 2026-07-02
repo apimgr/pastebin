@@ -675,7 +675,9 @@ func (s *Server) setupRoutes() {
 	r.Get("/static/icons/icon-180.png", s.handlePWAIcon180)
 	r.Get("/static/icons/icon-192.png", s.handlePWAIcon192)
 	r.Get("/static/icons/icon-512.png", s.handlePWAIcon512)
-	r.Get("/security.txt", s.handleSecurity)
+	// RFC 9116: canonical path is /.well-known/security.txt only. Bare
+	// /security.txt is intentionally NOT registered and returns 404 (PART 13).
+	r.Get("/.well-known/security.txt", s.handleSecurity)
 	r.Get("/favicon.ico", s.handleFavicon)
 
 	// ── Metrics endpoint ─────────────────────────────────────────────────────
@@ -2394,16 +2396,18 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
+	cfg := s.liveCfg()
 	data := map[string]interface{}{
-		"SiteTitle": s.liveCfg().Web.SiteTitle,
-		"Theme":     s.liveCfg().Web.Theme,
-		"Contact":   s.liveCfg().Web.Security.Contact,
+		"SiteTitle": cfg.Web.SiteTitle,
+		"Theme":     cfg.Web.Theme,
+		"Contact":   cfg.GeneralEmail(),
+		"BaseURL":   s.baseURL(r),
 	}
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		html, err := s.renderTemplateToString(r, "contact.html", data)
 		if err != nil {
-			fmt.Fprintf(w, "Contact: %s\n", s.liveCfg().Web.Security.Contact)
+			fmt.Fprintf(w, "Contact: %s\n", cfg.GeneralEmail())
 			return
 		}
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
@@ -2601,9 +2605,21 @@ func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(b.String()))
 }
 
+// handleSecurity serves /.well-known/security.txt (RFC 9116). The Contact line
+// is the canonical server.contact.security.email (PART 12); Expires is taken
+// from web.security.expires or auto-calculated one year out when unset.
 func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
+	cfg := s.liveCfg()
+	expires := strings.TrimSpace(cfg.Web.Security.Expires)
+	if expires == "" {
+		expires = time.Now().AddDate(1, 0, 0).UTC().Format(time.RFC3339)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Contact: mailto:%s\n", cfg.SecurityEmail())
+	fmt.Fprintf(&b, "Expires: %s\n", expires)
+	b.WriteString("Preferred-Languages: en\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte("Contact: " + s.liveCfg().Web.Security.Contact + "\nPreferred-Languages: en\n"))
+	w.Write([]byte(b.String()))
 }
 
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {

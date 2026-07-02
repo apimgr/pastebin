@@ -929,7 +929,7 @@ func TestHandleRobots(t *testing.T) {
 
 func TestHandleSecurity(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Web.Security.Contact = "security@example.com"
+	cfg.Server.Contact.Security.Email = "security@example.com"
 	s := newMinimalServer(cfg)
 
 	r := httptest.NewRequest(http.MethodGet, "/.well-known/security.txt", nil)
@@ -939,6 +939,9 @@ func TestHandleSecurity(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "security@example.com") {
 		t.Errorf("security.txt should contain contact email, got: %q", body)
+	}
+	if !strings.Contains(body, "Expires:") {
+		t.Errorf("security.txt should contain Expires field, got: %q", body)
 	}
 }
 

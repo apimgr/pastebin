@@ -45,14 +45,14 @@
                     {{if .Contact}}
                     <p class="section-mt-sm">
                         <strong>{{t .Lang "contact.email_label"}}:</strong>
-                        <a href="{{.Contact}}" class="long-string">{{.Contact}}</a>
+                        <a href="mailto:{{.Contact}}" class="long-string">{{.Contact}}</a>
                     </p>
                     {{end}}
 
                     <h2 class="section-mt">{{t .Lang "contact.security"}}</h2>
                     <p>
                         {{t .Lang "contact.security_desc"}}
-                        <a href="/security.txt">/security.txt</a>.
+                        <a href="/.well-known/security.txt" class="long-string">/.well-known/security.txt</a>.
                     </p>
 
                     <h2 class="section-mt">{{t .Lang "contact.abuse"}}</h2>

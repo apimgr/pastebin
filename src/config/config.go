@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +76,33 @@ type ServerConfig struct {
 	Termbin TermbinConfig `yaml:"termbin"`
 	// Maintenance configures the runtime self-healing maintenance mode (PART 20).
 	Maintenance MaintenanceConfig `yaml:"maintenance"`
+	// Contact holds the per-role notification recipients (PART 12): admin
+	// (server-internal alerts, never public), security (vulnerability reports,
+	// surfaced in security.txt), and general (public /server/contact form).
+	Contact ContactConfig `yaml:"contact"`
+}
+
+// ContactConfig is the unified notification-recipient tree (PART 12). Each role
+// carries an email address plus any number of named webhook transports. Empty
+// role-specific values fall back to the admin role. The only knob an operator
+// must set is server.contact.admin.email; everything else is optional.
+type ContactConfig struct {
+	// Admin receives server-internal alerts (error spikes, cert/backup failures,
+	// panics). NEVER public. Universal fallback for empty role addresses.
+	Admin ContactRole `yaml:"admin"`
+	// Security receives vulnerability reports. Public — surfaced in security.txt's
+	// Contact: line and the PGP keypair UID. Empty → falls back to admin.
+	Security ContactRole `yaml:"security"`
+	// General receives /server/contact form submissions. Public — shown as the
+	// footer "Contact us" address. Empty → falls back to admin.
+	General ContactRole `yaml:"general"`
+}
+
+// ContactRole is a single notification recipient: an email address and a map of
+// named webhook transports (telegram, discord, slack, generic, ...) (PART 12).
+type ContactRole struct {
+	Email    string            `yaml:"email"`
+	Webhooks map[string]string `yaml:"webhooks"`
 }
 
 // MaintenanceConfig configures the runtime self-healing maintenance mode (PART 20).
@@ -360,10 +388,14 @@ type RobotsConfig struct {
 	Deny  []string `yaml:"deny"`
 }
 
-// SecurityConfig holds security.txt contact info and server-wide encryption keys.
+// SecurityConfig holds security.txt metadata and server-wide encryption keys.
+// The security contact recipient is NOT stored here — it is the canonical
+// server.contact.security.email (PART 12 → "Canonical Contact Keys Only").
 type SecurityConfig struct {
-	Contact string `yaml:"contact"`
-	CORS    string `yaml:"cors"`
+	CORS string `yaml:"cors"`
+	// Expires is the security.txt Expires field. Empty → auto-calculated one
+	// year from the time the file is served (RFC 9116 requires this field).
+	Expires string `yaml:"expires"`
 	// EncryptionKey is the 32-byte AES-256-GCM key (hex-encoded) used for at-rest
 	// encryption of sensitive server data (DNS credentials, security reports, etc.).
 	// Auto-generated on first run; stored in server.yml; included in every backup.
@@ -648,6 +680,11 @@ func DefaultConfig() *Config {
 					OnExit:  true,
 				},
 			},
+			Contact: ContactConfig{
+				Admin:    ContactRole{Email: "admin@{fqdn}", Webhooks: map[string]string{}},
+				Security: ContactRole{Email: "security@{fqdn}", Webhooks: map[string]string{}},
+				General:  ContactRole{Email: "", Webhooks: map[string]string{}},
+			},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -674,7 +711,6 @@ func DefaultConfig() *Config {
 				Deny:  []string{},
 			},
 			Security: SecurityConfig{
-				Contact:       "mailto:admin@example.com",
 				CORS:          "*",
 				EncryptionKey: "", // auto-generated on first run
 				Blocklists: BlocklistsConfig{
@@ -832,6 +868,73 @@ func (c *Config) EncryptionKey() ([]byte, error) {
 		return nil, fmt.Errorf("encryption_key must be 32 bytes (got %d)", len(b))
 	}
 	return b, nil
+}
+
+// fqdn returns the server FQDN used to expand {fqdn} tokens in contact
+// addresses, falling back to "localhost" when unset.
+func (c *Config) fqdn() string {
+	f := strings.TrimSpace(c.Server.FQDN)
+	if f == "" {
+		return "localhost"
+	}
+	return f
+}
+
+// expandFQDN substitutes the {fqdn} placeholder in a contact value with the
+// resolved server FQDN.
+func (c *Config) expandFQDN(s string) string {
+	return strings.ReplaceAll(strings.TrimSpace(s), "{fqdn}", c.fqdn())
+}
+
+// AdminEmail returns the resolved admin recipient — the universal fallback for
+// every other role (PART 12). Falls back to admin@{fqdn} when unset.
+func (c *Config) AdminEmail() string {
+	if e := c.expandFQDN(c.Server.Contact.Admin.Email); e != "" {
+		return e
+	}
+	return "admin@" + c.fqdn()
+}
+
+// SecurityEmail returns the resolved security-report recipient (PART 12).
+// Empty → falls back to the admin address. Public: security.txt Contact line.
+func (c *Config) SecurityEmail() string {
+	if e := c.expandFQDN(c.Server.Contact.Security.Email); e != "" {
+		return e
+	}
+	return c.AdminEmail()
+}
+
+// GeneralEmail returns the resolved /server/contact recipient (PART 12).
+// Empty → falls back to the admin address. Public: footer "Contact us".
+func (c *Config) GeneralEmail() string {
+	if e := c.expandFQDN(c.Server.Contact.General.Email); e != "" {
+		return e
+	}
+	return c.AdminEmail()
+}
+
+// ContactWebhook returns the webhook URL for a role+transport, falling back to
+// the admin role's transport when the role-specific value is empty (PART 12).
+func (c *Config) ContactWebhook(role, transport string) string {
+	pick := func(r ContactRole) string {
+		if r.Webhooks == nil {
+			return ""
+		}
+		return strings.TrimSpace(r.Webhooks[transport])
+	}
+	var v string
+	switch role {
+	case "security":
+		v = pick(c.Server.Contact.Security)
+	case "general":
+		v = pick(c.Server.Contact.General)
+	default:
+		v = pick(c.Server.Contact.Admin)
+	}
+	if v != "" {
+		return v
+	}
+	return pick(c.Server.Contact.Admin)
 }
 
 func (c *Config) loadEnv() {

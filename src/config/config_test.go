@@ -903,3 +903,58 @@ func TestLoad_EnvOverridesFileValue(t *testing.T) {
 		t.Errorf("env PORT should win over file; got %q, want %q", cfg.Server.Port, "22222")
 	}
 }
+
+// TestContactResolution exercises the PART 12 role-based contact resolution:
+// {fqdn} expansion, RFC 2142 defaults, and admin fallback for empty roles.
+func TestContactResolution(t *testing.T) {
+	c := &config.Config{}
+	c.Server.FQDN = "paste.example.org"
+
+	if got := c.AdminEmail(); got != "admin@paste.example.org" {
+		t.Errorf("AdminEmail default: got %q", got)
+	}
+	if got := c.SecurityEmail(); got != "admin@paste.example.org" {
+		t.Errorf("SecurityEmail should fall back to admin: got %q", got)
+	}
+	if got := c.GeneralEmail(); got != "admin@paste.example.org" {
+		t.Errorf("GeneralEmail should fall back to admin: got %q", got)
+	}
+
+	c.Server.Contact.Admin.Email = "root@{fqdn}"
+	c.Server.Contact.Security.Email = "security@{fqdn}"
+	c.Server.Contact.General.Email = "hello@{fqdn}"
+	if got := c.AdminEmail(); got != "root@paste.example.org" {
+		t.Errorf("AdminEmail expand: got %q", got)
+	}
+	if got := c.SecurityEmail(); got != "security@paste.example.org" {
+		t.Errorf("SecurityEmail expand: got %q", got)
+	}
+	if got := c.GeneralEmail(); got != "hello@paste.example.org" {
+		t.Errorf("GeneralEmail expand: got %q", got)
+	}
+}
+
+// TestContactWebhookFallback verifies role webhook lookup falls back to admin.
+func TestContactWebhookFallback(t *testing.T) {
+	c := &config.Config{}
+	c.Server.Contact.Admin.Webhooks = map[string]string{"slack": "https://admin.example/hook"}
+	c.Server.Contact.Security.Webhooks = map[string]string{"slack": "https://sec.example/hook"}
+
+	if got := c.ContactWebhook("security", "slack"); got != "https://sec.example/hook" {
+		t.Errorf("security slack webhook: got %q", got)
+	}
+	if got := c.ContactWebhook("general", "slack"); got != "https://admin.example/hook" {
+		t.Errorf("general slack should fall back to admin: got %q", got)
+	}
+	if got := c.ContactWebhook("admin", "discord"); got != "" {
+		t.Errorf("missing transport should be empty: got %q", got)
+	}
+}
+
+// TestContactFQDNDefault confirms the localhost fallback when FQDN is unset.
+func TestContactFQDNDefault(t *testing.T) {
+	c := &config.Config{}
+	if got := c.AdminEmail(); got != "admin@localhost" {
+		t.Errorf("AdminEmail localhost fallback: got %q", got)
+	}
+}
