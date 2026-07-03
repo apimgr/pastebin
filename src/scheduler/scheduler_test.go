@@ -168,6 +168,8 @@ func (m *mockDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, err
 	return nil, nil
 }
 func (m *mockDB) MarkSecurityReportTokenUsed(id string, at time.Time) error { return nil }
+func (m *mockDB) GetSecurityKeypair() (*database.SecurityKeypair, error)     { return nil, nil }
+func (m *mockDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error   { return nil }
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 

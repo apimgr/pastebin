@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/common/email"
-	"github.com/apimgr/pastebin/src/common/secretbox"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 )
@@ -228,9 +227,9 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 		commitHash:     s.commitID,
 	})
 
-	// The project PGP key is increment 6; until then the canonical at-rest
-	// fallback is AES-256-GCM keyed by server.security.encryption_key.
-	sealed, err := secretbox.Seal(key, []byte(report))
+	// Seal the report at rest: prefer the project PGP key, fall back to
+	// AES-256-GCM keyed by server.security.encryption_key (PART 11).
+	sealed, encMethod, err := s.encryptSecurityReport([]byte(report), key)
 	if err != nil {
 		log.Printf("security report: seal failed: %v", err)
 		fail(http.StatusInternalServerError, "Could not securely store your report. Please try again.")
@@ -249,7 +248,7 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 		Severity:         severity,
 		Component:        sanitized,
 		EncryptedBody:    sealed,
-		EncMethod:        "aes-256-gcm",
+		EncMethod:        encMethod,
 		CreditPreference: creditPref,
 		CreditName:       storedCreditName,
 		TokenHash:        hex.EncodeToString(tokenHash[:]),

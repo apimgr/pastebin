@@ -112,6 +112,11 @@ type DB interface {
 	UpdateSecurityReportStatus(trackingID, status, maintainerComment string) error
 	ListDisclosedSecurityReports() ([]*SecurityReport, error)
 	MarkSecurityReportTokenUsed(trackingID string, at time.Time) error
+
+	// Project PGP keypair metadata (PART 11 → GPG Keypair Management). The keys
+	// themselves live on disk; only fingerprint/expiry/publish state is stored.
+	GetSecurityKeypair() (*SecurityKeypair, error)
+	UpsertSecurityKeypair(kp *SecurityKeypair) error
 }
 
 // Query timeout constants per PART 10.
@@ -340,6 +345,19 @@ func ensureSchema(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_secreports_status  ON security_reports(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_secreports_created ON security_reports(created_at)`,
+
+		// Project PGP keypair metadata (PART 11 → GPG Keypair Management). Single
+		// row (id = 1); the key material lives on disk, never in the DB. The
+		// keyservers_published column holds a JSON array of {url, published_at}.
+		`CREATE TABLE IF NOT EXISTS security_keypair (
+			id                   INTEGER PRIMARY KEY CHECK (id = 1),
+			fingerprint          TEXT NOT NULL DEFAULT '',
+			created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			expires_at           DATETIME,
+			last_rotated_at      DATETIME,
+			keyservers_published TEXT NOT NULL DEFAULT '',
+			revoked              INTEGER NOT NULL DEFAULT 0
+		)`,
 	}
 
 	// Schema updates — idempotent; ignore "already exists" errors.

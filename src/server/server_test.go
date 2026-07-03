@@ -2068,6 +2068,8 @@ func (d *stubDB) GetSecurityReport(trackingID string) (*database.SecurityReport,
 func (d *stubDB) UpdateSecurityReportStatus(trackingID, status, comment string) error   { return nil }
 func (d *stubDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, error)     { return nil, nil }
 func (d *stubDB) MarkSecurityReportTokenUsed(trackingID string, at time.Time) error     { return nil }
+func (d *stubDB) GetSecurityKeypair() (*database.SecurityKeypair, error)                { return nil, nil }
+func (d *stubDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error              { return nil }
 
 // newServerWithDB creates a minimal Server with both cfg and db set.
 func newServerWithDB(cfg *config.Config, db database.DB) *Server {

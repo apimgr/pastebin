@@ -513,6 +513,12 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		s.installSecret = instSec
 	}
 
+	// Generate the project PGP keypair on first start when publishing is enabled
+	// (PART 11 → GPG Keypair Management). Never fails startup; falls back to
+	// AES-256-GCM report encryption when unavailable. Prune any expired parked key.
+	s.ensureSecurityKeypair()
+	s.pruneRotatedKey()
+
 	// Runtime self-healing maintenance monitor (PART 20). Enters maintenance mode
 	// on a critical error (DB connection loss or file-write failure) and rejects
 	// writes with HTTP 503 while retrying recovery in the background.
@@ -2782,6 +2788,11 @@ func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "Contact: %s/server/contact?security_id=%s\n", strings.TrimRight(s.baseURL(r), "/"), id)
 	}
 	fmt.Fprintf(&b, "Expires: %s\n", expires)
+	// Encryption line seeded from the project PGP key (PART 11 → GPG Keypair
+	// Management). Emitted only when a key exists and publishing is enabled.
+	if s.hasPGPKey() {
+		fmt.Fprintf(&b, "Encryption: %s/.well-known/pgp-key.asc\n", strings.TrimRight(s.baseURL(r), "/"))
+	}
 	b.WriteString("Preferred-Languages: en\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(b.String()))
