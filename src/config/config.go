@@ -604,6 +604,18 @@ type WebConfig struct {
 	CSRF CSRFConfig `yaml:"csrf"`
 	// Healthz controls the optional root-level /healthz alias.
 	Healthz HealthzConfig `yaml:"healthz"`
+	// Footer controls operator footer branding (PART 16).
+	Footer FooterConfig `yaml:"footer"`
+}
+
+// FooterConfig holds operator footer branding shown above the default
+// application footer (PART 16 Footer Customization).
+type FooterConfig struct {
+	// CustomHTML is operator-supplied branding HTML rendered above the default
+	// footer. It is sanitized before rendering — scripts, event handlers, and
+	// dangerous elements are stripped. An empty value uses the default branding;
+	// a single space (" ") disables branding and shows only the default footer.
+	CustomHTML string `yaml:"custom_html"`
 }
 
 // HealthzConfig controls the optional /healthz root alias (PART 13).

@@ -507,7 +507,9 @@
     "contact": "联系",
     "help": "帮助",
     "made_with": "用心制作",
-    "last_update": "最后更新"
+    "last_update": "最后更新",
+    "tor_support": "Tor 支持",
+    "copy_onion": "复制 onion 地址"
   },
   "home": {
     "browse_recent": "浏览最新",

@@ -3045,6 +3045,8 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
+	// Inject sanitized operator footer branding rendered above the default footer (PART 16)
+	s.injectFooterData(data)
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
 	// link and onion address only when the service is enabled and running (PART 31)
 	s.injectTorData(data)
@@ -3070,6 +3072,7 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
+	s.injectFooterData(data)
 	s.injectTorData(data)
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
@@ -3082,6 +3085,19 @@ func (s *Server) pageData() map[string]interface{} {
 	return map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
+	}
+}
+
+// injectFooterData adds the sanitized operator footer branding rendered above
+// the default application footer (PART 16 Footer Customization). The value is
+// operator-supplied config content already stripped by bluemonday, so wrapping
+// it as template.HTML is safe; it is never user-submitted content. An empty
+// result (default or disabled branding) drops the branding row entirely.
+func (s *Server) injectFooterData(data map[string]interface{}) {
+	if html := s.liveCfg().FooterCustomHTML(); html != "" {
+		data["FooterCustomHTML"] = template.HTML(html)
+	} else {
+		data["FooterCustomHTML"] = template.HTML("")
 	}
 }
 
@@ -3171,6 +3187,7 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
+	s.injectFooterData(data)
 	s.injectTorData(data)
 	if err := s.templates.ExecuteTemplate(w, "error.html", data); err != nil {
 		log.Printf("error template render failed: %v", err)

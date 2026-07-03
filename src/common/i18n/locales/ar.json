@@ -123,7 +123,9 @@
     "contact": "اتصل",
     "help": "مساعدة",
     "made_with": "صُنع بـ",
-    "last_update": "آخر تحديث"
+    "last_update": "آخر تحديث",
+    "tor_support": "دعم Tor",
+    "copy_onion": "نسخ عنوان onion"
   },
   "home": {
     "create_paste": "إنشاء لصقة",

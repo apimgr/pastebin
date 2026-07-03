@@ -898,6 +898,15 @@ main {
     text-align: center;
 }
 
+/* Operator custom branding rendered above the default footer (PART 16) */
+.footer-brand {
+    max-width: 100%;
+    color: var(--color-text-secondary, var(--color-text-primary));
+    font-size: var(--font-size-sm);
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
 /* Tor onion address row — icon, monospace address box, copy button */
 .footer-onion {
     display: flex;
@@ -967,6 +976,29 @@ main {
     gap: var(--space-3);
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
+}
+
+.footer-repo {
+    color: var(--color-accent);
+    transition: color var(--transition-fast);
+}
+
+.footer-repo:hover {
+    color: var(--color-text-primary);
+}
+
+.footer-version {
+    font-family: var(--font-mono);
+    color: var(--color-text-muted);
+}
+
+.footer-update {
+    color: var(--color-text-muted);
+    transition: color var(--transition-fast);
+}
+
+.footer-update:hover {
+    color: var(--color-accent);
 }
 
 .footer-commit {

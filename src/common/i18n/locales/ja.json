@@ -507,7 +507,9 @@
     "contact": "お問い合わせ",
     "help": "ヘルプ",
     "made_with": "心を込めて",
-    "last_update": "最終更新"
+    "last_update": "最終更新",
+    "tor_support": "Torサポート",
+    "copy_onion": "onionアドレスをコピー"
   },
   "home": {
     "browse_recent": "最近のペースト",

@@ -1,11 +1,14 @@
 {{define "footer"}}
 <footer class="footer">
     <div class="footer-content">
+        {{if .FooterCustomHTML}}
+        <div class="footer-brand">{{.FooterCustomHTML}}</div>
+        {{end}}
         {{if and .TorEnabled .TorRunning}}
         <div class="footer-onion">
-            <span class="footer-onion-icon" aria-hidden="true">🧅</span>
-            <span class="footer-onion-address long-string">{{.TorAddress}}</span>
-            <button type="button" class="footer-onion-copy" data-copy="{{.TorAddress}}" aria-label="Copy onion address">
+            <a href="/server/help#tor-access" class="footer-onion-icon" aria-label="{{t .Lang "footer.tor_support"}}">🧅</a>
+            <code class="footer-onion-address onion-address long-string">{{.TorAddress}}</code>
+            <button type="button" class="footer-onion-copy copy-btn" data-copy="{{.TorAddress}}" aria-live="polite" aria-label="{{t .Lang "footer.copy_onion"}}">
                 <span class="copy-text" aria-hidden="true">📋</span>
             </button>
         </div>
@@ -20,12 +23,12 @@
             <a href="/server/help" class="footer-link">{{t .Lang "footer.help"}}</a>
         </nav>
         <div class="footer-made">
-            <span>{{t .Lang "footer.made_with"}} ❤️</span>
-            {{if .CommitID}}<span class="footer-sep" aria-hidden="true">·</span>
-            <a href="https://github.com/apimgr/pastebin/commit/{{.CommitID}}" class="footer-commit">{{.CommitID}}</a>{{end}}
+            <a href="https://github.com/apimgr/pastebin" target="_blank" rel="noopener noreferrer" class="footer-repo">{{t .Lang "footer.made_with"}}</a> ❤️
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <span class="footer-version">{{.Version}}</span>
         </div>
         <div class="footer-meta">
-            <span class="footer-update">{{t .Lang "footer.last_update"}}: {{.BuildDate}}</span>
+            <a href="/server/healthz" class="footer-update">{{t .Lang "footer.last_update"}}: {{.BuildDate}}</a>
         </div>
     </div>
 </footer>

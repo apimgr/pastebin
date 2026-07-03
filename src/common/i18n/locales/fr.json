@@ -507,7 +507,9 @@
     "contact": "Contact",
     "help": "Aide",
     "made_with": "Fait avec",
-    "last_update": "Dernière mise à jour"
+    "last_update": "Dernière mise à jour",
+    "tor_support": "Support Tor",
+    "copy_onion": "Copier l'adresse onion"
   },
   "home": {
     "browse_recent": "Voir les récents",
