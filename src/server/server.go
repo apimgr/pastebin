@@ -519,26 +519,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		s.deleteLimiter = newRateLimiter(deleteLimit, time.Minute)
 	}
 
-	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"t": func(lang, key string) string {
-			return i18n.Translate(lang, key)
-		},
-		"i18njs": func(lang string) template.JS {
-			return template.JS(i18n.JSBundle(lang))
-		},
-		"markdown": func(s string) template.HTML {
-			return renderMarkdown(s)
-		},
-		"trackingEnabled": func() bool {
-			return s.liveCfg().Server.Tracking.Enabled()
-		},
-		"trackingScript": func() template.HTML {
-			return renderTrackingScript(s.liveCfg().Server.Tracking)
-		},
-		"consentConfig": func() template.JS {
-			return renderConsentConfig(s.liveCfg())
-		},
-	}).ParseFS(templatesFS, "templates/*.html")
+	tmpl, err := s.buildTemplates()
 	if err != nil {
 		log.Printf("warning: could not parse templates: %v", err)
 	}
@@ -587,6 +568,32 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 
 	s.setupRoutes()
 	return s
+}
+
+// buildTemplates parses every embedded HTML template with the server's FuncMap.
+// Isolating parsing here keeps New readable and ensures the FuncMap used at
+// startup is the single source of truth for template rendering.
+func (s *Server) buildTemplates() (*template.Template, error) {
+	return template.New("").Funcs(template.FuncMap{
+		"t": func(lang, key string) string {
+			return i18n.Translate(lang, key)
+		},
+		"i18njs": func(lang string) template.JS {
+			return template.JS(i18n.JSBundle(lang))
+		},
+		"markdown": func(s string) template.HTML {
+			return renderMarkdown(s)
+		},
+		"trackingEnabled": func() bool {
+			return s.liveCfg().Server.Tracking.Enabled()
+		},
+		"trackingScript": func() template.HTML {
+			return renderTrackingScript(s.liveCfg().Server.Tracking)
+		},
+		"consentConfig": func() template.JS {
+			return renderConsentConfig(s.liveCfg())
+		},
+	}).ParseFS(templatesFS, "templates/*.html")
 }
 
 // OnConfigChange is called by the ConfigManager after each successful hot-reload.

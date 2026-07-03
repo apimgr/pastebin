@@ -3119,6 +3119,12 @@ func TestNewHandlersWithTemplates(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Errorf("healthz HTML status = %d, want 200", w.Code)
 		}
+		// The single-node Cluster section was removed: AI.md 2097 states this app
+		// has no cluster mode. A template referencing the dropped Cluster struct
+		// field errors only at execution time (a 500), so guard the rendered body.
+		if strings.Contains(w.Body.String(), "Cluster") {
+			t.Error("healthz.html still renders a Cluster section; spec has no cluster mode (AI.md 2097)")
+		}
 	})
 
 	t.Run("handleViewPaste_html_found", func(t *testing.T) {
