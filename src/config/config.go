@@ -1214,6 +1214,14 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	// Generate and persist a per-webhook signing secret for every configured
+	// webhook URL that lacks one (PART 17).
+	if gen, genErr := cfg.ensureWebhookSecrets(); genErr != nil {
+		log.Printf("config: warning: could not generate webhook secret: %v", genErr)
+	} else if gen {
+		needSave = true
+	}
+
 	if needSave {
 		_ = Save(path, cfg)
 	}
@@ -1354,6 +1362,104 @@ func (c *Config) ContactWebhook(role, transport string) string {
 		return v
 	}
 	return pick(c.Server.Contact.Admin)
+}
+
+// webhookSecretSuffix is appended to a transport name to form the config key
+// that stores its per-webhook signing secret (PART 17): webhooks.<name>_secret.
+const webhookSecretSuffix = "_secret"
+
+// WebhookTarget is a resolved webhook destination for dispatch: the transport
+// adapter name, the destination URL, and the per-webhook signing secret.
+type WebhookTarget struct {
+	Transport string
+	URL       string
+	Secret    string
+}
+
+// contactRole returns the ContactRole for a role name (admin/security/general),
+// defaulting to admin for any unknown name.
+func (c *Config) contactRole(role string) ContactRole {
+	switch role {
+	case "security":
+		return c.Server.Contact.Security
+	case "general":
+		return c.Server.Contact.General
+	default:
+		return c.Server.Contact.Admin
+	}
+}
+
+// WebhookSecret returns the per-webhook signing secret for a role+transport,
+// paired with whichever role actually supplies the URL (role-specific value if
+// set, else the admin fallback) (PART 17).
+func (c *Config) WebhookSecret(role, transport string) string {
+	r := c.contactRole(role)
+	if r.Webhooks != nil && strings.TrimSpace(r.Webhooks[transport]) != "" {
+		return strings.TrimSpace(r.Webhooks[transport+webhookSecretSuffix])
+	}
+	if c.Server.Contact.Admin.Webhooks != nil {
+		return strings.TrimSpace(c.Server.Contact.Admin.Webhooks[transport+webhookSecretSuffix])
+	}
+	return ""
+}
+
+// WebhookTargets returns every configured webhook destination for a role,
+// applying the admin-role fallback and pairing each URL with its signing
+// secret. `_secret` companion keys are not treated as transports (PART 17).
+func (c *Config) WebhookTargets(role string) []WebhookTarget {
+	seen := map[string]bool{}
+	var out []WebhookTarget
+	add := func(r ContactRole) {
+		for name := range r.Webhooks {
+			if strings.HasSuffix(name, webhookSecretSuffix) {
+				continue
+			}
+			if seen[name] {
+				continue
+			}
+			u := c.ContactWebhook(role, name)
+			if strings.TrimSpace(u) == "" {
+				continue
+			}
+			seen[name] = true
+			out = append(out, WebhookTarget{Transport: name, URL: u, Secret: c.WebhookSecret(role, name)})
+		}
+	}
+	add(c.contactRole(role))
+	add(c.Server.Contact.Admin)
+	return out
+}
+
+// ensureWebhookSecrets generates a random 32-byte hex signing secret for every
+// configured webhook URL that lacks one, storing it in the same webhooks map as
+// `<name>_secret`. Reports whether any secret was generated (PART 17).
+func (c *Config) ensureWebhookSecrets() (bool, error) {
+	generated := false
+	roles := []*ContactRole{&c.Server.Contact.Admin, &c.Server.Contact.Security, &c.Server.Contact.General}
+	for _, r := range roles {
+		if r.Webhooks == nil {
+			continue
+		}
+		for name, url := range r.Webhooks {
+			if strings.HasSuffix(name, webhookSecretSuffix) {
+				continue
+			}
+			if strings.TrimSpace(url) == "" {
+				continue
+			}
+			key := name + webhookSecretSuffix
+			if strings.TrimSpace(r.Webhooks[key]) != "" {
+				continue
+			}
+			var b [32]byte
+			if _, err := crand.Read(b[:]); err != nil {
+				return generated, err
+			}
+			r.Webhooks[key] = fmt.Sprintf("%x", b)
+			generated = true
+		}
+	}
+	return generated, nil
 }
 
 func (c *Config) loadEnv() {

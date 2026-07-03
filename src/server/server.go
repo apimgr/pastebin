@@ -43,6 +43,7 @@ import (
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/notify"
 	"github.com/apimgr/pastebin/src/ssl"
 	"github.com/apimgr/pastebin/src/swagger"
 	"github.com/apimgr/pastebin/src/tor"
@@ -231,6 +232,8 @@ type Server struct {
 	installSecret []byte
 	// privDrop holds privilege-drop parameters set by main before Run (PART 23 step 8g).
 	privDrop *privDropConfig
+	// notifier delivers outbound role-scoped webhook notifications (PART 17).
+	notifier *notify.Dispatcher
 }
 
 // privDropConfig describes the unprivileged service account to switch to after
@@ -388,6 +391,13 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		startTime: time.Now(),
 	}
 	s.stats.lastHour = time.Now().Hour()
+
+	// Webhook dispatcher for outbound role notifications (PART 17).
+	s.notifier = notify.New(notify.Meta{
+		ProjectName:    "pastebin",
+		ProjectVersion: version,
+		AppURL:         cfg.Server.BaseURL,
+	}, nil)
 
 	// Cache SHA-256(server.token) early so it can be passed to handlers below.
 	// If the token is empty, operatorTokenHash remains zero — protected routes return 401.
@@ -2608,24 +2618,37 @@ func (s *Server) handleContactPost(w http.ResponseWriter, r *http.Request) {
 
 	to := strings.TrimSpace(cfg.GeneralEmail())
 	m := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, s.baseURL(r), cfg.Server.FQDN)
-	if to == "" || !m.Enabled() {
+	emailReady := to != "" && m.Enabled()
+	webhookTargets := cfg.WebhookTargets("general")
+
+	// The form is available if any delivery channel is configured (PART 17): an
+	// SMTP recipient or at least one general-role webhook.
+	if !emailReady && len(webhookTargets) == 0 {
 		data["ContactError"] = "The contact form is currently unavailable. Please try again later."
 		w.WriteHeader(http.StatusServiceUnavailable)
 		s.renderTemplate(w, r, "contact.html", data)
 		return
 	}
 
-	if err := m.Send(to, "contact", map[string]string{
-		"name":    name,
-		"email":   fromEmail,
-		"subject": subject,
-		"message": message,
-	}); err != nil {
-		log.Printf("contact: send failed: %v", err)
-		data["ContactError"] = "Failed to send your message. Please try again later."
-		w.WriteHeader(http.StatusBadGateway)
-		s.renderTemplate(w, r, "contact.html", data)
-		return
+	// General webhook — spam-filtered sender details and message (PART 17).
+	s.notifyRole(cfg, "general", "general.contact_submitted",
+		"Contact form: "+subject,
+		"From: "+name+" <"+fromEmail+">\n\n"+message,
+		"info")
+
+	if emailReady {
+		if err := m.Send(to, "contact", map[string]string{
+			"name":    name,
+			"email":   fromEmail,
+			"subject": subject,
+			"message": message,
+		}); err != nil {
+			log.Printf("contact: send failed: %v", err)
+			data["ContactError"] = "Failed to send your message. Please try again later."
+			w.WriteHeader(http.StatusBadGateway)
+			s.renderTemplate(w, r, "contact.html", data)
+			return
+		}
 	}
 
 	data["ContactSuccess"] = pc.SuccessMessage

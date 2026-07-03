@@ -276,6 +276,13 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 		statusToken:    rawToken,
 	})
 
+	// Admin webhook summary — server-internal event, NEVER user content (PART 17).
+	// Only the tracking id, severity, and sanitized component leave the server.
+	s.notifyRole(cfg, "admin", "admin.security_report_received",
+		"Security report received: "+trackingID,
+		"A new security report was received. Severity: "+severity+"; component: "+sanitized+". Decrypt the at-rest report to read the full submission.",
+		severity)
+
 	// PII-free audit line — tracking id, severity, sanitized component only.
 	s.securityLog("security.report_received",
 		"tracking_id", trackingID, "severity", severity, "component", sanitized)
