@@ -47,7 +47,7 @@
                         <div class="paste-item-meta">
                             <span class="language">{{.Language}}</span>
                             <span>{{.Views}} {{t $.Lang "recent.views"}}</span>
-                            <span>{{.CreatedAt.Format "Jan 2, 2006"}}</span>
+                            <span>{{fmtDate .CreatedAt}}</span>
                         </div>
                     </div>
                     {{end}}

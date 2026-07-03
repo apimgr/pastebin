@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/audit"
+	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/go-chi/chi/v5"
@@ -236,9 +236,9 @@ func (s *Server) reportStatusPageData(r *http.Request, cfg *config.Config, rep *
 		"Severity":      rep.Severity,
 		"Component":     rep.Component,
 		"Comment":       strings.TrimSpace(rep.MaintainerComment),
-		"ReceivedAt":    rep.CreatedAt.UTC().Format("2006-01-02"),
-		"UpdatedAt":     rep.UpdatedAt.UTC().Format("2006-01-02"),
-		"ExpectedDate":  expected.UTC().Format("2006-01-02"),
+		"ReceivedAt":    rep.CreatedAt.Local().Format("January 2, 2006"),
+		"UpdatedAt":     rep.UpdatedAt.Local().Format("January 2, 2006"),
+		"ExpectedDate":  expected.Local().Format("January 2, 2006"),
 		"Stages":        securityStatusStages,
 		"CurrentStage":  rep.Status,
 		"SecurityEmail": cfg.SecurityEmail(),

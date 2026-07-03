@@ -40,7 +40,7 @@
                         <div class="paste-meta">
                             <span class="language">{{.Paste.Language}}</span>
                             <span>{{.Paste.Views}} {{t .Lang "paste.views"}}</span>
-                            <span>{{t .Lang "paste.created"}} {{.Paste.CreatedAt}}</span>
+                            <span>{{t .Lang "paste.created"}} {{fmtTime .Paste.CreatedAt}}</span>
                         </div>
                         <div class="paste-actions">
                             <a href="/raw/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.raw"}}</a>

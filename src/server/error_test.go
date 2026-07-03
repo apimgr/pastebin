@@ -20,6 +20,8 @@ func newErrorTestServer(t *testing.T) *Server {
 		"trackingEnabled": func() bool { return false },
 		"trackingScript":  func() template.HTML { return "" },
 		"consentConfig":   func() template.JS { return template.JS("{}") },
+		"fmtTime":         fmtUserTime,
+		"fmtDate":         fmtUserDate,
 	}).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)
@@ -34,15 +36,15 @@ func newErrorTestServer(t *testing.T) *Server {
 
 func TestErrorCodeForStatus(t *testing.T) {
 	cases := map[int]string{
-		http.StatusBadRequest:         "BAD_REQUEST",
-		http.StatusUnauthorized:       "UNAUTHORIZED",
-		http.StatusForbidden:          "FORBIDDEN",
-		http.StatusNotFound:           "NOT_FOUND",
-		http.StatusMethodNotAllowed:   "METHOD_NOT_ALLOWED",
-		http.StatusBadGateway:         "BAD_GATEWAY",
-		http.StatusServiceUnavailable: "SERVICE_UNAVAILABLE",
+		http.StatusBadRequest:          "BAD_REQUEST",
+		http.StatusUnauthorized:        "UNAUTHORIZED",
+		http.StatusForbidden:           "FORBIDDEN",
+		http.StatusNotFound:            "NOT_FOUND",
+		http.StatusMethodNotAllowed:    "METHOD_NOT_ALLOWED",
+		http.StatusBadGateway:          "BAD_GATEWAY",
+		http.StatusServiceUnavailable:  "SERVICE_UNAVAILABLE",
 		http.StatusInternalServerError: "SERVER_ERROR",
-		http.StatusTeapot:             "SERVER_ERROR",
+		http.StatusTeapot:              "SERVER_ERROR",
 	}
 	for status, want := range cases {
 		if got := errorCodeForStatus(status); got != want {

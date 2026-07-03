@@ -3,8 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
-	crand "crypto/rand"
 	"crypto/hmac"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -36,13 +36,13 @@ import (
 	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
-	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/geoip"
-	"github.com/apimgr/pastebin/src/health"
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
+	"github.com/apimgr/pastebin/src/health"
 	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/notify"
 	"github.com/apimgr/pastebin/src/ssl"
 	"github.com/apimgr/pastebin/src/swagger"
@@ -94,16 +94,16 @@ func (rs *requestStats) last24h() int64 {
 
 // HealthResponse is the canonical /server/healthz response structure (PART 13).
 type HealthResponse struct {
-	Project        ProjectInfo  `json:"project"`
-	Status         string       `json:"status"`
-	PendingRestart bool         `json:"pending_restart,omitempty"`
-	RestartReason  []string     `json:"restart_reason,omitempty"`
-	Version        string       `json:"version"`
-	GoVersion      string       `json:"go_version"`
-	Build          BuildInfo    `json:"build"`
-	Uptime         string       `json:"uptime"`
-	Mode           string       `json:"mode"`
-	Timestamp      time.Time    `json:"timestamp"`
+	Project        ProjectInfo `json:"project"`
+	Status         string      `json:"status"`
+	PendingRestart bool        `json:"pending_restart,omitempty"`
+	RestartReason  []string    `json:"restart_reason,omitempty"`
+	Version        string      `json:"version"`
+	GoVersion      string      `json:"go_version"`
+	Build          BuildInfo   `json:"build"`
+	Uptime         string      `json:"uptime"`
+	Mode           string      `json:"mode"`
+	Timestamp      time.Time   `json:"timestamp"`
 	// Maintenance is populated only while the server is in maintenance mode (PART 20).
 	Maintenance *MaintenanceInfo `json:"maintenance,omitempty"`
 	Features    FeaturesInfo     `json:"features"`
@@ -166,10 +166,10 @@ type ChecksInfo struct {
 
 // StatsInfo holds public-safe aggregate statistics.
 type StatsInfo struct {
-	RequestsTotal  int64 `json:"requests_total"`
-	Requests24h    int64 `json:"requests_24h"`
-	ActiveConns    int   `json:"active_connections"`
-	PastesTotal    int64 `json:"pastes_total"`
+	RequestsTotal int64 `json:"requests_total"`
+	Requests24h   int64 `json:"requests_24h"`
+	ActiveConns   int   `json:"active_connections"`
+	PastesTotal   int64 `json:"pastes_total"`
 }
 
 // SchedulerAPI is the interface the server uses to interact with the scheduler.
@@ -213,7 +213,7 @@ type Server struct {
 	// maintenance is the runtime self-healing maintenance-mode monitor (PART 20).
 	maintenance *health.Monitor
 	startTime   time.Time
-	stats            requestStats
+	stats       requestStats
 	// schedHealthFn is an optional callback that reports whether the scheduler
 	// is running — set by main after constructing the server.
 	schedHealthFn func() bool
@@ -451,7 +451,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		CircuitTimeout:            cfg.Server.Tor.CircuitTimeout,
 		BootstrapTimeout:          cfg.Server.Tor.BootstrapTimeout,
 		SafeLogging:               cfg.Server.Tor.SafeLogging,
-		MaxStreamsPerCircuit:       cfg.Server.Tor.MaxStreamsPerCircuit,
+		MaxStreamsPerCircuit:      cfg.Server.Tor.MaxStreamsPerCircuit,
 		CloseCircuitOnStreamLimit: cfg.Server.Tor.CloseCircuitOnStreamLimit,
 		BandwidthRate:             cfg.Server.Tor.BandwidthRate,
 		BandwidthBurst:            cfg.Server.Tor.BandwidthBurst,
@@ -593,7 +593,36 @@ func (s *Server) buildTemplates() (*template.Template, error) {
 		"consentConfig": func() template.JS {
 			return renderConsentConfig(s.liveCfg())
 		},
+		"fmtTime": fmtUserTime,
+		"fmtDate": fmtUserDate,
 	}).ParseFS(templatesFS, "templates/*.html")
+}
+
+// userTimeLayout is the canonical user-facing timestamp format (AI.md 19714):
+// "December 4, 2025 at 13:05:13 EST". RFC 3339 is reserved for machine-readable
+// surfaces (API responses, logs, health endpoints).
+const userTimeLayout = "January 2, 2006 at 15:04:05 MST"
+
+// userDateLayout is the date-only variant for surfaces that show a day without a
+// wall-clock time (e.g. a compact "recent pastes" list).
+const userDateLayout = "January 2, 2006"
+
+// fmtUserTime renders t in the canonical user-facing timestamp format in the
+// server's local timezone. The zero time renders as an empty string so callers
+// can omit unset timestamps without a template guard.
+func fmtUserTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Local().Format(userTimeLayout)
+}
+
+// fmtUserDate renders t as a date-only string in the server's local timezone.
+func fmtUserDate(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Local().Format(userDateLayout)
 }
 
 // OnConfigChange is called by the ConfigManager after each successful hot-reload.
@@ -1905,7 +1934,6 @@ func (s *Server) buildHealthResponse() HealthResponse {
 	return hr
 }
 
-
 // buildTorInfo returns the TorInfo block for health responses.
 func (s *Server) buildTorInfo() TorInfo {
 	if s.torManager == nil {
@@ -2028,45 +2056,45 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok": true,
 		"data": map[string]interface{}{
-		"name":    "Pastebin API",
-		"version": s.version,
-		"endpoints": map[string]interface{}{
-			"native": map[string]string{
-				"GET    /api/v1/pastes":          "list public pastes",
-				"POST   /api/v1/pastes":          "create paste (JSON/multipart/raw)",
-				"GET    /api/v1/pastes/{id}":     "get paste JSON",
-				"DELETE /api/v1/pastes/{id}":     "delete paste (requires token)",
-				"GET    /api/v1/pastes/{id}/raw": "get paste raw text",
+			"name":    "Pastebin API",
+			"version": s.version,
+			"endpoints": map[string]interface{}{
+				"native": map[string]string{
+					"GET    /api/v1/pastes":          "list public pastes",
+					"POST   /api/v1/pastes":          "create paste (JSON/multipart/raw)",
+					"GET    /api/v1/pastes/{id}":     "get paste JSON",
+					"DELETE /api/v1/pastes/{id}":     "delete paste (requires token)",
+					"GET    /api/v1/pastes/{id}/raw": "get paste raw text",
+				},
+				"web": map[string]string{
+					"GET  /":            "home",
+					"GET  /create":      "create form",
+					"POST /create":      "create paste (form/raw)",
+					"GET  /{id}":        "view paste",
+					"GET  /raw/{id}":    "raw content",
+					"GET  /dl/{id}":     "download",
+					"GET  /emb/{id}":    "embed view",
+					"GET  /remove/{id}": "delete form",
+				},
+				"compat_pastebin": map[string]string{
+					"POST /api/api_post.php":  "create paste",
+					"GET  /api/api_raw.php":   "get raw paste (?i=ID)",
+					"POST /api/api_login.php": "always returns ANONYMOUS",
+				},
+				"compat_lenpaste": map[string]string{
+					"POST /api/new":      "create paste",
+					"GET  /api/get":      "get paste (?id=ID)",
+					"DELETE /api/remove": "delete paste (?id=ID&deleteToken=TOKEN)",
+					"GET  /api/list":     "list pastes",
+				},
 			},
-			"web": map[string]string{
-				"GET  /":           "home",
-				"GET  /create":     "create form",
-				"POST /create":     "create paste (form/raw)",
-				"GET  /{id}":       "view paste",
-				"GET  /raw/{id}":   "raw content",
-				"GET  /dl/{id}":    "download",
-				"GET  /emb/{id}":   "embed view",
-				"GET  /remove/{id}": "delete form",
-			},
-			"compat_pastebin": map[string]string{
-				"POST /api/api_post.php":  "create paste",
-				"GET  /api/api_raw.php":   "get raw paste (?i=ID)",
-				"POST /api/api_login.php": "always returns ANONYMOUS",
-			},
-			"compat_lenpaste": map[string]string{
-				"POST /api/new":    "create paste",
-				"GET  /api/get":    "get paste (?id=ID)",
-				"DELETE /api/remove": "delete paste (?id=ID&deleteToken=TOKEN)",
-				"GET  /api/list":   "list pastes",
+			"examples": map[string]string{
+				"curl_raw":  "curl --data-binary @file.txt " + base + "/create",
+				"curl_file": "curl -F 'files=@code.py' " + base + "/create",
+				"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/pastes",
+				"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
 			},
 		},
-		"examples": map[string]string{
-			"curl_raw":  "curl --data-binary @file.txt " + base + "/create",
-			"curl_file": "curl -F 'files=@code.py' " + base + "/create",
-			"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/pastes",
-			"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
-		},
-	},
 	})
 }
 
@@ -2457,7 +2485,6 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 		"Content":   handler.HighlightedContent(paste),
 	})
 }
-
 
 // ─── Server info pages ────────────────────────────────────────────────────────
 
