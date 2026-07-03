@@ -122,6 +122,7 @@
     "privacy": "Privacy",
     "contact": "Contact",
     "help": "Help",
+    "made_with": "Made with",
     "last_update": "Last update"
   },
   "home": {
@@ -276,7 +277,27 @@
     "security": "Security Issues",
     "security_desc": "To report a security vulnerability, consult our security policy at",
     "abuse": "Abuse Reports",
-    "abuse_desc": "To report abusive content or policy violations, contact us at:"
+    "abuse_desc": "To report abusive content or policy violations, contact us at:",
+    "security_mode": "Security report mode — your submission is encrypted at rest and routed to the maintainers through the coordinated-disclosure pipeline.",
+    "sec_gpg": "Your PGP public key (URL or pasted block, optional)",
+    "sec_component": "Affected component",
+    "sec_component_other": "If \"other\", describe the component",
+    "sec_endpoint": "Affected endpoint or URL (optional)",
+    "sec_severity": "Severity (your assessment)",
+    "sec_summary": "Vulnerability summary",
+    "sec_steps": "Steps to reproduce",
+    "sec_impact": "Impact",
+    "sec_fix": "Suggested fix (optional)",
+    "sec_cve": "Request a CVE assignment",
+    "sec_days": "Preferred disclosure window (days)",
+    "sec_credit": "Credit preference",
+    "sec_credit_name": "Yes — credit my real name",
+    "sec_credit_handle": "Yes — credit my handle",
+    "sec_credit_no": "No credit",
+    "sec_credit_anon": "Anonymous",
+    "sec_credit_display": "Name or handle to display",
+    "sec_agreement": "I agree to coordinated disclosure (no public release before the coordinated date or 90 days, whichever comes first).",
+    "sec_send": "Submit security report"
   },
   "help": {
     "title": "Help",

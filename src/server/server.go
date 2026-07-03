@@ -202,6 +202,9 @@ type Server struct {
 	buildDate        string
 	configDir        string
 	dataDir          string
+	// logDir is the runtime logs directory, set by main via SetLogDir. Used by
+	// the security.log writer (PART 11 Coordinated Disclosure Pipeline).
+	logDir string
 	// maintenance is the runtime self-healing maintenance-mode monitor (PART 20).
 	maintenance *health.Monitor
 	startTime   time.Time
@@ -233,6 +236,12 @@ type privDropConfig struct {
 	user  string
 	group string
 	chown []string
+}
+
+// SetLogDir registers the runtime logs directory used by the security.log writer
+// (PART 11). Call from main after resolving directories, before Run.
+func (s *Server) SetLogDir(dir string) {
+	s.logDir = dir
 }
 
 // SetPrivilegeDrop registers the service user/group and the runtime paths to chown
@@ -2423,6 +2432,16 @@ func (s *Server) contactData(r *http.Request) map[string]interface{} {
 			data["CaptchaToken"] = cap.Token
 		}
 	}
+	// Security-report mode switch (PART 11 Coordinated Disclosure Pipeline): a
+	// valid, non-expired security_id in the query string swaps the standard
+	// contact form for the security-research form. An absent or invalid id
+	// silently leaves the standard form in place.
+	if pc.Enabled && s.validSecurityID(strings.TrimSpace(r.URL.Query().Get("security_id"))) {
+		data["SecurityMode"] = true
+		data["SecurityID"] = s.currentSecurityID()
+		data["Components"] = securityComponents
+		data["FormDisclosureDays"] = defaultDisclosureDays
+	}
 	return data
 }
 
@@ -2463,6 +2482,24 @@ func (s *Server) handleContactPost(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		s.renderTemplate(w, r, "contact.html", data)
 		return
+	}
+
+	// Coordinated-disclosure branch (PART 11): when a security_id is supplied,
+	// re-validate it server-side (the form value can be tampered with — prefer
+	// the query string, fall back to the hidden field). A valid id routes into
+	// the encrypted security-report pipeline; an invalid id is logged as a
+	// possible scrape attempt and falls through to the standard contact form.
+	suppliedSecID := strings.TrimSpace(r.URL.Query().Get("security_id"))
+	if suppliedSecID == "" {
+		suppliedSecID = strings.TrimSpace(r.PostFormValue("security_id"))
+	}
+	if suppliedSecID != "" {
+		if s.validSecurityID(suppliedSecID) {
+			s.handleSecurityReport(w, r, cfg)
+			return
+		}
+		s.securityLog("security.security_id_invalid",
+			"ip", clientIP(r), "ua", r.UserAgent(), "supplied_id", suppliedSecID)
 	}
 
 	name := strings.TrimSpace(r.PostFormValue("name"))
@@ -2861,6 +2898,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
+	data["CommitID"] = s.commitID
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
 	// link and onion address only when the service is enabled and running (PART 31)
 	s.injectTorData(data)
@@ -2885,6 +2923,7 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
+	data["CommitID"] = s.commitID
 	s.injectTorData(data)
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
@@ -2985,6 +3024,8 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	data["Dir"] = i18n.Direction(lang)
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
+	data["CommitID"] = s.commitID
+	s.injectTorData(data)
 	if err := s.templates.ExecuteTemplate(w, "error.html", data); err != nil {
 		log.Printf("error template render failed: %v", err)
 	}

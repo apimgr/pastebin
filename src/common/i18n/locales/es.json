@@ -186,7 +186,27 @@
     "security": "Problemas de Seguridad",
     "security_desc": "Para reportar una vulnerabilidad de seguridad, consulte nuestra política de seguridad en",
     "abuse": "Reportes de Abuso",
-    "abuse_desc": "Para reportar contenido abusivo o violaciones de política, contáctenos en:"
+    "abuse_desc": "Para reportar contenido abusivo o violaciones de política, contáctenos en:",
+    "security_mode": "Modo de informe de seguridad — su envío se cifra en reposo y se enruta a los mantenedores a través del proceso de divulgación coordinada.",
+    "sec_gpg": "Su clave pública PGP (URL o bloque pegado, opcional)",
+    "sec_component": "Componente afectado",
+    "sec_component_other": "Si es \"otro\", describa el componente",
+    "sec_endpoint": "Endpoint o URL afectada (opcional)",
+    "sec_severity": "Gravedad (según su evaluación)",
+    "sec_summary": "Resumen de la vulnerabilidad",
+    "sec_steps": "Pasos para reproducir",
+    "sec_impact": "Impacto",
+    "sec_fix": "Corrección sugerida (opcional)",
+    "sec_cve": "Solicitar la asignación de un CVE",
+    "sec_days": "Ventana de divulgación preferida (días)",
+    "sec_credit": "Preferencia de crédito",
+    "sec_credit_name": "Sí — acreditar mi nombre real",
+    "sec_credit_handle": "Sí — acreditar mi alias",
+    "sec_credit_no": "Sin crédito",
+    "sec_credit_anon": "Anónimo",
+    "sec_credit_display": "Nombre o alias a mostrar",
+    "sec_agreement": "Acepto la divulgación coordinada (sin publicación pública antes de la fecha coordinada o de 90 días, lo que ocurra primero).",
+    "sec_send": "Enviar informe de seguridad"
   },
   "help": {
     "title": "Ayuda",
@@ -486,6 +506,7 @@
     "privacy": "Privacidad",
     "contact": "Contacto",
     "help": "Ayuda",
+    "made_with": "Hecho con",
     "last_update": "Última actualización"
   },
   "home": {

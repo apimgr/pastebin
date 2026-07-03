@@ -186,7 +186,27 @@
     "security": "Sicherheitsprobleme",
     "security_desc": "Um eine Sicherheitslücke zu melden, lesen Sie unsere Sicherheitsrichtlinie unter",
     "abuse": "Missbrauchsmeldungen",
-    "abuse_desc": "Um missbräuchliche Inhalte oder Richtlinienverstöße zu melden, kontaktieren Sie uns unter:"
+    "abuse_desc": "Um missbräuchliche Inhalte oder Richtlinienverstöße zu melden, kontaktieren Sie uns unter:",
+    "security_mode": "Sicherheitsmeldungsmodus — Ihre Einreichung wird im Ruhezustand verschlüsselt und über den Prozess der koordinierten Offenlegung an die Betreuer weitergeleitet.",
+    "sec_gpg": "Ihr öffentlicher PGP-Schlüssel (URL oder eingefügter Block, optional)",
+    "sec_component": "Betroffene Komponente",
+    "sec_component_other": "Falls \"andere\", beschreiben Sie die Komponente",
+    "sec_endpoint": "Betroffener Endpunkt oder URL (optional)",
+    "sec_severity": "Schweregrad (Ihre Einschätzung)",
+    "sec_summary": "Zusammenfassung der Schwachstelle",
+    "sec_steps": "Schritte zur Reproduktion",
+    "sec_impact": "Auswirkung",
+    "sec_fix": "Vorgeschlagene Lösung (optional)",
+    "sec_cve": "Eine CVE-Zuweisung anfordern",
+    "sec_days": "Bevorzugtes Offenlegungsfenster (Tage)",
+    "sec_credit": "Nennungspräferenz",
+    "sec_credit_name": "Ja — meinen echten Namen nennen",
+    "sec_credit_handle": "Ja — meinen Handle nennen",
+    "sec_credit_no": "Keine Nennung",
+    "sec_credit_anon": "Anonym",
+    "sec_credit_display": "Anzuzeigender Name oder Handle",
+    "sec_agreement": "Ich stimme der koordinierten Offenlegung zu (keine öffentliche Veröffentlichung vor dem koordinierten Datum oder 90 Tagen, je nachdem, was zuerst eintritt).",
+    "sec_send": "Sicherheitsbericht absenden"
   },
   "help": {
     "title": "Hilfe",
@@ -486,6 +506,7 @@
     "privacy": "Datenschutz",
     "contact": "Kontakt",
     "help": "Hilfe",
+    "made_with": "Gemacht mit",
     "last_update": "Letzte Aktualisierung"
   },
   "home": {

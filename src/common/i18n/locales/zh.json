@@ -186,7 +186,27 @@
     "security": "安全问题",
     "security_desc": "如需报告安全漏洞，请查阅我们位于以下地址的安全政策",
     "abuse": "举报滥用",
-    "abuse_desc": "如需举报滥用内容或违反政策的行为，请联系我们："
+    "abuse_desc": "如需举报滥用内容或违反政策的行为，请联系我们：",
+    "security_mode": "安全报告模式 — 您的提交在静态时加密，并通过协调披露流程发送给维护者。",
+    "sec_gpg": "您的 PGP 公钥（URL 或粘贴的文本块，可选）",
+    "sec_component": "受影响的组件",
+    "sec_component_other": "如果选择\"其他\"，请描述该组件",
+    "sec_endpoint": "受影响的端点或 URL（可选）",
+    "sec_severity": "严重程度（您的评估）",
+    "sec_summary": "漏洞摘要",
+    "sec_steps": "复现步骤",
+    "sec_impact": "影响",
+    "sec_fix": "建议的修复方案（可选）",
+    "sec_cve": "申请 CVE 编号",
+    "sec_days": "首选披露窗口（天）",
+    "sec_credit": "署名偏好",
+    "sec_credit_name": "是 — 使用我的真实姓名署名",
+    "sec_credit_handle": "是 — 使用我的用户名署名",
+    "sec_credit_no": "不署名",
+    "sec_credit_anon": "匿名",
+    "sec_credit_display": "要显示的姓名或用户名",
+    "sec_agreement": "我同意协调披露（在协调日期或 90 天（以先到者为准）之前不公开发布）。",
+    "sec_send": "提交安全报告"
   },
   "help": {
     "title": "帮助",
@@ -486,6 +506,7 @@
     "privacy": "隐私",
     "contact": "联系",
     "help": "帮助",
+    "made_with": "用心制作",
     "last_update": "最后更新"
   },
   "home": {

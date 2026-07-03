@@ -889,42 +889,64 @@ main {
 
 .footer-content {
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
     align-items: center;
+    gap: var(--space-5);
     max-width: 1280px;
     margin: 0 auto;
     padding: 0 var(--space-6);
+    text-align: center;
 }
 
-.footer-brand {
+/* Tor onion address row — icon, monospace address box, copy button */
+.footer-onion {
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    max-width: 100%;
 }
 
-.footer-logo {
-    width: 32px;
-    height: 32px;
-    background: var(--color-accent-gradient);
+.footer-onion-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.footer-onion-address {
+    background: var(--color-bg-tertiary, var(--color-bg));
     border-radius: var(--radius-md);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary, var(--color-text-primary));
 }
 
-.footer-text {
+.footer-onion-copy {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
     color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+}
+
+.footer-onion-copy:hover,
+.footer-onion-copy.copied {
+    color: var(--color-accent);
 }
 
 .footer-links {
     display: flex;
-    gap: var(--space-6);
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
 }
 
 .footer-link {
-    color: var(--color-text-muted);
+    color: var(--color-accent);
     font-size: var(--font-size-sm);
     transition: color var(--transition-fast);
 }
@@ -933,17 +955,33 @@ main {
     color: var(--color-text-primary);
 }
 
-.footer-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-1);
+.footer-sep {
     color: var(--color-text-muted);
-    font-size: var(--font-size-xs);
+    user-select: none;
 }
 
-.footer-version {
+.footer-made {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+.footer-commit {
     font-family: var(--font-mono);
+    color: var(--color-text-muted);
+    transition: color var(--transition-fast);
+}
+
+.footer-commit:hover {
+    color: var(--color-accent);
+}
+
+.footer-meta {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
 }
 
 /* ============================================
@@ -1053,13 +1091,6 @@ main {
     grid-template-columns: 1fr;
 }
 
-/* Mobile footer: stack */
-.footer-content {
-    flex-direction: column;
-    gap: var(--space-4);
-    text-align: center;
-}
-
 /* Tablet (768px+): restore larger-screen type scale and layout */
 @media (min-width: 768px) {
     :root {
@@ -1101,15 +1132,6 @@ main {
 
     .results-grid {
         grid-template-columns: repeat(2, 1fr);
-    }
-
-    .footer-content {
-        flex-direction: row;
-        text-align: left;
-    }
-
-    .footer-meta {
-        align-items: flex-end;
     }
 }
 

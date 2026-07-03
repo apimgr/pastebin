@@ -1,0 +1,19 @@
+Subject: [Security] {severity}: {summary}
+---
+SECURITY REPORT RECEIVED
+
+Received: {timestamp}
+Site: {app_name} ({fqdn})
+
+Tracking ID: {tracking_id}
+Severity (researcher self-assessment): {severity}
+Affected component: {component}
+CVE requested: {cve_requested}
+Requested disclosure window: {disclosure_days} days
+
+The full vulnerability report is stored encrypted at rest ({enc_method}).
+{retrieval_note}
+
+--
+{app_name}
+{app_url}

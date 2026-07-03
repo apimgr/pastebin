@@ -1049,6 +1049,7 @@ Examples:
 	// ── HTTP server ───────────────────────────────────────────────────────────
 
 	srv := server.New(db, cfg, cfgMgr, Version, CommitID, BuildDate, configDir, dataDir)
+	srv.SetLogDir(logsDir)
 
 	// Weekly GeoIP database refresh (Sunday 03:00).
 	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func() error {

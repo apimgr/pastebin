@@ -43,26 +43,7 @@
         </div>
     </main>
 
-    <footer class="footer">
-        <div class="footer-content">
-            <div class="footer-brand">
-                <div class="footer-logo">📋</div>
-                <span class="footer-text">{{.SiteTitle}} - Part of apimgr</span>
-            </div>
-            <div class="footer-links">
-                <a href="/server/about" class="footer-link">{{t .Lang "footer.about"}}</a>
-                <a href="/server/privacy" class="footer-link">{{t .Lang "footer.privacy"}}</a>
-                <a href="/server/contact" class="footer-link">{{t .Lang "footer.contact"}}</a>
-                <a href="/server/help" class="footer-link">{{t .Lang "footer.help"}}</a>
-                {{if and .TorEnabled .TorRunning}}<a href="/server/help#tor-access" class="footer-link">Tor Support</a>{{end}}
-                <a href="https://github.com/apimgr" class="footer-link">GitHub</a>
-            </div>
-            <div class="footer-meta">
-                <span class="footer-version">v{{.Version}}</span>
-                <span class="footer-update">{{t .Lang "footer.last_update"}}: {{.BuildDate}}</span>
-            </div>
-        </div>
-    </footer>
+    {{template "footer" .}}
 
     <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
     <div id="toast-container"></div>
