@@ -695,6 +695,9 @@ func (s *Server) setupRoutes() {
 	// RFC 9116: canonical path is /.well-known/security.txt only. Bare
 	// /security.txt is intentionally NOT registered and returns 404 (PART 13).
 	r.Get("/.well-known/security.txt", s.handleSecurity)
+	// Coordinated-disclosure PGP public key — 404 until a keypair is generated
+	// and publishing is enabled (PART 11, AI.md 14156).
+	r.Get("/.well-known/pgp-key.asc", s.handlePGPKey)
 	r.Get("/favicon.ico", s.handleFavicon)
 
 	// ── Metrics endpoint ─────────────────────────────────────────────────────
@@ -713,6 +716,10 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/terms", s.handleTerms)
 	r.Get("/server/contact", s.handleContact)
 	r.Post("/server/contact", s.handleContactPost)
+	// Coordinated-disclosure public pages (PART 11, AI.md 14157-14161).
+	r.Get("/server/security/policy", s.handleSecurityPolicy)
+	r.Get("/server/security/thanks", s.handleSecurityThanks)
+	r.Get("/server/security/report/{tracking_id}", s.handleSecurityReportStatus)
 	r.Get("/server/healthz", s.handleHealthz)
 	// /healthz root alias — only when server.healthz.root.enabled: true (PART 13).
 	if s.liveCfg().Web.Healthz.Root.Enabled {

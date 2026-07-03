@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Acknowledgments - {{.SiteTitle}}</title>
+    <meta name="description" content="Researchers we thank for responsibly disclosing security issues in {{.SiteTitle}}">
+    <meta name="theme-color" content="#89b4fa">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
+    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content">
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Security Acknowledgments</h1>
+                    <p class="section-subtitle">Thank you to the researchers who help keep {{.SiteTitle}} safe</p>
+                </div>
+
+                <div class="paste-view page-view">
+                    {{if .Entries}}
+                    <p>
+                        We are grateful to the following researchers for responsibly disclosing security
+                        issues under our <a href="/server/security/policy">security policy</a>.
+                    </p>
+                    <table class="ack-table">
+                        <thead>
+                            <tr>
+                                <th scope="col">Researcher</th>
+                                <th scope="col">Component</th>
+                                <th scope="col">Severity</th>
+                                <th scope="col">Year</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Entries}}
+                            <tr>
+                                <td class="long-string">{{.Display}}</td>
+                                <td>{{if .Component}}{{.Component}}{{else}}—{{end}}</td>
+                                <td>{{if .Severity}}{{.Severity}}{{else}}—{{end}}</td>
+                                <td>{{if .Year}}{{.Year}}{{else}}—{{end}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                    {{else}}
+                    <p class="empty-state">
+                        No disclosures have been published yet. If you have found a security issue,
+                        please review our <a href="/server/security/policy">security policy</a> and
+                        report it responsibly.
+                    </p>
+                    {{end}}
+                </div>
+            </div>
+        </section>
+    </main>
+
+    {{template "footer" .}}
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

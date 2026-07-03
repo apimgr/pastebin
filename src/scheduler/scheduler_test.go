@@ -167,6 +167,7 @@ func (m *mockDB) UpdateSecurityReportStatus(id, status, comment string) error { 
 func (m *mockDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, error) {
 	return nil, nil
 }
+func (m *mockDB) MarkSecurityReportTokenUsed(id string, at time.Time) error { return nil }
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 

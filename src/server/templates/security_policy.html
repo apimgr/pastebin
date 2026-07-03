@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Policy - {{.SiteTitle}}</title>
+    <meta name="description" content="Coordinated vulnerability disclosure policy for {{.SiteTitle}} — scope, safe harbor, and how to report">
+    <meta name="theme-color" content="#89b4fa">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
+    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content">
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Security Policy</h1>
+                    <p class="section-subtitle">Coordinated vulnerability disclosure for {{.SiteTitle}}</p>
+                </div>
+
+                <div class="paste-view page-view">
+                    <h2>Reporting a vulnerability</h2>
+                    <p>
+                        We welcome reports from security researchers. Reports are submitted through a
+                        rotating, single-use link published in our
+                        <a href="/.well-known/security.txt">security.txt</a> file. Following that link
+                        opens an encrypted reporting form; the report body is encrypted at rest and is
+                        never stored in plaintext.
+                    </p>
+                    {{if .SecurityEmail}}
+                    <p>
+                        You may also email <a href="mailto:{{.SecurityEmail}}" class="long-string">{{.SecurityEmail}}</a> directly.
+                    </p>
+                    {{end}}
+                    {{if .HasPGPKey}}
+                    <p>
+                        Our PGP public key is available at
+                        <a href="/.well-known/pgp-key.asc">/.well-known/pgp-key.asc</a> for encrypting
+                        sensitive details.
+                    </p>
+                    {{end}}
+
+                    <h2 class="section-mt">Coordinated disclosure window</h2>
+                    <p>
+                        We ask that you give us up to <strong>{{.DisclosureDays}} days</strong> to
+                        investigate and remediate a reported issue before any public disclosure, or until
+                        a coordinated disclosure date is mutually agreed — whichever comes first. We will
+                        keep you updated through your report's status page.
+                    </p>
+
+                    <h2 class="section-mt">In scope</h2>
+                    <ul class="feature-list">
+                        <li>This service and its official domains</li>
+                        <li>The server and client (<code>pastebin</code>, <code>pastebin-cli</code>) binaries</li>
+                        <li>The public REST, GraphQL, and web endpoints</li>
+                        <li>Authentication, authorization, and token handling</li>
+                    </ul>
+
+                    <h2 class="section-mt">Out of scope</h2>
+                    <ul class="feature-list">
+                        <li>Denial-of-service, volumetric, or rate-limit exhaustion testing</li>
+                        <li>Social engineering, phishing, or physical attacks against staff</li>
+                        <li>Automated scanner output without a demonstrated, reproducible impact</li>
+                        <li>Reports affecting only unsupported or end-of-life versions</li>
+                        <li>Attacks requiring a compromised host, rooted device, or physical access</li>
+                    </ul>
+
+                    <h2 class="section-mt">Safe harbor</h2>
+                    <p>
+                        We will not pursue or support legal action against researchers who act in good
+                        faith, respect this policy, avoid privacy violations and data destruction, and
+                        give us reasonable time to respond before disclosing. Testing must stay within
+                        the scope above, use your own test data, and stop at the first sign of access to
+                        another user's data. Activity conducted consistently with this policy is
+                        considered authorized.
+                    </p>
+
+                    <h2 class="section-mt">Acknowledgments</h2>
+                    <p>
+                        With your permission, we credit researchers who report valid issues on our
+                        <a href="/server/security/thanks">acknowledgments page</a>.
+                    </p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    {{template "footer" .}}
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

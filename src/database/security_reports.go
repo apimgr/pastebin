@@ -48,6 +48,9 @@ type SecurityReport struct {
 	UpdatedAt      time.Time
 	// DisclosedAt is set when the report reaches the Disclosed state.
 	DisclosedAt *time.Time
+	// TokenLastUsed is the last time the researcher's status-page token was
+	// accepted. It enforces the single-use-per-day rule (AI.md 14161).
+	TokenLastUsed *time.Time
 }
 
 // CreateSecurityReport inserts a new coordinated-disclosure report.
@@ -77,17 +80,18 @@ func (s *SQLiteDB) CreateSecurityReport(r *SecurityReport) error {
 // not found.
 func (s *SQLiteDB) GetSecurityReport(trackingID string) (*SecurityReport, error) {
 	r := &SecurityReport{}
-	var disclosedAt sql.NullTime
+	var disclosedAt, tokenLastUsed sql.NullTime
 	ctx, cancel := dbCtx(dbReadTimeout)
 	defer cancel()
 	err := s.db.QueryRowContext(ctx,
 		`SELECT tracking_id, status, severity, component, encrypted_body, enc_method,
 			credit_preference, credit_name, token_hash, maintainer_comment,
-			disclosure_days, created_at, updated_at, disclosed_at
+			disclosure_days, created_at, updated_at, disclosed_at, token_last_used
 		 FROM security_reports WHERE tracking_id = ?`, trackingID,
 	).Scan(&r.TrackingID, &r.Status, &r.Severity, &r.Component, &r.EncryptedBody,
 		&r.EncMethod, &r.CreditPreference, &r.CreditName, &r.TokenHash,
-		&r.MaintainerComment, &r.DisclosureDays, &r.CreatedAt, &r.UpdatedAt, &disclosedAt)
+		&r.MaintainerComment, &r.DisclosureDays, &r.CreatedAt, &r.UpdatedAt,
+		&disclosedAt, &tokenLastUsed)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -97,7 +101,22 @@ func (s *SQLiteDB) GetSecurityReport(trackingID string) (*SecurityReport, error)
 	if disclosedAt.Valid {
 		r.DisclosedAt = &disclosedAt.Time
 	}
+	if tokenLastUsed.Valid {
+		r.TokenLastUsed = &tokenLastUsed.Time
+	}
 	return r, nil
+}
+
+// MarkSecurityReportTokenUsed records the moment the researcher's status-page
+// token was accepted, enforcing the single-use-per-day rule (AI.md 14161).
+func (s *SQLiteDB) MarkSecurityReportTokenUsed(trackingID string, at time.Time) error {
+	ctx, cancel := dbCtx(dbWriteTimeout)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE security_reports SET token_last_used = ? WHERE tracking_id = ?`,
+		at, trackingID,
+	)
+	return err
 }
 
 // UpdateSecurityReportStatus advances a report's triage state and researcher-

@@ -111,6 +111,7 @@ type DB interface {
 	GetSecurityReport(trackingID string) (*SecurityReport, error)
 	UpdateSecurityReportStatus(trackingID, status, maintainerComment string) error
 	ListDisclosedSecurityReports() ([]*SecurityReport, error)
+	MarkSecurityReportTokenUsed(trackingID string, at time.Time) error
 }
 
 // Query timeout constants per PART 10.
@@ -334,7 +335,8 @@ func ensureSchema(db *sql.DB) error {
 			disclosure_days    INTEGER NOT NULL DEFAULT 90,
 			created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			disclosed_at       DATETIME
+			disclosed_at       DATETIME,
+			token_last_used    DATETIME
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_secreports_status  ON security_reports(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_secreports_created ON security_reports(created_at)`,
@@ -344,6 +346,7 @@ func ensureSchema(db *sql.DB) error {
 	updates := []string{
 		`ALTER TABLE pastes ADD COLUMN burn_after INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE pastes ADD COLUMN delete_token_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE security_reports ADD COLUMN token_last_used DATETIME`,
 	}
 
 	for _, s := range stmts {

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Status - {{.SiteTitle}}</title>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#89b4fa">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
+    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
+    <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header class="header">
+        <nav class="nav">
+            <a href="/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+            </div>
+        </nav>
+    </header>
+
+    <main id="main-content">
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">Security Report Status</h1>
+                    <p class="section-subtitle long-string">Tracking ID: <code>{{.TrackingID}}</code></p>
+                </div>
+
+                <div class="paste-view page-view">
+                    {{if .RateLimited}}
+                    <div class="alert alert-warning" role="alert">
+                        This status link may only be opened once per day. You are seeing the last
+                        loaded state; please check back tomorrow for a fresh view.
+                    </div>
+                    {{end}}
+
+                    <dl class="detail-list">
+                        <div class="detail-row">
+                            <dt>Current status</dt>
+                            <dd><strong>{{.Status}}</strong></dd>
+                        </div>
+                        <div class="detail-row">
+                            <dt>Severity</dt>
+                            <dd>{{if .Severity}}{{.Severity}}{{else}}Pending triage{{end}}</dd>
+                        </div>
+                        <div class="detail-row">
+                            <dt>Component</dt>
+                            <dd>{{if .Component}}{{.Component}}{{else}}—{{end}}</dd>
+                        </div>
+                        <div class="detail-row">
+                            <dt>Received</dt>
+                            <dd>{{.ReceivedAt}}</dd>
+                        </div>
+                        <div class="detail-row">
+                            <dt>Last updated</dt>
+                            <dd>{{.UpdatedAt}}</dd>
+                        </div>
+                        <div class="detail-row">
+                            <dt>Expected disclosure</dt>
+                            <dd>{{.ExpectedDate}}</dd>
+                        </div>
+                        {{if .DisclosedAt}}
+                        <div class="detail-row">
+                            <dt>Disclosed</dt>
+                            <dd>{{.DisclosedAt}}</dd>
+                        </div>
+                        {{end}}
+                    </dl>
+
+                    <h2 class="section-mt">Progress</h2>
+                    <ol class="progress-stages">
+                        {{range .Stages}}
+                        <li class="progress-stage{{if eq . $.CurrentStage}} progress-stage-current{{end}}">{{.}}</li>
+                        {{end}}
+                    </ol>
+
+                    {{if .Comment}}
+                    <h2 class="section-mt">Maintainer note</h2>
+                    <blockquote class="maintainer-comment">{{.Comment}}</blockquote>
+                    {{end}}
+
+                    <h2 class="section-mt">Contact</h2>
+                    <p>
+                        To add information to this report, reply to the acknowledgment email
+                        {{if .SecurityEmail}}or write to
+                        <a href="mailto:{{.SecurityEmail}}" class="long-string">{{.SecurityEmail}}</a>{{end}}
+                        and include your tracking ID.
+                    </p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    {{template "footer" .}}
+
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
