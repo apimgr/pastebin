@@ -3,16 +3,20 @@ package config
 import (
 	crand "crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
 	"net"
+	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -83,6 +87,14 @@ type ServerConfig struct {
 	// Pages holds operator-customizable content and settings for the static
 	// /server pages (about, privacy, contact, help, terms) (PART 31).
 	Pages PagesConfig `yaml:"pages"`
+	// Privacy holds server-wide privacy, cookie-consent, data-handling, and
+	// third-party disclosure settings driving the /server/privacy page and the
+	// site-wide cookie-consent banner (PART 31).
+	Privacy PrivacyConfig `yaml:"privacy"`
+	// Tracking configures the server-wide analytics platform (PART 31). Disabled
+	// by default; when set it drives the tracking script and third-party
+	// auto-population on the privacy page.
+	Tracking TrackingConfig `yaml:"tracking"`
 }
 
 // ContactConfig is the unified notification-recipient tree (PART 12). Each role
@@ -133,6 +145,231 @@ type ContactPageConfig struct {
 	Captcha string `yaml:"captcha"`
 	// SuccessMessage is shown after a successful submission.
 	SuccessMessage string `yaml:"success_message"`
+}
+
+// PrivacyConfig holds server-wide privacy, cookie-consent, and data-handling
+// settings (PART 31). Messaging adapts dynamically to Data.Sold: when data is
+// sold the consent banner, analytics description, and data-usage content switch
+// to their "may be sold" variants and a CCPA "Do Not Sell" opt-out is surfaced.
+type PrivacyConfig struct {
+	Data       DataPolicy       `yaml:"data"`
+	Retention  RetentionPolicy  `yaml:"retention"`
+	Consent    ConsentConfig    `yaml:"consent"`
+	Cookies    CookieCategories `yaml:"cookies"`
+	ThirdParty ThirdPartyConfig `yaml:"third_party"`
+	Content    PrivacyContent   `yaml:"content"`
+}
+
+// DataPolicy controls data-handling disclosure and CCPA applicability (PART 31).
+type DataPolicy struct {
+	// Sold reports whether user data is sold to third parties. Default false.
+	// The MIT license permits downstream operators to set this true.
+	Sold bool `yaml:"sold"`
+	// StoredOnServer reports data lives on this server, not third-party cloud.
+	StoredOnServer bool `yaml:"stored_on_server"`
+	// Sharing enumerates the conditions under which data may be shared.
+	Sharing []SharingCondition `yaml:"sharing"`
+}
+
+// SharingCondition describes one circumstance under which data may be shared.
+type SharingCondition struct {
+	Condition string `yaml:"condition"`
+	When      string `yaml:"when"`
+	Data      string `yaml:"data"`
+}
+
+// RetentionPolicy describes how long data is kept and user data rights (PART 31).
+type RetentionPolicy struct {
+	Period            string `yaml:"period"`
+	ExportAvailable   bool   `yaml:"export_available"`
+	DeletionAvailable bool   `yaml:"deletion_available"`
+}
+
+// ConsentConfig configures the site-wide cookie-consent banner (PART 31).
+type ConsentConfig struct {
+	// ShowUntilAcknowledged keeps the banner on every frontend page until the
+	// visitor accepts or declines.
+	ShowUntilAcknowledged bool `yaml:"show_until_acknowledged"`
+	// DefaultEnabled selects the opt-out model: non-essential cookies default on.
+	DefaultEnabled bool `yaml:"default_enabled"`
+	// Message is shown when Data.Sold is false.
+	Message string `yaml:"message"`
+	// MessageIfSold is shown when Data.Sold is true.
+	MessageIfSold string            `yaml:"message_if_sold"`
+	Policy        ConsentPolicyLink `yaml:"policy"`
+	Buttons       ConsentButtons    `yaml:"buttons"`
+	// Position places the banner: "bottom" (default) or "top".
+	Position string `yaml:"position"`
+	// ShowPreferences shows the granular "Manage Preferences" link.
+	ShowPreferences bool `yaml:"show_preferences"`
+	// PreferencesText is the label for the "Manage Preferences" link.
+	PreferencesText string `yaml:"preferences_text"`
+}
+
+// ConsentPolicyLink is the privacy-policy link shown in the consent banner.
+type ConsentPolicyLink struct {
+	Text string `yaml:"text"`
+	URL  string `yaml:"url"`
+}
+
+// ConsentButtons holds the accept/decline button labels for the banner.
+type ConsentButtons struct {
+	Decline string `yaml:"decline"`
+	Accept  string `yaml:"accept"`
+}
+
+// CookieCategories groups the three cookie tiers shown in the preferences UI.
+type CookieCategories struct {
+	Essential   CookieCategory  `yaml:"essential"`
+	Preferences CookieCategory  `yaml:"preferences"`
+	Analytics   AnalyticsCookie `yaml:"analytics"`
+}
+
+// CookieCategory is a single cookie tier: whether it is on and its description.
+type CookieCategory struct {
+	Enabled     bool   `yaml:"enabled"`
+	Description string `yaml:"description"`
+}
+
+// AnalyticsCookie extends CookieCategory with sold/not-sold description suffixes.
+type AnalyticsCookie struct {
+	CookieCategory           `yaml:",inline"`
+	DescriptionSuffixNotSold string `yaml:"description_suffix_not_sold"`
+	DescriptionSuffixSold    string `yaml:"description_suffix_sold"`
+}
+
+// ThirdPartyConfig lists third-party services that receive data. Analytics
+// entries are auto-populated from server.tracking; operators may add more.
+type ThirdPartyConfig struct {
+	Services []ThirdPartyService `yaml:"services"`
+}
+
+// ThirdPartyService is a single third-party recipient shown on the privacy page.
+type ThirdPartyService struct {
+	Name      string `yaml:"name"`
+	Purpose   string `yaml:"purpose"`
+	DataSent  string `yaml:"data_sent"`
+	PolicyURL string `yaml:"policy_url"`
+}
+
+// PrivacyContent holds the Markdown body blocks rendered on the privacy page.
+type PrivacyContent struct {
+	DataCollection string `yaml:"data_collection"`
+	// DataUsage is used when Data.Sold is false.
+	DataUsage string `yaml:"data_usage"`
+	// DataUsageIfSold is used when Data.Sold is true.
+	DataUsageIfSold string `yaml:"data_usage_if_sold"`
+	DataSecurity    string `yaml:"data_security"`
+}
+
+// TrackingConfig configures the server-wide analytics platform (PART 31).
+type TrackingConfig struct {
+	// Type selects the analytics platform; empty or "none" disables tracking.
+	Type string `yaml:"type"`
+	// ID is the platform tracking/site identifier (format depends on Type).
+	ID string `yaml:"id"`
+	// URL is the self-hosted instance URL (required for matomo/piwik/owa/umami).
+	URL string `yaml:"url"`
+}
+
+// GetConsentMessage returns the banner message matching the data-sold setting.
+func (p *PrivacyConfig) GetConsentMessage() string {
+	if p.Data.Sold {
+		return p.Consent.MessageIfSold
+	}
+	return p.Consent.Message
+}
+
+// GetAnalyticsDescription returns the analytics cookie description with the
+// sold/not-sold suffix appended.
+func (p *PrivacyConfig) GetAnalyticsDescription() string {
+	base := p.Cookies.Analytics.Description
+	if p.Data.Sold {
+		return strings.TrimSpace(base + " " + p.Cookies.Analytics.DescriptionSuffixSold)
+	}
+	return strings.TrimSpace(base + " " + p.Cookies.Analytics.DescriptionSuffixNotSold)
+}
+
+// GetDataUsageContent returns the data-usage Markdown matching the sold setting.
+func (p *PrivacyConfig) GetDataUsageContent() string {
+	if p.Data.Sold {
+		return p.Content.DataUsageIfSold
+	}
+	return p.Content.DataUsage
+}
+
+// IsCCPAApplicable reports whether the CCPA "Do Not Sell" opt-out must be shown.
+func (p *PrivacyConfig) IsCCPAApplicable() bool {
+	return p.Data.Sold
+}
+
+// trackingTypeNames maps analytics type keys to human-friendly platform names.
+var trackingTypeNames = map[string]string{
+	"google":     "Google Analytics",
+	"matomo":     "Matomo",
+	"piwik":      "Piwik",
+	"owa":        "Open Web Analytics",
+	"fathom":     "Fathom Analytics",
+	"plausible":  "Plausible Analytics",
+	"umami":      "Umami",
+	"simple":     "Simple Analytics",
+	"cloudflare": "Cloudflare Web Analytics",
+}
+
+// trackingPolicyURLs maps analytics types to their public privacy-policy URLs.
+var trackingPolicyURLs = map[string]string{
+	"google":     "https://policies.google.com/privacy",
+	"matomo":     "https://matomo.org/privacy-policy/",
+	"piwik":      "https://matomo.org/privacy-policy/",
+	"fathom":     "https://usefathom.com/privacy",
+	"plausible":  "https://plausible.io/privacy",
+	"umami":      "https://umami.is/privacy",
+	"simple":     "https://simpleanalytics.com/privacy",
+	"cloudflare": "https://www.cloudflare.com/privacypolicy/",
+}
+
+// Enabled reports whether an analytics platform is configured.
+func (t TrackingConfig) Enabled() bool {
+	return t.Type != "" && t.Type != "none"
+}
+
+// TypeName returns the human-friendly platform name for the configured type.
+func (t TrackingConfig) TypeName() string {
+	if n, ok := trackingTypeNames[t.Type]; ok {
+		return n
+	}
+	return t.Type
+}
+
+// analyticsService builds the third-party service entry for the configured
+// analytics platform, or false when tracking is disabled (PART 31).
+func (t TrackingConfig) analyticsService() (ThirdPartyService, bool) {
+	if !t.Enabled() {
+		return ThirdPartyService{}, false
+	}
+	return ThirdPartyService{
+		Name:      t.TypeName(),
+		Purpose:   "Usage analytics",
+		DataSent:  "Page views, browser type, country (anonymized IP)",
+		PolicyURL: trackingPolicyURLs[t.Type],
+	}, true
+}
+
+// EffectiveThirdParty returns the configured third-party services with the
+// analytics platform auto-prepended when server.tracking is enabled and not
+// already present (PART 31).
+func (c *Config) EffectiveThirdParty() []ThirdPartyService {
+	services := append([]ThirdPartyService(nil), c.Server.Privacy.ThirdParty.Services...)
+	svc, ok := c.Server.Tracking.analyticsService()
+	if !ok {
+		return services
+	}
+	for _, s := range services {
+		if s.Name == svc.Name {
+			return services
+		}
+	}
+	return append([]ThirdPartyService{svc}, services...)
 }
 
 // MaintenanceConfig configures the runtime self-healing maintenance mode (PART 20).
@@ -774,6 +1011,83 @@ func DefaultConfig() *Config {
 					SuccessMessage: "Thank you for your message. We'll respond soon.",
 				},
 			},
+			Privacy: PrivacyConfig{
+				Data: DataPolicy{
+					Sold:           false,
+					StoredOnServer: true,
+					Sharing: []SharingCondition{
+						{
+							Condition: "analytics",
+							When:      "Tracking configured (server.tracking.type set) AND user consents",
+							Data:      "Anonymized: page views, browser type, country",
+						},
+						{
+							Condition: "email",
+							When:      "SMTP configured for sending emails",
+							Data:      "Email address, message content",
+						},
+						{
+							Condition: "user_initiated",
+							When:      "User explicitly shares content (social buttons, exports)",
+							Data:      "Whatever user chooses to share",
+						},
+					},
+				},
+				Retention: RetentionPolicy{
+					Period:            "Account data is retained while your account is active. Upon account deletion, all personal data is permanently deleted within 30 days. Anonymized analytics data may be retained for up to 12 months.",
+					ExportAvailable:   true,
+					DeletionAvailable: true,
+				},
+				Consent: ConsentConfig{
+					ShowUntilAcknowledged: true,
+					DefaultEnabled:        true,
+					Message:               "In accordance with the EU GDPR law this message is being displayed. We use cookies for essential site functionality and, with your consent, for preferences and analytics. Your data is stored on our servers and is never sold.",
+					MessageIfSold:         "In accordance with the EU GDPR law this message is being displayed. We use cookies for essential site functionality and, with your consent, for preferences and analytics. Your data may be shared with or sold to third parties as described in our Privacy Policy.",
+					Policy: ConsentPolicyLink{
+						Text: "Privacy Policy",
+						URL:  "/server/privacy",
+					},
+					Buttons: ConsentButtons{
+						Decline: "Decline",
+						Accept:  "I Agree",
+					},
+					Position:        "bottom",
+					ShowPreferences: true,
+					PreferencesText: "Manage Preferences",
+				},
+				Cookies: CookieCategories{
+					Essential: CookieCategory{
+						Enabled:     true,
+						Description: "Required for the site to function. Includes security tokens (CSRF) and site preferences. These cookies are strictly necessary and cannot be disabled.",
+					},
+					Preferences: CookieCategory{
+						Enabled:     true,
+						Description: "Remember your settings such as theme (dark/light), language, and UI preferences. Disabling will reset to defaults on each visit.",
+					},
+					Analytics: AnalyticsCookie{
+						CookieCategory: CookieCategory{
+							Enabled:     true,
+							Description: "Help us understand how visitors use our site to improve the experience.",
+						},
+						DescriptionSuffixNotSold: "Analytics data is anonymized and never sold.",
+						DescriptionSuffixSold:    "Analytics data may be shared with third parties.",
+					},
+				},
+				ThirdParty: ThirdPartyConfig{
+					Services: []ThirdPartyService{},
+				},
+				Content: PrivacyContent{
+					DataCollection:  "**We collect only what is necessary to provide our service:**\n\n**Usage Information (with consent):**\n- Pages visited and features used\n- Browser type and device information\n- Approximate location (country/region from IP, not precise)\n\n**Technical Information:**\n- IP address (for security and abuse prevention)\n- API token identifiers (hashed, never stored in plain text)\n\n**We do NOT collect:**\n- Payment information (unless explicitly required by the service)\n- Precise location data\n- Data from other websites or apps\n",
+					DataUsage:       "**Your data is used solely to:**\n\n- **Provide the service:** Authentication, core functionality\n- **Improve the experience:** Performance optimization, bug fixes, feature improvements\n- **Ensure security:** Prevent abuse, detect fraud, protect your account\n- **Communicate:** Service updates, security alerts, and (with consent) product news\n\n**Your data is NEVER:**\n- Sold to third parties\n- Used for targeted advertising\n- Shared without your explicit consent (except as required by law)\n",
+					DataUsageIfSold: "**Your data may be used to:**\n\n- **Provide the service:** Authentication, core functionality\n- **Improve the experience:** Performance optimization, bug fixes, feature improvements\n- **Ensure security:** Prevent abuse, detect fraud, protect your account\n- **Communicate:** Service updates, security alerts, and (with consent) product news\n- **Third-party sharing:** Your data may be shared with or sold to third parties for analytics, advertising, or other purposes as described below\n\n**Your rights:**\n- You can opt out of data sales via your account privacy settings\n- You can request deletion of your data at any time\n- See \"Your Rights\" section below for details\n",
+					DataSecurity:    "**How we protect your data:**\n\n- All data is stored on our servers (not third-party cloud services unless specified)\n- API tokens are stored as SHA-256 hashes (never in plain text)\n- All connections are encrypted (HTTPS/TLS)\n- Regular security audits and updates\n- Access controls and audit logging for operator actions\n",
+				},
+			},
+			Tracking: TrackingConfig{
+				Type: "",
+				ID:   "",
+				URL:  "",
+			},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -1247,6 +1561,103 @@ func Validate(cfg *Config) {
 			cfg.Server.Logging.Level)
 		cfg.Server.Logging.Level = "info"
 	}
+
+	// Consent banner position must be top or bottom.
+	switch cfg.Server.Privacy.Consent.Position {
+	case "top", "bottom":
+	default:
+		log.Printf("[config] WARNING: invalid privacy.consent.position %q, using default %q",
+			cfg.Server.Privacy.Consent.Position, d.Server.Privacy.Consent.Position)
+		cfg.Server.Privacy.Consent.Position = d.Server.Privacy.Consent.Position
+	}
+	// Essential cookies are strictly necessary and cannot be disabled.
+	cfg.Server.Privacy.Cookies.Essential.Enabled = true
+	// Fall back to default text for any blank consent-banner field.
+	for _, pair := range []struct {
+		val *string
+		def string
+	}{
+		{&cfg.Server.Privacy.Consent.Message, d.Server.Privacy.Consent.Message},
+		{&cfg.Server.Privacy.Consent.MessageIfSold, d.Server.Privacy.Consent.MessageIfSold},
+		{&cfg.Server.Privacy.Consent.Policy.Text, d.Server.Privacy.Consent.Policy.Text},
+		{&cfg.Server.Privacy.Consent.Policy.URL, d.Server.Privacy.Consent.Policy.URL},
+		{&cfg.Server.Privacy.Consent.Buttons.Decline, d.Server.Privacy.Consent.Buttons.Decline},
+		{&cfg.Server.Privacy.Consent.Buttons.Accept, d.Server.Privacy.Consent.Buttons.Accept},
+		{&cfg.Server.Privacy.Consent.PreferencesText, d.Server.Privacy.Consent.PreferencesText},
+	} {
+		if strings.TrimSpace(*pair.val) == "" {
+			*pair.val = pair.def
+		}
+	}
+
+	// Analytics configuration must be valid; on error warn and disable tracking
+	// (warn-and-default: never fail startup, PART 5).
+	if err := ValidateTracking(&cfg.Server.Tracking); err != nil {
+		log.Printf("[config] WARNING: invalid server.tracking (%v), disabling analytics", err)
+		cfg.Server.Tracking = TrackingConfig{}
+	}
+}
+
+// ValidateTracking validates the analytics tracking configuration (PART 31).
+// An empty or "none" type is valid (disabled). Returns a descriptive error for
+// any malformed ID/URL so the caller can warn-and-disable.
+func ValidateTracking(cfg *TrackingConfig) error {
+	if cfg.Type == "" || cfg.Type == "none" {
+		return nil
+	}
+	switch cfg.Type {
+	case "google":
+		if !regexp.MustCompile(`^(UA-\d+-\d+|G-[A-Z0-9]+)$`).MatchString(cfg.ID) {
+			return errors.New("invalid Google Analytics ID format")
+		}
+	case "matomo", "piwik":
+		if _, err := strconv.Atoi(cfg.ID); err != nil {
+			return errors.New("matomo/piwik ID must be an integer")
+		}
+		if cfg.URL == "" {
+			return errors.New("matomo/piwik requires URL")
+		}
+	case "owa":
+		if cfg.ID == "" {
+			return errors.New("OWA requires site ID")
+		}
+		if cfg.URL == "" {
+			return errors.New("OWA requires URL")
+		}
+	case "fathom":
+		if cfg.ID == "" {
+			return errors.New("fathom requires site ID")
+		}
+	case "plausible":
+		if cfg.ID == "" {
+			return errors.New("plausible requires domain")
+		}
+	case "umami":
+		if _, err := uuid.Parse(cfg.ID); err != nil {
+			return errors.New("umami ID must be a valid UUID")
+		}
+		if cfg.URL == "" {
+			return errors.New("umami requires URL")
+		}
+	case "simple":
+	case "cloudflare":
+		if cfg.ID == "" {
+			return errors.New("cloudflare requires beacon token")
+		}
+	default:
+		return fmt.Errorf("unknown tracking type: %s", cfg.Type)
+	}
+	// Any provided self-hosted URL must be a parseable absolute URL.
+	if cfg.URL != "" {
+		u, err := url.Parse(cfg.URL)
+		if err != nil {
+			return fmt.Errorf("invalid tracking URL: %w", err)
+		}
+		if u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("invalid tracking URL: %q is not absolute", cfg.URL)
+		}
+	}
+	return nil
 }
 
 // Save writes config to path.
