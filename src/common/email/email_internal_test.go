@@ -96,6 +96,41 @@ func TestBuildMessage_NoReplyTo(t *testing.T) {
 	}
 }
 
+// TestBuildMessage_HeaderInjection verifies CR/LF supplied in a header value
+// (e.g. a researcher-controlled security-report summary folded into Subject)
+// cannot inject additional headers or a forged body (CWE-93).
+func TestBuildMessage_HeaderInjection(t *testing.T) {
+	subject := "Legit\r\nBcc: evil@example.com\r\n\r\nInjected body"
+	msg := string(buildMessage("N", "from@example.com", "to@example.com", subject, "Body", ""))
+	headerBlock := msg
+	if i := strings.Index(msg, "\r\n\r\n"); i >= 0 {
+		headerBlock = msg[:i]
+	}
+	for _, line := range strings.Split(headerBlock, "\r\n") {
+		if strings.HasPrefix(line, "Bcc:") {
+			t.Errorf("CRLF injection produced a standalone Bcc header:\n%s", headerBlock)
+		}
+	}
+	if strings.Count(headerBlock, "\r\nSubject:") > 1 || strings.Count(headerBlock, "Subject:") != 1 {
+		t.Errorf("expected exactly one Subject header, got:\n%s", headerBlock)
+	}
+}
+
+// TestBuildMultipartMessage_FilenameInjection verifies a quote or CR/LF in the
+// attachment filename cannot break out of the Content-Disposition quoted string.
+func TestBuildMultipartMessage_FilenameInjection(t *testing.T) {
+	msg := string(buildMultipartMessage("N", "from@e.com", "to@e.com", "S", "B", "",
+		"a\"\r\nX-Evil: 1.enc", []byte("data")))
+	for _, line := range strings.Split(msg, "\r\n") {
+		if strings.HasPrefix(line, "X-Evil:") {
+			t.Errorf("filename injection produced a standalone X-Evil header:\n%s", msg)
+		}
+	}
+	if !strings.Contains(msg, `filename="aX-Evil: 1.enc"`) {
+		t.Errorf("expected injected chars folded into the quoted filename, got:\n%s", msg)
+	}
+}
+
 // ─── buildMultipartMessage ────────────────────────────────────────────────────
 
 func TestBuildMultipartMessage_Attachment(t *testing.T) {

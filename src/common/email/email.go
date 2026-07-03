@@ -310,8 +310,30 @@ func parseTemplate(text string) (subject, body string, ok bool) {
 	return subject, strings.TrimSpace(body), true
 }
 
+// sanitizeHeader strips CR, LF, and other C0 control characters (tab excepted)
+// from an email header value to prevent header/body injection (CWE-93). Header
+// field values must occupy a single line; an embedded newline in caller-supplied
+// text — e.g. researcher-controlled report content assembled into a Subject —
+// could otherwise inject additional headers or forge a message body.
+func sanitizeHeader(v string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return -1
+		}
+		if r < 0x20 && r != '\t' {
+			return -1
+		}
+		return r
+	}, v)
+}
+
 // buildMessage builds an RFC 2822 email message.
 func buildMessage(fromName, fromAddr, to, subject, body, replyTo string) []byte {
+	fromName = sanitizeHeader(fromName)
+	fromAddr = sanitizeHeader(fromAddr)
+	to = sanitizeHeader(to)
+	subject = sanitizeHeader(subject)
+	replyTo = sanitizeHeader(replyTo)
 	var sb strings.Builder
 	sb.WriteString("From: " + fromName + " <" + fromAddr + ">\r\n")
 	sb.WriteString("To: " + to + "\r\n")
@@ -330,6 +352,14 @@ func buildMessage(fromName, fromAddr, to, subject, body, replyTo string) []byte 
 // and one base64-encoded binary attachment. The multipart boundary is generated
 // by mime/multipart.
 func buildMultipartMessage(fromName, fromAddr, to, subject, body, replyTo, filename string, data []byte) []byte {
+	fromName = sanitizeHeader(fromName)
+	fromAddr = sanitizeHeader(fromAddr)
+	to = sanitizeHeader(to)
+	subject = sanitizeHeader(subject)
+	replyTo = sanitizeHeader(replyTo)
+	// The attachment filename lands in a quoted Content-Disposition string; strip
+	// control characters and any embedded quote that could break out of it.
+	filename = strings.ReplaceAll(sanitizeHeader(filename), "\"", "")
 	var partBuf bytes.Buffer
 	w := multipart.NewWriter(&partBuf)
 
