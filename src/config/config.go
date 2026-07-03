@@ -697,9 +697,17 @@ type RobotsConfig struct {
 // server.contact.security.email (PART 12 → "Canonical Contact Keys Only").
 type SecurityConfig struct {
 	CORS string `yaml:"cors"`
+	// ReportURL is the primary security.txt Contact line — the repository's
+	// GitHub private vulnerability reporting URL, listed FIRST per RFC 9116
+	// preference order (PART 11). Empty → derived from the repo owner/name as
+	// https://github.com/{org}/{name}/security/advisories/new.
+	ReportURL string `yaml:"report_url"`
 	// Expires is the security.txt Expires field. Empty → auto-calculated one
 	// year from the time the file is served (RFC 9116 requires this field).
 	Expires string `yaml:"expires"`
+	// PreferredLanguages is the security.txt Preferred-Languages field: a
+	// comma-separated list of RFC 5646 language tags. Empty → "en".
+	PreferredLanguages string `yaml:"preferred_languages"`
 	// EncryptionKey is the 32-byte AES-256-GCM key (hex-encoded) used for at-rest
 	// encryption of sensitive server data (DNS credentials, security reports, etc.).
 	// Auto-generated on first run; stored in server.yml; included in every backup.
@@ -1341,6 +1349,25 @@ func (c *Config) SecurityReportEmail() string {
 // (pgp-key.asc, security.txt Encryption line, keyserver submission) (PART 11).
 func (c *Config) PublishPGPKeyEnabled() bool {
 	return IsTruthy(c.Web.Security.PublishPGPKey)
+}
+
+// SecurityReportURL returns the primary security.txt Contact line — the repo's
+// GitHub private vulnerability reporting URL, listed first per RFC 9116 (PART
+// 11). Falls back to the canonical apimgr/pastebin advisories endpoint.
+func (c *Config) SecurityReportURL() string {
+	if u := strings.TrimSpace(c.Web.Security.ReportURL); u != "" {
+		return u
+	}
+	return "https://github.com/apimgr/pastebin/security/advisories/new"
+}
+
+// SecurityPreferredLanguages returns the security.txt Preferred-Languages value
+// (RFC 5646 tags, comma-separated). Empty config → "en" (PART 11).
+func (c *Config) SecurityPreferredLanguages() string {
+	if l := strings.TrimSpace(c.Web.Security.PreferredLanguages); l != "" {
+		return l
+	}
+	return "en"
 }
 
 // GeneralEmail returns the resolved /server/contact recipient (PART 12).

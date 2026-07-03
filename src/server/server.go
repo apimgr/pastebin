@@ -2908,20 +2908,24 @@ func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 		expires = time.Now().AddDate(1, 0, 0).UTC().Format(time.RFC3339)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Contact: mailto:%s\n", cfg.SecurityEmail())
+	// Contact lines in RFC 9116 preference order (PART 11 → security.txt):
+	// (1) GitHub private vulnerability reporting, (2) instance security-report
+	// form with rotating security_id, (3) mailto CC address last.
+	fmt.Fprintf(&b, "Contact: %s\n", cfg.SecurityReportURL())
 	// Rotating security_id contact (PART 11 → Coordinated Disclosure Pipeline).
 	// This is the only place the id is ever emitted; it switches the contact
 	// form into security-report mode when a researcher follows it.
 	if id := s.currentSecurityID(); id != "" {
 		fmt.Fprintf(&b, "Contact: %s/server/contact?security_id=%s\n", strings.TrimRight(s.baseURL(r), "/"), id)
 	}
+	fmt.Fprintf(&b, "Contact: mailto:%s\n", cfg.SecurityEmail())
 	fmt.Fprintf(&b, "Expires: %s\n", expires)
 	// Encryption line seeded from the project PGP key (PART 11 → GPG Keypair
 	// Management). Emitted only when a key exists and publishing is enabled.
 	if s.hasPGPKey() {
 		fmt.Fprintf(&b, "Encryption: %s/.well-known/pgp-key.asc\n", strings.TrimRight(s.baseURL(r), "/"))
 	}
-	b.WriteString("Preferred-Languages: en\n")
+	fmt.Fprintf(&b, "Preferred-Languages: %s\n", cfg.SecurityPreferredLanguages())
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(b.String()))
 }

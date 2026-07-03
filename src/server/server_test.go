@@ -943,6 +943,19 @@ func TestHandleSecurity(t *testing.T) {
 	if !strings.Contains(body, "Expires:") {
 		t.Errorf("security.txt should contain Expires field, got: %q", body)
 	}
+	// RFC 9116 preference order: report_url first, mailto last (PART 11).
+	reportURL := "https://github.com/apimgr/pastebin/security/advisories/new"
+	if !strings.Contains(body, "Contact: "+reportURL) {
+		t.Errorf("security.txt should contain report_url Contact line, got: %q", body)
+	}
+	firstContact := strings.Index(body, "Contact: "+reportURL)
+	mailtoContact := strings.Index(body, "Contact: mailto:")
+	if firstContact < 0 || mailtoContact < 0 || firstContact > mailtoContact {
+		t.Errorf("report_url Contact must precede mailto Contact, got: %q", body)
+	}
+	if !strings.Contains(body, "Preferred-Languages: en") {
+		t.Errorf("security.txt should contain Preferred-Languages, got: %q", body)
+	}
 }
 
 // ─── Server.handleFavicon ─────────────────────────────────────────────────────
