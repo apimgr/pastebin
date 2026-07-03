@@ -10,10 +10,34 @@ import (
 	"github.com/apimgr/pastebin/src/metrics"
 )
 
-const defaultCatchUpWindow = time.Hour
+const (
+	defaultCatchUpWindow = time.Hour
+	// Retry policy defaults (PART 18): 3 attempts, 5m base delay, exponential
+	// backoff (5m, 10m, 20m).
+	defaultRetryDelay = 5 * time.Minute
+	defaultMaxRetries = 3
+)
 
 // TaskFunc is the function executed by a scheduled task.
 type TaskFunc func() error
+
+// Outcome describes the result of a single task execution. It is passed to the
+// notifier registered via SetNotifier so the caller can emit audit-log entries
+// and failure notifications (PART 18 task execution flow).
+type Outcome struct {
+	TaskID     string
+	TaskName   string
+	Status     string
+	Err        string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	NextRun    time.Time
+	Attempt    int
+	WillRetry  bool
+}
+
+// NotifyFunc is invoked after every task execution (success or failure).
+type NotifyFunc func(Outcome)
 
 // taskEntry is an in-memory representation of a registered task.
 type taskEntry struct {
@@ -23,14 +47,20 @@ type taskEntry struct {
 	fn       TaskFunc
 	enabled  bool
 
+	// retry policy (PART 18) — configured via SetRetry.
+	retryOnFail bool
+	retryMax    int
+	retryBase   time.Duration
+
 	// mutable state — protected by Scheduler.mu
-	lastRun    time.Time
-	lastStatus string
-	lastError  string
-	nextRun    time.Time
-	runCount   int64
-	failCount  int64
-	running    bool
+	lastRun      time.Time
+	lastStatus   string
+	lastError    string
+	nextRun      time.Time
+	runCount     int64
+	failCount    int64
+	running      bool
+	retryAttempt int
 }
 
 // Scheduler is the built-in cron-capable scheduler (PART 18).
@@ -41,10 +71,11 @@ type Scheduler struct {
 	catchUpWindow time.Duration
 	loc           *time.Location
 
-	mu      sync.Mutex
-	tasks   map[string]*taskEntry
-	stop    chan struct{}
-	running bool
+	mu       sync.Mutex
+	tasks    map[string]*taskEntry
+	stop     chan struct{}
+	running  bool
+	notifier NotifyFunc
 }
 
 // New creates a new Scheduler.
@@ -65,6 +96,37 @@ func (s *Scheduler) SetCatchUpWindow(d time.Duration) { s.catchUpWindow = d }
 
 // SetLocation sets the timezone used for cron expressions.
 func (s *Scheduler) SetLocation(loc *time.Location) { s.loc = loc }
+
+// SetNotifier registers a callback invoked after every task execution. Use it to
+// write audit-log entries and send failure notifications (PART 18).
+func (s *Scheduler) SetNotifier(fn NotifyFunc) {
+	s.mu.Lock()
+	s.notifier = fn
+	s.mu.Unlock()
+}
+
+// SetRetry configures the retry policy for a registered task (PART 18). When
+// enabled, a failed run is re-scheduled after an exponentially increasing delay
+// (base, 2×base, 4×base…) for up to maxRetries attempts before falling back to
+// the normal schedule. A non-positive base defaults to 5m; a non-positive
+// maxRetries defaults to 3.
+func (s *Scheduler) SetRetry(id string, enabled bool, base time.Duration, maxRetries int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.tasks[id]
+	if !ok {
+		return
+	}
+	e.retryOnFail = enabled
+	if base <= 0 {
+		base = defaultRetryDelay
+	}
+	e.retryBase = base
+	if maxRetries <= 0 {
+		maxRetries = defaultMaxRetries
+	}
+	e.retryMax = maxRetries
+}
 
 // Register adds a task. Call before Start. schedule is any expression
 // understood by ParseSchedule. enabled=false means the task is registered but
@@ -268,18 +330,32 @@ func (s *Scheduler) execute(e *taskEntry) error {
 	metrics.SchedulerTaskDuration.WithLabelValues(e.id).Observe(finished.Sub(start).Seconds())
 	metrics.SchedulerLastRunTimestamp.WithLabelValues(e.id).Set(float64(finished.Unix()))
 
-	next := e.schedule.Next(finished)
-
 	s.mu.Lock()
 	e.lastRun = start
 	e.lastStatus = status
 	e.lastError = errMsg
-	e.nextRun = next
-	if status == "success" {
-		e.runCount++
-	} else {
+	attempt := e.retryAttempt
+	willRetry := false
+	var next time.Time
+	if taskErr != nil {
 		e.failCount++
+		if e.retryOnFail && e.retryAttempt < e.retryMax {
+			// Exponential backoff: base × 2^attempt (e.g. 5m, 10m, 20m).
+			delay := e.retryBase << e.retryAttempt
+			next = finished.Add(delay)
+			e.retryAttempt++
+			willRetry = true
+			log.Printf("scheduler: task %s retry %d/%d scheduled in %s", e.id, e.retryAttempt, e.retryMax, delay)
+		} else {
+			next = e.schedule.Next(finished)
+			e.retryAttempt = 0
+		}
+	} else {
+		e.runCount++
+		e.retryAttempt = 0
+		next = e.schedule.Next(finished)
 	}
+	e.nextRun = next
 
 	if s.db != nil {
 		s.db.UpdateTaskRun(e.id, e.lastRun, e.lastStatus, e.lastError, //nolint:errcheck
@@ -293,7 +369,22 @@ func (s *Scheduler) execute(e *taskEntry) error {
 			DurationMS: durationMS,
 		})
 	}
+	notifier := s.notifier
 	s.mu.Unlock()
+
+	if notifier != nil {
+		notifier(Outcome{
+			TaskID:     e.id,
+			TaskName:   e.name,
+			Status:     status,
+			Err:        errMsg,
+			StartedAt:  start,
+			FinishedAt: finished,
+			NextRun:    next,
+			Attempt:    attempt,
+			WillRetry:  willRetry,
+		})
+	}
 
 	return taskErr
 }

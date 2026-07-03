@@ -5,6 +5,8 @@ package scheduler
 // starting a real goroutine loop.
 
 import (
+	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -163,5 +165,151 @@ func TestRunMissed_SkipsOutsideCatchUpWindow(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if atomic.LoadInt32(&called) != 0 {
 		t.Error("runMissed() must not execute tasks outside the catch-up window")
+	}
+}
+
+// failEntry builds a task entry whose function always fails, configured with an
+// exponential-backoff retry policy for the retry-behavior tests (PART 18).
+func failEntry(t *testing.T, id string, errMsg string, retryOnFail bool, base time.Duration, maxRetries int) *taskEntry {
+	t.Helper()
+	sched, err := ParseSchedule("@every 1h")
+	if err != nil {
+		t.Fatalf("ParseSchedule: %v", err)
+	}
+	return &taskEntry{
+		id:          id,
+		name:        id,
+		schedule:    sched,
+		enabled:     true,
+		nextRun:     time.Now(),
+		fn:          func() error { return errors.New(errMsg) },
+		retryOnFail: retryOnFail,
+		retryBase:   base,
+		retryMax:    maxRetries,
+	}
+}
+
+// TestExecute_RetryBackoffSchedulesShortDelay verifies that a failing task with
+// retry-on-fail enabled reschedules nextRun using exponential backoff
+// (base << attempt) rather than the normal schedule, and increments the attempt
+// counter (PART 18 Retry Policy).
+func TestExecute_RetryBackoffSchedulesShortDelay(t *testing.T) {
+	s := New(nil)
+	base := 5 * time.Minute
+	e := failEntry(t, "retryme", "boom", true, base, 3)
+
+	before := time.Now()
+	_ = s.execute(e)
+	after := time.Now()
+
+	if e.retryAttempt != 1 {
+		t.Fatalf("retryAttempt = %d, want 1 after first failure", e.retryAttempt)
+	}
+	if e.failCount != 1 {
+		t.Errorf("failCount = %d, want 1", e.failCount)
+	}
+	// First retry delay is base<<0 = base (5m). nextRun must be roughly
+	// finished+base, well before the @every 1h normal schedule.
+	minWant := before.Add(base)
+	maxWant := after.Add(base + time.Second)
+	if e.nextRun.Before(minWant) || e.nextRun.After(maxWant) {
+		t.Errorf("nextRun = %v, want between %v and %v (finished+%s)", e.nextRun, minWant, maxWant, base)
+	}
+
+	// Second failure: delay must double to base<<1 = 10m.
+	mid := time.Now()
+	_ = s.execute(e)
+	if e.retryAttempt != 2 {
+		t.Fatalf("retryAttempt = %d, want 2 after second failure", e.retryAttempt)
+	}
+	if got := e.nextRun.Sub(mid); got < 2*base-time.Second || got > 2*base+5*time.Second {
+		t.Errorf("second retry delay = %v, want ~%v (base<<1)", got, 2*base)
+	}
+}
+
+// TestExecute_RetryExhaustionFallsBackToSchedule verifies that once retryMax is
+// reached, a further failure falls back to the normal schedule and resets the
+// attempt counter (PART 18).
+func TestExecute_RetryExhaustionFallsBackToSchedule(t *testing.T) {
+	s := New(nil)
+	e := failEntry(t, "exhaust", "boom", true, time.Minute, 2)
+
+	_ = s.execute(e) // attempt 1
+	_ = s.execute(e) // attempt 2 (retryAttempt now == retryMax)
+	if e.retryAttempt != 2 {
+		t.Fatalf("retryAttempt = %d, want 2 before exhaustion", e.retryAttempt)
+	}
+
+	before := time.Now()
+	_ = s.execute(e) // retryAttempt == retryMax -> fall back to schedule
+	if e.retryAttempt != 0 {
+		t.Errorf("retryAttempt = %d, want 0 after exhaustion (reset)", e.retryAttempt)
+	}
+	// @every 1h schedule: nextRun should be ~1h out, not a short backoff.
+	if got := e.nextRun.Sub(before); got < 30*time.Minute {
+		t.Errorf("nextRun delta = %v, want ~1h (normal schedule after exhaustion)", got)
+	}
+}
+
+// TestExecute_SuccessResetsRetryAttempt verifies that a successful run clears any
+// accumulated retry attempts and uses the normal schedule (PART 18).
+func TestExecute_SuccessResetsRetryAttempt(t *testing.T) {
+	s := New(nil)
+	e := failEntry(t, "recover", "boom", true, time.Minute, 3)
+
+	_ = s.execute(e) // one failure -> retryAttempt == 1
+	if e.retryAttempt != 1 {
+		t.Fatalf("retryAttempt = %d, want 1", e.retryAttempt)
+	}
+
+	// Swap in a succeeding function and re-run.
+	e.fn = func() error { return nil }
+	before := time.Now()
+	_ = s.execute(e)
+	if e.retryAttempt != 0 {
+		t.Errorf("retryAttempt = %d, want 0 after success", e.retryAttempt)
+	}
+	if e.runCount != 1 {
+		t.Errorf("runCount = %d, want 1", e.runCount)
+	}
+	if got := e.nextRun.Sub(before); got < 30*time.Minute {
+		t.Errorf("nextRun delta = %v, want ~1h (normal schedule)", got)
+	}
+}
+
+// TestExecute_NotifierFiresWithOutcome verifies that the SetNotifier callback is
+// invoked after execution with a correctly populated Outcome for both failure
+// (WillRetry true) and success (PART 18 Task Execution Flow: send notification).
+func TestExecute_NotifierFiresWithOutcome(t *testing.T) {
+	s := New(nil)
+	var mu sync.Mutex
+	var outcomes []Outcome
+	s.SetNotifier(func(o Outcome) {
+		mu.Lock()
+		outcomes = append(outcomes, o)
+		mu.Unlock()
+	})
+
+	e := failEntry(t, "notifyme", "kaboom", true, time.Minute, 3)
+	_ = s.execute(e) // failure, will retry
+
+	e.fn = func() error { return nil }
+	_ = s.execute(e) // success
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(outcomes) != 2 {
+		t.Fatalf("got %d outcomes, want 2", len(outcomes))
+	}
+	fail := outcomes[0]
+	if fail.Status != "failed" || fail.Err != "kaboom" || !fail.WillRetry || fail.TaskID != "notifyme" {
+		t.Errorf("failure outcome = %+v, want failed/kaboom/WillRetry=true/notifyme", fail)
+	}
+	if fail.Attempt != 0 {
+		t.Errorf("failure Attempt = %d, want 0 (attempt index before increment)", fail.Attempt)
+	}
+	ok := outcomes[1]
+	if ok.Status != "success" || ok.WillRetry || ok.Err != "" {
+		t.Errorf("success outcome = %+v, want success/WillRetry=false/no error", ok)
 	}
 }

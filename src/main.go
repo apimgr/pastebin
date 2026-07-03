@@ -1080,7 +1080,7 @@ Examples:
 	// JSON Lines audit log (AI.md server.logs.audit): configuration, security,
 	// backup, and server-lifecycle events, one JSON object per line.
 	ac := cfg.Server.Logging.Audit
-	srv.SetAuditWriter(audit.New(audit.Config{
+	auditW := audit.New(audit.Config{
 		Enabled:          ac.Enabled,
 		Dir:              logsDir,
 		Filename:         ac.Filename,
@@ -1092,7 +1092,8 @@ Examples:
 			Backup:        ac.Events.Backup,
 			Server:        ac.Events.Server,
 		},
-	}))
+	})
+	srv.SetAuditWriter(auditW)
 
 	// Weekly GeoIP database refresh (Sunday 03:00).
 	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func() error {
@@ -1106,6 +1107,24 @@ Examples:
 	// Tor health check — registered after srv so it can query srv.TorRunning().
 	logSchedErr(sched.Register("tor_health", "Tor Health", "@every 10m", true,
 		task.TorHealth(srv.TorRunning, srv.TorRestart)))
+
+	// Retry policy (PART 18). Network-dependent tasks retry on failure by
+	// default with a 1h base delay; operators override per task in server.yml.
+	sched.SetRetry("blocklist_update", true, time.Hour, 0)
+	sched.SetRetry("cve_update", true, time.Hour, 0)
+	for id, tc := range cfg.Server.Scheduler.Tasks {
+		var delay time.Duration
+		if tc.RetryDelay != "" {
+			if d, err := time.ParseDuration(tc.RetryDelay); err == nil {
+				delay = d
+			}
+		}
+		sched.SetRetry(id, tc.RetryOnFail, delay, 0)
+	}
+
+	// Failure notification + audit logging (PART 18 task execution flow): every
+	// run is audited; failures also send a scheduler_error email to the operator.
+	sched.SetNotifier(schedulerNotifier(cfg, auditW))
 
 	sched.Start()
 	defer sched.Stop()
@@ -1261,6 +1280,60 @@ Run '%s <command> --help' for detailed help on any command.
 func logSchedErr(err error) {
 	if err != nil {
 		log.Printf("warning: scheduler registration: %v", err)
+	}
+}
+
+// schedulerNotifier returns a scheduler notifier that audits every task run and
+// emails the operator a scheduler_error notification on failure (PART 18).
+func schedulerNotifier(cfg *config.Config, auditW *audit.Writer) scheduler.NotifyFunc {
+	return func(o scheduler.Outcome) {
+		if auditW != nil {
+			event := "scheduler.task_completed"
+			severity := audit.SeverityInfo
+			result := audit.ResultSuccess
+			if o.Status != "success" {
+				event = "scheduler.task_failed"
+				severity = audit.SeverityError
+				result = audit.ResultFailure
+			}
+			auditW.Log(audit.Entry{
+				Event:    event,
+				Severity: severity,
+				Result:   result,
+				Target:   &audit.Target{Type: "scheduler_task", ID: o.TaskID},
+				Details: map[string]any{
+					"task_name":   o.TaskName,
+					"duration_ms": o.FinishedAt.Sub(o.StartedAt).Milliseconds(),
+					"attempt":     o.Attempt,
+					"will_retry":  o.WillRetry,
+				},
+				Reason: o.Err,
+			})
+		}
+
+		if o.Status == "success" {
+			return
+		}
+
+		to := strings.TrimSpace(cfg.AdminEmail())
+		if to == "" {
+			return
+		}
+		baseURL := cfg.Server.BaseURL
+		if baseURL == "" {
+			baseURL = "http://localhost"
+		}
+		m := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, baseURL, cfg.Server.FQDN)
+		if !m.Enabled() {
+			return
+		}
+		if err := m.Send(to, "scheduler_error", map[string]string{
+			"task_name": o.TaskName,
+			"error":     o.Err,
+			"next_run":  o.NextRun.Format("2006-01-02 15:04:05 MST"),
+		}); err != nil {
+			log.Printf("scheduler: failed to send scheduler_error email: %v", err)
+		}
 	}
 }
 
