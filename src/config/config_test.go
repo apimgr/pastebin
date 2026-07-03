@@ -712,6 +712,72 @@ func TestLoadEnv_AllVars(t *testing.T) {
 			},
 		},
 		{
+			name:  "LISTEN",
+			key:   "LISTEN",
+			value: "0.0.0.0",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.Address != "0.0.0.0" {
+					t.Errorf("Server.Address: got %q, want %q", cfg.Server.Address, "0.0.0.0")
+				}
+			},
+		},
+		{
+			name:  "DOMAIN",
+			key:   "DOMAIN",
+			value: "paste.example.com",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.FQDN != "paste.example.com" {
+					t.Errorf("Server.FQDN: got %q, want %q", cfg.Server.FQDN, "paste.example.com")
+				}
+			},
+		},
+		{
+			name:  "DATABASE_DRIVER",
+			key:   "DATABASE_DRIVER",
+			value: "libsql",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Database.Type != "libsql" {
+					t.Errorf("Database.Type: got %q, want %q", cfg.Database.Type, "libsql")
+				}
+			},
+		},
+		{
+			name:  "DATABASE_URL",
+			key:   "DATABASE_URL",
+			value: "/tmp/url.db",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Database.Path != "/tmp/url.db" {
+					t.Errorf("Database.Path: got %q, want %q", cfg.Database.Path, "/tmp/url.db")
+				}
+			},
+		},
+		{
+			name:  "APPLICATION_NAME",
+			key:   "APPLICATION_NAME",
+			value: "MyPaste",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.Branding.Title != "MyPaste" {
+					t.Errorf("Server.Branding.Title: got %q, want %q", cfg.Server.Branding.Title, "MyPaste")
+				}
+			},
+		},
+		{
+			name:  "APPLICATION_TAGLINE",
+			key:   "APPLICATION_TAGLINE",
+			value: "Paste it fast",
+			check: func(t *testing.T, cfg *config.Config) {
+				t.Helper()
+				if cfg.Server.Branding.Tagline != "Paste it fast" {
+					t.Errorf("Server.Branding.Tagline: got %q, want %q", cfg.Server.Branding.Tagline, "Paste it fast")
+				}
+			},
+		},
+		{
 			name:  "BASE_URL",
 			key:   "BASE_URL",
 			value: "https://paste.example.com",

@@ -1004,17 +1004,41 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("PORT"); v != "" {
 		c.Server.Port = v
 	}
+	// LISTEN is the AI.md-canonical name (PART 5); ADDRESS is an accepted alias.
 	if v := os.Getenv("ADDRESS"); v != "" {
+		c.Server.Address = v
+	}
+	if v := os.Getenv("LISTEN"); v != "" {
 		c.Server.Address = v
 	}
 	if v := os.Getenv("BASE_URL"); v != "" {
 		c.Server.BaseURL = v
 	}
+	// DOMAIN is the highest-priority FQDN override (AI.md 7548, 7561).
+	if v := os.Getenv("DOMAIN"); v != "" {
+		c.Server.FQDN = v
+	}
+	// DATABASE_DRIVER selects the storage backend (AI.md 7550).
+	if v := os.Getenv("DATABASE_DRIVER"); v != "" {
+		c.Database.Type = v
+	}
+	// DATABASE_URL / DB_PATH set the connection string (AI.md 7551); DB_PATH is an alias.
 	if v := os.Getenv("DB_PATH"); v != "" {
 		c.Database.Path = v
 	}
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		c.Database.Path = v
+	}
+	// APPLICATION_NAME is the AI.md-canonical application title (AI.md 7579); SITE_TITLE is an alias.
 	if v := os.Getenv("SITE_TITLE"); v != "" {
 		c.Web.SiteTitle = v
+	}
+	if v := os.Getenv("APPLICATION_NAME"); v != "" {
+		c.Server.Branding.Title = v
+	}
+	// APPLICATION_TAGLINE sets the application description/tagline (AI.md 7580).
+	if v := os.Getenv("APPLICATION_TAGLINE"); v != "" {
+		c.Server.Branding.Tagline = v
 	}
 	if v := os.Getenv("THEME"); v != "" {
 		c.Web.Theme = v

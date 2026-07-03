@@ -169,6 +169,10 @@ func GetPIDFile(appName string) string {
 
 // GetLogsDir returns the platform-correct logs directory for appName.
 func GetLogsDir(appName string) string {
+	// LOG_DIR is the AI.md-canonical name (AI.md 7574); LOGS_DIR is an accepted alias.
+	if dir := os.Getenv("LOG_DIR"); dir != "" {
+		return dir
+	}
 	if dir := os.Getenv("LOGS_DIR"); dir != "" {
 		return dir
 	}
@@ -243,6 +247,10 @@ func GetCacheDir(appName string) string {
 func GetDBPath(appName string) string {
 	if p := os.Getenv("DB_PATH"); p != "" {
 		return p
+	}
+	// DATABASE_DIR overrides only the directory; the file stays server.db (AI.md 7575).
+	if dir := os.Getenv("DATABASE_DIR"); dir != "" {
+		return filepath.Join(dir, "server.db")
 	}
 
 	// Container: PART 4 says /data/db/sqlite/server.db

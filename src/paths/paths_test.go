@@ -43,6 +43,26 @@ func TestGetLogsDir_EnvOverride(t *testing.T) {
 	}
 }
 
+// TestGetLogsDir_LOG_DIR verifies that the AI.md-canonical LOG_DIR overrides the path.
+func TestGetLogsDir_LOG_DIR(t *testing.T) {
+	os.Unsetenv("LOGS_DIR")
+	t.Setenv("LOG_DIR", "/tmp/canonical-logs")
+	got := paths.GetLogsDir("pastebin")
+	if got != "/tmp/canonical-logs" {
+		t.Errorf("GetLogsDir: got %q, want %q", got, "/tmp/canonical-logs")
+	}
+}
+
+// TestGetDBPath_DATABASE_DIR verifies that DATABASE_DIR overrides only the directory.
+func TestGetDBPath_DATABASE_DIR(t *testing.T) {
+	os.Unsetenv("DB_PATH")
+	t.Setenv("DATABASE_DIR", "/tmp/dbdir")
+	got := paths.GetDBPath("pastebin")
+	if got != filepath.Join("/tmp/dbdir", "server.db") {
+		t.Errorf("GetDBPath: got %q, want %q", got, filepath.Join("/tmp/dbdir", "server.db"))
+	}
+}
+
 // TestGetBackupDir_EnvOverride verifies that BACKUP_DIR overrides the computed path.
 func TestGetBackupDir_EnvOverride(t *testing.T) {
 	t.Setenv("BACKUP_DIR", "/tmp/test-backup")
