@@ -14,9 +14,12 @@ import (
 func newErrorTestServer(t *testing.T) *Server {
 	t.Helper()
 	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"t":        func(lang, key string) string { return i18n.Translate(lang, key) },
-		"i18njs":   func(lang string) template.JS { return template.JS(i18n.JSBundle(lang)) },
-		"markdown": func(s string) template.HTML { return renderMarkdown(s) },
+		"t":               func(lang, key string) string { return i18n.Translate(lang, key) },
+		"i18njs":          func(lang string) template.JS { return template.JS(i18n.JSBundle(lang)) },
+		"markdown":        func(s string) template.HTML { return renderMarkdown(s) },
+		"trackingEnabled": func() bool { return false },
+		"trackingScript":  func() template.HTML { return "" },
+		"consentConfig":   func() template.JS { return template.JS("{}") },
 	}).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		t.Fatalf("parse templates: %v", err)

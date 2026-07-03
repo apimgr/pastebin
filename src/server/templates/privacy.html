@@ -116,6 +116,11 @@
                         <li><strong>Analytics ({{.Tracking.TypeName}}):</strong> {{.Privacy.GetAnalyticsDescription}}</li>
                         {{end}}
                     </ul>
+                    {{if .Privacy.Consent.ShowPreferences}}
+                    <p>
+                        <button type="button" class="btn btn-secondary" data-cookie-preferences>{{.Privacy.Consent.PreferencesText}}</button>
+                    </p>
+                    {{end}}
 
                     <h2 id="ccpa-opt-out" class="section-mt">Do Not Sell My Personal Information</h2>
                     {{if .Privacy.IsCCPAApplicable}}

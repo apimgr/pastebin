@@ -519,6 +519,15 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		"markdown": func(s string) template.HTML {
 			return renderMarkdown(s)
 		},
+		"trackingEnabled": func() bool {
+			return s.liveCfg().Server.Tracking.Enabled()
+		},
+		"trackingScript": func() template.HTML {
+			return renderTrackingScript(s.liveCfg().Server.Tracking)
+		},
+		"consentConfig": func() template.JS {
+			return renderConsentConfig(s.liveCfg())
+		},
 	}).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		log.Printf("warning: could not parse templates: %v", err)
