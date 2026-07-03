@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/cache"
+	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
@@ -695,6 +696,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/privacy", s.handlePrivacy)
 	r.Get("/server/terms", s.handleTerms)
 	r.Get("/server/contact", s.handleContact)
+	r.Post("/server/contact", s.handleContactPost)
 	r.Get("/server/healthz", s.handleHealthz)
 	// /healthz root alias — only when server.healthz.root.enabled: true (PART 13).
 	if s.liveCfg().Web.Healthz.Root.Enabled {
@@ -2395,24 +2397,130 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, r, "help.html", data)
 }
 
-func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
+// contactData builds the template data for the /server/contact page, minting a
+// fresh simple-captcha challenge when the built-in captcha is selected (PART 31).
+func (s *Server) contactData(r *http.Request) map[string]interface{} {
 	cfg := s.liveCfg()
+	pc := cfg.Server.Pages.Contact
 	data := map[string]interface{}{
-		"SiteTitle": cfg.Web.SiteTitle,
-		"Theme":     cfg.Web.Theme,
-		"Contact":   cfg.GeneralEmail(),
-		"BaseURL":   s.baseURL(r),
+		"SiteTitle":   cfg.Web.SiteTitle,
+		"Theme":       cfg.Web.Theme,
+		"Contact":     cfg.GeneralEmail(),
+		"BaseURL":     s.baseURL(r),
+		"FormEnabled": pc.Enabled,
+		"CaptchaType": pc.Captcha,
 	}
+	if pc.Enabled && pc.Captcha == "simple" {
+		if cap, err := s.generateSimpleCaptcha(); err == nil {
+			data["CaptchaQuestion"] = cap.Question
+			data["CaptchaToken"] = cap.Token
+		}
+	}
+	return data
+}
+
+func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
+	data := s.contactData(r)
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		html, err := s.renderTemplateToString(r, "contact.html", data)
 		if err != nil {
-			fmt.Fprintf(w, "Contact: %s\n", cfg.GeneralEmail())
+			fmt.Fprintf(w, "Contact: %s\n", s.liveCfg().GeneralEmail())
 			return
 		}
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
 		return
 	}
+	s.renderTemplate(w, r, "contact.html", data)
+}
+
+// handleContactPost processes a /server/contact form submission: it validates
+// the required fields and captcha, then emails the message to the general
+// contact recipient (falling back to admin) and re-renders the page with a
+// success or error banner (PART 31, AI.md /server/contact).
+func (s *Server) handleContactPost(w http.ResponseWriter, r *http.Request) {
+	cfg := s.liveCfg()
+	pc := cfg.Server.Pages.Contact
+
+	data := s.contactData(r)
+
+	// When the form is disabled, show the static page without accepting input.
+	if !pc.Enabled {
+		w.WriteHeader(http.StatusNotFound)
+		s.renderTemplate(w, r, "contact.html", data)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		data["ContactError"] = "Invalid form submission."
+		w.WriteHeader(http.StatusBadRequest)
+		s.renderTemplate(w, r, "contact.html", data)
+		return
+	}
+
+	name := strings.TrimSpace(r.PostFormValue("name"))
+	fromEmail := strings.TrimSpace(r.PostFormValue("email"))
+	subject := strings.TrimSpace(r.PostFormValue("subject"))
+	message := strings.TrimSpace(r.PostFormValue("message"))
+
+	// Preserve entered values so a validation error does not clear the form.
+	data["FormName"] = name
+	data["FormEmail"] = fromEmail
+	data["FormSubject"] = subject
+	data["FormMessage"] = message
+
+	if name == "" || fromEmail == "" || subject == "" || message == "" {
+		data["ContactError"] = "All fields are required."
+		w.WriteHeader(http.StatusBadRequest)
+		s.renderTemplate(w, r, "contact.html", data)
+		return
+	}
+	if !strings.Contains(fromEmail, "@") || strings.ContainsAny(fromEmail, " \t\r\n") {
+		data["ContactError"] = "Please enter a valid email address."
+		w.WriteHeader(http.StatusBadRequest)
+		s.renderTemplate(w, r, "contact.html", data)
+		return
+	}
+
+	// Validate the built-in simple captcha; provider captchas (recaptcha,
+	// hcaptcha) require site keys and are not verified server-side here.
+	if pc.Captcha == "simple" {
+		if !s.validateSimpleCaptcha(r.PostFormValue("captcha_token"), r.PostFormValue("captcha")) {
+			data["ContactError"] = "Captcha answer was incorrect. Please try again."
+			w.WriteHeader(http.StatusBadRequest)
+			s.renderTemplate(w, r, "contact.html", data)
+			return
+		}
+	}
+
+	to := strings.TrimSpace(cfg.GeneralEmail())
+	m := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, s.baseURL(r), cfg.Server.FQDN)
+	if to == "" || !m.Enabled() {
+		data["ContactError"] = "The contact form is currently unavailable. Please try again later."
+		w.WriteHeader(http.StatusServiceUnavailable)
+		s.renderTemplate(w, r, "contact.html", data)
+		return
+	}
+
+	if err := m.Send(to, "contact", map[string]string{
+		"name":    name,
+		"email":   fromEmail,
+		"subject": subject,
+		"message": message,
+	}); err != nil {
+		log.Printf("contact: send failed: %v", err)
+		data["ContactError"] = "Failed to send your message. Please try again later."
+		w.WriteHeader(http.StatusBadGateway)
+		s.renderTemplate(w, r, "contact.html", data)
+		return
+	}
+
+	data["ContactSuccess"] = pc.SuccessMessage
+	// Clear the preserved fields on success so the form resets.
+	delete(data, "FormName")
+	delete(data, "FormEmail")
+	delete(data, "FormSubject")
+	delete(data, "FormMessage")
 	s.renderTemplate(w, r, "contact.html", data)
 }
 

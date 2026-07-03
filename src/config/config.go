@@ -80,6 +80,9 @@ type ServerConfig struct {
 	// (server-internal alerts, never public), security (vulnerability reports,
 	// surfaced in security.txt), and general (public /server/contact form).
 	Contact ContactConfig `yaml:"contact"`
+	// Pages holds operator-customizable content and settings for the static
+	// /server pages (about, privacy, contact, help, terms) (PART 31).
+	Pages PagesConfig `yaml:"pages"`
 }
 
 // ContactConfig is the unified notification-recipient tree (PART 12). Each role
@@ -103,6 +106,33 @@ type ContactConfig struct {
 type ContactRole struct {
 	Email    string            `yaml:"email"`
 	Webhooks map[string]string `yaml:"webhooks"`
+}
+
+// PagesConfig holds operator-customizable content for the static /server pages
+// (PART 31). Empty content fields fall back to the built-in default templates.
+type PagesConfig struct {
+	About   PageContentConfig `yaml:"about"`
+	Privacy PageContentConfig `yaml:"privacy"`
+	Contact ContactPageConfig `yaml:"contact"`
+	Help    PageContentConfig `yaml:"help"`
+	Terms   PageContentConfig `yaml:"terms"`
+}
+
+// PageContentConfig is a single static page's optional Markdown content override.
+type PageContentConfig struct {
+	Content string `yaml:"content"`
+}
+
+// ContactPageConfig configures the /server/contact form (PART 31). When Enabled
+// is false the form is hidden and only static contact details are shown.
+type ContactPageConfig struct {
+	// Enabled turns the contact form on. Default true.
+	Enabled bool `yaml:"enabled"`
+	// Captcha selects the spam-prevention challenge: "simple" (built-in),
+	// "recaptcha", or "hcaptcha". Default "simple".
+	Captcha string `yaml:"captcha"`
+	// SuccessMessage is shown after a successful submission.
+	SuccessMessage string `yaml:"success_message"`
 }
 
 // MaintenanceConfig configures the runtime self-healing maintenance mode (PART 20).
@@ -685,6 +715,13 @@ func DefaultConfig() *Config {
 				Security: ContactRole{Email: "security@{fqdn}", Webhooks: map[string]string{}},
 				General:  ContactRole{Email: "", Webhooks: map[string]string{}},
 			},
+			Pages: PagesConfig{
+				Contact: ContactPageConfig{
+					Enabled:        true,
+					Captcha:        "simple",
+					SuccessMessage: "Thank you for your message. We'll respond soon.",
+				},
+			},
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
@@ -1049,6 +1086,18 @@ func Validate(cfg *Config) {
 				cfg.Server.Termbin.Timeout, d.Server.Termbin.Timeout)
 			cfg.Server.Termbin.Timeout = d.Server.Termbin.Timeout
 		}
+	}
+
+	// Contact page captcha must be one of the supported challenge types.
+	switch cfg.Server.Pages.Contact.Captcha {
+	case "simple", "recaptcha", "hcaptcha":
+	default:
+		log.Printf("[config] WARNING: invalid pages.contact.captcha %q, using default %q",
+			cfg.Server.Pages.Contact.Captcha, d.Server.Pages.Contact.Captcha)
+		cfg.Server.Pages.Contact.Captcha = d.Server.Pages.Contact.Captcha
+	}
+	if cfg.Server.Pages.Contact.SuccessMessage == "" {
+		cfg.Server.Pages.Contact.SuccessMessage = d.Server.Pages.Contact.SuccessMessage
 	}
 
 	// Web theme must be one of the valid values.
