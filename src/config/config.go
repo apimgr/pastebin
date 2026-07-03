@@ -430,6 +430,16 @@ type SecurityConfig struct {
 	// encryption of sensitive server data (DNS credentials, security reports, etc.).
 	// Auto-generated on first run; stored in server.yml; included in every backup.
 	EncryptionKey string `yaml:"encryption_key"`
+	// ContactEmail is the operator recipient for coordinated-disclosure security
+	// reports (PART 11 → Coordinated Disclosure Pipeline). Empty → falls back to
+	// the canonical server.contact.security.email.
+	ContactEmail string `yaml:"contact_email"`
+	// Keyservers is the list of PGP keyserver submission endpoints the project's
+	// public key is published to on generate/rotate (PART 11).
+	Keyservers []string `yaml:"keyservers"`
+	// PublishPGPKey enables serving /.well-known/pgp-key.asc, the Encryption line
+	// in security.txt, and keyserver publishing. Parsed via config.ParseBool.
+	PublishPGPKey string `yaml:"publish_pgp_key"`
 	// Allowlist is a list of IP addresses or CIDR ranges that bypass blocklist,
 	// rate limiting, and geoip checks. Auth checks are never bypassed.
 	// Single IPs are automatically expanded to /32 (IPv4) or /128 (IPv6).
@@ -939,6 +949,22 @@ func (c *Config) SecurityEmail() string {
 		return e
 	}
 	return c.AdminEmail()
+}
+
+// SecurityReportEmail returns the operator recipient for coordinated-disclosure
+// security reports (PART 11). Prefers web.security.contact_email, then falls
+// back to the canonical security.txt contact (SecurityEmail).
+func (c *Config) SecurityReportEmail() string {
+	if e := c.expandFQDN(strings.TrimSpace(c.Web.Security.ContactEmail)); e != "" {
+		return e
+	}
+	return c.SecurityEmail()
+}
+
+// PublishPGPKeyEnabled reports whether the project PGP key is published
+// (pgp-key.asc, security.txt Encryption line, keyserver submission) (PART 11).
+func (c *Config) PublishPGPKeyEnabled() bool {
+	return IsTruthy(c.Web.Security.PublishPGPKey)
 }
 
 // GeneralEmail returns the resolved /server/contact recipient (PART 12).
