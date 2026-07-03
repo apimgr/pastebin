@@ -1302,13 +1302,56 @@ func (c *Config) EncryptionKey() ([]byte, error) {
 }
 
 // fqdn returns the server FQDN used to expand {fqdn} tokens in contact
-// addresses, falling back to "localhost" when unset.
+// addresses. It follows the AI.md {fqdn} resolution order (PART 12): the
+// configured/DOMAIN value first, then os.Hostname(), then $HOSTNAME, then the
+// first public IP, and only "localhost" as the last resort. Reverse-proxy
+// header detection (priority 1) is request-scoped and handled at the HTTP layer,
+// so it is out of scope here.
 func (c *Config) fqdn() string {
-	f := strings.TrimSpace(c.Server.FQDN)
-	if f == "" {
-		return "localhost"
+	if f := strings.TrimSpace(c.Server.FQDN); f != "" && !strings.EqualFold(f, "localhost") {
+		return f
 	}
-	return f
+	if h, err := os.Hostname(); err == nil {
+		if h = strings.TrimSpace(h); h != "" && !strings.EqualFold(h, "localhost") {
+			return h
+		}
+	}
+	if h := strings.TrimSpace(os.Getenv("HOSTNAME")); h != "" && !strings.EqualFold(h, "localhost") {
+		return h
+	}
+	if ip := firstPublicIP(); ip != "" {
+		return ip
+	}
+	return "localhost"
+}
+
+// firstPublicIP returns the first globally routable unicast address bound to a
+// local interface, preferring IPv6 over IPv4, or "" when none is found. Private,
+// loopback, and link-local addresses are excluded (AI.md PART 12 {fqdn}
+// resolution priorities 5 and 6).
+func firstPublicIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	var v4 string
+	for _, a := range addrs {
+		ipNet, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipNet.IP
+		if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+			continue
+		}
+		if ip.To4() == nil {
+			return ip.String()
+		}
+		if v4 == "" {
+			v4 = ip.String()
+		}
+	}
+	return v4
 }
 
 // expandFQDN substitutes the {fqdn} placeholder in a contact value with the

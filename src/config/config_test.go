@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/apimgr/pastebin/src/config"
@@ -1016,6 +1017,29 @@ func TestContactResolution(t *testing.T) {
 	}
 }
 
+// TestContactResolutionNeverLocalhost verifies the PART 12 {fqdn} resolution
+// order: an unset or "localhost" FQDN must resolve to the real hostname or a
+// public IP rather than synthesizing an invalid "admin@localhost" address for
+// the public /server/contact page. Skipped only on a host whose own hostname is
+// literally "localhost" with no public IP, where localhost is the correct last
+// resort per the spec.
+func TestContactResolutionNeverLocalhost(t *testing.T) {
+	h, err := os.Hostname()
+	if err != nil || strings.EqualFold(strings.TrimSpace(h), "localhost") || strings.TrimSpace(h) == "" {
+		t.Skip("host hostname unavailable or literally localhost; localhost fallback is correct here")
+	}
+	for _, fqdn := range []string{"", "localhost", "LocalHost"} {
+		c := &config.Config{}
+		c.Server.FQDN = fqdn
+		if got := c.AdminEmail(); got == "admin@localhost" {
+			t.Errorf("FQDN %q: AdminEmail must not synthesize admin@localhost; got %q", fqdn, got)
+		}
+		if got := c.GeneralEmail(); got == "admin@localhost" {
+			t.Errorf("FQDN %q: GeneralEmail must not synthesize admin@localhost; got %q", fqdn, got)
+		}
+	}
+}
+
 // TestContactWebhookFallback verifies role webhook lookup falls back to admin.
 func TestContactWebhookFallback(t *testing.T) {
 	c := &config.Config{}
@@ -1033,10 +1057,12 @@ func TestContactWebhookFallback(t *testing.T) {
 	}
 }
 
-// TestContactFQDNDefault confirms the localhost fallback when FQDN is unset.
+// TestContactFQDNDefault confirms an explicit FQDN is used verbatim when the
+// address template carries the {fqdn} token (PART 12 resolution priority).
 func TestContactFQDNDefault(t *testing.T) {
 	c := &config.Config{}
-	if got := c.AdminEmail(); got != "admin@localhost" {
-		t.Errorf("AdminEmail localhost fallback: got %q", got)
+	c.Server.FQDN = "paste.example.org"
+	if got := c.AdminEmail(); got != "admin@paste.example.org" {
+		t.Errorf("AdminEmail with explicit FQDN: got %q", got)
 	}
 }
