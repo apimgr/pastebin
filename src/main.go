@@ -315,6 +315,31 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		case "--help":
 			maintenance.PrintHelp(binaryName)
 		case "backup":
+			// "backup test" is a dry-run verification of the security keypair,
+			// not a backup creation (AI.md 14213).
+			if maintenanceArg == "test" {
+				btCfgFile := filepath.Join(mcConfigDir, "server.yml")
+				btCfg, _ := config.Load(btCfgFile)
+				if btCfg.Database.Path == "" {
+					btCfg.Database.Path = paths.GetDBPath(appName)
+				}
+				btDB, dbErr := database.NewDatabase(btCfg.Database.Type, btCfg.Database.Path)
+				if dbErr != nil {
+					fmt.Fprintf(stderr, "%s: backup test: database: %v\n", binaryName, dbErr)
+					return 1
+				}
+				installSecret, secErr := btDB.EnsureAppSecret("installation_secret")
+				btDB.Close()
+				if secErr != nil {
+					fmt.Fprintf(stderr, "%s: backup test: installation_secret: %v\n", binaryName, secErr)
+					return 1
+				}
+				if err := maintenance.TestSecurityKeypair(mcConfigDir, installSecret); err != nil {
+					fmt.Fprintf(stderr, "%s: %v\n", binaryName, err)
+					return 1
+				}
+				return 0
+			}
 			opts := maintenance.BackupOptions{
 				ConfigDir:  mcConfigDir,
 				DataDir:    mcDataDir,

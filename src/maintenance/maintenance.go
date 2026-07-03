@@ -19,6 +19,9 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/apimgr/pastebin/src/common/secretbox"
+	"github.com/apimgr/pastebin/src/pgp"
 )
 
 const (
@@ -96,6 +99,11 @@ func Backup(opts BackupOptions) error {
 	addFile(filepath.Join(opts.DataDir, "db", "users.db"), "users.db")
 	addDir(filepath.Join(opts.ConfigDir, "template"), "template")
 	addDir(filepath.Join(opts.ConfigDir, "theme"), "theme")
+	// Security keypair state (PART, AI.md 14206-14209): public key, encrypted
+	// private key, parked rotated key, and per-keyserver publish state. The
+	// private key's KDF input is installation_secret, which lives in server.db
+	// (already archived), so the backup is self-sufficient to restore.
+	addDir(filepath.Join(opts.ConfigDir, "security"), "security")
 
 	// Compute content checksum: SHA-256 of all data file bytes in archive order,
 	// excluding the manifest. This avoids the circular-dependency that would arise
@@ -304,6 +312,7 @@ func PrintHelp(binaryName string) {
 
 Commands:
   backup [filename]   Create a backup of config and database files
+  backup test         Dry-run verify the security keypair decrypts
   restore <file>      Restore from a backup file
   update              Update the binary to the latest release (alias: --update yes)
   mode <mode>         Set the server mode (production|development)
@@ -313,10 +322,11 @@ Commands:
 Examples:
   %s --maintenance backup
   %s --maintenance backup mybackup.tar.gz
+  %s --maintenance backup test
   %s --maintenance restore pastebin_backup_2025-01-01_120000.tar.gz
   %s --maintenance mode development
   %s --maintenance update
-`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 // VerifyBackup performs the post-creation checks required by PART 21:
@@ -438,6 +448,42 @@ func VerifyBackup(path, password string) error {
 	return nil
 }
 
+// TestSecurityKeypair performs a dry-run restore of the coordinated-disclosure
+// keypair (AI.md 14213): it reads the encrypted project private key from
+// {configDir}/security/pgp.priv.asc.enc, unwraps it with the
+// installation_secret-derived key, and confirms it decrypts to a valid armored
+// key carrying a user identity. It never writes the decrypted key anywhere.
+//
+// Returns nil when the private key decrypts successfully. A missing key file is
+// reported as an error so `backup test` fails loudly when publish is enabled but
+// no keypair exists.
+func TestSecurityKeypair(configDir string, installSecret []byte) error {
+	privPath := filepath.Join(configDir, "security", "pgp.priv.asc.enc")
+	sealed, err := os.ReadFile(privPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("test: no security keypair found at %s", privPath)
+		}
+		return fmt.Errorf("test: read private key: %w", err)
+	}
+
+	wrapKey, err := pgp.WrapKey(installSecret)
+	if err != nil {
+		return fmt.Errorf("test: %w", err)
+	}
+	armored, err := secretbox.Open(wrapKey, sealed)
+	if err != nil {
+		return fmt.Errorf("test: decrypt private key failed: %w", err)
+	}
+
+	identity, err := pgp.IdentityOf(string(armored))
+	if err != nil {
+		return fmt.Errorf("test: decrypted private key is invalid: %w", err)
+	}
+	fmt.Printf("Security keypair OK: private key decrypts successfully (identity: %s)\n", identity)
+	return nil
+}
+
 // verifySQLiteMagic checks that a file begins with the SQLite3 magic header.
 func verifySQLiteMagic(path string) error {
 	const sqliteMagic = "SQLite format 3\x00"
@@ -511,6 +557,13 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 		} else if strings.HasPrefix(hdr.Name, "theme/") {
 			rel := strings.TrimPrefix(hdr.Name, "theme/")
 			dest = filepath.Join(configDir, "theme", rel)
+		} else if strings.HasPrefix(hdr.Name, "security/") {
+			rel := strings.TrimPrefix(hdr.Name, "security/")
+			// Guard against path traversal in archive names.
+			if strings.Contains(rel, "..") {
+				return nil
+			}
+			dest = filepath.Join(configDir, "security", rel)
 		} else {
 			return nil // unknown entry — skip
 		}

@@ -14,14 +14,37 @@ package pgp
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
+	"golang.org/x/crypto/hkdf"
 )
+
+// wrapKeyInfo domain-separates the private-key wrapping key from every other
+// installation_secret derivation (AI.md 14181/14207).
+const wrapKeyInfo = "pastebin:pgp-private-key:v1"
+
+// WrapKey derives the 32-byte key that seals the project private key on disk
+// from the installation_secret via HKDF-SHA256. Both the server (at write/read
+// time) and the maintenance backup-test path share this one definition so the
+// derivation can never drift between them.
+func WrapKey(installSecret []byte) ([]byte, error) {
+	if len(installSecret) == 0 {
+		return nil, fmt.Errorf("pgp: installation_secret unavailable")
+	}
+	r := hkdf.New(sha256.New, installSecret, nil, []byte(wrapKeyInfo))
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(r, key); err != nil {
+		return nil, fmt.Errorf("pgp: derive wrap key: %w", err)
+	}
+	return key, nil
+}
 
 // Keypair is a freshly generated project keypair in ASCII-armored form plus the
 // metadata the server persists (AI.md 14189-14198). The armored private key is

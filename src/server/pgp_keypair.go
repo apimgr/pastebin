@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -16,9 +15,6 @@ import (
 	"github.com/apimgr/pastebin/src/common/secretbox"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/pgp"
-	"golang.org/x/crypto/hkdf"
-
-	"crypto/sha256"
 )
 
 // keypairValidity is the default project-key lifetime (AI.md 14181: "Expires 2
@@ -52,15 +48,7 @@ func (s *Server) keyserversStatePath() string {
 // installation_secret via HKDF-SHA256 (AI.md 14181/14207). Domain-separated by an
 // info label so it never collides with other installation_secret derivations.
 func (s *Server) pgpWrapKey() ([]byte, error) {
-	if len(s.installSecret) == 0 {
-		return nil, fmt.Errorf("pgp: installation_secret unavailable")
-	}
-	r := hkdf.New(sha256.New, s.installSecret, nil, []byte("pastebin:pgp-private-key:v1"))
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(r, key); err != nil {
-		return nil, fmt.Errorf("pgp: derive wrap key: %w", err)
-	}
-	return key, nil
+	return pgp.WrapKey(s.installSecret)
 }
 
 // writePrivateKey wraps an armored private key with the installation_secret-derived
