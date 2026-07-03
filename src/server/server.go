@@ -219,6 +219,9 @@ type Server struct {
 	pendingRestartKeys []string
 	// csrfSecret is the HMAC key for CSRF token signing, loaded from the DB at startup.
 	csrfSecret []byte
+	// installSecret is the root installation_secret (PART 11 Cryptographic Keys),
+	// loaded from the DB at startup; base for the rotating security_id token.
+	installSecret []byte
 	// privDrop holds privilege-drop parameters set by main before Run (PART 23 step 8g).
 	privDrop *privDropConfig
 }
@@ -495,6 +498,10 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	// Cache the CSRF signing secret for use in csrfMiddleware.
 	if csrfSec, err := db.EnsureAppSecret("csrf_token_secret"); err == nil {
 		s.csrfSecret = csrfSec
+	}
+	// Cache the installation secret for the rotating security_id token (PART 11).
+	if instSec, err := db.EnsureAppSecret("installation_secret"); err == nil {
+		s.installSecret = instSec
 	}
 
 	// Runtime self-healing maintenance monitor (PART 20). Enters maintenance mode
@@ -2724,6 +2731,12 @@ func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Contact: mailto:%s\n", cfg.SecurityEmail())
+	// Rotating security_id contact (PART 11 → Coordinated Disclosure Pipeline).
+	// This is the only place the id is ever emitted; it switches the contact
+	// form into security-report mode when a researcher follows it.
+	if id := s.currentSecurityID(); id != "" {
+		fmt.Fprintf(&b, "Contact: %s/server/contact?security_id=%s\n", strings.TrimRight(s.baseURL(r), "/"), id)
+	}
 	fmt.Fprintf(&b, "Expires: %s\n", expires)
 	b.WriteString("Preferred-Languages: en\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
