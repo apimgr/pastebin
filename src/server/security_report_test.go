@@ -1,10 +1,54 @@
 package server
 
 import (
+	"net"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestIsPublicIP(t *testing.T) {
+	blocked := []string{
+		"127.0.0.1", "::1", "10.1.2.3", "192.168.0.5", "172.16.9.9",
+		"169.254.1.1", "0.0.0.0", "224.0.0.1", "fc00::1", "fe80::1",
+	}
+	for _, s := range blocked {
+		if isPublicIP(net.ParseIP(s)) {
+			t.Errorf("isPublicIP(%s) = true; want false", s)
+		}
+	}
+	allowed := []string{"8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"}
+	for _, s := range allowed {
+		if !isPublicIP(net.ParseIP(s)) {
+			t.Errorf("isPublicIP(%s) = false; want true", s)
+		}
+	}
+	if isPublicIP(nil) {
+		t.Error("isPublicIP(nil) = true; want false")
+	}
+}
+
+func TestFetchResearcherPubKeyRejectsNonHTTPS(t *testing.T) {
+	if _, err := fetchResearcherPubKey("http://keys.example.com/k.asc"); err == nil {
+		t.Error("expected non-https url to be rejected")
+	}
+	if _, err := fetchResearcherPubKey("ftp://keys.example.com/k.asc"); err == nil {
+		t.Error("expected non-https scheme to be rejected")
+	}
+}
+
+func TestFetchResearcherPubKeyEmpty(t *testing.T) {
+	if _, err := fetchResearcherPubKey("   "); err == nil {
+		t.Error("expected empty key to be rejected")
+	}
+}
+
+func TestFetchResearcherPubKeyRejectsInvalidPastedBlock(t *testing.T) {
+	bogus := pgpPublicKeyHeader + "\nnot-a-real-key\n-----END PGP PUBLIC KEY BLOCK-----"
+	if _, err := fetchResearcherPubKey(bogus); err == nil {
+		t.Error("expected structurally invalid pasted key to be rejected")
+	}
+}
 
 func TestSanitizeComponent(t *testing.T) {
 	cases := map[string]string{

@@ -82,6 +82,22 @@ func (m *Mailer) Send(to, tmplName string, vars map[string]string) error {
 	return m.sendSMTP(fromAddr, to, msg)
 }
 
+// Render renders template tmplName with the provided variables and returns its
+// parsed subject and body without sending. Used when the caller must transform the
+// body before delivery — e.g. PGP-encrypting a researcher acknowledgment before
+// handing it to SendRawMessage (AI.md 14458).
+func (m *Mailer) Render(tmplName string, vars map[string]string) (subject, body string, err error) {
+	raw, err := m.renderTemplate(tmplName, vars)
+	if err != nil {
+		return "", "", fmt.Errorf("email: render %s: %w", tmplName, err)
+	}
+	subject, body, ok := parseTemplate(raw)
+	if !ok {
+		return "", "", fmt.Errorf("email: template %s missing Subject: line", tmplName)
+	}
+	return subject, body, nil
+}
+
 // resolveFrom returns the From display name and address, falling back to the app
 // name and no-reply@{fqdn} when the config leaves either unset.
 func (m *Mailer) resolveFrom() (name, addr string) {

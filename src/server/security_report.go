@@ -1,22 +1,132 @@
 package server
 
 import (
+	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
-	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/audit"
+	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/pgp"
 )
+
+// maxResearcherKeyBytes caps the researcher public-key fetch to guard against a
+// hostile or misconfigured URL streaming an unbounded body.
+const maxResearcherKeyBytes = 1 << 20
+
+// pgpPublicKeyHeader marks the start of an ASCII-armored PGP public key block.
+const pgpPublicKeyHeader = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
+
+// isPublicIP reports whether ip is a globally routable unicast address. Loopback,
+// RFC1918/ULA private, link-local, unspecified, and multicast ranges are rejected
+// so a researcher-supplied key URL cannot target internal services (SSRF guard).
+func isPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	return true
+}
+
+// fetchResearcherPubKey resolves the researcher's ASCII-armored PGP public key
+// from their submitted value (AI.md 14438): a pasted armored block is returned
+// as-is; an https:// URL is fetched over an SSRF-hardened client that refuses any
+// non-public resolved address and non-https redirect. The returned key is
+// structurally validated before use. Any error leaves the caller to fall back to
+// a plaintext acknowledgment.
+func fetchResearcherPubKey(src string) (string, error) {
+	src = strings.TrimSpace(src)
+	if src == "" {
+		return "", fmt.Errorf("no researcher key supplied")
+	}
+	if strings.Contains(src, pgpPublicKeyHeader) {
+		if _, err := pgp.FingerprintFromPublic(src); err != nil {
+			return "", fmt.Errorf("pasted researcher key invalid: %w", err)
+		}
+		return src, nil
+	}
+
+	u, err := url.Parse(src)
+	if err != nil {
+		return "", fmt.Errorf("parse researcher key url: %w", err)
+	}
+	if u.Scheme != "https" {
+		return "", fmt.Errorf("researcher key url must be https")
+	}
+
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	control := func(_, address string, _ syscall.RawConn) error {
+		host, _, splitErr := net.SplitHostPort(address)
+		if splitErr != nil {
+			return fmt.Errorf("parse dial address: %w", splitErr)
+		}
+		if ip := net.ParseIP(host); ip == nil || !isPublicIP(ip) {
+			return fmt.Errorf("researcher key url resolves to a non-public address")
+		}
+		return nil
+	}
+	dialer.Control = control
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			DialContext:         dialer.DialContext,
+			TLSHandshakeTimeout: 10 * time.Second,
+			Proxy:               http.ProxyFromEnvironment,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("redirect to non-https blocked")
+			}
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+	if err != nil {
+		return "", fmt.Errorf("build researcher key request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch researcher key: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch researcher key: status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResearcherKeyBytes))
+	if err != nil {
+		return "", fmt.Errorf("read researcher key: %w", err)
+	}
+	key := string(body)
+	if !strings.Contains(key, pgpPublicKeyHeader) {
+		return "", fmt.Errorf("fetched researcher key is not an armored public key")
+	}
+	if _, err := pgp.FingerprintFromPublic(key); err != nil {
+		return "", fmt.Errorf("fetched researcher key invalid: %w", err)
+	}
+	return key, nil
+}
 
 // defaultDisclosureDays is the coordinated-disclosure window offered by default
 // (AI.md 14138: "Number of days (default 90)").
@@ -275,6 +385,7 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 		encMethod:      encMethod,
 		statusToken:    rawToken,
 		sealed:         sealed,
+		researcherGPG:  gpg,
 	})
 
 	// Admin webhook summary — server-internal event, NEVER user content (PART 17).
@@ -381,6 +492,9 @@ type securityEmailCtx struct {
 	// sealed is the encrypted report body delivered to the maintainer — inline
 	// when PGP-armored, as an attachment when AES-256-GCM (AI.md 14457).
 	sealed []byte
+	// researcherGPG is the researcher's submitted key (armored block or https URL);
+	// when present and valid, the acknowledgment is PGP-encrypted (AI.md 14458).
+	researcherGPG string
 }
 
 // sendSecurityReportEmails dispatches the maintainer notification and the
@@ -437,11 +551,31 @@ func (s *Server) sendSecurityReportEmails(r *http.Request, cfg *config.Config, c
 
 	statusURL := fmt.Sprintf("%s/server/security/report/%s?token=%s",
 		s.baseURL(r), c.trackingID, c.statusToken)
-	if err := m.Send(c.researcher, "security_report_ack", map[string]string{
+	ackVars := map[string]string{
 		"timestamp":   c.timestamp,
 		"tracking_id": c.trackingID,
 		"status_url":  statusURL,
-	}); err != nil {
+	}
+
+	// When the researcher supplied a valid public key, PGP-encrypt the whole
+	// acknowledgment and deliver the armored ciphertext inline (AI.md 14458). Any
+	// failure resolving, validating, or encrypting to their key falls back to the
+	// plaintext template — the acknowledgment carries no vulnerability content.
+	if strings.TrimSpace(c.researcherGPG) != "" {
+		if pub, err := fetchResearcherPubKey(c.researcherGPG); err != nil {
+			log.Printf("security report: researcher key unusable, sending plaintext ack: %v", err)
+		} else if subject, body, err := m.Render("security_report_ack", ackVars); err != nil {
+			log.Printf("security report: render ack failed: %v", err)
+		} else if armored, err := pgp.Encrypt(pub, []byte(body)); err != nil {
+			log.Printf("security report: encrypt ack to researcher key failed, sending plaintext: %v", err)
+		} else if err := m.SendRawMessage(c.researcher, subject, armored); err != nil {
+			log.Printf("security report: encrypted researcher acknowledgment failed: %v", err)
+		} else {
+			return
+		}
+	}
+
+	if err := m.Send(c.researcher, "security_report_ack", ackVars); err != nil {
 		log.Printf("security report: researcher acknowledgment failed: %v", err)
 	}
 }
