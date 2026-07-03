@@ -516,6 +516,9 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		"i18njs": func(lang string) template.JS {
 			return template.JS(i18n.JSBundle(lang))
 		},
+		"markdown": func(s string) template.HTML {
+			return renderMarkdown(s)
+		},
 	}).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		log.Printf("warning: could not parse templates: %v", err)
@@ -744,6 +747,9 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/about", s.handleAbout)
 	r.Get("/server/help", s.handleHelp)
 	r.Get("/server/privacy", s.handlePrivacy)
+	// CCPA "Do Not Sell" opt-out toggle — sets/clears the ccpa_opt_out cookie
+	// (PART 31). Only meaningful when server.privacy.data.sold is true.
+	r.Post("/server/privacy/ccpa", s.handleCCPAOptOut)
 	r.Get("/server/terms", s.handleTerms)
 	r.Get("/server/contact", s.handleContact)
 	r.Post("/server/contact", s.handleContactPost)
@@ -2625,7 +2631,7 @@ func (s *Server) handleContactPost(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		html, err := s.renderTemplateToString(r, "privacy.html", s.pageData())
+		html, err := s.renderTemplateToString(r, "privacy.html", s.privacyPageData(r))
 		if err != nil {
 			fmt.Fprintf(w, "Privacy Policy — %s/server/privacy\n", s.baseURL(r))
 			return
@@ -2633,7 +2639,56 @@ func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
 		return
 	}
-	s.renderTemplate(w, r, "privacy.html", s.pageData())
+	s.renderTemplate(w, r, "privacy.html", s.privacyPageData(r))
+}
+
+// privacyPageData builds the template data for the privacy page from live config
+// (PART 31). Templates access the privacy tree via .Privacy.*, the analytics
+// platform via .Tracking.*, the auto-merged third-party list via
+// .ThirdPartyServices, and the CCPA opt-out cookie state via .CCPAOptedOut.
+func (s *Server) privacyPageData(r *http.Request) map[string]interface{} {
+	cfg := s.liveCfg()
+	privacy := cfg.Server.Privacy
+	tracking := cfg.Server.Tracking
+	ccpaOptedOut := false
+	if cookie, err := r.Cookie("ccpa_opt_out"); err == nil && cookie.Value == "true" {
+		ccpaOptedOut = true
+	}
+	data := s.pageData()
+	data["Privacy"] = &privacy
+	data["Tracking"] = &tracking
+	data["CCPAOptedOut"] = ccpaOptedOut
+	data["ThirdPartyServices"] = cfg.EffectiveThirdParty()
+	return data
+}
+
+// handleCCPAOptOut sets or clears the ccpa_opt_out cookie in response to the
+// "Do Not Sell My Personal Information" toggle on the privacy page (PART 31).
+// action=opt_in clears the opt-out; any other value records the opt-out for one
+// year. The cookie is readable by client JS so the consent UI can reflect state.
+func (s *Server) handleCCPAOptOut(w http.ResponseWriter, r *http.Request) {
+	secure := r.TLS != nil
+	if s.liveCfg().Web.CSRF.Secure == "true" {
+		secure = true
+	} else if s.liveCfg().Web.CSRF.Secure == "false" {
+		secure = false
+	}
+	cookie := &http.Cookie{
+		Name:     "ccpa_opt_out",
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	}
+	if strings.TrimSpace(r.PostFormValue("action")) == "opt_in" {
+		cookie.Value = ""
+		cookie.MaxAge = -1
+	} else {
+		cookie.Value = "true"
+		cookie.MaxAge = 365 * 24 * 60 * 60
+	}
+	http.SetCookie(w, cookie)
+	http.Redirect(w, r, "/server/privacy#ccpa-opt-out", http.StatusSeeOther)
 }
 
 func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {

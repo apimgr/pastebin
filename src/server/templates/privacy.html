@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Privacy - {{.SiteTitle}}</title>
-    <meta name="description" content="Privacy policy for {{.SiteTitle}} — what we collect, what we do not, and how data is retained">
+    <meta name="description" content="Privacy policy for {{.SiteTitle}} — what we collect, how it is used, retention, and your rights">
     <meta name="theme-color" content="#89b4fa">
     <link rel="manifest" href="/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,33 +38,108 @@
                 </div>
 
                 <div class="paste-view page-view">
-                    <h2>What we collect</h2>
-                    <p>
-                        When you create a paste, we store its content, title, language, visibility setting,
-                        expiry time, view count, and a SHA-256 hash of your delete token.
-                        We do not collect or store IP addresses, browser fingerprints, or personal identifiers.
+                    <p class="privacy-summary">
+                        {{if .Privacy.Data.Sold}}
+                            <strong>Your data may be sold or shared with third parties.</strong>
+                            See the sections below and the "Do Not Sell My Personal Information" option for your rights.
+                        {{else}}
+                            <strong>We never sell your data.</strong>
+                            {{if .Privacy.Data.StoredOnServer}}All data is stored on our own servers, not third-party cloud services.{{end}}
+                        {{end}}
                     </p>
 
-                    <h2 class="section-mt">What we do not collect</h2>
-                    <ul class="feature-list">
-                        <li>No user accounts or authentication data</li>
-                        <li>No cookies beyond any set by your browser for HTTPS</li>
-                        <li>No tracking pixels, analytics scripts, or third-party telemetry</li>
-                        <li>No advertising identifiers</li>
-                    </ul>
+                    <h2 class="section-mt">What we collect</h2>
+                    <div class="markdown-content">{{markdown .Privacy.Content.DataCollection}}</div>
+
+                    <h2 class="section-mt">How we use your data</h2>
+                    <div class="markdown-content">{{markdown .Privacy.GetDataUsageContent}}</div>
+
+                    <h2 class="section-mt">How we protect your data</h2>
+                    <div class="markdown-content">{{markdown .Privacy.Content.DataSecurity}}</div>
 
                     <h2 class="section-mt">Data retention</h2>
-                    <p>
-                        Pastes are deleted automatically when they expire or reach their burn-after view limit.
-                        You can delete your paste at any time using your delete token.
-                        Unlisted pastes are not shown in public listings but remain accessible via their direct link.
-                    </p>
+                    <p>{{.Privacy.Retention.Period}}</p>
+                    <ul class="feature-list">
+                        <li>Data export: {{if .Privacy.Retention.ExportAvailable}}available on request{{else}}not available{{end}}</li>
+                        <li>Account deletion: {{if .Privacy.Retention.DeletionAvailable}}available on request{{else}}not available{{end}}</li>
+                    </ul>
 
-                    <h2 class="section-mt">Public data</h2>
-                    <p>
-                        All public pastes are visible to anyone who visits this service.
-                        Do not paste sensitive data such as passwords, tokens, or private keys.
-                    </p>
+                    {{if .Privacy.Data.Sharing}}
+                    <h2 class="section-mt">When data may be shared</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Condition</th><th>When</th><th>Data</th></tr>
+                        </thead>
+                        <tbody>
+                            {{range .Privacy.Data.Sharing}}
+                            <tr>
+                                <td>{{.Condition}}</td>
+                                <td>{{.When}}</td>
+                                <td class="long-string">{{.Data}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                    {{end}}
+
+                    {{if .ThirdPartyServices}}
+                    <h2 class="section-mt">Third-party services</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Service</th><th>Purpose</th><th>Data sent</th><th>Policy</th></tr>
+                        </thead>
+                        <tbody>
+                            {{range .ThirdPartyServices}}
+                            <tr>
+                                <td>{{.Name}}</td>
+                                <td>{{.Purpose}}</td>
+                                <td class="long-string">{{.DataSent}}</td>
+                                <td>
+                                    {{if .PolicyURL}}
+                                        <a class="long-string" href="{{.PolicyURL}}" rel="noopener noreferrer nofollow" target="_blank">Privacy policy</a>
+                                    {{else}}—{{end}}
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                    {{else}}
+                    <h2 class="section-mt">Third-party services</h2>
+                    <p>We do not share your data with any third-party services.</p>
+                    {{end}}
+
+                    <h2 class="section-mt">Cookies</h2>
+                    <ul class="feature-list">
+                        <li><strong>Essential:</strong> {{.Privacy.Cookies.Essential.Description}}</li>
+                        <li><strong>Preferences:</strong> {{.Privacy.Cookies.Preferences.Description}}</li>
+                        {{if .Tracking.Enabled}}
+                        <li><strong>Analytics ({{.Tracking.TypeName}}):</strong> {{.Privacy.GetAnalyticsDescription}}</li>
+                        {{end}}
+                    </ul>
+
+                    <h2 id="ccpa-opt-out" class="section-mt">Do Not Sell My Personal Information</h2>
+                    {{if .Privacy.IsCCPAApplicable}}
+                        {{if .CCPAOptedOut}}
+                        <p>You have opted out of the sale of your personal information. We will not sell your data.</p>
+                        <form method="POST" action="/server/privacy/ccpa">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="action" value="opt_in">
+                            <button type="submit" class="btn btn-secondary">Undo opt-out</button>
+                        </form>
+                        {{else}}
+                        <p>
+                            Under the California Consumer Privacy Act (CCPA) you may opt out of the sale of your
+                            personal information. Click below to record your preference on this device.
+                        </p>
+                        <form method="POST" action="/server/privacy/ccpa">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="action" value="opt_out">
+                            <button type="submit" class="btn btn-primary">Do Not Sell My Personal Information</button>
+                        </form>
+                        {{end}}
+                    {{else}}
+                    <p>We do not sell your personal information, so there is nothing to opt out of.</p>
+                    {{end}}
 
                     <h2 class="section-mt">Contact</h2>
                     <p>
