@@ -317,7 +317,17 @@ Commands:
   update              Update the binary to the latest release (alias: --update yes)
   mode <mode>         Set the server mode (production|development)
   setup               Reset admin credentials / initial setup
+  pgp <action>        Manage the project security keypair (see below)
   --help              Show this help
+
+PGP keypair actions (--maintenance pgp <action>):
+  generate            Create the keypair and publish to keyservers
+  rotate              Roll to a new keypair, cross-signed by the old key
+  publish             Re-publish the public key to configured keyservers
+  export public [path]   Write the public key to path (or stdout)
+  export private <path>  Export the private key (operator auth, 1/hour)
+  import <file>       Import a private key (operator auth, identity checked)
+  delete              Delete the keypair and disable PGP publishing
 
 Examples:
   %s --maintenance backup
@@ -326,7 +336,9 @@ Examples:
   %s --maintenance restore pastebin_backup_2025-01-01_120000.tar.gz
   %s --maintenance mode development
   %s --maintenance update
-`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+  %s --maintenance pgp generate
+  %s --maintenance pgp export public /tmp/pgp.pub.asc
+`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 // VerifyBackup performs the post-creation checks required by PART 21:

@@ -85,7 +85,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		shellArg        string
 		serviceCmd      string
 		maintenanceCmd  string
-		maintenanceArg  string // second positional arg after --maintenance subcommand
+		maintenanceArg  string   // second positional arg after --maintenance subcommand
+		maintenancePGP  []string // remaining positionals for "--maintenance pgp <action> [args...]"
 		maintenancePass string // --password flag for --maintenance backup/restore
 		updateCmd       string
 		emailCmd        string // --email <subcommand>
@@ -153,8 +154,16 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		case "--maintenance":
 			maintenanceCmd = val()
 			// Capture an optional second positional argument (e.g. filename for
-			// "restore" or mode name for "mode").
+			// "restore" or mode name for "mode", or the action for "pgp").
 			maintenanceArg = val()
+			// "pgp" takes further positionals (e.g. "export private <path>");
+			// greedily collect all remaining non-flag args.
+			if maintenanceCmd == "pgp" {
+				for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+					i++
+					maintenancePGP = append(maintenancePGP, args[i])
+				}
+			}
 		case "--update":
 			// Consume the next arg unconditionally as the update subcommand so
 			// that "--update --help" routes to update-specific help instead of
@@ -393,6 +402,24 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		case "setup":
 			if err := maintenance.Setup(mcConfigDir); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance setup: %v\n", binaryName, err)
+				return 1
+			}
+			return 0
+		case "pgp":
+			// Project security keypair management (AI.md 14180-14188).
+			if maintenanceArg == "" {
+				fmt.Fprintf(stderr, "%s: --maintenance pgp requires an action\n", binaryName)
+				fmt.Fprintf(stderr, "Usage: %s --maintenance pgp <generate|rotate|publish|export|import|delete>\n", binaryName)
+				return 2
+			}
+			pgpOpts := maintenance.PGPOptions{
+				ConfigDir: mcConfigDir,
+				DataDir:   mcDataDir,
+				DBPath:    paths.GetDBPath(appName),
+				LogDir:    paths.GetLogsDir(appName),
+			}
+			if err := maintenance.RunPGP(maintenanceArg, maintenancePGP, pgpOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance pgp: %v\n", binaryName, err)
 				return 1
 			}
 			return 0

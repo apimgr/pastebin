@@ -1,12 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,6 +166,21 @@ func (s *Server) RotateKeypair() error {
 	if err != nil {
 		return fmt.Errorf("pgp: generate rotated keypair: %w", err)
 	}
+	// Cross-sign the new public key with the outgoing private key so trust chains
+	// from the previous key to the rotated one (AI.md 14182). Best-effort: a
+	// signing failure must not block the rotation — the new key is still valid on
+	// its own self-signature.
+	if _, statErr := os.Stat(s.pgpPrivateKeyPath()); statErr == nil {
+		if oldPriv, rerr := s.readPrivateKey(s.pgpPrivateKeyPath()); rerr == nil {
+			if signed, serr := pgp.SignPublicKey(oldPriv, kp.PublicArmored); serr == nil {
+				kp.PublicArmored = signed
+			} else {
+				log.Printf("pgp: cross-sign rotated public key: %v", serr)
+			}
+		} else {
+			log.Printf("pgp: read outgoing private key for cross-sign: %v", rerr)
+		}
+	}
 	// Park the outgoing private key so reports encrypted to it stay decryptable
 	// through the grace window.
 	if _, statErr := os.Stat(s.pgpPrivateKeyPath()); statErr == nil {
@@ -275,7 +287,7 @@ func (s *Server) submitToKeyserver(keyserver, pubArmored string) bool {
 			time.Sleep(delay)
 			delay *= 2
 		}
-		if err := postKey(keyserver, pubArmored); err != nil {
+		if err := pgp.PostKey(keyserver, pubArmored); err != nil {
 			log.Printf("pgp: keyserver %s publish attempt %d failed: %v", keyserver, attempt+1, err)
 			continue
 		}
@@ -283,37 +295,6 @@ func (s *Server) submitToKeyserver(keyserver, pubArmored string) bool {
 		return true
 	}
 	return false
-}
-
-// postKey performs a single keyserver submission. keys.openpgp.org uses the VKS
-// JSON API; classic HKP servers accept a form-encoded keytext at pks/add.
-func postKey(keyserver, pubArmored string) error {
-	client := &http.Client{Timeout: 30 * time.Second}
-	if strings.Contains(keyserver, "vks/v1/upload") {
-		payload, err := json.Marshal(map[string]string{"keytext": pubArmored})
-		if err != nil {
-			return err
-		}
-		resp, err := client.Post(keyserver, "application/json", bytes.NewReader(payload))
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			return fmt.Errorf("keyserver returned %d", resp.StatusCode)
-		}
-		return nil
-	}
-	endpoint := strings.TrimRight(keyserver, "/") + "/pks/add"
-	resp, err := client.PostForm(endpoint, url.Values{"keytext": {pubArmored}})
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("keyserver returned %d", resp.StatusCode)
-	}
-	return nil
 }
 
 // writeKeyserversState persists the keyserver publish state to disk (0o600).
