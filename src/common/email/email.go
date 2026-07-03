@@ -4,12 +4,16 @@
 package email
 
 import (
+	"bytes"
 	"crypto/tls"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"log"
+	"mime/multipart"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"strconv"
 	"strings"
@@ -73,16 +77,47 @@ func (m *Mailer) Send(to, tmplName string, vars map[string]string) error {
 		return fmt.Errorf("email: template %s missing Subject: line", tmplName)
 	}
 
-	fromAddr := m.cfg.From.Email
-	if fromAddr == "" {
-		fromAddr = "no-reply@" + m.fqdn
-	}
-	fromName := m.cfg.From.Name
-	if fromName == "" {
-		fromName = m.appName
-	}
-
+	fromName, fromAddr := m.resolveFrom()
 	msg := buildMessage(fromName, fromAddr, to, subject, bodyText, m.cfg.ReplyTo)
+	return m.sendSMTP(fromAddr, to, msg)
+}
+
+// resolveFrom returns the From display name and address, falling back to the app
+// name and no-reply@{fqdn} when the config leaves either unset.
+func (m *Mailer) resolveFrom() (name, addr string) {
+	addr = m.cfg.From.Email
+	if addr == "" {
+		addr = "no-reply@" + m.fqdn
+	}
+	name = m.cfg.From.Name
+	if name == "" {
+		name = m.appName
+	}
+	return name, addr
+}
+
+// SendRawMessage sends a plain-text email whose subject and body are assembled by
+// the caller, bypassing the template system. Used to deliver a message whose body
+// is an inline PGP-encrypted payload (AI.md 14457). Silent no-op when SMTP is off.
+func (m *Mailer) SendRawMessage(to, subject, body string) error {
+	if !m.Enabled() {
+		return nil
+	}
+	fromName, fromAddr := m.resolveFrom()
+	msg := buildMessage(fromName, fromAddr, to, subject, body, m.cfg.ReplyTo)
+	return m.sendSMTP(fromAddr, to, msg)
+}
+
+// SendWithAttachment sends a plain-text email with a single binary attachment
+// encoded as base64 in a multipart/mixed message. Used to deliver an AES-encrypted
+// security report when no PGP key is configured (AI.md 14457). Silent no-op when
+// SMTP is off.
+func (m *Mailer) SendWithAttachment(to, subject, body, filename string, data []byte) error {
+	if !m.Enabled() {
+		return nil
+	}
+	fromName, fromAddr := m.resolveFrom()
+	msg := buildMultipartMessage(fromName, fromAddr, to, subject, body, m.cfg.ReplyTo, filename, data)
 	return m.sendSMTP(fromAddr, to, msg)
 }
 
@@ -273,6 +308,47 @@ func buildMessage(fromName, fromAddr, to, subject, body, replyTo string) []byte 
 	sb.WriteString("\r\n")
 	sb.WriteString(body)
 	return []byte(sb.String())
+}
+
+// buildMultipartMessage builds a multipart/mixed message with a text/plain body
+// and one base64-encoded binary attachment. The multipart boundary is generated
+// by mime/multipart.
+func buildMultipartMessage(fromName, fromAddr, to, subject, body, replyTo, filename string, data []byte) []byte {
+	var partBuf bytes.Buffer
+	w := multipart.NewWriter(&partBuf)
+
+	var hdr bytes.Buffer
+	hdr.WriteString("From: " + fromName + " <" + fromAddr + ">\r\n")
+	hdr.WriteString("To: " + to + "\r\n")
+	hdr.WriteString("Subject: " + subject + "\r\n")
+	if replyTo != "" {
+		hdr.WriteString("Reply-To: " + replyTo + "\r\n")
+	}
+	hdr.WriteString("MIME-Version: 1.0\r\n")
+	hdr.WriteString("Content-Type: multipart/mixed; boundary=\"" + w.Boundary() + "\"\r\n")
+	hdr.WriteString("\r\n")
+
+	textPart, _ := w.CreatePart(textproto.MIMEHeader{
+		"Content-Type": {"text/plain; charset=utf-8"},
+	})
+	textPart.Write([]byte(body))
+
+	attachPart, _ := w.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {"application/octet-stream"},
+		"Content-Transfer-Encoding": {"base64"},
+		"Content-Disposition":       {"attachment; filename=\"" + filename + "\""},
+	})
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		attachPart.Write([]byte(encoded[i:end] + "\r\n"))
+	}
+	w.Close()
+
+	return append(hdr.Bytes(), partBuf.Bytes()...)
 }
 
 // sendSMTP delivers the message via the configured SMTP server.

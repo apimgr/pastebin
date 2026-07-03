@@ -1,6 +1,7 @@
 package email
 
 import (
+	"encoding/base64"
 	"os"
 	"strings"
 	"testing"
@@ -92,6 +93,48 @@ func TestBuildMessage_NoReplyTo(t *testing.T) {
 	msg := buildMessage("Name", "from@example.com", "to@example.com", "Subj", "Body", "")
 	if strings.Contains(string(msg), "Reply-To:") {
 		t.Error("unexpected Reply-To header when replyTo is empty")
+	}
+}
+
+// ─── buildMultipartMessage ────────────────────────────────────────────────────
+
+func TestBuildMultipartMessage_Attachment(t *testing.T) {
+	data := []byte("this is the encrypted report payload bytes")
+	msg := buildMultipartMessage("Sender", "from@example.com", "to@example.com",
+		"Encrypted Report", "See attached encrypted file.", "", "sec_abc123.enc", data)
+	s := string(msg)
+
+	checks := []string{
+		"From: Sender <from@example.com>",
+		"To: to@example.com",
+		"Subject: Encrypted Report",
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/mixed; boundary=",
+		"Content-Type: text/plain; charset=utf-8",
+		"See attached encrypted file.",
+		"Content-Transfer-Encoding: base64",
+		`Content-Disposition: attachment; filename="sec_abc123.enc"`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(s, want) {
+			t.Errorf("buildMultipartMessage: missing %q in output:\n%s", want, s)
+		}
+	}
+
+	// The attachment must be the base64 encoding of the payload, not the raw bytes.
+	if strings.Contains(s, string(data)) {
+		t.Error("buildMultipartMessage: raw payload leaked unencoded into message")
+	}
+	if !strings.Contains(s, base64.StdEncoding.EncodeToString(data)) {
+		t.Errorf("buildMultipartMessage: base64 payload missing:\n%s", s)
+	}
+}
+
+func TestBuildMultipartMessage_WithReplyTo(t *testing.T) {
+	msg := buildMultipartMessage("Name", "from@example.com", "to@example.com",
+		"Subj", "Body", "reply@example.com", "f.enc", []byte("x"))
+	if !strings.Contains(string(msg), "Reply-To: reply@example.com") {
+		t.Errorf("expected Reply-To header, got:\n%s", msg)
 	}
 }
 

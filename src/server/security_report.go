@@ -272,8 +272,9 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 		component:      componentLabel,
 		cveRequested:   cveRequested,
 		disclosureDays: disclosureDays,
-		encMethod:      "aes-256-gcm",
+		encMethod:      encMethod,
 		statusToken:    rawToken,
+		sealed:         sealed,
 	})
 
 	// Admin webhook summary — server-internal event, NEVER user content (PART 17).
@@ -377,14 +378,17 @@ type securityEmailCtx struct {
 	cveRequested                      bool
 	disclosureDays                    int
 	encMethod, statusToken            string
+	// sealed is the encrypted report body delivered to the maintainer — inline
+	// when PGP-armored, as an attachment when AES-256-GCM (AI.md 14457).
+	sealed []byte
 }
 
 // sendSecurityReportEmails dispatches the maintainer notification and the
-// researcher acknowledgment (AI.md 14148-14149). Both are best-effort; failures
-// are logged and do not affect the already-stored report. Full PGP-encrypted
-// delivery and attachment of the encrypted body is completed with the PGP
-// subsystem; until then the maintainer email carries triage metadata and the
-// encrypted body remains retrievable from the at-rest store.
+// researcher acknowledgment (AI.md 14457-14458). Both are best-effort; failures
+// are logged and do not affect the already-stored report. The maintainer sees the
+// full report only via this encrypted email (AI.md 14460): a PGP-sealed body is
+// delivered inline as an armored PGP message; an AES-256-GCM body is delivered as
+// an encrypted attachment with a warning that no PGP key was configured.
 func (s *Server) sendSecurityReportEmails(r *http.Request, cfg *config.Config, c securityEmailCtx) {
 	m := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, s.baseURL(r), cfg.Server.FQDN)
 	if !m.Enabled() {
@@ -396,17 +400,37 @@ func (s *Server) sendSecurityReportEmails(r *http.Request, cfg *config.Config, c
 	}
 
 	if to := strings.TrimSpace(cfg.SecurityReportEmail()); to != "" {
-		if err := m.Send(to, "security_report_received", map[string]string{
-			"severity":        c.severity,
-			"summary":         c.summary,
-			"timestamp":       c.timestamp,
-			"tracking_id":     c.trackingID,
-			"component":       c.component,
-			"cve_requested":   yn,
-			"disclosure_days": strconv.Itoa(c.disclosureDays),
-			"enc_method":      c.encMethod,
-			"retrieval_note":  "Decrypt the at-rest report with the server encryption key to read the full submission.",
-		}); err != nil {
+		subject := fmt.Sprintf("[Security] %s: %s", c.severity, c.summary)
+		cover := fmt.Sprintf(
+			"SECURITY REPORT RECEIVED\r\n\r\n"+
+				"Received: %s\r\n"+
+				"Site: %s (%s)\r\n\r\n"+
+				"Tracking ID: %s\r\n"+
+				"Severity (researcher self-assessment): %s\r\n"+
+				"Affected component: %s\r\n"+
+				"CVE requested: %s\r\n"+
+				"Requested disclosure window: %d days\r\n\r\n",
+			c.timestamp, cfg.Web.SiteTitle, cfg.Server.FQDN,
+			c.trackingID, c.severity, c.component, yn, c.disclosureDays)
+
+		var err error
+		if c.encMethod == "pgp" {
+			// Inline PGP-encrypted email: the armored ciphertext is the payload;
+			// the maintainer decrypts it with the project PGP private key.
+			body := cover +
+				"The full encrypted report follows. Decrypt it with the project PGP private key.\r\n\r\n" +
+				string(c.sealed) + "\r\n"
+			err = m.SendRawMessage(to, subject, body)
+		} else {
+			// No PGP key configured: attach the AES-256-GCM ciphertext and direct
+			// the maintainer to decrypt it with the server encryption key.
+			body := cover +
+				"No PGP key is configured, so the full report is attached as an\r\n" +
+				"AES-256-GCM encrypted file. Decrypt it with the server encryption\r\n" +
+				"key (server.security.encryption_key).\r\n"
+			err = m.SendWithAttachment(to, subject, body, c.trackingID+".enc", c.sealed)
+		}
+		if err != nil {
 			log.Printf("security report: maintainer notification failed: %v", err)
 		}
 	}
