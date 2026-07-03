@@ -27,13 +27,13 @@ type Config struct {
 
 // ServerConfig holds listener and runtime settings.
 type ServerConfig struct {
-	Port          string              `yaml:"port"`
-	Address       string              `yaml:"address"`
-	FQDN          string              `yaml:"fqdn"`
-	Mode          string              `yaml:"mode"`
+	Port    string `yaml:"port"`
+	Address string `yaml:"address"`
+	FQDN    string `yaml:"fqdn"`
+	Mode    string `yaml:"mode"`
 	// APIVersion is the API route prefix segment (default v1): /api/{api_version}/.
-	APIVersion    string              `yaml:"api_version"`
-	BaseURL       string              `yaml:"base_url"` // override for URL generation
+	APIVersion string `yaml:"api_version"`
+	BaseURL    string `yaml:"base_url"` // override for URL generation
 	// Branding holds the site title/tagline/description (PART 12/16).
 	Branding BrandingConfig `yaml:"branding"`
 	// SEO holds search-engine metadata such as keywords (PART 12/16).
@@ -50,7 +50,7 @@ type ServerConfig struct {
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	// Token is the operator token (server.token). Auto-generated on first run.
 	// All operator-protected API endpoints require: Authorization: Bearer <token>
-	Token         string              `yaml:"token"`
+	Token string `yaml:"token"`
 	// DataDir is the runtime data directory. Resolved at startup by main from paths.GetDataDir.
 	// Used by middleware (blocklist) and tasks that need access to security databases.
 	DataDir       string              `yaml:"data_dir"`
@@ -193,10 +193,10 @@ type TermbinConfig struct {
 // LimitsConfig controls HTTP server timeouts and body size limits (PART 12).
 type LimitsConfig struct {
 	// MaxBodySize is the maximum request body in bytes. Accepts "10MB", "1MiB", or plain integer.
-	MaxBodySize   int64  `yaml:"max_body_size"`
-	ReadTimeout   string `yaml:"read_timeout"`  // e.g. "30s"
-	WriteTimeout  string `yaml:"write_timeout"` // e.g. "30s"
-	IdleTimeout   string `yaml:"idle_timeout"`  // e.g. "120s"
+	MaxBodySize  int64  `yaml:"max_body_size"`
+	ReadTimeout  string `yaml:"read_timeout"`  // e.g. "30s"
+	WriteTimeout string `yaml:"write_timeout"` // e.g. "30s"
+	IdleTimeout  string `yaml:"idle_timeout"`  // e.g. "120s"
 }
 
 // TrustedProxiesConfig lists additional proxy IPs/CIDRs/DNS names beyond the
@@ -222,10 +222,10 @@ type CacheConfig struct {
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
 	// TLS enables TLS for the connection.
-	TLS           bool   `yaml:"tls"`
-	TLSSkipVerify bool   `yaml:"tls_skip_verify"`
-	PoolSize      int    `yaml:"pool_size"`
-	MinIdle       int    `yaml:"min_idle"`
+	TLS           bool `yaml:"tls"`
+	TLSSkipVerify bool `yaml:"tls_skip_verify"`
+	PoolSize      int  `yaml:"pool_size"`
+	MinIdle       int  `yaml:"min_idle"`
 	// Timeout is the dial/read/write timeout for remote drivers.
 	Timeout string `yaml:"timeout"` // e.g. "5s"
 	// Prefix is prepended to every key to avoid namespace collisions.
@@ -250,7 +250,7 @@ type TorConfig struct {
 
 	// Security.
 	SafeLogging               bool `yaml:"safe_logging"`
-	MaxStreamsPerCircuit       int  `yaml:"max_streams_per_circuit"`
+	MaxStreamsPerCircuit      int  `yaml:"max_streams_per_circuit"`
 	CloseCircuitOnStreamLimit bool `yaml:"close_circuit_on_stream_limit"`
 
 	// Bandwidth.
@@ -265,10 +265,10 @@ type TorConfig struct {
 
 // GeoIPConfig configures GeoIP detection and country blocking.
 type GeoIPConfig struct {
-	Enabled        bool              `yaml:"enabled"`
-	Dir            string            `yaml:"dir"` // path to MMDB database directory
-	DenyCountries  []string          `yaml:"deny_countries"`
-	AllowCountries []string          `yaml:"allow_countries"`
+	Enabled        bool                 `yaml:"enabled"`
+	Dir            string               `yaml:"dir"` // path to MMDB database directory
+	DenyCountries  []string             `yaml:"deny_countries"`
+	AllowCountries []string             `yaml:"allow_countries"`
 	Databases      GeoIPDatabasesConfig `yaml:"databases"`
 }
 
@@ -301,8 +301,33 @@ type MetricsConfig struct {
 
 // LoggingConfig controls access log format and log level.
 type LoggingConfig struct {
-	AccessFormat string `yaml:"access_format"`
-	Level        string `yaml:"level"`
+	AccessFormat string      `yaml:"access_format"`
+	Level        string      `yaml:"level"`
+	Audit        AuditConfig `yaml:"audit"`
+}
+
+// AuditConfig controls the JSON Lines audit log (AI.md `server.logs.audit`).
+// The audit log records configuration, security, backup, and server-lifecycle
+// events as one JSON object per line.
+type AuditConfig struct {
+	Enabled          bool                 `yaml:"enabled"`
+	Filename         string               `yaml:"filename"`
+	Format           string               `yaml:"format"`
+	Rotate           string               `yaml:"rotate"`
+	Keep             string               `yaml:"keep"`
+	Compress         bool                 `yaml:"compress"`
+	IncludeUserAgent bool                 `yaml:"include_user_agent"`
+	MaskEmails       bool                 `yaml:"mask_emails"`
+	TokenUsage       bool                 `yaml:"token_usage"`
+	Events           AuditEventCategories `yaml:"events"`
+}
+
+// AuditEventCategories toggles which categories of events are recorded.
+type AuditEventCategories struct {
+	Configuration bool `yaml:"configuration"`
+	Security      bool `yaml:"security"`
+	Backup        bool `yaml:"backup"`
+	Server        bool `yaml:"server"`
 }
 
 // DatabaseConfig selects and configures the storage backend.
@@ -313,11 +338,11 @@ type DatabaseConfig struct {
 
 // PasteConfig controls paste-specific behaviour.
 type PasteConfig struct {
-	MaxSizeBytes    int64  `yaml:"max_size_bytes"`    // max paste size (default 10 MiB)
-	DefaultExpiry   string `yaml:"default_expiry"`    // "never" or expiry code
-	DefaultLanguage string `yaml:"default_language"`  // "text"
-	MaxBurnAfter    int    `yaml:"max_burn_after"`    // cap on burn_after (default 9999)
-	AllowUnlisted   bool   `yaml:"allow_unlisted"`    // allow unlisted pastes (default true)
+	MaxSizeBytes    int64  `yaml:"max_size_bytes"`   // max paste size (default 10 MiB)
+	DefaultExpiry   string `yaml:"default_expiry"`   // "never" or expiry code
+	DefaultLanguage string `yaml:"default_language"` // "text"
+	MaxBurnAfter    int    `yaml:"max_burn_after"`   // cap on burn_after (default 9999)
+	AllowUnlisted   bool   `yaml:"allow_unlisted"`   // allow unlisted pastes (default true)
 }
 
 // RateLimitConfig controls request throttling.
@@ -397,7 +422,7 @@ type EmailConfig struct {
 type SMTPConfig struct {
 	// Host is the SMTP server hostname or IP. Empty = auto-detect on first run.
 	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`     // default 587
+	Port     int    `yaml:"port"` // default 587
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	// TLS controls connection security: "auto", "starttls", "tls", "none"
@@ -547,8 +572,8 @@ type BackupRetentionConfig struct {
 // SchedulerConfig configures the built-in task scheduler (PART 12/18).
 // Tasks maps a task name to its per-task settings; absent entries use code defaults.
 type SchedulerConfig struct {
-	Enabled bool                       `yaml:"enabled"`
-	Tasks   map[string]SchedulerTask   `yaml:"tasks"`
+	Enabled bool                     `yaml:"enabled"`
+	Tasks   map[string]SchedulerTask `yaml:"tasks"`
 }
 
 // SchedulerTask holds the settings for a single scheduled task (PART 12/18).
@@ -569,22 +594,22 @@ type SchedulerTask struct {
 // HSTSConfig controls Strict-Transport-Security emission.
 type HSTSConfig struct {
 	Enabled           bool  `yaml:"enabled"`
-	MaxAgeSeconds     int64 `yaml:"max_age_seconds"`   // default 63072000 (2 years)
+	MaxAgeSeconds     int64 `yaml:"max_age_seconds"`    // default 63072000 (2 years)
 	IncludeSubdomains bool  `yaml:"include_subdomains"` // default true
 	Preload           bool  `yaml:"preload"`            // default true
 }
 
 // CSPConfig controls Content-Security-Policy emission.
 type CSPConfig struct {
-	Enabled          bool   `yaml:"enabled"`
-	Mode             string `yaml:"mode"`               // enforce | report-only
-	ScriptSrcExtra   string `yaml:"script_src_extra"`
-	StyleSrcExtra    string `yaml:"style_src_extra"`
-	ImgSrcExtra      string `yaml:"img_src_extra"`
-	FontSrcExtra     string `yaml:"font_src_extra"`
-	ConnectSrcExtra  string `yaml:"connect_src_extra"`
-	FrameSrcExtra    string `yaml:"frame_src_extra"`
-	FormActionExtra  string `yaml:"form_action_extra"`
+	Enabled           bool   `yaml:"enabled"`
+	Mode              string `yaml:"mode"` // enforce | report-only
+	ScriptSrcExtra    string `yaml:"script_src_extra"`
+	StyleSrcExtra     string `yaml:"style_src_extra"`
+	ImgSrcExtra       string `yaml:"img_src_extra"`
+	FontSrcExtra      string `yaml:"font_src_extra"`
+	ConnectSrcExtra   string `yaml:"connect_src_extra"`
+	FrameSrcExtra     string `yaml:"frame_src_extra"`
+	FormActionExtra   string `yaml:"form_action_extra"`
 	ScriptSrcOverride string `yaml:"script_src_override"`
 }
 
@@ -647,7 +672,7 @@ func DefaultConfig() *Config {
 				CircuitTimeout:            60,
 				BootstrapTimeout:          180,
 				SafeLogging:               true,
-				MaxStreamsPerCircuit:       100,
+				MaxStreamsPerCircuit:      100,
 				CloseCircuitOnStreamLimit: true,
 				BandwidthRate:             "1 MB",
 				BandwidthBurst:            "2 MB",
@@ -658,6 +683,23 @@ func DefaultConfig() *Config {
 			Logging: LoggingConfig{
 				AccessFormat: "apache",
 				Level:        "info",
+				Audit: AuditConfig{
+					Enabled:          true,
+					Filename:         "audit.log",
+					Format:           "json",
+					Rotate:           "daily",
+					Keep:             "none",
+					Compress:         false,
+					IncludeUserAgent: true,
+					MaskEmails:       true,
+					TokenUsage:       false,
+					Events: AuditEventCategories{
+						Configuration: true,
+						Security:      true,
+						Backup:        true,
+						Server:        true,
+					},
+				},
 			},
 			Notifications: NotificationsConfig{
 				Email: EmailConfig{
@@ -1382,5 +1424,3 @@ func (m *ConfigManager) applyHotSettings(prev, next *Config) {
 		log.Printf("[config] hot-reload: branding settings updated")
 	}
 }
-
-

@@ -44,6 +44,22 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Paste.MaxSizeBytes != 10<<20 {
 		t.Errorf("Paste.MaxSizeBytes: got %d, want %d", cfg.Paste.MaxSizeBytes, 10<<20)
 	}
+	a := cfg.Server.Logging.Audit
+	if !a.Enabled {
+		t.Error("Logging.Audit.Enabled: got false, want true")
+	}
+	if a.Filename != "audit.log" {
+		t.Errorf("Logging.Audit.Filename: got %q, want audit.log", a.Filename)
+	}
+	if a.Format != "json" {
+		t.Errorf("Logging.Audit.Format: got %q, want json", a.Format)
+	}
+	if !a.MaskEmails {
+		t.Error("Logging.Audit.MaskEmails: got false, want true")
+	}
+	if !a.Events.Configuration || !a.Events.Security || !a.Events.Backup || !a.Events.Server {
+		t.Errorf("Logging.Audit.Events: all categories should default true, got %+v", a.Events)
+	}
 }
 
 // ─── Save / Load round-trip ───────────────────────────────────────────────────

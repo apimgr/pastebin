@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/httputil"
@@ -205,6 +206,9 @@ type Server struct {
 	// logDir is the runtime logs directory, set by main via SetLogDir. Used by
 	// the security.log writer (PART 11 Coordinated Disclosure Pipeline).
 	logDir string
+	// auditLogger is the JSON Lines audit-log writer (AI.md server.logs.audit),
+	// set by main via SetAuditWriter. A nil writer silently drops entries.
+	auditLogger *audit.Writer
 	// maintenance is the runtime self-healing maintenance-mode monitor (PART 20).
 	maintenance *health.Monitor
 	startTime   time.Time
@@ -242,6 +246,27 @@ type privDropConfig struct {
 // (PART 11). Call from main after resolving directories, before Run.
 func (s *Server) SetLogDir(dir string) {
 	s.logDir = dir
+}
+
+// SetAuditWriter registers the JSON Lines audit-log writer (AI.md
+// server.logs.audit). Call from main after resolving directories, before Run.
+func (s *Server) SetAuditWriter(w *audit.Writer) {
+	s.auditLogger = w
+}
+
+// auditLog records one audit entry from an *http.Request, filling the actor IP
+// and user-agent from the request. A nil auditLogger silently drops the entry.
+func (s *Server) auditLog(r *http.Request, e audit.Entry) {
+	if s.auditLogger == nil {
+		return
+	}
+	if e.Actor.IP == "" && r != nil {
+		e.Actor.IP = clientIP(r)
+	}
+	if e.Actor.UserAgent == "" && r != nil {
+		e.Actor.UserAgent = r.UserAgent()
+	}
+	s.auditLogger.Log(e)
 }
 
 // SetPrivilegeDrop registers the service user/group and the runtime paths to chown
@@ -1596,6 +1621,17 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 
 	cfg := s.liveCfg()
 
+	// Server-lifecycle audit events (AI.md server.* catalog).
+	s.auditLog(nil, audit.Entry{
+		Event:    "server.started",
+		Severity: audit.SeverityInfo,
+		Details:  map[string]any{"address": addr, "version": s.version},
+	})
+	defer s.auditLog(nil, audit.Entry{
+		Event:    "server.stopped",
+		Severity: audit.SeverityInfo,
+	})
+
 	// Start the runtime self-healing maintenance monitor (PART 20). It probes
 	// critical systems and toggles maintenance mode until ctx is cancelled.
 	if s.maintenance != nil {
@@ -2513,6 +2549,11 @@ func (s *Server) handleContactPost(w http.ResponseWriter, r *http.Request) {
 		}
 		s.securityLog("security.security_id_invalid",
 			"ip", clientIP(r), "ua", r.UserAgent(), "supplied_id", suppliedSecID)
+		s.auditLog(r, audit.Entry{
+			Event:    "security.security_id_invalid",
+			Severity: audit.SeverityWarn,
+			Result:   audit.ResultFailure,
+		})
 	}
 
 	name := strings.TrimSpace(r.PostFormValue("name"))

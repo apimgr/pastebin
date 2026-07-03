@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/common/email"
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 )
@@ -278,6 +279,12 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 	// PII-free audit line — tracking id, severity, sanitized component only.
 	s.securityLog("security.report_received",
 		"tracking_id", trackingID, "severity", severity, "component", sanitized)
+	s.auditLog(r, audit.Entry{
+		Event:    "security.report_received",
+		Severity: audit.SeverityWarn,
+		Target:   &audit.Target{Type: "security_report", ID: trackingID},
+		Details:  map[string]any{"severity": severity, "component": sanitized},
+	})
 
 	// Content-negotiated success (AI.md 14150).
 	if ct := detectClientType(r); ct == "json" || ct == "text" {

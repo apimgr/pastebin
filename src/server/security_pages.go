@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/common/httputil"
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/go-chi/chi/v5"
@@ -173,6 +174,12 @@ func (s *Server) handleSecurityReportStatus(w http.ResponseWriter, r *http.Reque
 	supplied := hex.EncodeToString(sum[:])
 	if subtle.ConstantTimeCompare([]byte(supplied), []byte(rep.TokenHash)) != 1 {
 		s.securityLog("security.status_token_invalid", "tracking_id", trackingID, "ip", clientIP(r))
+		s.auditLog(r, audit.Entry{
+			Event:    "security.status_token_invalid",
+			Severity: audit.SeverityWarn,
+			Result:   audit.ResultFailure,
+			Target:   &audit.Target{Type: "security_report", ID: trackingID},
+		})
 		s.renderErrorPage(w, r, http.StatusNotFound, "Report not found.")
 		return
 	}
@@ -189,6 +196,12 @@ func (s *Server) handleSecurityReportStatus(w http.ResponseWriter, r *http.Reque
 	// Single-use-per-day: the token unlocks the page once per calendar day (UTC).
 	if rep.TokenLastUsed != nil && sameUTCDate(*rep.TokenLastUsed, now) {
 		s.securityLog("security.status_token_reused", "tracking_id", trackingID, "ip", clientIP(r))
+		s.auditLog(r, audit.Entry{
+			Event:    "security.status_token_reused",
+			Severity: audit.SeverityWarn,
+			Result:   audit.ResultFailure,
+			Target:   &audit.Target{Type: "security_report", ID: trackingID},
+		})
 		data := s.reportStatusPageData(r, cfg, rep)
 		data["RateLimited"] = true
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -199,6 +212,12 @@ func (s *Server) handleSecurityReportStatus(w http.ResponseWriter, r *http.Reque
 		log.Printf("security status: mark token used failed: %v", err)
 	}
 	s.securityLog("security.status_viewed", "tracking_id", trackingID, "status", rep.Status)
+	s.auditLog(r, audit.Entry{
+		Event:    "security.status_viewed",
+		Severity: audit.SeverityInfo,
+		Target:   &audit.Target{Type: "security_report", ID: trackingID},
+		Details:  map[string]any{"status": rep.Status},
+	})
 
 	s.renderTemplate(w, r, "security_report_status.html", s.reportStatusPageData(r, cfg, rep))
 }

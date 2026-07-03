@@ -18,6 +18,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/i18n"
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/daemon"
 	"github.com/apimgr/pastebin/src/database"
@@ -1075,6 +1076,23 @@ Examples:
 
 	srv := server.New(db, cfg, cfgMgr, Version, CommitID, BuildDate, configDir, dataDir)
 	srv.SetLogDir(logsDir)
+
+	// JSON Lines audit log (AI.md server.logs.audit): configuration, security,
+	// backup, and server-lifecycle events, one JSON object per line.
+	ac := cfg.Server.Logging.Audit
+	srv.SetAuditWriter(audit.New(audit.Config{
+		Enabled:          ac.Enabled,
+		Dir:              logsDir,
+		Filename:         ac.Filename,
+		IncludeUserAgent: ac.IncludeUserAgent,
+		MaskEmails:       ac.MaskEmails,
+		Events: audit.EventCategories{
+			Configuration: ac.Events.Configuration,
+			Security:      ac.Events.Security,
+			Backup:        ac.Events.Backup,
+			Server:        ac.Events.Server,
+		},
+	}))
 
 	// Weekly GeoIP database refresh (Sunday 03:00).
 	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func() error {
