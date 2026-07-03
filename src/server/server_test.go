@@ -2063,6 +2063,10 @@ func (d *stubDB) RevokeAPIToken(prefix, reason string) error                    
 func (d *stubDB) ListAPITokens() ([]*database.APITokenRecord, error)                   { return nil, nil }
 func (d *stubDB) DeleteExpiredAPITokens() (int64, error)                               { return 0, nil }
 func (d *stubDB) EnsureAppSecret(key string) ([]byte, error)                           { return nil, nil }
+func (d *stubDB) CreateSecurityReport(r *database.SecurityReport) error                 { return nil }
+func (d *stubDB) GetSecurityReport(trackingID string) (*database.SecurityReport, error) { return nil, nil }
+func (d *stubDB) UpdateSecurityReportStatus(trackingID, status, comment string) error   { return nil }
+func (d *stubDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, error)     { return nil, nil }
 
 // newServerWithDB creates a minimal Server with both cfg and db set.
 func newServerWithDB(cfg *config.Config, db database.DB) *Server {

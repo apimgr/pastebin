@@ -104,6 +104,13 @@ type DB interface {
 
 	// CountPastes returns the total number of pastes stored (for healthz stats).
 	CountPastes() (int64, error)
+
+	// Coordinated-disclosure security reports (PART 11). Report bodies are
+	// encrypted at rest; only sanitized triage metadata is stored in the clear.
+	CreateSecurityReport(r *SecurityReport) error
+	GetSecurityReport(trackingID string) (*SecurityReport, error)
+	UpdateSecurityReportStatus(trackingID, status, maintainerComment string) error
+	ListDisclosedSecurityReports() ([]*SecurityReport, error)
 }
 
 // Query timeout constants per PART 10.
@@ -309,6 +316,28 @@ func ensureSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_prefix   ON api_tokens(token_prefix)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_resource ON api_tokens(resource_type, resource_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_active   ON api_tokens(revoked_at) WHERE revoked_at IS NULL`,
+
+		// Coordinated-disclosure security reports (PART 11). The vulnerability
+		// content lives only in encrypted_body (PGP or AES-256-GCM); the other
+		// columns hold sanitized triage metadata with no PII or report detail.
+		`CREATE TABLE IF NOT EXISTS security_reports (
+			tracking_id        TEXT PRIMARY KEY,
+			status             TEXT NOT NULL DEFAULT 'Received',
+			severity           TEXT NOT NULL DEFAULT '',
+			component          TEXT NOT NULL DEFAULT '',
+			encrypted_body     BLOB NOT NULL,
+			enc_method         TEXT NOT NULL DEFAULT 'aes-256-gcm',
+			credit_preference  TEXT NOT NULL DEFAULT 'no',
+			credit_name        TEXT NOT NULL DEFAULT '',
+			token_hash         TEXT NOT NULL DEFAULT '',
+			maintainer_comment TEXT NOT NULL DEFAULT '',
+			disclosure_days    INTEGER NOT NULL DEFAULT 90,
+			created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			disclosed_at       DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_secreports_status  ON security_reports(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_secreports_created ON security_reports(created_at)`,
 	}
 
 	// Schema updates — idempotent; ignore "already exists" errors.

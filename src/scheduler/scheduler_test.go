@@ -159,6 +159,14 @@ func (m *mockDB) ListAPITokens() ([]*database.APITokenRecord, error)      { retu
 func (m *mockDB) DeleteExpiredAPITokens() (int64, error)                  { return 0, nil }
 func (m *mockDB) EnsureAppSecret(key string) ([]byte, error)              { return nil, nil }
 func (m *mockDB) CountPastes() (int64, error)                             { return 0, nil }
+func (m *mockDB) CreateSecurityReport(r *database.SecurityReport) error   { return nil }
+func (m *mockDB) GetSecurityReport(id string) (*database.SecurityReport, error) {
+	return nil, nil
+}
+func (m *mockDB) UpdateSecurityReportStatus(id, status, comment string) error { return nil }
+func (m *mockDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, error) {
+	return nil, nil
+}
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
