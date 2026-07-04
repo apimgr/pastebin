@@ -461,10 +461,15 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		ConfigDir:                 configDir,
 		DataDir:                   dataDir,
 	}
-	serverPort, _ := strconv.Atoi(cfg.Server.Port)
-	if serverPort == 0 {
-		serverPort = 3010
+	// Forward the hidden service to the server's real HTTP listener. Port may be a
+	// dual "http,https" value (PART 5/15); the onion maps :virtual → the plaintext
+	// HTTP port, so parse the first field. Never hardcode a dev port — an unresolved
+	// value leaves serverPort 0 and the Tor manager skips rather than forward blindly.
+	portField := cfg.Server.Port
+	if i := strings.IndexByte(portField, ','); i >= 0 {
+		portField = portField[:i]
 	}
+	serverPort, _ := strconv.Atoi(strings.TrimSpace(portField))
 	s.torManager = tor.NewManager(context.Background(), serverPort, torCfg)
 
 	// Report Tor state into the tor_* metrics at scrape time.
@@ -799,6 +804,10 @@ func (s *Server) setupRoutes() {
 	}
 
 	// ── Server info pages ────────────────────────────────────────────────────
+	// Bare /server redirects to the About page (AI.md 26044, 301).
+	r.Get("/server", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/server/about", http.StatusMovedPermanently)
+	})
 	r.Get("/server/about", s.handleAbout)
 	r.Get("/server/help", s.handleHelp)
 	r.Get("/server/privacy", s.handlePrivacy)
@@ -809,6 +818,8 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/contact", s.handleContact)
 	r.Post("/server/contact", s.handleContactPost)
 	// Coordinated-disclosure public pages (PART 11, AI.md 14157-14161).
+	// Security overview page — human-readable security.txt (AI.md 14474).
+	r.Get("/server/security", s.handleSecurityOverview)
 	r.Get("/server/security/policy", s.handleSecurityPolicy)
 	r.Get("/server/security/thanks", s.handleSecurityThanks)
 	r.Get("/server/security/report/{tracking_id}", s.handleSecurityReportStatus)
@@ -2055,11 +2066,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	base := scheme + "://" + r.Host
+	base := strings.TrimRight(s.baseURL(r), "/")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok": true,
@@ -2111,14 +2118,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 // before knowing which API version the server supports.
 func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 	cfg := s.liveCfg()
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	base := scheme + "://" + r.Host
-	if cfg.Server.BaseURL != "" {
-		base = strings.TrimRight(cfg.Server.BaseURL, "/")
-	}
+	base := strings.TrimRight(s.baseURL(r), "/")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok": true,
@@ -2537,7 +2537,8 @@ func (s *Server) contactData(r *http.Request) map[string]interface{} {
 	data := map[string]interface{}{
 		"SiteTitle":   cfg.Web.SiteTitle,
 		"Theme":       cfg.Web.Theme,
-		"Contact":     cfg.GeneralEmail(),
+		"Contact":     cfg.GeneralEmailPublic(),
+		"Abuse":       cfg.AbuseEmailPublic(),
 		"BaseURL":     s.baseURL(r),
 		"FormEnabled": pc.Enabled,
 		"CaptchaType": pc.Captcha,
@@ -2567,7 +2568,7 @@ func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		html, err := s.renderTemplateToString(r, "contact.html", data)
 		if err != nil {
-			fmt.Fprintf(w, "Contact: %s\n", s.liveCfg().GeneralEmail())
+			fmt.Fprintf(w, "Contact: %s\n", s.liveCfg().GeneralEmailPublic())
 			return
 		}
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
@@ -3279,21 +3280,47 @@ func (s *Server) baseURL(r *http.Request) string {
 
 	trusted := s.isTrustedPeer(r)
 
+	// {proto} — trusted reverse-proxy headers win over the connection's TLS
+	// state, in PART 12 priority order (X-Forwarded-Proto → X-Forwarded-Ssl →
+	// X-Url-Scheme); otherwise fall back to the actual TLS state.
 	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	} else if trusted && r.Header.Get("X-Forwarded-Proto") == "https" {
+	if fp := forwardedScheme(r, trusted); fp != "" {
+		scheme = fp
+	} else if r.TLS != nil {
 		scheme = "https"
 	}
 
+	// {fqdn} — trusted proxy host headers in priority order, else the request
+	// Host (PART 12).
 	host := r.Host
 	if trusted {
-		if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
-			host = fh
+		for _, hdr := range []string{"X-Forwarded-Host", "X-Real-Host", "X-Original-Host"} {
+			if fh := strings.TrimSpace(r.Header.Get(hdr)); fh != "" {
+				host = fh
+				break
+			}
 		}
 	}
 
-	base := scheme + "://" + host
+	// {port} — split host, let a trusted X-Forwarded-Port override, then strip
+	// the standard :80/:443 which are NEVER included in URLs (PART 12).
+	hostname, port := splitHostPort(host)
+	if trusted {
+		if fp := strings.TrimSpace(r.Header.Get("X-Forwarded-Port")); fp != "" {
+			port = fp
+		}
+	}
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
+		port = ""
+	}
+	hostport := hostname
+	if port != "" {
+		hostport = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		hostport = "[" + hostname + "]"
+	}
+
+	base := scheme + "://" + hostport
 
 	if trusted {
 		// Append reverse-proxy path prefix when present (trailing slash stripped).
@@ -3308,6 +3335,50 @@ func (s *Server) baseURL(r *http.Request) string {
 		}
 	}
 	return base
+}
+
+// forwardedScheme resolves {proto} from trusted reverse-proxy headers in the
+// PART 12 priority order: X-Forwarded-Proto → X-Forwarded-Ssl (on=https) →
+// X-Url-Scheme. Returns "" when no trusted header dictates a scheme, letting the
+// caller fall back to the connection's TLS state. Headers are ignored entirely
+// when the immediate peer is not a trusted proxy (header-spoofing guard).
+func forwardedScheme(r *http.Request, trusted bool) string {
+	if !trusted {
+		return ""
+	}
+	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); v != "" {
+		if strings.EqualFold(v, "https") {
+			return "https"
+		}
+		if strings.EqualFold(v, "http") {
+			return "http"
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Ssl")), "on") {
+		return "https"
+	}
+	if v := strings.TrimSpace(r.Header.Get("X-Url-Scheme")); v != "" {
+		if strings.EqualFold(v, "https") {
+			return "https"
+		}
+		if strings.EqualFold(v, "http") {
+			return "http"
+		}
+	}
+	return ""
+}
+
+// splitHostPort separates a Host value into hostname and port, tolerating a
+// missing port. A bracketed IPv6 literal without a port is unwrapped so callers
+// can re-join it with net.JoinHostPort.
+func splitHostPort(host string) (hostname, port string) {
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		return h, p
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return host[1 : len(host)-1], ""
+	}
+	return host, ""
 }
 
 // validPathPrefix reports whether p is a safe rooted URL path prefix. It must

@@ -214,18 +214,13 @@
                     <h2 class="section-mt">{{t .Lang "contact.security"}}</h2>
                     <p>
                         {{t .Lang "contact.security_desc"}}
-                        <a href="{{.BaseURL}}/.well-known/security.txt" class="long-string">/.well-known/security.txt</a>.
+                        <a href="{{.BaseURL}}/server/security" class="long-string">/server/security</a>.
                     </p>
 
                     <h2 class="section-mt">{{t .Lang "contact.abuse"}}</h2>
                     <p>
-                        {{t .Lang "contact.abuse_desc"}}
+                        {{t .Lang "contact.abuse_desc"}}{{if .Abuse}} {{t .Lang "contact.abuse_or_email"}} <a href="mailto:{{.Abuse}}" class="long-string">{{.Abuse}}</a>{{end}}.
                     </p>
-                    {{if .Contact}}
-                    <p class="section-mt-sm">
-                        <a href="mailto:{{.Contact}}" class="long-string">{{.Contact}}</a>
-                    </p>
-                    {{end}}
                 </div>
             </div>
         </section>

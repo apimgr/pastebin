@@ -56,6 +56,50 @@ func (s *Server) hasPGPKey() bool {
 	return err == nil && info.Size() > 0
 }
 
+// handleSecurityOverview renders the /server/security overview page (AI.md
+// 14474). It is the human-readable rendering of everything in
+// /.well-known/security.txt: contact channels in RFC 9116 preference order
+// (GitHub private vulnerability reporting, the rotating security-report form,
+// then the mailto CC address), the Expires date, and the Encryption key link
+// when a keypair exists — plus plain-language reporting instructions and links
+// to the policy, acknowledgments, PGP key, and machine-readable security.txt.
+// Everything is rendered from live config per request via baseURL(r) so the
+// URLs always match the security.txt the same client fetches.
+func (s *Server) handleSecurityOverview(w http.ResponseWriter, r *http.Request) {
+	cfg := s.liveCfg()
+	expires := strings.TrimSpace(cfg.Web.Security.Expires)
+	if expires == "" {
+		expires = time.Now().AddDate(1, 0, 0).UTC().Format(time.RFC3339)
+	}
+	securityID := s.currentSecurityID()
+	reportFormURL := ""
+	if securityID != "" {
+		reportFormURL = strings.TrimRight(s.baseURL(r), "/") + "/server/contact?security_id=" + securityID
+	}
+	data := map[string]interface{}{
+		"SiteTitle":          cfg.Web.SiteTitle,
+		"Theme":              cfg.Web.Theme,
+		"BaseURL":            s.baseURL(r),
+		"ReportURL":          cfg.SecurityReportURL(),
+		"ReportFormURL":      reportFormURL,
+		"SecurityEmail":      cfg.SecurityEmail(),
+		"HasPGPKey":          s.hasPGPKey(),
+		"Expires":            expires,
+		"PreferredLanguages": cfg.SecurityPreferredLanguages(),
+	}
+	if detectClientType(r) == "text" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		html, err := s.renderTemplateToString(r, "security_overview.html", data)
+		if err != nil {
+			fmt.Fprintf(w, "Security: report vulnerabilities via %s\n", cfg.SecurityReportURL())
+			return
+		}
+		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
+		return
+	}
+	s.renderTemplate(w, r, "security_overview.html", data)
+}
+
 // handleSecurityPolicy renders the coordinated-disclosure policy page (AI.md
 // 14157). Default content is provided here; the coordinated-disclosure window
 // and security contact are sourced from config.

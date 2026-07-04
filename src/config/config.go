@@ -108,6 +108,11 @@ type ContactConfig struct {
 	// Security receives vulnerability reports. Public — surfaced in security.txt's
 	// Contact: line and the PGP keypair UID. Empty → falls back to admin.
 	Security ContactRole `yaml:"security"`
+	// Abuse receives abuse reports (spam, harassment, illegal content, DMCA /
+	// takedown). Public — shown in the contact page "Abuse Reports" section when
+	// set. Empty → delivery falls back to general, then admin; never
+	// auto-advertises abuse@{fqdn} (an unprovisioned mailbox would bounce).
+	Abuse ContactRole `yaml:"abuse"`
 	// General receives /server/contact form submissions. Public — shown as the
 	// footer "Contact us" address. Empty → falls back to admin.
 	General ContactRole `yaml:"general"`
@@ -1022,6 +1027,7 @@ func DefaultConfig() *Config {
 			Contact: ContactConfig{
 				Admin:    ContactRole{Email: "admin@{fqdn}", Webhooks: map[string]string{}},
 				Security: ContactRole{Email: "security@{fqdn}", Webhooks: map[string]string{}},
+				Abuse:    ContactRole{Email: "", Webhooks: map[string]string{}},
 				General:  ContactRole{Email: "", Webhooks: map[string]string{}},
 			},
 			Pages: PagesConfig{
@@ -1422,8 +1428,41 @@ func (c *Config) GeneralEmail() string {
 	return c.AdminEmail()
 }
 
-// ContactWebhook returns the webhook URL for a role+transport, falling back to
-// the admin role's transport when the role-specific value is empty (PART 12).
+// GeneralEmailPublic returns the /server/contact address ONLY when the operator
+// explicitly set server.contact.general.email; otherwise it returns "" (PART 12).
+// Unlike GeneralEmail it never falls back to the admin address, because the admin
+// email is server-internal and MUST NEVER be exposed publicly (AI.md Privacy &
+// Public Exposure: admin.email NEVER public). The contact form still delivers to
+// the admin fallback via GeneralEmail; only the displayed "Contact us" address is
+// suppressed when general is unset.
+func (c *Config) GeneralEmailPublic() string {
+	return c.expandFQDN(c.Server.Contact.General.Email)
+}
+
+// AbuseEmail returns the resolved abuse-report delivery recipient (PART 12):
+// abuse.email if set → general.email if set → admin.email. Used for routing
+// incoming abuse reports; never auto-advertises abuse@{fqdn}.
+func (c *Config) AbuseEmail() string {
+	if e := c.expandFQDN(c.Server.Contact.Abuse.Email); e != "" {
+		return e
+	}
+	return c.GeneralEmail()
+}
+
+// AbuseEmailPublic returns the address shown in the contact page "Abuse Reports"
+// section (PART 12): abuse.email if explicitly set → else the public general
+// address (general.email if set, otherwise ""). It NEVER falls back to the admin
+// address, which is server-internal and must not be exposed publicly.
+func (c *Config) AbuseEmailPublic() string {
+	if e := c.expandFQDN(c.Server.Contact.Abuse.Email); e != "" {
+		return e
+	}
+	return c.GeneralEmailPublic()
+}
+
+// ContactWebhook returns the webhook URL for a role+transport, falling back
+// through the role's documented chain to the admin transport when empty (PART
+// 12). abuse → general → admin; security/general → admin.
 func (c *Config) ContactWebhook(role, transport string) string {
 	pick := func(r ContactRole) string {
 		if r.Webhooks == nil {
@@ -1435,6 +1474,10 @@ func (c *Config) ContactWebhook(role, transport string) string {
 	switch role {
 	case "security":
 		v = pick(c.Server.Contact.Security)
+	case "abuse":
+		if v = pick(c.Server.Contact.Abuse); v == "" {
+			v = pick(c.Server.Contact.General)
+		}
 	case "general":
 		v = pick(c.Server.Contact.General)
 	default:
@@ -1458,12 +1501,14 @@ type WebhookTarget struct {
 	Secret    string
 }
 
-// contactRole returns the ContactRole for a role name (admin/security/general),
-// defaulting to admin for any unknown name.
+// contactRole returns the ContactRole for a role name
+// (admin/security/abuse/general), defaulting to admin for any unknown name.
 func (c *Config) contactRole(role string) ContactRole {
 	switch role {
 	case "security":
 		return c.Server.Contact.Security
+	case "abuse":
+		return c.Server.Contact.Abuse
 	case "general":
 		return c.Server.Contact.General
 	default:
@@ -1508,6 +1553,11 @@ func (c *Config) WebhookTargets(role string) []WebhookTarget {
 		}
 	}
 	add(c.contactRole(role))
+	// Abuse resolves abuse → general → admin, so enumerate general's transports
+	// too before the shared admin fallback (PART 12).
+	if role == "abuse" {
+		add(c.Server.Contact.General)
+	}
 	add(c.Server.Contact.Admin)
 	return out
 }
@@ -1517,7 +1567,7 @@ func (c *Config) WebhookTargets(role string) []WebhookTarget {
 // `<name>_secret`. Reports whether any secret was generated (PART 17).
 func (c *Config) ensureWebhookSecrets() (bool, error) {
 	generated := false
-	roles := []*ContactRole{&c.Server.Contact.Admin, &c.Server.Contact.Security, &c.Server.Contact.General}
+	roles := []*ContactRole{&c.Server.Contact.Admin, &c.Server.Contact.Security, &c.Server.Contact.Abuse, &c.Server.Contact.General}
 	for _, r := range roles {
 		if r.Webhooks == nil {
 			continue
@@ -1572,6 +1622,19 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		c.Database.Path = v
+	}
+	// CACHE_URL is the container-canonical cache override (AI.md 31725), e.g.
+	// "valkey://host:6379" or "redis://host:6379". The cache driver dispatches on
+	// Type, so derive Type from the URL scheme; a URL alone would otherwise stay on
+	// the default in-memory driver and silently ignore the remote endpoint.
+	if v := os.Getenv("CACHE_URL"); v != "" {
+		c.Server.Cache.URL = v
+		switch {
+		case strings.HasPrefix(v, "valkey://"), strings.HasPrefix(v, "valkeys://"):
+			c.Server.Cache.Type = "valkey"
+		case strings.HasPrefix(v, "redis://"), strings.HasPrefix(v, "rediss://"):
+			c.Server.Cache.Type = "redis"
+		}
 	}
 	// APPLICATION_NAME is the AI.md-canonical application title (AI.md 7579); SITE_TITLE is an alias.
 	if v := os.Getenv("SITE_TITLE"); v != "" {
