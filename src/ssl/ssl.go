@@ -22,20 +22,25 @@ const LetsEncryptStagingURL = "https://acme-staging-v02.api.letsencrypt.org/dire
 
 // Config holds SSL/TLS configuration.
 type Config struct {
-	Enabled     bool
-	CertDir     string // {config_dir}/ssl/ base directory
-	FQDN        string // primary domain
+	Enabled bool
+	// CertDir is the {config_dir}/ssl/ base directory.
+	CertDir string
+	// FQDN is the primary domain.
+	FQDN        string
 	LetsEncrypt LetsEncryptConfig
 }
 
 // LetsEncryptConfig holds Let's Encrypt ACME settings.
 type LetsEncryptConfig struct {
-	Enabled         bool
-	Email           string
-	Challenge       string            // http-01, tls-alpn-01, dns-01
+	Enabled bool
+	Email   string
+	// Challenge is the ACME challenge type: http-01, tls-alpn-01, or dns-01.
+	Challenge       string
 	DNSProviderType string
-	DNSCredentials  map[string]string // decrypted provider credentials
-	Staging         bool              // use LE staging CA
+	// DNSCredentials holds decrypted provider credentials.
+	DNSCredentials map[string]string
+	// Staging selects the LE staging CA.
+	Staging bool
 }
 
 // Manager handles SSL/TLS certificates.
@@ -117,6 +122,19 @@ func (m *Manager) GetTLSConfig(domains []string) (*tls.Config, error) {
 	// No existing cert found — request via Let's Encrypt if enabled.
 	if m.config.LetsEncrypt.Enabled {
 		return m.getLetsEncryptTLSConfig(domains)
+	}
+
+	// Overlay networks (.onion/.i2p/.exit) cannot use Let's Encrypt, so HTTPS on
+	// an overlay host falls back to a cached self-signed cert in
+	// {cert_dir}/local/{fqdn}/ (PART 15). Clearnet hosts NEVER self-sign.
+	if isOverlayHost(fqdn) && m.config.CertDir != "" {
+		dir := filepath.Join(m.config.CertDir, "local", fqdn)
+		certPath, keyPath, err := ensureSelfSignedCert(dir, fqdn)
+		if err != nil {
+			return nil, fmt.Errorf("ssl: overlay self-signed cert generation failed for %q: %w", fqdn, err)
+		}
+		log.Printf("ssl: using self-signed cert for overlay host %s at %s/", fqdn, dir)
+		return tlsConfigFromFiles(certPath, keyPath)
 	}
 
 	return nil, fmt.Errorf("ssl: no certificates available for %q and Let's Encrypt not enabled", fqdn)

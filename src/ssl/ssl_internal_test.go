@@ -130,6 +130,77 @@ func TestFileReadable_Missing(t *testing.T) {
 	}
 }
 
+// ─── overlay self-signed ──────────────────────────────────────────────────────
+
+func TestIsOverlayHost(t *testing.T) {
+	cases := map[string]bool{
+		"abc123.onion":  true,
+		"Foo.I2P":       true,
+		"node.exit":     true,
+		"example.com":   false,
+		"localhost":     false,
+		"onion.example": false,
+		"":              false,
+	}
+	for host, want := range cases {
+		if got := isOverlayHost(host); got != want {
+			t.Errorf("isOverlayHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+func TestGenerateSelfSigned_CoversFQDN(t *testing.T) {
+	fqdn := "abc123def456.onion"
+	certPEM, keyPEM, err := generateSelfSigned(fqdn)
+	if err != nil {
+		t.Fatalf("generateSelfSigned: %v", err)
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cert.pem")
+	if err := os.WriteFile(p, certPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCertFile(p, fqdn); err != nil {
+		t.Errorf("generated cert failed validation for %q: %v", fqdn, err)
+	}
+	if len(keyPEM) == 0 {
+		t.Error("empty key PEM")
+	}
+}
+
+func TestEnsureSelfSignedCert_GeneratesAndReuses(t *testing.T) {
+	fqdn := "reuse123.onion"
+	dir := filepath.Join(t.TempDir(), "local", fqdn)
+
+	certPath, keyPath, err := ensureSelfSignedCert(dir, fqdn)
+	if err != nil {
+		t.Fatalf("ensureSelfSignedCert (first): %v", err)
+	}
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("key perm = %o, want 600", perm)
+	}
+	first, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second call must reuse the cached, still-valid cert (bytes unchanged).
+	if _, _, err := ensureSelfSignedCert(dir, fqdn); err != nil {
+		t.Fatalf("ensureSelfSignedCert (second): %v", err)
+	}
+	second, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Error("cached cert was regenerated on second call")
+	}
+}
+
 // generateSelfSignedCert generates a minimal self-signed PEM certificate valid
 // until notAfter (or expired if notAfter is in the past).
 func generateSelfSignedCert(t *testing.T, cn string, notAfter time.Time) (certPEM []byte, keyPEM []byte) {

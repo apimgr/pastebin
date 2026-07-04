@@ -28,9 +28,11 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   `/debug/vars` were registered. FIXED: added `src/server/debug.go` with all seven handlers,
   registered via `registerDebugRoutes` inside the debug gate. `/debug/config` round-trips the
   live config through YAML and recursively redacts every secret key. Tests added.
-- [ ] **PART 15 — Overlay `.onion`/`.i2p` self-signed fallback missing** (`src/ssl/ssl.go`).
-  Clearnet-error half is correct; overlay hosts have no cert path. Add overlay-only branch that
-  generates + caches a self-signed cert to `{cert_dir}/local/{fqdn}/`. Never for clearnet.
+- [x] **PART 15 — Overlay `.onion`/`.i2p` self-signed fallback missing** (`src/ssl/ssl.go`).
+  Clearnet-error half is correct; overlay hosts had no cert path. FIXED: added `src/ssl/selfsigned.go`
+  (`isOverlayHost`, `ensureSelfSignedCert`, `generateSelfSigned` — ECDSA P-256, 10-year, 0600, cached
+  to `{cert_dir}/local/{fqdn}/`). `GetTLSConfig` gained an overlay-only branch placed AFTER the LE
+  check and BEFORE the clearnet error, so clearnet hosts still error and NEVER self-sign. Tests added.
 - [ ] **PART 16 — `/server/about` hardcodes description + features** (`templates/about.html:41-69`,
   `server.go:2499/3147`). Must source Tagline/Description/Features/Links from IDEA.md/config
   Branding. Content is real (not placeholder); the sourcing mechanism is the violation.

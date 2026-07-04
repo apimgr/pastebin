@@ -323,9 +323,9 @@ func TestGetTLSConfig_LocalCert_Expired_FallsThrough(t *testing.T) {
 	}
 
 	m := ssl.NewManager(ssl.Config{
-		Enabled: true,
-		CertDir: certDir,
-		FQDN:    fqdn,
+		Enabled:     true,
+		CertDir:     certDir,
+		FQDN:        fqdn,
 		LetsEncrypt: ssl.LetsEncryptConfig{Enabled: false},
 	})
 	_, err := m.GetTLSConfig([]string{fqdn})
