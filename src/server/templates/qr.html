@@ -6,25 +6,25 @@
     <title>QR Code - {{.SiteTitle}}</title>
     <meta name="description" content="Scan the QR code to open this paste on another device">
     <meta name="theme-color" content="#89b4fa">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="{{.BaseURL}}/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
-    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
-    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="apple-touch-icon" href="{{.BaseURL}}/static/icons/icon-180.png">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/main.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
-            <a href="/" class="nav-brand">
+            <a href="{{.BaseURL}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
-                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="{{.BaseURL}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
@@ -41,14 +41,14 @@
                 <div class="paste-view qr-container">
                     <img
                         class="qr-image"
-                        src="/qr/{{.ID}}/image"
+                        src="{{.BaseURL}}/qr/{{.ID}}/image"
                         alt="QR code for {{.Link}}"
                         width="300"
                         height="300"
                     >
                     <p class="qr-link-text">{{.Link}}</p>
                     <div class="form-actions qr-actions">
-                        <a href="/{{.ID}}" class="btn btn-primary">{{t .Lang "qr.view_paste"}}</a>
+                        <a href="{{.BaseURL}}/{{.ID}}" class="btn btn-primary">{{t .Lang "qr.view_paste"}}</a>
                         <button
                             class="btn btn-secondary"
                             data-qr-download="/qr/{{.ID}}/image"
@@ -66,6 +66,6 @@
     <div id="toast-container"></div>
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
-    <script src="/static/js/main.js"></script>
+    <script src="{{.BaseURL}}/static/js/main.js"></script>
 </body>
 </html>

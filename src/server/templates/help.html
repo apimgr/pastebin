@@ -6,25 +6,25 @@
     <title>Help - {{.SiteTitle}}</title>
     <meta name="description" content="How to create and manage pastes on {{.SiteTitle}} via the web and the API">
     <meta name="theme-color" content="#89b4fa">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="{{.BaseURL}}/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
-    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
-    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="apple-touch-icon" href="{{.BaseURL}}/static/icons/icon-180.png">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/main.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
-            <a href="/" class="nav-brand">
+            <a href="{{.BaseURL}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
-                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="{{.BaseURL}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
@@ -40,7 +40,7 @@
                 <div class="paste-view page-view">
 
                     <h2>Create a paste via the web</h2>
-                    <p>Go to <a href="/create">/create</a>, fill in your content, choose a language and expiry, then click <strong>Create Paste</strong>. Save the delete token — it is shown only once.</p>
+                    <p>Go to <a href="{{.BaseURL}}/create">/create</a>, fill in your content, choose a language and expiry, then click <strong>Create Paste</strong>. Save the delete token — it is shown only once.</p>
 
                     <h2 class="section-mt">Create via curl — raw body</h2>
                     <div class="code-block">
@@ -105,8 +105,8 @@
                     <h2 class="section-mt" id="api-docs">API Documentation</h2>
                     <p>This service provides a full REST API and a GraphQL API, each with interactive documentation:</p>
                     <ul>
-                        <li><a href="/server/docs/swagger">Swagger UI</a> — interactive REST API explorer (OpenAPI)</li>
-                        <li><a href="/server/docs/graphql">GraphiQL</a> — interactive GraphQL explorer</li>
+                        <li><a href="{{.BaseURL}}/server/docs/swagger">Swagger UI</a> — interactive REST API explorer (OpenAPI)</li>
+                        <li><a href="{{.BaseURL}}/server/docs/graphql">GraphiQL</a> — interactive GraphQL explorer</li>
                     </ul>
                     <p>The GraphQL endpoint is <code>{{.BaseURL}}/api/graphql</code>; the OpenAPI spec is served at <code>{{.BaseURL}}/api/swagger</code>.</p>
 
@@ -160,6 +160,6 @@
     <div id="toast-container"></div>
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
-    <script src="/static/js/main.js"></script>
+    <script src="{{.BaseURL}}/static/js/main.js"></script>
 </body>
 </html>

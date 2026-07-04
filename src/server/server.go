@@ -3083,6 +3083,11 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
+	// Inject the request-resolved absolute base URL ({proto}://{fqdn}[:{port}][{baseurl}])
+	// so templates emit full URLs instead of bare paths (AI.md PART 12, 4959)
+	if _, ok := data["BaseURL"]; !ok {
+		data["BaseURL"] = s.baseURL(r)
+	}
 	// Inject sanitized operator footer branding rendered above the default footer (PART 16)
 	s.injectFooterData(data)
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
@@ -3110,6 +3115,9 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
+	if _, ok := data["BaseURL"]; !ok {
+		data["BaseURL"] = s.baseURL(r)
+	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
 	var buf bytes.Buffer
@@ -3225,6 +3233,9 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
+	if _, ok := data["BaseURL"]; !ok {
+		data["BaseURL"] = s.baseURL(r)
+	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
 	if err := s.templates.ExecuteTemplate(w, "error.html", data); err != nil {

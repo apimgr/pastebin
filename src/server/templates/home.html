@@ -6,26 +6,26 @@
     <title>{{.SiteTitle}} - Paste Sharing Service</title>
     <meta name="description" content="Simple, fast paste sharing service with syntax highlighting and API access">
     <meta name="theme-color" content="#89b4fa">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="{{.BaseURL}}/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
-    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
-    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="apple-touch-icon" href="{{.BaseURL}}/static/icons/icon-180.png">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/main.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
     <!-- Header -->
     <header class="header">
         <nav class="nav">
-            <a href="/" class="nav-brand">
+            <a href="{{.BaseURL}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link active">{{t .Lang "nav.home"}}</a>
-                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="{{.BaseURL}}/" class="nav-link active">{{t .Lang "nav.home"}}</a>
+                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
@@ -47,10 +47,10 @@
                         Share code snippets, text, and files instantly. Syntax highlighting, expiration options, and powerful API for automation.
                     </p>
                     <div class="hero-actions">
-                        <a href="/create" class="btn btn-primary btn-lg">
+                        <a href="{{.BaseURL}}/create" class="btn btn-primary btn-lg">
                             {{t .Lang "home.create_paste"}}
                         </a>
-                        <a href="/recent" class="btn btn-secondary btn-lg">
+                        <a href="{{.BaseURL}}/recent" class="btn btn-secondary btn-lg">
                             {{t .Lang "home.browse_recent"}}
                         </a>
                     </div>
@@ -80,17 +80,17 @@
                     <p class="section-description">{{t .Lang "home.features_desc"}}</p>
                 </div>
                 <div class="features-grid">
-                    <a href="/create" class="feature-card">
+                    <a href="{{.BaseURL}}/create" class="feature-card">
                         <div class="feature-icon">📝</div>
                         <h3 class="feature-title">{{t .Lang "home.feature_create_title"}}</h3>
                         <p class="feature-description">{{t .Lang "home.feature_create_desc"}}</p>
                     </a>
-                    <a href="/recent" class="feature-card">
+                    <a href="{{.BaseURL}}/recent" class="feature-card">
                         <div class="feature-icon">📋</div>
                         <h3 class="feature-title">{{t .Lang "home.feature_recent_title"}}</h3>
                         <p class="feature-description">{{t .Lang "home.feature_recent_desc"}}</p>
                     </a>
-                    <a href="/api" class="feature-card">
+                    <a href="{{.BaseURL}}/api" class="feature-card">
                         <div class="feature-icon">⚡</div>
                         <h3 class="feature-title">{{t .Lang "home.feature_api_title"}}</h3>
                         <p class="feature-description">{{t .Lang "home.feature_api_desc"}}</p>
@@ -159,6 +159,6 @@
     <div id="toast-container"></div>
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
-    <script src="/static/js/main.js"></script>
+    <script src="{{.BaseURL}}/static/js/main.js"></script>
 </body>
 </html>

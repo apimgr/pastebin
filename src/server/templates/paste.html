@@ -6,26 +6,26 @@
     <title>{{.Paste.Title}} - {{.SiteTitle}}</title>
     <meta name="description" content="View paste: {{.Paste.Title}}">
     <meta name="theme-color" content="#89b4fa">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="{{.BaseURL}}/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
-    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
-    <link rel="stylesheet" href="/static/css/main.css">
+    <link rel="apple-touch-icon" href="{{.BaseURL}}/static/icons/icon-180.png">
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/main.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
     <!-- Header -->
     <header class="header">
         <nav class="nav">
-            <a href="/" class="nav-brand">
+            <a href="{{.BaseURL}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="/" class="nav-link">{{t .Lang "nav.home"}}</a>
-                <a href="/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <a href="{{.BaseURL}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
                 <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
             </div>
         </nav>
@@ -43,11 +43,11 @@
                             <span>{{t .Lang "paste.created"}} {{fmtTime .Paste.CreatedAt}}</span>
                         </div>
                         <div class="paste-actions">
-                            <a href="/raw/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.raw"}}</a>
-                            <a href="/dl/{{.ID}}" class="btn btn-secondary">{{t .Lang "common.download"}}</a>
-                            <a href="/emb/{{.ID}}" class="btn btn-secondary" target="_blank">{{t .Lang "paste.embed"}}</a>
-                            <a href="/qr/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.qr"}}</a>
-                            <a href="/remove/{{.ID}}" class="btn btn-danger">{{t .Lang "common.delete"}}</a>
+                            <a href="{{.BaseURL}}/raw/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.raw"}}</a>
+                            <a href="{{.BaseURL}}/dl/{{.ID}}" class="btn btn-secondary">{{t .Lang "common.download"}}</a>
+                            <a href="{{.BaseURL}}/emb/{{.ID}}" class="btn btn-secondary" target="_blank">{{t .Lang "paste.embed"}}</a>
+                            <a href="{{.BaseURL}}/qr/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.qr"}}</a>
+                            <a href="{{.BaseURL}}/remove/{{.ID}}" class="btn btn-danger">{{t .Lang "common.delete"}}</a>
                             <button data-copy-paste="paste-code" class="btn btn-primary" id="copyBtn">
                                 {{t .Lang "paste.copy"}}
                             </button>
@@ -67,6 +67,6 @@
     <div id="toast-container"></div>
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
-    <script src="/static/js/main.js"></script>
+    <script src="{{.BaseURL}}/static/js/main.js"></script>
 </body>
 </html>
