@@ -1050,6 +1050,26 @@ Examples:
 
 	sched := scheduler.New(db)
 
+	// Scheduler timezone (PART 18): config → TZ env → America/New_York default.
+	schedTZ := strings.TrimSpace(cfg.Server.Scheduler.Timezone)
+	if schedTZ == "" {
+		schedTZ = "America/New_York"
+	}
+	if loc, err := time.LoadLocation(schedTZ); err != nil {
+		log.Printf("scheduler: invalid timezone %q, using system local: %v", schedTZ, err)
+	} else {
+		sched.SetLocation(loc)
+	}
+
+	// Catch-up window (PART 18): re-run tasks missed while down within this span.
+	if w := strings.TrimSpace(cfg.Server.Scheduler.CatchUpWindow); w != "" {
+		if d, err := time.ParseDuration(w); err != nil {
+			log.Printf("scheduler: invalid catch_up_window %q, using default: %v", w, err)
+		} else if d > 0 {
+			sched.SetCatchUpWindow(d)
+		}
+	}
+
 	// Project-specific: expire and burn-after pastes every 10 minutes.
 	logSchedErr(sched.Register("expire-pastes", "Expire Pastes", "@every 10m", true, func() error {
 		n, err := db.DeleteExpiredPastes()

@@ -313,3 +313,58 @@ func TestExecute_NotifierFiresWithOutcome(t *testing.T) {
 		t.Errorf("success outcome = %+v, want success/WillRetry=false/no error", ok)
 	}
 }
+
+// TestStop_DrainsRunningTask verifies that Stop waits for an in-flight task
+// goroutine to finish (PART 18 graceful shutdown) rather than returning while
+// the task is still executing.
+func TestStop_DrainsRunningTask(t *testing.T) {
+	s := New(nil)
+	sched, err := ParseSchedule("@every 1m")
+	if err != nil {
+		t.Fatalf("ParseSchedule: %v", err)
+	}
+	release := make(chan struct{})
+	var finished int32
+	s.tasks["slow"] = &taskEntry{
+		id:       "slow",
+		name:     "Slow Task",
+		schedule: sched,
+		enabled:  true,
+		nextRun:  time.Now().Add(-1 * time.Second),
+		fn: func() error {
+			<-release
+			atomic.AddInt32(&finished, 1)
+			return nil
+		},
+	}
+
+	// Mark running so Stop proceeds, and launch the due task via tick (adds to wg).
+	s.mu.Lock()
+	s.running = true
+	s.mu.Unlock()
+	s.tick()
+
+	stopped := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(stopped)
+	}()
+
+	// Stop must still be blocked on the running task.
+	select {
+	case <-stopped:
+		t.Fatal("Stop returned before the running task completed")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Release the task; Stop must now return promptly.
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not return after the task finished draining")
+	}
+	if atomic.LoadInt32(&finished) != 1 {
+		t.Errorf("task finished count = %d, want 1", atomic.LoadInt32(&finished))
+	}
+}

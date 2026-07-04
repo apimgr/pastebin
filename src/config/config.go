@@ -834,8 +834,13 @@ type BackupRetentionConfig struct {
 // SchedulerConfig configures the built-in task scheduler (PART 12/18).
 // Tasks maps a task name to its per-task settings; absent entries use code defaults.
 type SchedulerConfig struct {
-	Enabled bool                     `yaml:"enabled"`
-	Tasks   map[string]SchedulerTask `yaml:"tasks"`
+	Enabled bool `yaml:"enabled"`
+	// Timezone for cron expressions (default: America/New_York, override with TZ).
+	Timezone string `yaml:"timezone"`
+	// CatchUpWindow re-runs missed tasks on startup if due within this duration
+	// (default: 1h). Accepts Go duration strings ("1h", "30m").
+	CatchUpWindow string                   `yaml:"catch_up_window"`
+	Tasks         map[string]SchedulerTask `yaml:"tasks"`
 }
 
 // SchedulerTask holds the settings for a single scheduled task (PART 12/18).

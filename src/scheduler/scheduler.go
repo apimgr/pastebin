@@ -16,6 +16,9 @@ const (
 	// backoff (5m, 10m, 20m).
 	defaultRetryDelay = 5 * time.Minute
 	defaultMaxRetries = 3
+	// shutdownDrainTimeout bounds how long Stop waits for in-flight task
+	// goroutines to finish before marking them interrupted (PART 18 shutdown).
+	shutdownDrainTimeout = 30 * time.Second
 )
 
 // TaskFunc is the function executed by a scheduled task.
@@ -76,6 +79,9 @@ type Scheduler struct {
 	stop     chan struct{}
 	running  bool
 	notifier NotifyFunc
+
+	// wg tracks in-flight task goroutines so Stop can drain them (PART 18).
+	wg sync.WaitGroup
 }
 
 // New creates a new Scheduler.
@@ -182,8 +188,10 @@ func (s *Scheduler) Running() bool {
 	return s.running
 }
 
-// Stop signals the scheduler loop to exit. It waits for the current tick to
-// finish but does not wait for running task goroutines.
+// Stop signals the scheduler loop to exit, then drains in-flight task
+// goroutines within a bounded window (PART 18 shutdown behavior). Tasks still
+// running after the timeout are marked interrupted and scheduled to retry on
+// the next start.
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	if !s.running {
@@ -193,7 +201,37 @@ func (s *Scheduler) Stop() {
 	s.running = false
 	close(s.stop)
 	s.mu.Unlock()
+
+	// Wait for running tasks to complete (max 30 seconds). On timeout, mark the
+	// still-running tasks for retry on next start instead of blocking shutdown.
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(shutdownDrainTimeout):
+		s.markInterrupted()
+	}
 	log.Printf("scheduler: stopped")
+}
+
+// markInterrupted flags any task still running at shutdown timeout so it is
+// re-run within the catch-up window on the next start (PART 18).
+func (s *Scheduler) markInterrupted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for _, e := range s.tasks {
+		if !e.running {
+			continue
+		}
+		e.lastStatus = "interrupted"
+		e.nextRun = now
+		s.persistState(e)
+		log.Printf("scheduler: task %s interrupted by shutdown; marked for retry", e.id)
+	}
 }
 
 // RunNow executes a task immediately (bypasses the schedule but still updates
@@ -210,8 +248,10 @@ func (s *Scheduler) RunNow(id string) error {
 		return fmt.Errorf("task %q is already running", id)
 	}
 	e.running = true
+	s.wg.Add(1)
 	s.mu.Unlock()
 
+	defer s.wg.Done()
 	err := s.execute(e)
 
 	s.mu.Lock()
@@ -294,7 +334,9 @@ func (s *Scheduler) tick() {
 	s.mu.Unlock()
 
 	for _, e := range due {
+		s.wg.Add(1)
 		go func(entry *taskEntry) {
+			defer s.wg.Done()
 			s.execute(entry) //nolint:errcheck
 
 			s.mu.Lock()
@@ -467,7 +509,9 @@ func (s *Scheduler) runMissed() {
 
 	for _, e := range missed {
 		log.Printf("scheduler: catch-up run for %s (was due %s)", e.id, e.nextRun.Format(time.RFC3339))
+		s.wg.Add(1)
 		go func(entry *taskEntry) {
+			defer s.wg.Done()
 			s.execute(entry) //nolint:errcheck
 
 			s.mu.Lock()
