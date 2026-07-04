@@ -40,9 +40,9 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
 - [-] **PART 27 — Missing `.gitea/workflows/ci.yml`** (dir has beta/daily/docker/release only).
   NEEDS DECISION: is this project GitHub-only, or multi-provider? (remote is github/apimgr/pastebin)
 - [-] **PART 27 — Missing `.gitlab-ci.yml`** at root. Same multi-provider decision.
-- [ ] **PART 27 — `release.yml` top-level `permissions: contents: write`** (`.github/workflows/release.yml:13`).
-  Release job already scopes its own write perms (line 103); top-level baseline should be
-  `contents: read`. Least-privilege deviation.
+- [x] **PART 27 — `release.yml` top-level `permissions: contents: write`** (`.github/workflows/release.yml:13`).
+  Release job already scopes its own write perms (line 103). FIXED: top-level baseline lowered to
+  `contents: read`; the release job retains its own `contents: write`. `act --list` passes.
 
 ## LOW
 
