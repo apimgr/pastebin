@@ -133,9 +133,11 @@ func fetchResearcherPubKey(src string) (string, error) {
 const defaultDisclosureDays = 90
 
 // securityComponents populates the affected-component dropdown on the security
-// form (AI.md 14130). "other" pairs with the free-text component_other field.
+// form. AI.md 14439 says to list the project's own features; the spec's
+// "(auth, API, frontend, CLI, etc.)" is generic example text — pastebin has no
+// auth, so it is omitted. "other" pairs with the free-text component_other field.
 var securityComponents = []string{
-	"auth", "api", "frontend", "cli", "paste", "storage",
+	"api", "frontend", "cli", "paste", "storage",
 	"config", "scheduler", "email", "other",
 }
 
@@ -429,14 +431,14 @@ func (s *Server) handleSecurityReport(w http.ResponseWriter, r *http.Request, cf
 // reportFields carries the plaintext values assembled into the encrypted report
 // body. This struct never leaves this file and is never persisted in the clear.
 type reportFields struct {
-	trackingID, timestamp                        string
-	name, email, gpg                             string
-	component, endpoint, severity, summary       string
-	steps, impact, suggestedFix                  string
-	cveRequested                                 bool
-	disclosureDays                               int
-	creditPref, creditName                       string
-	userAgent, remoteIP, appVersion, commitHash  string
+	trackingID, timestamp                       string
+	name, email, gpg                            string
+	component, endpoint, severity, summary      string
+	steps, impact, suggestedFix                 string
+	cveRequested                                bool
+	disclosureDays                              int
+	creditPref, creditName                      string
+	userAgent, remoteIP, appVersion, commitHash string
 }
 
 // buildReportBody renders the full researcher submission as a plain-text report.

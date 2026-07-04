@@ -65,11 +65,11 @@ func securityReportForm() url.Values {
 	return url.Values{
 		"name":              {"Ada Researcher"},
 		"email":             {"ada@example.com"},
-		"component":         {"auth"},
+		"component":         {"api"},
 		"severity":          {"High"},
-		"summary":           {"Session fixation in login flow"},
+		"summary":           {"Stored XSS in paste rendering"},
 		"steps":             {"1. Do X\n2. Do Y\n3. Observe Z"},
-		"impact":            {"An attacker can hijack an authenticated session."},
+		"impact":            {"An attacker can run script in a paste viewer's browser."},
 		"credit_preference": {"name"},
 		"credit_name":       {"Ada Researcher"},
 		"agreement":         {"yes"},
@@ -137,16 +137,16 @@ func TestSecurityReportSubmissionEndToEnd(t *testing.T) {
 	if rep.Severity != "High" {
 		t.Errorf("stored severity: got %q, want High", rep.Severity)
 	}
-	if rep.Component != "auth" {
-		t.Errorf("stored component: got %q, want auth", rep.Component)
+	if rep.Component != "api" {
+		t.Errorf("stored component: got %q, want api", rep.Component)
 	}
 
 	// Plaintext must never be persisted: none of the sensitive fields may appear
 	// in the sealed body.
 	sealed := string(rep.EncryptedBody)
 	for _, secret := range []string{
-		"Session fixation in login flow",
-		"An attacker can hijack an authenticated session.",
+		"Stored XSS in paste rendering",
+		"An attacker can run script in a paste viewer's browser.",
 		"ada@example.com",
 		"Do X",
 	} {
@@ -164,7 +164,7 @@ func TestSecurityReportSubmissionEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decrypt report: %v", err)
 	}
-	for _, want := range []string{"Session fixation in login flow", "ada@example.com", trackingID} {
+	for _, want := range []string{"Stored XSS in paste rendering", "ada@example.com", trackingID} {
 		if !strings.Contains(string(plain), want) {
 			t.Errorf("decrypted report missing %q", want)
 		}
@@ -186,8 +186,8 @@ func TestSecurityReportSubmissionEndToEnd(t *testing.T) {
 	for _, pii := range []string{
 		"ada@example.com",
 		"Ada Researcher",
-		"Session fixation in login flow",
-		"An attacker can hijack",
+		"Stored XSS in paste rendering",
+		"An attacker can run script",
 	} {
 		if strings.Contains(logLine, pii) {
 			t.Errorf("security log leaks PII/content %q: %s", pii, logLine)
