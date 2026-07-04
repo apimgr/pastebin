@@ -798,14 +798,7 @@ func (c *CompatHandler) TermbinServe(conn net.Conn, base string, maxSize int64, 
 // origin returns the scheme+host base URL for this request, honouring the
 // configured base URL override when set.
 func (c *CompatHandler) origin(r *http.Request) string {
-	if c.ph.baseURL != "" {
-		return c.ph.baseURL
-	}
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host
+	return c.ph.base(r)
 }
 
 // rawURL returns the raw-content URL for a paste ID.

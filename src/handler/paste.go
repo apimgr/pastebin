@@ -34,6 +34,12 @@ type PasteHandler struct {
 	db database.DB
 	// baseURL is an optional override, e.g. "https://paste.example.com".
 	baseURL string
+	// baseURLFn resolves the canonical per-request base URL (PART 12: full
+	// {proto}/{fqdn}/{port}/{baseurl} chain with trusted-proxy gating and the
+	// configured-DOMAIN fallback). Injected by the server layer so the resolver
+	// is shared instead of duplicated; nil in unit tests, where base() falls
+	// back to the static baseURL / request Host.
+	baseURLFn func(*http.Request) string
 	// operatorTokenHash is SHA-256(server.token), cached at construction time.
 	// A constant-time compare against this lets operator tokens bypass the api_tokens
 	// lookup and delete any paste unconditionally (PART 11).
@@ -47,6 +53,13 @@ func NewPasteHandler(db database.DB, baseURL string, operatorTokenHash [32]byte)
 	h := &PasteHandler{db: db, baseURL: baseURL, operatorTokenHash: operatorTokenHash}
 	h.refreshActiveTokenGauge()
 	return h
+}
+
+// SetBaseURLResolver injects the server's canonical per-request base-URL
+// resolver (PART 12) so pasteURL/origin reuse the full reverse-proxy + FQDN
+// chain instead of a simplified copy.
+func (h *PasteHandler) SetBaseURLResolver(fn func(*http.Request) string) {
+	h.baseURLFn = fn
 }
 
 // ─── ID & token generation ────────────────────────────────────────────────────
@@ -614,14 +627,26 @@ func (h *PasteHandler) refreshActiveTokenGauge() {
 }
 
 func (h *PasteHandler) pasteURL(r *http.Request, id string) string {
+	return h.base(r) + "/" + id
+}
+
+// base resolves the per-request absolute base URL (no trailing slash). It
+// delegates to the injected server resolver (PART 12 full chain) when present;
+// otherwise it honours the static baseURL override, and finally falls back to
+// the request scheme+Host. The trailing-slash trim keeps callers that append
+// "/{id}" from emitting a double slash.
+func (h *PasteHandler) base(r *http.Request) string {
+	if h.baseURLFn != nil {
+		return strings.TrimRight(h.baseURLFn(r), "/")
+	}
 	if h.baseURL != "" {
-		return h.baseURL + "/" + id
+		return strings.TrimRight(h.baseURL, "/")
 	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	return scheme + "://" + r.Host + "/" + id
+	return scheme + "://" + r.Host
 }
 
 func (h *PasteHandler) errJSON(w http.ResponseWriter, msg string, status int) {

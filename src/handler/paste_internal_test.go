@@ -261,6 +261,21 @@ func TestPasteURL(t *testing.T) {
 			t.Errorf("expected https:// prefix, got %q", got)
 		}
 	})
+
+	// When the server injects its canonical resolver (PART 12), pasteURL must
+	// delegate to it — never rebuild a simplified scheme+Host that ignores the
+	// configured-DOMAIN fallback behind a Host-stripping reverse proxy.
+	t.Run("delegates_to_injected_resolver", func(t *testing.T) {
+		h := &PasteHandler{db: db}
+		h.SetBaseURLResolver(func(*http.Request) string { return "https://pb.pste.us" })
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Host = "127.0.2.1:8443"
+		got := h.pasteURL(r, "abc12345")
+		want := "https://pb.pste.us/abc12345"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
 }
 
 // ─── loadLivePaste ────────────────────────────────────────────────────────────

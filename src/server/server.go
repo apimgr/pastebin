@@ -406,6 +406,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	}
 
 	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL, s.operatorTokenHash)
+	s.pasteHandler.SetBaseURLResolver(s.baseURL)
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
