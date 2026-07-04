@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -49,9 +48,7 @@ func (s *Server) maintenanceMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Retry-After", strconv.Itoa(snap.RetrySeconds()))
 		w.Header().Set("X-Maintenance-Mode", "true")
 		w.Header().Set("X-Maintenance-Reason", snap.Reason)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"ok":      false,
 			"error":   "MAINTENANCE_MODE",
 			"message": "Server is in maintenance mode due to: " + snap.Message,

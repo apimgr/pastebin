@@ -63,8 +63,10 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   (`src/server/maintenance.go`). GENUINE SPEC CONTRADICTION: PART 9 table (AI.md:12761) says
   `MAINTENANCE`; AI.md:7315 AND project config-rules.md say `MAINTENANCE_MODE`. Do NOT change
   without spec-owner decision — condensed rule confirms current code.
-- [ ] **PART 14 — Maintenance error uses compact JSON** (`maintenance.go:54` `json.NewEncoder`)
-  vs the house `writeJSON`/`MarshalIndent` 2-space standard. Route through `writeJSON`.
+- [x] **PART 14 — Maintenance error uses compact JSON** (`maintenance.go:54` `json.NewEncoder`)
+  vs the house `writeJSON`/`MarshalIndent` 2-space standard. FIXED: routed through `writeJSON`
+  (Retry-After / X-Maintenance-* headers still set beforehand); dropped the now-unused
+  `encoding/json` import. Error code `MAINTENANCE_MODE` left unchanged (still ambiguous, below).
 
 ---
 
