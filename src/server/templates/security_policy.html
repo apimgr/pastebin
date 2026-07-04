@@ -6,12 +6,12 @@
     <title>Security Policy - {{.SiteTitle}}</title>
     <meta name="description" content="Coordinated vulnerability disclosure policy for {{.SiteTitle}} — scope, safe harbor, and how to report">
     <meta name="theme-color" content="#89b4fa">
-    <link rel="manifest" href="{{.BaseURL}}/manifest.json">
+    <link rel="manifest" href="{{.AssetPrefix}}/manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
-    <link rel="apple-touch-icon" href="{{.BaseURL}}/static/icons/icon-180.png">
-    <link rel="stylesheet" href="{{.BaseURL}}/static/css/main.css">
+    <link rel="apple-touch-icon" href="{{.AssetPrefix}}/static/icons/icon-180.png">
+    <link rel="stylesheet" href="{{.AssetPrefix}}/static/css/main.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
@@ -111,6 +111,6 @@
     <div id="toast-container"></div>
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
-    <script src="{{.BaseURL}}/static/js/main.js"></script>
+    <script src="{{.AssetPrefix}}/static/js/main.js"></script>
 </body>
 </html>

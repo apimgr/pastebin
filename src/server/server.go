@@ -3088,6 +3088,11 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	if _, ok := data["BaseURL"]; !ok {
 		data["BaseURL"] = s.baseURL(r)
 	}
+	// Inject the path-only prefix used for same-origin subresources so asset URLs
+	// stay root-relative and avoid mixed-content blocking behind a TLS proxy
+	if _, ok := data["AssetPrefix"]; !ok {
+		data["AssetPrefix"] = s.assetPrefix(r)
+	}
 	// Inject sanitized operator footer branding rendered above the default footer (PART 16)
 	s.injectFooterData(data)
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
@@ -3117,6 +3122,9 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	data["CommitID"] = s.commitID
 	if _, ok := data["BaseURL"]; !ok {
 		data["BaseURL"] = s.baseURL(r)
+	}
+	if _, ok := data["AssetPrefix"]; !ok {
+		data["AssetPrefix"] = s.assetPrefix(r)
 	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
@@ -3236,6 +3244,9 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	if _, ok := data["BaseURL"]; !ok {
 		data["BaseURL"] = s.baseURL(r)
 	}
+	if _, ok := data["AssetPrefix"]; !ok {
+		data["AssetPrefix"] = s.assetPrefix(r)
+	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
 	if err := s.templates.ExecuteTemplate(w, "error.html", data); err != nil {
@@ -3291,6 +3302,29 @@ func (s *Server) baseURL(r *http.Request) string {
 	return base
 }
 
+// assetPrefix returns the path-only base prefix for same-origin subresources
+// (stylesheets, scripts, icons, manifest). It is empty by default so those URLs
+// render root-relative and inherit the page's actual scheme, preventing
+// mixed-content blocking when TLS is terminated at a reverse proxy (a full
+// scheme://host would emit http:// on an https page and the browser drops it).
+// A non-empty prefix is only produced for a sub-path mount advertised by a
+// trusted proxy or configured base URL (AI.md PART 12 {baseurl} chain).
+func (s *Server) assetPrefix(r *http.Request) string {
+	if s.isTrustedPeer(r) {
+		for _, hdr := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
+			if p := strings.TrimRight(r.Header.Get(hdr), "/"); p != "" {
+				return p
+			}
+		}
+	}
+	if b := s.cfg.Server.BaseURL; b != "" {
+		if u, err := url.Parse(b); err == nil {
+			return strings.TrimRight(u.Path, "/")
+		}
+	}
+	return ""
+}
+
 // privateNets contains the CIDR ranges that are always treated as trusted proxies
 // (loopback, RFC 1918 IPv4 private, RFC 4193 IPv6 unique-local, link-local).
 var privateNets = func() []*net.IPNet {
@@ -3328,6 +3362,18 @@ func (s *Server) isTrustedPeer(r *http.Request) bool {
 	for _, n := range privateNets {
 		if n.Contains(ip) {
 			return true
+		}
+	}
+	// Same /24 as the configured listen address — reverse-proxy sidecar pattern
+	// where a proxy on the same routable subnet terminates TLS (AI.md PART 12
+	// Trusted Proxies always-trusted list). Only meaningful for a concrete IPv4
+	// listen address; 0.0.0.0/empty/hostname/IPv6-any yield no usable /24 match.
+	if listenIP := net.ParseIP(strings.TrimSpace(s.cfg.Server.Address)); listenIP != nil {
+		if ip4, listen4 := ip.To4(), listenIP.To4(); ip4 != nil && listen4 != nil {
+			mask := net.CIDRMask(24, 32)
+			if ip4.Mask(mask).Equal(listen4.Mask(mask)) {
+				return true
+			}
 		}
 	}
 	// Check server.trusted_proxies.additional entries (IPs and CIDRs; DNS not resolved here).
