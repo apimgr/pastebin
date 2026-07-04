@@ -22,10 +22,12 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
 
 ## MEDIUM
 
-- [ ] **PART 6 — Missing debug API endpoints** (`src/server/server.go:835`). Spec (AI.md:8703-8761)
-  mandates `/debug/config` (sanitized), `/debug/routes`, `/debug/cache`, `/debug/db`,
-  `/debug/scheduler`; only `/debug/pprof` + `/debug/vars` registered. Additive, debug-gated,
-  low breakage risk. `handleDebugConfig` must redact secrets.
+- [x] **PART 6 — Missing debug API endpoints** (`src/server/server.go:835`). Spec (AI.md:8703-8761)
+  mandated `/debug/config` (sanitized), `/debug/routes`, `/debug/cache`, `/debug/db`,
+  `/debug/scheduler` (+ optional `/debug/memory`, `/debug/goroutines`); only `/debug/pprof` +
+  `/debug/vars` were registered. FIXED: added `src/server/debug.go` with all seven handlers,
+  registered via `registerDebugRoutes` inside the debug gate. `/debug/config` round-trips the
+  live config through YAML and recursively redacts every secret key. Tests added.
 - [ ] **PART 15 — Overlay `.onion`/`.i2p` self-signed fallback missing** (`src/ssl/ssl.go`).
   Clearnet-error half is correct; overlay hosts have no cert path. Add overlay-only branch that
   generates + caches a self-signed cert to `{cert_dir}/local/{fqdn}/`. Never for clearnet.

@@ -836,7 +836,8 @@ func (s *Server) setupRoutes() {
 	if mode.ShouldShowDebugEndpoints() {
 		r.Mount("/debug/pprof", http.DefaultServeMux)
 		r.Get("/debug/vars", expvar.Handler().ServeHTTP)
-		log.Printf("debug: /debug/pprof and /debug/vars endpoints enabled")
+		s.registerDebugRoutes(r)
+		log.Printf("debug: /debug/pprof, /debug/vars, /debug/{config,routes,cache,db,scheduler,memory,goroutines} endpoints enabled")
 	}
 
 	// ── Auth stubs (no user accounts — redirect to home) ─────────────────────
