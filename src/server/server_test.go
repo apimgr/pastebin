@@ -213,14 +213,22 @@ func TestCSRFMiddleware(t *testing.T) {
 			wantNext:   true,
 		},
 		{
-			name: "cross-origin POST without cookie rejected",
+			name: "cross-origin POST without cookie bypasses (non-browser CLI/compat client)",
 			build: func() *http.Request {
 				r := newReq(http.MethodPost, "http://example.com/api/v1/paste")
 				r.Header.Set("Origin", "http://evil.com")
 				return r
 			},
-			wantStatus: http.StatusForbidden,
-			wantNext:   false,
+			wantStatus: http.StatusOK,
+			wantNext:   true,
+		},
+		{
+			name: "cookieless POST with no origin bypasses (curl/compat client)",
+			build: func() *http.Request {
+				return newReq(http.MethodPost, "http://example.com/api/new")
+			},
+			wantStatus: http.StatusOK,
+			wantNext:   true,
 		},
 		{
 			name: "originless POST with matching cookie and token passes",

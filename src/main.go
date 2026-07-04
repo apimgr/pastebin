@@ -954,8 +954,22 @@ Examples:
 	if baseurlFlag != "" {
 		cfg.Server.BaseURL = baseurlFlag
 	}
-	if modeFlag != "" {
+	// Reconcile the application mode into the config so the health/version response
+	// (PART 13) and CSP report-only logic report the mode the server actually runs in.
+	// Priority (PART 6): --mode flag → MODE env → config-file mode → default production.
+	// mode.Get() already resolved flag+env; a config-file mode applies only when neither was set.
+	switch {
+	case modeFlag != "":
 		cfg.Server.Mode = modeFlag
+	case os.Getenv("MODE") != "":
+		cfg.Server.Mode = mode.Get().String()
+	case cfg.Server.Mode != "":
+		if err := mode.Set(cfg.Server.Mode); err != nil {
+			log.Printf("warning: invalid config mode %q, using %s: %v", cfg.Server.Mode, mode.Get(), err)
+			cfg.Server.Mode = mode.Get().String()
+		}
+	default:
+		cfg.Server.Mode = mode.Get().String()
 	}
 
 	// ── Port resolution (random 64xxx on first run; 80 in container) ──────────

@@ -1445,11 +1445,11 @@ func (s *Server) validateCSRFToken(token string) bool {
 // AI.md "CSRF Protection"). The token cookie is stable across requests (reused
 // while valid, re-minted only when absent or invalid) so tokens embedded in
 // already-rendered forms keep working. Validation runs ONLY when the request is
-// state-mutating AND from a cross-site/unknown origin; Bearer/API-token,
-// read-only, WebSocket-upgrade, same-origin, and exempt-path requests are
-// bypassed. A cross-site mutating request that arrives without the cookie is
-// the signature of an attack (SameSite=Strict strips the cookie cross-site),
-// so it is rejected with 403, never bypassed.
+// state-mutating AND carries a CSRF cookie (i.e. it is a browser that loaded a
+// page from us) AND is from a cross-site/unknown origin. Bearer/API-token,
+// read-only, WebSocket-upgrade, same-origin, exempt-path, and cookie-less
+// (non-browser: CLI, compat, webhook) requests are bypassed — those callers
+// carry no auto-attached credential, so there is nothing to forge.
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.liveCfg()
@@ -1485,10 +1485,18 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 
 		// Bypass conditions (any one is sufficient).
 		hasBearer := r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Token") != ""
+		// A caller that carries no CSRF cookie never loaded a page from us in a
+		// browser session — it is a CLI tool, API/compat client, webhook, or other
+		// non-browser caller. CSRF defends against a browser auto-attaching a cookie
+		// credential to a cross-site request; with no such cookie there is nothing to
+		// forge, so validating here only breaks legitimate clients without adding
+		// defense (AI.md PART 11 "When CSRF Validation Runs": validate only when the
+		// request authenticates via a session cookie; bypass public/non-browser callers).
 		bypass := !isMutating || hasBearer ||
 			isWebSocketUpgrade(r) ||
 			isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) ||
-			isSameOrigin(r)
+			isSameOrigin(r) ||
+			!hasCookie
 
 		if !bypass {
 			// Read the submitted token from the header, falling back to the form field.
@@ -1497,10 +1505,10 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 				_ = r.ParseForm()
 				submitted = r.FormValue("csrf_token")
 			}
+			// hasCookie is guaranteed true here — the bypass above short-circuits
+			// every request that carries no CSRF cookie, so reqCookie is non-nil.
 			reason := ""
 			switch {
-			case !hasCookie:
-				reason = "cookie absent"
 			case submitted == "":
 				reason = "token absent"
 			case !s.validateCSRFToken(submitted):
