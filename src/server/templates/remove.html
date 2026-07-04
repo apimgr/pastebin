@@ -91,5 +91,18 @@
 
     <script>window.PB_I18N = {{i18njs .Lang}};</script>
     <script src="{{.BaseURL}}/static/js/main.js"></script>
+    <script>
+        // Progressive enhancement only — the form works as a plain POST without
+        // this. Pre-fill the delete-token field from the owner token saved at
+        // creation time (AI.md 22303 canonical localStorage key: api_token).
+        (function () {
+            const tokenField = document.getElementById('token');
+            if (!tokenField || tokenField.value) return;
+            const saved = localStorage.getItem('api_token') || '';
+            if (saved) {
+                tokenField.value = saved;
+            }
+        })();
+    </script>
 </body>
 </html>
