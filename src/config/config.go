@@ -1331,6 +1331,14 @@ func (c *Config) fqdn() string {
 	return "localhost"
 }
 
+// ResolveFQDN exposes the configuration-scoped {fqdn} resolution chain (PART 12
+// priorities 2–7: configured/DOMAIN value → os.Hostname() → $HOSTNAME → first
+// public IP → "localhost") to the HTTP layer. The request-scoped reverse-proxy
+// header step (priority 1) is applied by the caller before falling back here.
+func (c *Config) ResolveFQDN() string {
+	return c.fqdn()
+}
+
 // firstPublicIP returns the first globally routable unicast address bound to a
 // local interface, preferring IPv6 over IPv4, or "" when none is found. Private,
 // loopback, and link-local addresses are excluded (AI.md PART 12 {fqdn}

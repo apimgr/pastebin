@@ -2708,6 +2708,27 @@ func TestBaseURLWithForwardedPrefix(t *testing.T) {
 	}
 }
 
+// TestBaseURLFallsBackToConfiguredFQDN reproduces the reverse-proxy regression:
+// an nginx `proxy_pass https://127.0.0.1:PORT/` upstream that forwards
+// X-Forwarded-Proto but NOT the original Host, so r.Host is the internal
+// loopback literal. The rendered absolute URL must use the operator's configured
+// DOMAIN/FQDN, never the internal upstream address.
+func TestBaseURLFallsBackToConfiguredFQDN(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.FQDN = "pb.pste.us"
+	s := newMinimalServer(cfg)
+
+	r := httptest.NewRequest(http.MethodGet, "/remove/GAbj7GiR", nil)
+	r.RemoteAddr = "127.0.0.1:5555"
+	r.Host = "127.0.2.1:8443"
+	r.Header.Set("X-Forwarded-Proto", "https")
+
+	got := s.baseURL(r)
+	if got != "https://pb.pste.us" {
+		t.Errorf("baseURL() = %q, want %q", got, "https://pb.pste.us")
+	}
+}
+
 func TestBaseURLWithForwardedHost(t *testing.T) {
 	cfg := &config.Config{}
 	s := newMinimalServer(cfg)

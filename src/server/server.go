@@ -3293,10 +3293,12 @@ func (s *Server) baseURL(r *http.Request) string {
 	// {fqdn} — trusted proxy host headers in priority order, else the request
 	// Host (PART 12).
 	host := r.Host
+	hostFromProxy := false
 	if trusted {
 		for _, hdr := range []string{"X-Forwarded-Host", "X-Real-Host", "X-Original-Host"} {
 			if fh := strings.TrimSpace(r.Header.Get(hdr)); fh != "" {
 				host = fh
+				hostFromProxy = true
 				break
 			}
 		}
@@ -3305,6 +3307,18 @@ func (s *Server) baseURL(r *http.Request) string {
 	// {port} — split host, let a trusted X-Forwarded-Port override, then strip
 	// the standard :80/:443 which are NEVER included in URLs (PART 12).
 	hostname, port := splitHostPort(host)
+
+	// {fqdn} fallback (PART 12 priority 2+): when no trusted proxy supplied a
+	// Host header and the request Host is empty or a non-routable literal — e.g.
+	// an nginx `proxy_pass https://127.0.0.1:PORT/` upstream that does not forward
+	// the original Host, so r.Host is the internal loopback/private address — fall
+	// back to the configured DOMAIN/FQDN. Absolute template URLs must render the
+	// public host the client actually reached, never the internal upstream.
+	if !hostFromProxy && !isRoutableHost(hostname) {
+		if f := strings.TrimSpace(s.cfg.ResolveFQDN()); f != "" && !strings.EqualFold(f, "localhost") {
+			hostname, port = splitHostPort(f)
+		}
+	}
 	if trusted {
 		if fp := strings.TrimSpace(r.Header.Get("X-Forwarded-Port")); fp != "" {
 			port = fp
@@ -3379,6 +3393,28 @@ func splitHostPort(host string) (hostname, port string) {
 		return host[1 : len(host)-1], ""
 	}
 	return host, ""
+}
+
+// isRoutableHost reports whether h is usable as a public {fqdn} in a rendered
+// absolute URL. A registered domain name (net.ParseIP == nil) is always
+// considered routable. An IP literal is routable only when it is a global
+// unicast address that is not loopback, private (RFC 1918 / RFC 4193), or
+// link-local. An empty host is never routable. This gates the configured-FQDN
+// fallback in baseURL so an internal upstream literal (127.0.0.1, 10.x, etc.)
+// forwarded as the Host header is replaced by the operator's real domain.
+func isRoutableHost(h string) bool {
+	h = strings.TrimSpace(h)
+	if h == "" || strings.EqualFold(h, "localhost") {
+		return false
+	}
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	return ip.IsGlobalUnicast()
 }
 
 // validPathPrefix reports whether p is a safe rooted URL path prefix. It must
