@@ -3292,7 +3292,7 @@ func (s *Server) baseURL(r *http.Request) string {
 		for _, hdr := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
 			if prefix := r.Header.Get(hdr); prefix != "" {
 				prefix = strings.TrimRight(prefix, "/")
-				if prefix != "" {
+				if validPathPrefix(prefix) {
 					base += prefix
 				}
 				break
@@ -3300,6 +3300,28 @@ func (s *Server) baseURL(r *http.Request) string {
 		}
 	}
 	return base
+}
+
+// validPathPrefix reports whether p is a safe rooted URL path prefix. It must
+// begin with a single "/", must not be protocol-relative ("//" or "/\") and
+// must contain no scheme separator, backslash, whitespace or control character.
+// This blocks a header-injected value such as "//evil.com" from reaching an
+// href/src attribute (html/template's URL filter permits protocol-relative
+// URLs, so escaping alone is not sufficient). An empty string is not a valid
+// prefix — callers treat that as "no prefix" and render root-relative.
+func validPathPrefix(p string) bool {
+	if p == "" || p[0] != '/' {
+		return false
+	}
+	if strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") {
+		return false
+	}
+	for _, ch := range p {
+		if ch == ':' || ch == '\\' || ch <= ' ' || ch == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // assetPrefix returns the path-only base prefix for same-origin subresources
@@ -3313,13 +3335,18 @@ func (s *Server) assetPrefix(r *http.Request) string {
 	if s.isTrustedPeer(r) {
 		for _, hdr := range []string{"X-Forwarded-Prefix", "X-Forwarded-Path", "X-Script-Name"} {
 			if p := strings.TrimRight(r.Header.Get(hdr), "/"); p != "" {
-				return p
+				if validPathPrefix(p) {
+					return p
+				}
+				break
 			}
 		}
 	}
 	if b := s.cfg.Server.BaseURL; b != "" {
 		if u, err := url.Parse(b); err == nil {
-			return strings.TrimRight(u.Path, "/")
+			if p := strings.TrimRight(u.Path, "/"); validPathPrefix(p) {
+				return p
+			}
 		}
 	}
 	return ""

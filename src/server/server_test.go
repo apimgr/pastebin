@@ -3457,3 +3457,34 @@ func TestStartTermbin_BaseURLFallback(t *testing.T) {
 	cancel()
 	time.Sleep(50 * time.Millisecond)
 }
+
+// TestValidPathPrefix verifies the rooted-path guard rejects protocol-relative
+// and scheme/host/control-character injection while accepting real sub-path
+// mounts (defense against header-controlled asset-prefix injection).
+func TestValidPathPrefix(t *testing.T) {
+	valid := []string{"/app", "/app/v1", "/a-b_c", "/x/y/z"}
+	for _, p := range valid {
+		if !validPathPrefix(p) {
+			t.Errorf("validPathPrefix(%q) = false, want true", p)
+		}
+	}
+	invalid := []string{
+		"",
+		"app",
+		"//evil.com",
+		"/\\evil.com",
+		"/a\\b",
+		"http://evil.com",
+		"/path:8080",
+		"/has space",
+		"/tab\there",
+		"/newline\nhere",
+		"/ctrl\x00null",
+		"/del\x7f",
+	}
+	for _, p := range invalid {
+		if validPathPrefix(p) {
+			t.Errorf("validPathPrefix(%q) = true, want false", p)
+		}
+	}
+}
