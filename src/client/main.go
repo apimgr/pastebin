@@ -376,6 +376,8 @@ func main() {
 	doUpdate := flag.String("update", "", "check for CLI updates: 'check' or 'yes'")
 	// PART 32: --lang sets the output/UI language; default auto-detects from the LANG env var.
 	langFlag := flag.String("lang", "auto", "output language code (default: auto-detect from LANG)")
+	// PART 32: operator/owner API token. Priority: --token flag → PASTEBIN_CLI_TOKEN env → cli.yml auth.token.
+	tokenFlag := flag.String("token", "", "operator/owner API token (or set PASTEBIN_CLI_TOKEN)")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -459,11 +461,29 @@ func main() {
 		*server = resolved
 	}
 
+	// Resolve the API token (PART 32 priority): --token flag → PASTEBIN_CLI_TOKEN env → cli.yml auth.token.
+	// The env var never persists; the --token flag saves to cli.yml only when the stored token is empty/invalid.
+	token := *tokenFlag
+	if token == "" {
+		token = os.Getenv("PASTEBIN_CLI_TOKEN")
+	}
+	if token == "" {
+		token = fileCfg.Auth.Token
+	}
+	if *tokenFlag != "" {
+		if resolvedTok, persist := saveIfEmptyOrInvalid(fileCfg.Auth.Token, *tokenFlag, func(s string) bool { return s != "" }); persist && resolvedTok != "" {
+			fileCfg.Auth.Token = resolvedTok
+			if err := saveCLIConfig(fileCfg); err != nil {
+				log.Printf("warning: could not save cli.yml: %v", err)
+			}
+		}
+	}
+
 	// Handle --update flag.
 	locale := detectLocale(*langFlag)
 
 	if *doUpdate != "" {
-		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale}
+		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale, token: token}
 		c.cmdUpdate(*doUpdate)
 		return
 	}
@@ -491,7 +511,7 @@ func main() {
 		os.Exit(exitConnection)
 	}
 
-	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale}
+	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale, token: token}
 
 	switch args[0] {
 	case "create":
@@ -556,6 +576,15 @@ type client struct {
 	asJSON bool
 	// lang is the resolved output/UI locale sent as the Accept-Language header (PART 30/32).
 	lang string
+	// token is the resolved operator/owner API token sent as the Authorization bearer header (PART 32).
+	token string
+}
+
+// setAuth adds the Authorization bearer header when an API token is configured (PART 32).
+func (c *client) setAuth(req *http.Request) {
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 }
 
 // detectLocale resolves the output locale from the --lang flag, falling back to the
@@ -737,6 +766,7 @@ func (c *client) cmdDelete(args []string) {
 	if c.lang != "" {
 		req.Header.Set("Accept-Language", c.lang)
 	}
+	c.setAuth(req)
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
@@ -966,6 +996,7 @@ func (c *client) get(path string) (*http.Response, error) {
 	if c.lang != "" {
 		req.Header.Set("Accept-Language", c.lang)
 	}
+	c.setAuth(req)
 	return httpClient.Do(req)
 }
 
@@ -985,6 +1016,7 @@ func (c *client) postJSON(path string, body interface{}) (*http.Response, error)
 	if c.lang != "" {
 		req.Header.Set("Accept-Language", c.lang)
 	}
+	c.setAuth(req)
 	return httpClient.Do(req)
 }
 
