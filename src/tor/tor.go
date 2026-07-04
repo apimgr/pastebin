@@ -144,6 +144,14 @@ func (m *Manager) startLocked() error {
 		return nil
 	}
 
+	// The hidden service forwards to the server's real HTTP listener; without a
+	// valid target port there is nothing to forward to. Skip rather than point the
+	// onion at a guessed port (PART 31: server port is always runtime-detected).
+	if m.serverPort <= 0 {
+		log.Printf("Tor: server HTTP port unknown, hidden service disabled")
+		return nil
+	}
+
 	if err := ensureTorDirs(m.cfg.ConfigDir, m.cfg.DataDir); err != nil {
 		return fmt.Errorf("tor dirs: %w", err)
 	}
