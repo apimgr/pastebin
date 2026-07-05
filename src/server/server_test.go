@@ -1300,7 +1300,8 @@ func TestSecFetchMiddleware(t *testing.T) {
 		{"cross-site POST with bearer allowed", true, http.MethodPost, "/api/v1/pastes", "cross-site", "Bearer tok", "", http.StatusOK},
 		{"same-site POST allowed", true, http.MethodPost, "/api/v1/pastes", "same-origin", "", "", http.StatusOK},
 		{"GET not blocked by cross-site", true, http.MethodGet, "/api/v1/pastes", "cross-site", "", "", http.StatusOK},
-		{"navigate to API blocked", true, http.MethodGet, "/api/v1/pastes", "", "", "navigate", http.StatusForbidden},
+		{"GET navigate to API allowed", true, http.MethodGet, "/api/v1/server/healthz", "", "", "navigate", http.StatusOK},
+		{"POST navigate to API blocked", true, http.MethodPost, "/api/v1/pastes", "", "", "navigate", http.StatusForbidden},
 		{"navigate to non-API allowed", true, http.MethodGet, "/paste/abc", "", "", "navigate", http.StatusOK},
 	}
 	for _, tc := range cases {

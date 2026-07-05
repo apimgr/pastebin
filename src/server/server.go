@@ -1315,7 +1315,9 @@ func (s *Server) metricsIPAllowlistMiddleware(next http.Handler) http.Handler {
 // secFetchMiddleware rejects cross-site state-changing requests per PART 11.
 // Validation rules (when sec_fetch_validation=true):
 //   - Reject POST/PUT/PATCH/DELETE where Sec-Fetch-Site: cross-site AND no Bearer/API token.
-//   - Reject GET/HEAD to /api/* where Sec-Fetch-Mode: navigate (unintended top-level nav).
+//   - Reject POST/PUT/PATCH/DELETE to /api/* where Sec-Fetch-Mode: navigate (form-based nav CSRF).
+//   - GET/HEAD navigation to /api/* is ALLOWED (AI.md:13931): opening an API URL in a browser
+//     returns the JSON normally, since GETs are side-effect-free and responses carry nosniff.
 //   - Absence of Sec-Fetch-* is treated as pass-through (legacy-browser compat).
 func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1342,10 +1344,15 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		// Reject API endpoints navigated to directly (Sec-Fetch-Mode: navigate on /api/*).
+		// Reject form-based navigation CSRF on /api/* — only for state-changing methods.
+		// GET/HEAD navigation is explicitly allowed (AI.md:13931): opening an API URL in a
+		// browser must return the JSON normally.
 		if r.Header.Get("Sec-Fetch-Mode") == "navigate" && strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "SEC_FETCH_BLOCKED", "message": "direct navigation to API endpoint blocked"})
-			return
+			switch r.Method {
+			case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+				writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "SEC_FETCH_BLOCKED", "message": "direct navigation to API endpoint blocked"})
+				return
+			}
 		}
 
 		next.ServeHTTP(w, r)

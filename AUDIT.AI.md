@@ -20,6 +20,16 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
 - [x] **PART 12 — `CompatHandler.origin` duplicated the simplified resolver** (`src/handler/compat.go:800`).
   Same defect (raw/termbin URLs). FIXED via the same shared resolver (`c.ph.base(r)`).
 
+## HIGH (cont.)
+
+- [x] **PART 11 — Sec-Fetch `navigate` reject over-broad; blocked GET to `/api/*`** (`src/server/server.go:1346`).
+  Code blocked `Sec-Fetch-Mode: navigate` on `/api/*` for ALL methods, so opening
+  `/api/v1/server/healthz` in a browser returned `SEC_FETCH_BLOCKED`. AI.md:13931 validates
+  `Sec-Fetch-Mode` ONLY on POST/PUT/PATCH/DELETE and EXPLICITLY allows GET/HEAD navigation
+  ("opening an API URL in a browser returns the JSON normally"). FIXED: navigate reject now
+  gated on state-changing methods only; comment/docstring corrected. Test case updated
+  (GET navigate → 200, POST navigate → 403).
+
 ## MEDIUM
 
 - [x] **PART 6 — Missing debug API endpoints** (`src/server/server.go:835`). Spec (AI.md:8703-8761)
