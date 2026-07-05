@@ -76,6 +76,8 @@ type ServerConfig struct {
 	// TrustedProxies lists additional proxy IPs/CIDRs beyond the private ranges
 	// that are always trusted (loopback, RFC 1918, etc.) (PART 12).
 	TrustedProxies TrustedProxiesConfig `yaml:"trusted_proxies"`
+	// URLDetection controls the domain-learning subsystem (PART 12).
+	URLDetection URLDetectionConfig `yaml:"url_detection"`
 	// Termbin configures the raw-TCP termbin/fiche compatibility listener.
 	Termbin TermbinConfig `yaml:"termbin"`
 	// Maintenance configures the runtime self-healing maintenance mode (PART 20).
@@ -447,6 +449,24 @@ type LimitsConfig struct {
 // always trusted without config. Add public proxy IPs here only.
 type TrustedProxiesConfig struct {
 	Additional []string `yaml:"additional"`
+}
+
+// URLDetectionConfig controls the domain-learning subsystem (PART 12).
+// When enabled, the server observes incoming Host headers, infers the base
+// domain (eTLD+1) and wildcard domain, and uses them for CORS and URL building.
+type URLDetectionConfig struct {
+	// Learning enables domain learning. Default true.
+	Learning bool `yaml:"learning"`
+	// MinSamples is the number of observations of a hostname within SampleWindow
+	// before it is promoted to baseDomain / wildcardDomain.
+	MinSamples int `yaml:"min_samples"`
+	// SampleWindow is the rolling time window for MinSamples observations.
+	SampleWindow time.Duration `yaml:"sample_window"`
+	// LogChanges emits a log line whenever baseDomain or wildcardDomain changes.
+	LogChanges bool `yaml:"log_changes"`
+	// LiveReload causes the CORS header to update immediately when a new domain is
+	// learned, without restarting the server.
+	LiveReload bool `yaml:"live_reload"`
 }
 
 // CacheConfig selects and configures the cache driver (PART 9/12).
@@ -1135,6 +1155,13 @@ func DefaultConfig() *Config {
 			},
 			TrustedProxies: TrustedProxiesConfig{
 				Additional: []string{},
+			},
+			URLDetection: URLDetectionConfig{
+				Learning:     true,
+				MinSamples:   3,
+				SampleWindow: 5 * time.Minute,
+				LogChanges:   true,
+				LiveReload:   true,
 			},
 			Termbin: TermbinConfig{
 				Enabled: false,

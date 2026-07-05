@@ -234,6 +234,14 @@ type Server struct {
 	privDrop *privDropConfig
 	// notifier delivers outbound role-scoped webhook notifications (PART 17).
 	notifier *notify.Dispatcher
+	// resolvedProxyMu guards resolvedProxyIPs.
+	resolvedProxyMu sync.RWMutex
+	// resolvedProxyIPs maps each DNS name in trusted_proxies.additional to its
+	// current set of resolved IP addresses.  Refreshed every 5 minutes (PART 12).
+	resolvedProxyIPs map[string][]net.IP
+	// domainLearner observes Host headers and infers baseDomain / wildcardDomain
+	// for dynamic CORS and URL-building support (PART 12 url_detection).
+	domainLearner *domainLearner
 }
 
 // privDropConfig describes the unprivileged service account to switch to after
@@ -572,6 +580,11 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.maintenance.SetCleaner(s.maintenanceCleanup)
 	s.maintenance.SetNotifier(s.maintenanceNotify)
 
+	// Domain-learning subsystem (PART 12 url_detection).
+	s.domainLearner = newDomainLearner(&cfg.Server.URLDetection)
+	// Pre-resolved DNS proxy IPs map (Gap 1); populated by refreshDNSTrustedProxies.
+	s.resolvedProxyIPs = make(map[string][]net.IP)
+
 	s.setupRoutes()
 	return s
 }
@@ -731,7 +744,8 @@ func (s *Server) setupRoutes() {
 	})
 
 	// Middleware execution order per PART 5:
-	// RealIP (chi) — extract real client IP from trusted X-Forwarded-For headers
+	// RealIP (custom) — extract real client IP from trusted X-Forwarded-For /
+	//   CF-Connecting-IP / True-Client-IP / X-Client-IP headers (PART 12)
 	// Recoverer (chi) — panic recovery
 	// 1. URLNormalize — trailing slash redirect (file-extension paths exempt)
 	// 2. PathSecurity — block path traversal, normalize double slashes
@@ -740,7 +754,8 @@ func (s *Server) setupRoutes() {
 	// 5. Blocklist — reject blocked IPs (unless allowlisted)
 	// 6. GeoIP — country blocking (honours allowlist flag)
 	// 7. Logging + metrics + compression (request recording)
-	r.Use(middleware.RealIP)
+	r.Use(s.realIPMiddleware)
+	r.Use(s.domainObserveMiddleware)
 	r.Use(s.recoverer)
 	r.Use(middleware.CleanPath)
 	r.Use(s.noTrailingSlash)
@@ -1085,11 +1100,8 @@ func (s *Server) txtExtensionMiddleware(next http.Handler) http.Handler {
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cors := s.liveCfg().Web.Security.CORS
-		if cors == "" {
-			cors = "*"
-		}
-		w.Header().Set("Access-Control-Allow-Origin", cors)
+		corsOrigin := s.resolveCORSOrigin(r)
+		w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Delete-Token, X-Title, X-Language, X-Expires-In")
 		if r.Method == http.MethodOptions {
@@ -1098,6 +1110,33 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// resolveCORSOrigin returns the Access-Control-Allow-Origin value for the
+// request.  When the operator has set a value it is used unchanged.  When the
+// domain learner has a base domain the request Origin is reflected only when
+// it matches (exact hostname or subdomain) so no wildcard with a scheme+host
+// is ever emitted from untrusted input (PART 12 url_detection).
+func (s *Server) resolveCORSOrigin(r *http.Request) string {
+	if cfg := s.liveCfg().Web.Security.CORS; cfg != "" {
+		return cfg
+	}
+	// No operator-configured value: try to reflect a matching Origin.
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return "*"
+	}
+	if s.domainLearner != nil {
+		if base := s.domainLearner.BaseDomain(); base != "" {
+			if u, err := url.Parse(origin); err == nil {
+				h := u.Hostname()
+				if h == base || strings.HasSuffix(h, "."+base) {
+					return origin
+				}
+			}
+		}
+	}
+	return "*"
 }
 
 // permissionsPolicy is the default Permissions-Policy header value built from
@@ -1729,6 +1768,23 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.maintenance != nil {
 		go s.maintenance.Start(ctx)
 	}
+
+	// Resolve DNS-valued trusted_proxies.additional entries once at startup, then
+	// refresh every 5 minutes so CDN / load-balancer IP changes are picked up
+	// without a restart (PART 12 Trusted Proxies — DNS names).
+	s.refreshDNSTrustedProxies(ctx)
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.refreshDNSTrustedProxies(ctx)
+			}
+		}
+	}()
 
 	// Start the termbin/fiche raw-TCP listener when enabled; the returned stop
 	// function closes the listener on shutdown.
@@ -3753,7 +3809,7 @@ func (s *Server) isTrustedPeer(r *http.Request) bool {
 			}
 		}
 	}
-	// Check server.trusted_proxies.additional entries (IPs and CIDRs; DNS not resolved here).
+	// Check server.trusted_proxies.additional entries (IPs and CIDRs).
 	for _, entry := range s.cfg.Server.TrustedProxies.Additional {
 		if strings.Contains(entry, "/") {
 			if _, ipNet, err := net.ParseCIDR(entry); err == nil && ipNet.Contains(ip) {
@@ -3763,5 +3819,115 @@ func (s *Server) isTrustedPeer(r *http.Request) bool {
 			return true
 		}
 	}
+	// Check DNS-resolved IPs for hostname entries in trusted_proxies.additional
+	// (resolved at startup and refreshed every 5 minutes — PART 12).
+	s.resolvedProxyMu.RLock()
+	for _, ips := range s.resolvedProxyIPs {
+		for _, resolvedIP := range ips {
+			if resolvedIP.Equal(ip) {
+				s.resolvedProxyMu.RUnlock()
+				return true
+			}
+		}
+	}
+	s.resolvedProxyMu.RUnlock()
 	return false
+}
+
+// refreshDNSTrustedProxies resolves every hostname-valued entry in
+// server.trusted_proxies.additional and caches the resulting IPs in
+// s.resolvedProxyIPs.  IP and CIDR entries are skipped (they need no
+// resolution).  Called once at startup and every 5 minutes by Run (PART 12).
+func (s *Server) refreshDNSTrustedProxies(ctx context.Context) {
+	additional := s.liveCfg().Server.TrustedProxies.Additional
+	fresh := make(map[string][]net.IP, len(additional))
+	for _, entry := range additional {
+		// Skip plain IPs and CIDRs — they are handled directly in isTrustedPeer.
+		if strings.Contains(entry, "/") || net.ParseIP(entry) != nil {
+			continue
+		}
+		// entry is a hostname — resolve it.
+		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, entry)
+		if err != nil {
+			log.Printf("trusted_proxies: DNS lookup for %q failed: %v", entry, err)
+			continue
+		}
+		ips := make([]net.IP, 0, len(addrs))
+		for _, a := range addrs {
+			ips = append(ips, a.IP)
+		}
+		fresh[entry] = ips
+	}
+	s.resolvedProxyMu.Lock()
+	s.resolvedProxyIPs = fresh
+	s.resolvedProxyMu.Unlock()
+}
+
+// realIPMiddleware extracts the real client IP from trusted proxy headers and
+// updates r.RemoteAddr accordingly.  Only headers from a trusted peer (as
+// determined by isTrustedPeer) are honoured; untrusted headers are ignored.
+// Priority order (PART 12): CF-Connecting-IP → True-Client-IP → X-Real-IP →
+// X-Forwarded-For (leftmost) → X-Client-IP.
+func (s *Server) realIPMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.isTrustedPeer(r) {
+			// Preserve original port if present so RemoteAddr stays host:port.
+			_, port, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				port = ""
+			}
+			var realIP string
+			for _, hdr := range []string{
+				"CF-Connecting-IP",
+				"True-Client-IP",
+				"X-Real-IP",
+			} {
+				if v := r.Header.Get(hdr); v != "" {
+					realIP = strings.TrimSpace(v)
+					break
+				}
+			}
+			// X-Forwarded-For may contain a comma-separated list; use the leftmost.
+			if realIP == "" {
+				if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+					parts := strings.SplitN(xff, ",", 2)
+					realIP = strings.TrimSpace(parts[0])
+				}
+			}
+			// X-Client-IP as final fallback (Akamai and some custom proxies).
+			if realIP == "" {
+				if v := r.Header.Get("X-Client-IP"); v != "" {
+					realIP = strings.TrimSpace(v)
+				}
+			}
+			if realIP != "" && net.ParseIP(realIP) != nil {
+				if port != "" {
+					r.RemoteAddr = net.JoinHostPort(realIP, port)
+				} else {
+					r.RemoteAddr = realIP
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// domainObserveMiddleware feeds incoming host values into the domain learner
+// so it can infer baseDomain / wildcardDomain over time (PART 12
+// url_detection).  Only observations from trusted peers are recorded, and only
+// the X-Forwarded-Host header is used — r.Host is client-controlled and must
+// never be trusted for this purpose.
+func (s *Server) domainObserveMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.domainLearner != nil && s.isTrustedPeer(r) {
+			host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+			if h, _, err := net.SplitHostPort(host); err == nil {
+				host = h
+			}
+			if host != "" {
+				s.domainLearner.Observe(host)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
