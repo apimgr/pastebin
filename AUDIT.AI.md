@@ -30,6 +30,17 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   gated on state-changing methods only; comment/docstring corrected. Test case updated
   (GET navigate → 200, POST navigate → 403).
 
+## HIGH — audit-error corrections (previously mis-marked "clean")
+
+- [x] **PART 19 — GeoIP disabled by default; violates the `enabled: true` mandate** (`src/config/config.go:998`).
+  DefaultConfig set `GeoIP.Enabled: false`. AI.md PART 19 (AI.md:27032 "ALL projects MUST have
+  built-in GeoIP support"; config example AI.md:27053 `enabled: true`) requires it enabled by
+  default. Live symptom: `/api/v1/server/healthz` reported `"features": {"geoip": false}` because
+  `s.geoipDB` is nil whenever `Enabled=false` (`geoip.Open()` always returns non-nil, so nil ⇒
+  disabled). AUDIT PREVIOUSLY (wrongly) listed PART 19 as "clean" — only the GeoIP *code* was
+  verified, never the config default. FIXED: default now `Enabled: true`; `Open()` fail-open keeps
+  startup safe (DBs download on first run, warn-only). Build+test green.
+
 ## MEDIUM
 
 - [x] **PART 6 — Missing debug API endpoints** (`src/server/server.go:835`). Spec (AI.md:8703-8761)
@@ -119,7 +130,8 @@ PART 0, 1, 2, 3, 4, 5 — clean. PART 6 (except debug endpoints). PART 7, 8, 9, 
 (CGO off, all SQL parameterized, no SELECT *, SHA-256 tokens, tok_ prefix, constant-time compare,
 no bcrypt/MD5/SHA-1, all CLI flags). PART 12 (server.baseURL fixed; handlers fixed above).
 PART 13 — clean. PART 14 (except the two maintenance items). PART 15 (except overlay certs).
-PART 16 (except about sourcing). PART 17, 19, 20, 21, 22 — clean. PART 18 (except items above).
+PART 16 (except about sourcing). PART 17, 20, 21, 22 — clean. PART 19 (except default `enabled`
+above — code clean, config default was wrong). PART 18 (except items above).
 PART 23, 24, 25, 26 — clean. PART 28, 29, 30, 31 — clean (i18n parity PASS, docs present,
 NO_COLOR + --color, a11y). PART 32 (except temp path). PART 33 — reference, conforms.
 
