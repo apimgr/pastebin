@@ -564,6 +564,8 @@
     "visibility_unlisted": "未列出 (仅链接)",
     "owner_token_label": "所有者令牌",
     "owner_token_hint": "重用之前粘贴或API的令牌，自动保存到浏览器中。",
+    "file_upload_label": "上传文件（可选）",
+    "file_upload_hint": "选择文件上传，而不是手动输入。接受文本和二进制文件。",
     "create_error": "创建粘贴失败",
     "created_title": "粘贴已创建！",
     "view_label": "查看",

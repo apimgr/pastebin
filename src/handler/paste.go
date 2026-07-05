@@ -417,7 +417,21 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": paste})
 }
 
-// GetRawPaste returns paste content as plain text.
+// activeContentTypes are MIME types that a browser can execute or interpret as
+// markup when served inline. Per PART 11 security rules, these MUST be forced
+// to Content-Disposition: attachment so browsers treat them as downloads.
+var activeContentTypes = map[string]bool{
+	"text/html":                true,
+	"application/xhtml+xml":    true,
+	"image/svg+xml":            true,
+	"text/xml":                 true,
+	"application/xml":          true,
+	"application/javascript":   true,
+	"text/javascript":          true,
+}
+
+// GetRawPaste returns paste content with a MIME type detected from the content
+// bytes (PART 11: exact Content-Type + nosniff; active types forced to attachment).
 func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	paste, err := h.loadLivePaste(w, id)
@@ -433,8 +447,34 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 		metrics.PastesDeletedTotal.Inc()
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprint(w, paste.Content)
+	body := []byte(paste.Content)
+
+	// Sniff the content type from the first 512 bytes.
+	// DetectContentType always returns a valid MIME type.
+	detected := http.DetectContentType(body[:min512(len(body))])
+
+	// Strip parameters for the allow-list check (e.g. "text/plain; charset=utf-8" → "text/plain").
+	baseType := detected
+	if idx := strings.IndexByte(detected, ';'); idx >= 0 {
+		baseType = strings.TrimSpace(detected[:idx])
+	}
+
+	// Active content types must be served as downloads to prevent browser execution.
+	if activeContentTypes[baseType] {
+		w.Header().Set("Content-Disposition", "attachment")
+	}
+
+	w.Header().Set("Content-Type", detected)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Write(body)
+}
+
+// min512 returns n capped at 512 for the DetectContentType sniff buffer.
+func min512(n int) int {
+	if n > 512 {
+		return 512
+	}
+	return n
 }
 
 // ─── List ─────────────────────────────────────────────────────────────────────

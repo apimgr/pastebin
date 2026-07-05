@@ -564,6 +564,8 @@
     "visibility_unlisted": "非公開 (リンクのみ)",
     "owner_token_label": "オーナートークン",
     "owner_token_hint": "以前のペーストやAPIのトークンを再利用できます。ブラウザに自動保存されます。",
+    "file_upload_label": "ファイルをアップロード（任意）",
+    "file_upload_hint": "手入力の代わりにファイルを選択してアップロードできます。テキストおよびバイナリファイルに対応しています。",
     "create_error": "ペーストの作成エラー",
     "created_title": "ペーストを作成しました！",
     "view_label": "表示",

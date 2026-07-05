@@ -564,6 +564,8 @@
     "visibility_unlisted": "Non listé (lien uniquement)",
     "owner_token_label": "Jeton propriétaire",
     "owner_token_hint": "Réutilisez un jeton d'une création précédente ou de l'API. Sauvegardé automatiquement dans votre navigateur.",
+    "file_upload_label": "Téléverser un fichier (facultatif)",
+    "file_upload_hint": "Sélectionnez un fichier à téléverser plutôt que de saisir du texte. Les fichiers texte et binaires sont acceptés.",
     "create_error": "Erreur lors de la création du paste",
     "created_title": "Paste créé !",
     "view_label": "Voir",

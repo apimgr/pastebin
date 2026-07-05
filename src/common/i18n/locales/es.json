@@ -564,6 +564,8 @@
     "visibility_unlisted": "No listado (solo enlace)",
     "owner_token_label": "Token de propietario",
     "owner_token_hint": "Reutilice un token de una creación anterior o de la API. Se guarda automáticamente en su navegador.",
+    "file_upload_label": "Subir archivo (opcional)",
+    "file_upload_hint": "Seleccione un archivo para subir en lugar de escribir. Se aceptan archivos de texto y binarios.",
     "create_error": "Error al crear el paste",
     "created_title": "¡Paste creado!",
     "view_label": "Ver",

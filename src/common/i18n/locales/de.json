@@ -564,6 +564,8 @@
     "visibility_unlisted": "Nicht gelistet (nur per Link)",
     "owner_token_label": "Eigentümer-Token",
     "owner_token_hint": "Verwenden Sie ein Token aus einem früheren Paste oder der API. Wird automatisch im Browser gespeichert.",
+    "file_upload_label": "Datei hochladen (optional)",
+    "file_upload_hint": "Wählen Sie eine Datei zum Hochladen statt Text einzugeben. Text- und Binärdateien werden akzeptiert.",
     "create_error": "Fehler beim Erstellen des Pastes",
     "created_title": "Paste erstellt!",
     "view_label": "Ansehen",

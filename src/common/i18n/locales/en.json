@@ -185,6 +185,8 @@
     "visibility_unlisted": "Unlisted (link only)",
     "owner_token_label": "Owner Token",
     "owner_token_hint": "Reuse a token from a previous paste or the API. Saved automatically in your browser.",
+    "file_upload_label": "Upload file (optional)",
+    "file_upload_hint": "Select a file to upload instead of typing. Text and binary files accepted.",
     "create_error": "Error creating paste",
     "created_title": "Paste Created!",
     "view_label": "View",
