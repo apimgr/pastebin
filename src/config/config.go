@@ -995,7 +995,7 @@ func DefaultConfig() *Config {
 				AllowedIPs:      []string{},
 			},
 			GeoIP: GeoIPConfig{
-				Enabled:        false,
+				Enabled:        true,
 				Dir:            "", // resolved at startup to {data_dir}/security/geoip
 				DenyCountries:  []string{},
 				AllowCountries: []string{},
