@@ -665,11 +665,27 @@ type NotificationsConfig struct {
 
 // EmailConfig holds SMTP and sender settings for outbound email.
 type EmailConfig struct {
-	Enabled     bool       `yaml:"enabled"`
-	SMTP        SMTPConfig `yaml:"smtp"`
-	From        EmailFrom  `yaml:"from"`
-	ReplyTo     string     `yaml:"reply_to"`
-	TemplateDir string     `yaml:"template_dir"` // custom override dir; empty = use embedded defaults
+	Enabled     bool             `yaml:"enabled"`
+	SMTP        SMTPConfig       `yaml:"smtp"`
+	From        EmailFrom        `yaml:"from"`
+	ReplyTo     string           `yaml:"reply_to"`
+	TemplateDir string           `yaml:"template_dir"` // custom override dir; empty = use embedded defaults
+	Events      EmailEventsConfig `yaml:"events"`
+}
+
+// EmailEventsConfig controls which operator events trigger an email (AI.md:26587-26598).
+// All fields default to false except the high-signal events that are true by default.
+type EmailEventsConfig struct {
+	Startup         bool `yaml:"startup"`
+	Shutdown        bool `yaml:"shutdown"`
+	BackupComplete  bool `yaml:"backup_complete"`
+	BackupFailed    bool `yaml:"backup_failed"`
+	SSLExpiring     bool `yaml:"ssl_expiring"`
+	SSLRenewed      bool `yaml:"ssl_renewed"`
+	SecurityAlert   bool `yaml:"security_alert"`
+	SchedulerError  bool `yaml:"scheduler_error"`
+	UpdateAvailable bool `yaml:"update_available"`
+	UpdateInstalled bool `yaml:"update_installed"`
 }
 
 // SMTPConfig holds connection settings for the outbound SMTP server.
@@ -1058,6 +1074,19 @@ func DefaultConfig() *Config {
 						Host: "",
 						Port: 587,
 						TLS:  "auto",
+					},
+					// Per-event defaults from AI.md:26591-26597: high-signal events on, low-noise off.
+					Events: EmailEventsConfig{
+						Startup:         false,
+						Shutdown:        false,
+						BackupComplete:  false,
+						BackupFailed:    true,
+						SSLExpiring:     true,
+						SSLRenewed:      false,
+						SecurityAlert:   true,
+						SchedulerError:  true,
+						UpdateAvailable: false,
+						UpdateInstalled: true,
 					},
 				},
 			},

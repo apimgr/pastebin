@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -34,6 +35,13 @@ type BackupRetention struct {
 	KeepYearly int
 }
 
+// Mailer is the subset of email.Mailer used by task functions. Callers inject a
+// concrete *email.Mailer so the task package stays free of direct email imports.
+type Mailer interface {
+	Enabled() bool
+	Send(to, tmplName string, vars map[string]string) error
+}
+
 // BackupConfig is the configuration passed to BackupDaily and BackupHourly.
 type BackupConfig struct {
 	ProjectName string
@@ -42,17 +50,52 @@ type BackupConfig struct {
 	BackupDir   string
 	AppVersion  string
 	// Password is the AES-256-GCM encryption password; empty = no encryption.
-	Password  string
+	Password string
+	// OperatorEmail is the admin recipient for backup_complete/backup_failed emails.
+	// Empty or nil Mailer disables email for that task invocation.
+	OperatorEmail string
+	// Mailer sends backup outcome emails; nil = no email.
+	Mailer    Mailer
+	// SendOnComplete controls whether backup_complete emails are sent (AI.md:26591).
+	SendOnComplete bool
+	// SendOnFailed controls whether backup_failed emails are sent (AI.md:26592).
+	SendOnFailed bool
 	Retention BackupRetention
+}
+
+// sslWarnThresholds are the days-before-expiry at which ssl_expiring emails are sent
+// per AI.md:26206 ("Sent 30, 14, 7, 3, 1 days before expiry").
+var sslWarnThresholds = []int{30, 14, 7, 3, 1}
+
+// SSLRenewalConfig carries optional email settings for the ssl_renewal task.
+type SSLRenewalConfig struct {
+	ConfigDir     string
+	FQDN          string
+	// OperatorEmail is the admin recipient for ssl_expiring/ssl_renewed emails.
+	OperatorEmail string
+	// Mailer sends SSL-expiry emails; nil = no email.
+	Mailer        Mailer
+	// SendExpiring controls whether ssl_expiring emails are sent (AI.md:26593).
+	SendExpiring  bool
+	// SendRenewed controls whether ssl_renewed emails are sent (AI.md:26594).
+	SendRenewed   bool
 }
 
 // SSLRenewal returns a task that checks certificates in
 // {configDir}/ssl/letsencrypt/{fqdn}/ and logs a warning for any cert that
-// expires within 7 days.  Actual ACME renewal is delegated to autocert /
-// certbot; this task provides visibility and alerting.
+// expires within 30 days. Emails are sent at the 30/14/7/3/1-day thresholds
+// per AI.md:26206 when a Mailer and OperatorEmail are provided.
+// Actual ACME renewal is delegated to autocert; this task provides visibility
+// and alerting only.
 func SSLRenewal(configDir, fqdn string) func() error {
+	return SSLRenewalWithEmail(SSLRenewalConfig{ConfigDir: configDir, FQDN: fqdn})
+}
+
+// SSLRenewalWithEmail is the full SSLRenewal implementation that also sends
+// ssl_expiring emails at the PART 17 thresholds (30/14/7/3/1 days).
+func SSLRenewalWithEmail(cfg SSLRenewalConfig) func() error {
 	return func() error {
-		certRoot := filepath.Join(configDir, "ssl", "letsencrypt", fqdn)
+		certRoot := filepath.Join(cfg.ConfigDir, "ssl", "letsencrypt", cfg.FQDN)
 		if _, err := os.Stat(certRoot); os.IsNotExist(err) {
 			return nil
 		}
@@ -90,12 +133,47 @@ func SSLRenewal(configDir, fqdn string) func() error {
 
 			for _, cert := range certs {
 				remaining := time.Until(cert.NotAfter)
-				if remaining < 7*24*time.Hour {
-					log.Printf("ssl_renewal: WARNING — %s expires in %s (at %s)",
-						path, remaining.Round(time.Hour), cert.NotAfter.Format(time.RFC3339))
+				remainingDays := int(remaining.Hours() / 24)
+
+				if remaining < 30*24*time.Hour {
+					log.Printf("ssl_renewal: WARNING — %s expires in %d day(s) (at %s)",
+						path, remainingDays, cert.NotAfter.Format(time.RFC3339))
 				} else {
-					log.Printf("ssl_renewal: %s valid for %s (expires %s)",
-						path, remaining.Round(time.Hour), cert.NotAfter.Format("2006-01-02"))
+					log.Printf("ssl_renewal: %s valid for %d day(s) (expires %s)",
+						path, remainingDays, cert.NotAfter.Format("2006-01-02"))
+				}
+
+				stateFile := path + ".ssl_state.json"
+				prevExpiry := sslLoadExpiry(stateFile)
+
+				// Detect renewal: NotAfter advanced by ≥24h vs the stored state.
+				if cfg.SendRenewed && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
+					if !prevExpiry.IsZero() && cert.NotAfter.Sub(prevExpiry) >= 24*time.Hour {
+						if mailErr := cfg.Mailer.Send(cfg.OperatorEmail, "ssl_renewed", map[string]string{
+							"fqdn":        cfg.FQDN,
+							"valid_until": cert.NotAfter.Format("2006-01-02"),
+						}); mailErr != nil {
+							log.Printf("ssl_renewal: failed to send ssl_renewed email: %v", mailErr)
+						}
+					}
+				}
+				// Persist current expiry for next run's renewal detection.
+				sslSaveExpiry(stateFile, cert.NotAfter)
+
+				// Send ssl_expiring email at each of the spec-mandated thresholds.
+				if cfg.SendExpiring && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
+					for _, threshold := range sslWarnThresholds {
+						if remainingDays <= threshold {
+							if mailErr := cfg.Mailer.Send(cfg.OperatorEmail, "ssl_expiring", map[string]string{
+								"fqdn":        cfg.FQDN,
+								"expires_in":  fmt.Sprintf("%d", remainingDays),
+								"expiry_date": cert.NotAfter.Format("2006-01-02"),
+							}); mailErr != nil {
+								log.Printf("ssl_renewal: failed to send ssl_expiring email: %v", mailErr)
+							}
+							break
+						}
+					}
 				}
 			}
 			return nil
@@ -348,12 +426,14 @@ func BackupDaily(cfg BackupConfig) func() error {
 			Filename:   fullName,
 		}); err != nil {
 			os.Remove(fullPath)
+			backupSendFailed(cfg, fullName, err.Error())
 			return fmt.Errorf("backup_daily: create full backup: %w", err)
 		}
 
 		// Step 2: verify the full backup immediately.
 		if err := maintenance.VerifyBackup(fullPath, cfg.Password); err != nil {
 			os.Remove(fullPath)
+			backupSendFailed(cfg, fullName, err.Error())
 			return fmt.Errorf("backup_daily: verification failed for %s: %w", fullName, err)
 		}
 
@@ -363,6 +443,7 @@ func BackupDaily(cfg BackupConfig) func() error {
 			sizeKB = info.Size() / 1024
 		}
 		log.Printf("backup_daily: full backup verified: %s (%d KB)", fullName, sizeKB)
+		backupSendComplete(cfg, fullName, fmt.Sprintf("%d KB", sizeKB))
 
 		// Step 3: create/replace the daily incremental.
 		dailyName := fmt.Sprintf("%s-daily%s", cfg.ProjectName, ext)
@@ -430,21 +511,86 @@ func BackupHourly(cfg BackupConfig) func() error {
 			Filename:   tmpName,
 		}); err != nil {
 			os.Remove(tmpPath)
+			backupSendFailed(cfg, hourlyName, err.Error())
 			return fmt.Errorf("backup_hourly: create archive: %w", err)
 		}
 
 		if err := maintenance.VerifyBackup(tmpPath, cfg.Password); err != nil {
 			os.Remove(tmpPath)
+			backupSendFailed(cfg, hourlyName, err.Error())
 			return fmt.Errorf("backup_hourly: verification failed: %w", err)
 		}
 
 		if err := os.Rename(tmpPath, hourlyPath); err != nil {
 			os.Remove(tmpPath)
+			backupSendFailed(cfg, hourlyName, err.Error())
 			return fmt.Errorf("backup_hourly: rename: %w", err)
 		}
 
 		log.Printf("backup_hourly: updated %s", hourlyName)
 		return nil
+	}
+}
+
+// sslStateFile is the JSON structure persisted alongside each cert to track the
+// last-seen NotAfter for renewal detection.
+type sslStateFile struct {
+	NotAfter time.Time `json:"not_after"`
+}
+
+// sslLoadExpiry reads the stored NotAfter for a cert state file. Returns zero
+// time if the file is missing or unreadable (safe first-run behaviour).
+func sslLoadExpiry(path string) time.Time {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}
+	}
+	var s sslStateFile
+	if err := json.Unmarshal(data, &s); err != nil {
+		return time.Time{}
+	}
+	return s.NotAfter
+}
+
+// sslSaveExpiry persists the cert's NotAfter to path for next-run renewal
+// detection. Errors are logged and ignored (non-fatal).
+func sslSaveExpiry(path string, notAfter time.Time) {
+	data, err := json.Marshal(sslStateFile{NotAfter: notAfter})
+	if err != nil {
+		log.Printf("ssl_renewal: failed to marshal state: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		log.Printf("ssl_renewal: failed to write state %s: %v", path, err)
+	}
+}
+
+// backupSendComplete sends a backup_complete email when the backup succeeded and
+// the BackupConfig has a Mailer, OperatorEmail, and SendOnComplete set (AI.md:26204).
+func backupSendComplete(cfg BackupConfig, filename, size string) {
+	if !cfg.SendOnComplete || cfg.Mailer == nil || !cfg.Mailer.Enabled() || cfg.OperatorEmail == "" {
+		return
+	}
+	if err := cfg.Mailer.Send(cfg.OperatorEmail, "backup_complete", map[string]string{
+		"filename": filename,
+		"size":     size,
+	}); err != nil {
+		log.Printf("backup: failed to send backup_complete email: %v", err)
+	}
+}
+
+// backupSendFailed sends a backup_failed email when the backup errored and the
+// BackupConfig has a Mailer, OperatorEmail, and SendOnFailed set (AI.md:26205).
+func backupSendFailed(cfg BackupConfig, filename, errMsg string) {
+	if !cfg.SendOnFailed || cfg.Mailer == nil || !cfg.Mailer.Enabled() || cfg.OperatorEmail == "" {
+		return
+	}
+	if err := cfg.Mailer.Send(cfg.OperatorEmail, "backup_failed", map[string]string{
+		"filename": filename,
+		"size":     "",
+		"error":    errMsg,
+	}); err != nil {
+		log.Printf("backup: failed to send backup_failed email: %v", err)
 	}
 }
 

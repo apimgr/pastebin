@@ -1083,9 +1083,26 @@ Examples:
 		return nil
 	}))
 
+	// Build the mailer once for task email dispatch (PART 17: backup/ssl events).
+	// The mailer is fail-open — if SMTP is unconfigured, Enabled() returns false
+	// and all email sends are silently skipped.
+	taskBaseURL := cfg.Server.BaseURL
+	if taskBaseURL == "" {
+		taskBaseURL = "http://localhost"
+	}
+	taskMailer := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, taskBaseURL, cfg.Server.FQDN)
+	taskOperatorEmail := strings.TrimSpace(cfg.AdminEmail())
+
 	// Required PART 18 tasks — full implementations in src/task/task.go.
 	logSchedErr(sched.Register("ssl_renewal", "SSL Renewal", "0 3 * * *", true,
-		task.SSLRenewal(configDir, cfg.Server.FQDN)))
+		task.SSLRenewalWithEmail(task.SSLRenewalConfig{
+			ConfigDir:     configDir,
+			FQDN:          cfg.Server.FQDN,
+			OperatorEmail: taskOperatorEmail,
+			Mailer:        taskMailer,
+			SendExpiring:  cfg.Server.Notifications.Email.Events.SSLExpiring,
+			SendRenewed:   cfg.Server.Notifications.Email.Events.SSLRenewed,
+		})))
 	logSchedErr(sched.Register("blocklist_update", "Blocklist Update", "0 4 * * *", true,
 		task.BlocklistUpdate(dataDir, blocklistSources(cfg)...)))
 	logSchedErr(sched.Register("cve_update", "CVE Update", "0 5 * * *", true,
@@ -1103,12 +1120,16 @@ Examples:
 	logSchedErr(sched.Register("log_rotation", "Log Rotation", "0 0 * * *", true,
 		task.LogRotation(logsDir, 30*24*time.Hour)))
 	backupCfg := task.BackupConfig{
-		ProjectName: appName,
-		ConfigDir:   configDir,
-		DataDir:     dataDir,
-		BackupDir:   backupDir,
-		AppVersion:  Version,
-		Retention:   task.BackupRetention{MaxBackups: 1},
+		ProjectName:    appName,
+		ConfigDir:      configDir,
+		DataDir:        dataDir,
+		BackupDir:      backupDir,
+		AppVersion:     Version,
+		OperatorEmail:  taskOperatorEmail,
+		Mailer:         taskMailer,
+		SendOnComplete: cfg.Server.Notifications.Email.Events.BackupComplete,
+		SendOnFailed:   cfg.Server.Notifications.Email.Events.BackupFailed,
+		Retention:      task.BackupRetention{MaxBackups: 1},
 	}
 	logSchedErr(sched.Register("backup_daily", "Backup Daily", "0 2 * * *", true,
 		task.BackupDaily(backupCfg)))
@@ -1376,6 +1397,9 @@ func schedulerNotifier(cfg *config.Config, auditW *audit.Writer) scheduler.Notif
 			return
 		}
 
+		if !cfg.Server.Notifications.Email.Events.SchedulerError {
+			return
+		}
 		to := strings.TrimSpace(cfg.AdminEmail())
 		if to == "" {
 			return
