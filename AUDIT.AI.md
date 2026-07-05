@@ -48,9 +48,13 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   `RunNow`) does `wg.Add(1)`/`defer wg.Done()`; `Stop()` closes `stop`, then `wg.Wait()` bounded by
   `shutdownDrainTimeout` (30s); on timeout `markInterrupted()` sets `lastStatus="interrupted"`,
   `nextRun=now`, persists — so the task re-runs within the catch-up window on next start.
-- [-] **PART 27 — Missing `.gitea/workflows/ci.yml`** (dir has beta/daily/docker/release only).
-  NEEDS DECISION: is this project GitHub-only, or multi-provider? (remote is github/apimgr/pastebin)
-- [-] **PART 27 — Missing `.gitlab-ci.yml`** at root. Same multi-provider decision.
+- [x] **PART 27 — Missing `.gitea/workflows/ci.yml`** (dir has beta/daily/docker/release only).
+  RESOLVED (user: full multi-provider). FIXED: added `.gitea/workflows/ci.yml` ported from the
+  GitHub ci.yml (same jobs/stages, `gitea.*` context, `casjaysdev/go:latest` container, SHA-pinned
+  actions, truffleHog, 60% coverage gate). YAML valid.
+- [x] **PART 27 — Missing `.gitlab-ci.yml`** at root. RESOLVED (full multi-provider). FIXED: added
+  root `.gitlab-ci.yml` (lint/test/build stages, `casjaysdev/go:latest`, CGO_ENABLED=0/-buildvcs=false,
+  no Makefile, OFFICIALSITE/VERSION resolution). YAML valid.
 - [x] **PART 27 — `release.yml` top-level `permissions: contents: write`** (`.github/workflows/release.yml:13`).
   Release job already scopes its own write perms (line 103). FIXED: top-level baseline lowered to
   `contents: read`; the release job retains its own `contents: write`. `act --list` passes.
@@ -81,8 +85,10 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   `os.TempDir()/apimgr/pastebin-XXXXXX/cli.update.tmp` via new `updateTempDir()`, then
   `os.Rename` to the target with an `errors.Is(err, syscall.EXDEV)` fallback to
   `replaceCrossDevice()` (temp dir is usually a separate filesystem). Temp dir removed on exit.
-- [ ] **PART 27 — Empty `.forgejo/workflows/`**. Populate or remove (AI.md:32419 allows reusing
-  Gitea workflows). Tied to the multi-provider decision.
+- [x] **PART 27 — Empty `.forgejo/workflows/`**. Populate or remove (AI.md:32419 allows reusing
+  Gitea workflows). RESOLVED (full multi-provider). FIXED: added `.forgejo/workflows/ci.yml` and
+  `.forgejo/workflows/release.yml` (Forgejo Actions, reusing the Gitea pattern per AI.md:32419,
+  SHA-pinned). YAML valid.
 - [x] **PART 14 — Maintenance error code `MAINTENANCE_MODE` vs canonical `MAINTENANCE`**
   (`src/server/maintenance.go`). RESOLVED (user: AI.md is source of truth, not derived files):
   AI.md has TWO canonical error-code tables (PART 9 AI.md:12772, PART 16 AI.md:22848) plus a code

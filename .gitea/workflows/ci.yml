@@ -1,0 +1,214 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ gitea.workflow }}-${{ gitea.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECTNAME: pastebin
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - run: go vet ./...
+      - run: staticcheck ./...
+
+  test:
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Run tests with coverage
+        run: |
+          mkdir -p "/tmp/${{ gitea.repository_owner }}"
+          COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/$(basename "${{ gitea.repository }}")-XXXXXX")
+          echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
+          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+      - name: Enforce coverage threshold
+        run: |
+          THRESHOLD=60
+          PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+          if [ "$PCT" -lt "$THRESHOLD" ]; then
+            echo "::error::coverage $PCT% < threshold $THRESHOLD%"
+            exit 1
+          fi
+          echo "Coverage: $PCT%"
+
+  build:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - run: go build -buildvcs=false ./...
+
+  vuln-check:
+    runs-on: ubuntu-latest
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - run: govulncheck ./...
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog secret scan
+        uses: trufflesecurity/trufflehog@30d5bb91af1a771378349dbbb0c82129392acf70  # v3.95.6
+        with:
+          path: ./
+          base: ${{ gitea.event.before }}
+          head: ${{ gitea.event.after }}
+          extra_args: --only-verified
+
+  workflow-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Check third-party Actions are pinned to commit SHAs
+        run: |
+          VIOLATIONS=0
+          while IFS= read -r file; do
+            while IFS= read -r line; do
+              if echo "$line" | grep -qE '^\s+uses:\s+[^\.]+/[^@]+@[^a-f0-9]'; then
+                echo "FAIL: unpinned action in $file: $line"
+                VIOLATIONS=$((VIOLATIONS + 1))
+              fi
+            done < "$file"
+          done < <(find .github/workflows .gitea/workflows .forgejo/workflows -name '*.yml' 2>/dev/null)
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "::error::$VIOLATIONS workflow(s) use unpinned Actions. Pin every third-party action to a full commit SHA."
+            exit 1
+          fi
+          echo "All third-party Actions are pinned to commit SHAs."
+
+  coverage:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Generate coverage report
+        run: |
+          REPO_NAME=$(basename "$GITEA_REPOSITORY")
+          mkdir -p "/tmp/$GITEA_REPOSITORY_OWNER"
+          COVDIR=$(mktemp -d "/tmp/$GITEA_REPOSITORY_OWNER/${REPO_NAME}-XXXXXX")
+          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          go tool cover -html="$COVDIR/coverage.out" -o "$COVDIR/coverage.html"
+          PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+          echo "Total coverage: $PCT%"
+          cp "$COVDIR/coverage.out" coverage.out
+          cp "$COVDIR/coverage.html" coverage.html
+      - name: Upload coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 30
+
+  image-scan:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Build Docker image for scanning
+        run: docker build -f docker/Dockerfile -t pastebin:scan-${{ gitea.sha }} .
+      - name: Scan image with trivy
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --exit-code 0 \
+            --severity HIGH,CRITICAL \
+            --no-progress \
+            pastebin:scan-${{ gitea.sha }}
+
+  upload-artifacts:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: gitea.event_name != 'schedule'
+    container:
+      image: casjaysdev/go:latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - name: Set build info
+        run: |
+          if [ -f release.txt ]; then
+            echo "VERSION=$(cat release.txt)" >> "$GITEA_ENV"
+          else
+            echo "VERSION=devel" >> "$GITEA_ENV"
+          fi
+          echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> "$GITEA_ENV"
+          echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> "$GITEA_ENV"
+          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
+          # Never guess or assume - must be explicitly defined by user
+          if [ -f site.txt ]; then
+            echo "OFFICIALSITE=$(cat site.txt)" >> "$GITEA_ENV"
+          else
+            echo "OFFICIALSITE=${{ secrets.OFFICIALSITE }}" >> "$GITEA_ENV"
+          fi
+      - name: Build linux/amd64 server
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
+          go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o pastebin-linux-amd64 ./src
+      - name: Build linux/amd64 CLI
+        if: hashFiles('src/client/') != ''
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
+          go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o pastebin-cli-linux-amd64 ./src/client
+      - name: Upload CI binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ci-binaries-${{ gitea.sha }}
+          path: |
+            pastebin-linux-amd64
+            pastebin-cli-linux-amd64
+          retention-days: 7

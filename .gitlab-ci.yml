@@ -1,0 +1,228 @@
+stages:
+  - lint
+  - test
+  - security
+  - build
+  - release
+
+variables:
+  CGO_ENABLED: "0"
+  GOFLAGS: "-buildvcs=false"
+  PROJECTNAME: pastebin
+
+default:
+  image: casjaysdev/go:latest
+
+# Lint stage
+lint:
+  stage: lint
+  script:
+    - go vet ./...
+    - staticcheck ./...
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+
+# Test stage
+test:
+  stage: test
+  script:
+    - mkdir -p "/tmp/$CI_PROJECT_NAMESPACE"
+    - COVDIR=$(mktemp -d "/tmp/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME-XXXXXX")
+    - go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+    - |
+      THRESHOLD=60
+      PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+      if [ "$PCT" -lt "$THRESHOLD" ]; then
+        echo "ERROR: coverage $PCT% < threshold $THRESHOLD%"
+        exit 1
+      fi
+      echo "Coverage: $PCT%"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+
+# Security stage - parallel jobs
+secret-scan:
+  stage: security
+  image: trufflesecurity/trufflehog:latest
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - trufflehog git file://. --since-commit HEAD~1 --fail --only-verified
+  allow_failure: false
+
+vuln-check:
+  stage: security
+  script:
+    - govulncheck ./...
+  allow_failure: false
+
+workflow-policy:
+  stage: security
+  image: alpine:latest
+  script:
+    - |
+      VIOLATIONS=0
+      for file in $(find .github/workflows .gitea/workflows .forgejo/workflows -name '*.yml' 2>/dev/null); do
+        while IFS= read -r line; do
+          if echo "$line" | grep -qE '^\s+uses:\s+[^\.]+/[^@]+@[^a-f0-9]'; then
+            echo "FAIL: unpinned action in $file: $line"
+            VIOLATIONS=$((VIOLATIONS + 1))
+          fi
+        done < "$file"
+      done
+      if [ "$VIOLATIONS" -gt 0 ]; then
+        echo "ERROR: $VIOLATIONS workflow(s) use unpinned Actions. Pin every third-party action to a full commit SHA."
+        exit 1
+      fi
+      echo "All third-party Actions are pinned to commit SHAs."
+  allow_failure: false
+
+# Build stage
+build:
+  stage: build
+  script:
+    - go build -buildvcs=false ./...
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  needs:
+    - lint
+    - test
+
+build-binaries:
+  stage: build
+  parallel:
+    matrix:
+      - GOOS: linux
+        GOARCH: amd64
+      - GOOS: linux
+        GOARCH: arm64
+      - GOOS: darwin
+        GOARCH: amd64
+      - GOOS: darwin
+        GOARCH: arm64
+      - GOOS: windows
+        GOARCH: amd64
+      - GOOS: windows
+        GOARCH: arm64
+      - GOOS: freebsd
+        GOARCH: amd64
+      - GOOS: freebsd
+        GOARCH: arm64
+  script:
+    - |
+      if [ -f release.txt ]; then
+        VERSION=$(cat release.txt)
+      else
+        VERSION="devel"
+      fi
+      COMMIT_ID=$(git rev-parse --short HEAD)
+      BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")
+      if [ -f site.txt ]; then
+        OFFICIALSITE=$(cat site.txt)
+      else
+        OFFICIALSITE="${OFFICIALSITE:-}"
+      fi
+    - |
+      EXT=""
+      if [ "$GOOS" = "windows" ]; then
+        EXT=".exe"
+      fi
+    - |
+      LDFLAGS="-s -w -X 'main.Version=$VERSION' -X 'main.CommitID=$COMMIT_ID' -X 'main.BuildDate=$BUILD_DATE' -X 'main.OfficialSite=$OFFICIALSITE'"
+      go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECTNAME}-${GOOS}-${GOARCH}${EXT} ./src
+    - |
+      if [ -d src/client ]; then
+        go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECTNAME}-cli-${GOOS}-${GOARCH}${EXT} ./src/client
+      fi
+  artifacts:
+    paths:
+      - ${PROJECTNAME}-*
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  needs:
+    - lint
+    - test
+
+coverage:
+  stage: build
+  script:
+    - mkdir -p "/tmp/$CI_PROJECT_NAMESPACE"
+    - COVDIR=$(mktemp -d "/tmp/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME-XXXXXX")
+    - go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+    - go tool cover -html="$COVDIR/coverage.out" -o "$COVDIR/coverage.html"
+    - |
+      PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
+      echo "Total coverage: $PCT%"
+    - cp "$COVDIR/coverage.out" coverage.out
+    - cp "$COVDIR/coverage.html" coverage.html
+  artifacts:
+    paths:
+      - coverage.out
+      - coverage.html
+    expire_in: 30 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  needs:
+    - build
+
+image-scan:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - docker build -f docker/Dockerfile -t ${PROJECTNAME}:scan-${CI_COMMIT_SHA} .
+    - |
+      docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        aquasec/trivy:latest image \
+        --exit-code 0 \
+        --severity HIGH,CRITICAL \
+        --no-progress \
+        ${PROJECTNAME}:scan-${CI_COMMIT_SHA}
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    - when: on_success
+  needs:
+    - build
+
+# Release stage - only on tags
+release:
+  stage: release
+  script:
+    - |
+      TAG="${CI_COMMIT_TAG}"
+      VERSION="${TAG#v}"
+      if [ -f release.txt ]; then
+        VERSION=$(cat release.txt)
+      fi
+      echo "VERSION=${VERSION}" >> release.env
+      echo "RELEASE_TAG=${TAG}" >> release.env
+    - echo "$VERSION" > binaries/version.txt
+    - |
+      tar --exclude='.git' --exclude='.github' --exclude='.gitea' --exclude='.forgejo' \
+        --exclude='.gitlab-ci.yml' --exclude='binaries' --exclude='releases' \
+        -czf binaries/${PROJECTNAME}-${VERSION}-source.tar.gz .
+  artifacts:
+    paths:
+      - binaries/
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  needs:
+    - build-binaries
