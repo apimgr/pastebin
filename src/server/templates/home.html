@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
+<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,7 +26,7 @@
                 <a href="{{.BaseURL}}/" class="nav-link active">{{t .Lang "nav.home"}}</a>
                 <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
                 <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
-                <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+                <form class="theme-toggle" method="post" action="{{.BaseURL}}/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
             </div>
         </nav>
     </header>

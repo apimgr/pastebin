@@ -128,75 +128,6 @@ func TestGetHTTPHandler_NoCertManager_ReturnsFallback(t *testing.T) {
 	}
 }
 
-// ─── ChallengeServer ─────────────────────────────────────────────────────────
-
-func TestNewChallengeServer_NotNil(t *testing.T) {
-	cs := ssl.NewChallengeServer()
-	if cs == nil {
-		t.Error("NewChallengeServer returned nil")
-	}
-}
-
-func TestChallengeServer_SetAndServe(t *testing.T) {
-	cs := ssl.NewChallengeServer()
-	cs.SetToken("abc123", "abc123.XXXXXXXXXXXXXXXX")
-
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/acme-challenge/abc123", nil)
-	rec := httptest.NewRecorder()
-	consumed := cs.ServeHTTP(rec, req)
-
-	if !consumed {
-		t.Error("ServeHTTP should return true for challenge path")
-	}
-	if rec.Code != http.StatusOK {
-		t.Errorf("ServeHTTP token found: status = %d; want 200", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "abc123.XXXXXXXXXXXXXXXX") {
-		t.Errorf("ServeHTTP: body %q; want auth value", rec.Body.String())
-	}
-}
-
-func TestChallengeServer_TokenNotFound_Returns404(t *testing.T) {
-	cs := ssl.NewChallengeServer()
-
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/acme-challenge/missing", nil)
-	rec := httptest.NewRecorder()
-	consumed := cs.ServeHTTP(rec, req)
-
-	if !consumed {
-		t.Error("ServeHTTP should return true even when token not found")
-	}
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("ServeHTTP missing token: status = %d; want 404", rec.Code)
-	}
-}
-
-func TestChallengeServer_NonChallengePath_NotConsumed(t *testing.T) {
-	cs := ssl.NewChallengeServer()
-
-	req := httptest.NewRequest(http.MethodGet, "/other/path", nil)
-	rec := httptest.NewRecorder()
-	consumed := cs.ServeHTTP(rec, req)
-
-	if consumed {
-		t.Error("ServeHTTP should return false for non-challenge path")
-	}
-}
-
-func TestChallengeServer_ClearToken(t *testing.T) {
-	cs := ssl.NewChallengeServer()
-	cs.SetToken("tok1", "auth1")
-	cs.ClearToken("tok1")
-
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/acme-challenge/tok1", nil)
-	rec := httptest.NewRecorder()
-	cs.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("after ClearToken: status = %d; want 404", rec.Code)
-	}
-}
-
 // ─── GetTLSConfig — enabled, no certs, LE disabled ───────────────────────────
 
 func TestGetTLSConfig_EnabledNoCertsNoLE_ReturnsError(t *testing.T) {
@@ -212,23 +143,6 @@ func TestGetTLSConfig_EnabledNoCertsNoLE_ReturnsError(t *testing.T) {
 	_, err := m.GetTLSConfig([]string{"example.com"})
 	if err == nil {
 		t.Error("GetTLSConfig with no certs and LE disabled should return an error")
-	}
-}
-
-// ─── ChallengeServer — multi-token ───────────────────────────────────────────
-
-func TestChallengeServer_MultipleTokens(t *testing.T) {
-	cs := ssl.NewChallengeServer()
-	cs.SetToken("t1", "auth1")
-	cs.SetToken("t2", "auth2")
-
-	for _, tc := range []struct{ token, auth string }{{"t1", "auth1"}, {"t2", "auth2"}} {
-		req := httptest.NewRequest(http.MethodGet, "/.well-known/acme-challenge/"+tc.token, nil)
-		rec := httptest.NewRecorder()
-		cs.ServeHTTP(rec, req)
-		if !strings.Contains(rec.Body.String(), tc.auth) {
-			t.Errorf("token %s: body %q; want %q", tc.token, rec.Body.String(), tc.auth)
-		}
 	}
 }
 

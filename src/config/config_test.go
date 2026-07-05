@@ -219,6 +219,37 @@ func TestResolvePort_RandomPort(t *testing.T) {
 	}
 }
 
+// ─── SplitPorts ───────────────────────────────────────────────────────────────
+
+// TestSplitPorts verifies the PART 15 dual-port rule: a single value returns
+// (value, ""), while a comma-separated pair returns the first as the plain-HTTP
+// port and the second as the HTTPS port. Whitespace on each field is trimmed.
+func TestSplitPorts(t *testing.T) {
+	cases := []struct {
+		name      string
+		spec      string
+		wantHTTP  string
+		wantHTTPS string
+	}{
+		{"single http port", "8080", "8080", ""},
+		{"single https port", "443", "443", ""},
+		{"dual privileged", "80,443", "80", "443"},
+		{"dual high", "8080,8443", "8080", "8443"},
+		{"whitespace trimmed", " 80 , 443 ", "80", "443"},
+		{"empty", "", "", ""},
+		{"trailing comma", "80,", "80", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotHTTP, gotHTTPS := config.SplitPorts(tc.spec)
+			if gotHTTP != tc.wantHTTP || gotHTTPS != tc.wantHTTPS {
+				t.Errorf("SplitPorts(%q) = (%q, %q); want (%q, %q)",
+					tc.spec, gotHTTP, gotHTTPS, tc.wantHTTP, tc.wantHTTPS)
+			}
+		})
+	}
+}
+
 // ─── ParseBool ────────────────────────────────────────────────────────────────
 
 // TestParseBool covers the extended truthy/falsy value sets (case-insensitive),

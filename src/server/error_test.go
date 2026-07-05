@@ -90,7 +90,7 @@ func TestRenderErrorPageHTML(t *testing.T) {
 		t.Errorf("content-type: got %q", ct)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"404", "Not Found", "no such paste", `data-theme="dark"`, "Pastebin"} {
+	for _, want := range []string{"404", "Not Found", "no such paste", `class="theme-dark"`, "Pastebin"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("html body missing %q", want)
 		}

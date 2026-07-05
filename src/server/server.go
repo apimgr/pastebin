@@ -815,6 +815,9 @@ func (s *Server) setupRoutes() {
 	// CCPA "Do Not Sell" opt-out toggle — sets/clears the ccpa_opt_out cookie
 	// (PART 31). Only meaningful when server.privacy.data.sold is true.
 	r.Post("/server/privacy/ccpa", s.handleCCPAOptOut)
+	// Theme preference endpoint — persists the `theme` cookie and redirects back
+	// so the no-JS <noscript> toggle form works (AI.md 21588, 23294, 24084).
+	r.Post("/theme", s.handleThemeSet)
 	r.Get("/server/terms", s.handleTerms)
 	r.Get("/server/contact", s.handleContact)
 	r.Post("/server/contact", s.handleContactPost)
@@ -1745,6 +1748,16 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		idleTimeout = d
 	}
 
+	// Dual-port mode (PART 15): "--port 80,443" → plain HTTP on the first port
+	// (ACME HTTP-01 challenge + redirect to HTTPS) and HTTPS on the second port.
+	// A single port keeps the existing behavior below. SplitHostPort tolerates
+	// the "host:80,443" form because the comma lives in the port field.
+	if host, portSpec, splitErr := net.SplitHostPort(addr); splitErr == nil {
+		if httpPort, httpsPort := config.SplitPorts(portSpec); httpsPort != "" {
+			return s.runDualPort(ctx, cfg, host, httpPort, httpsPort, readTimeout, writeTimeout, idleTimeout)
+		}
+	}
+
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.router,
@@ -1820,6 +1833,126 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+// runDualPort serves the dual-port configuration required by PART 15:
+// plain HTTP on httpPort (ACME HTTP-01 challenge handler + redirect to HTTPS)
+// and HTTPS on httpsPort (the application router with TLS). Both listeners are
+// bound while still privileged so ports below 1024 succeed, then privileges are
+// dropped once before serving. Shutdown cancels both listeners together.
+func (s *Server) runDualPort(ctx context.Context, cfg *config.Config, host, httpPort, httpsPort string, readTimeout, writeTimeout, idleTimeout time.Duration) error {
+	fqdn := cfg.Server.FQDN
+	sslMgr := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: s.configDir + "/ssl",
+		FQDN:    fqdn,
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled:         cfg.Server.TLS.LetsEncrypt.Enabled,
+			Email:           cfg.Server.TLS.LetsEncrypt.Email,
+			Challenge:       ssl.ParseChallenge(cfg.Server.TLS.LetsEncrypt.Challenge),
+			DNSProviderType: cfg.Server.TLS.DNSProvider,
+			Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
+		},
+	})
+
+	domains := []string{fqdn}
+	tlsCfg, err := sslMgr.GetTLSConfig(domains)
+	if err != nil {
+		return fmt.Errorf("dual-port: TLS setup failed for HTTPS on port %s: %w", httpsPort, err)
+	}
+	if tlsCfg == nil {
+		return fmt.Errorf("dual-port: no TLS configuration available for HTTPS on port %s", httpsPort)
+	}
+
+	httpsAddr := net.JoinHostPort(host, httpsPort)
+	httpAddr := net.JoinHostPort(host, httpPort)
+
+	// HTTPS server serves the application router with TLS on the second port.
+	httpsSrv := &http.Server{
+		Addr:         httpsAddr,
+		Handler:      s.router,
+		TLSConfig:    tlsCfg,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
+	}
+
+	// HTTP server serves the ACME HTTP-01 challenge on the first port and
+	// redirects every other request to HTTPS. GetHTTPHandler wraps the redirect
+	// fallback with autocert's challenge handler when Let's Encrypt is managing
+	// certificates; with static certs it returns the redirect fallback directly.
+	httpSrv := &http.Server{
+		Addr:         httpAddr,
+		Handler:      sslMgr.GetHTTPHandler(s.redirectToHTTPS(httpsPort)),
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
+	}
+
+	// Bind both privileged listeners before dropping privileges so ports <1024
+	// succeed. bindAndDrop is not reused here because it drops privileges on the
+	// first call, which would prevent binding the second privileged port.
+	httpsLn, err := net.Listen("tcp", httpsAddr)
+	if err != nil {
+		return fmt.Errorf("dual-port: listen HTTPS %s: %w", httpsAddr, err)
+	}
+	httpLn, err := net.Listen("tcp", httpAddr)
+	if err != nil {
+		_ = httpsLn.Close()
+		return fmt.Errorf("dual-port: listen HTTP %s: %w", httpAddr, err)
+	}
+	if dropErr := s.applyPrivilegeDrop(); dropErr != nil {
+		_ = httpsLn.Close()
+		_ = httpLn.Close()
+		return fmt.Errorf("dual-port: %w", dropErr)
+	}
+
+	log.Printf("dual-port: HTTP on %s, HTTPS on %s", httpAddr, httpsAddr)
+
+	errCh := make(chan error, 2)
+	go func() {
+		if serveErr := httpsSrv.ServeTLS(httpsLn, "", ""); serveErr != nil && serveErr != http.ErrServerClosed {
+			errCh <- fmt.Errorf("dual-port: HTTPS server: %w", serveErr)
+		}
+	}()
+	go func() {
+		if serveErr := httpSrv.Serve(httpLn); serveErr != nil && serveErr != http.ErrServerClosed {
+			errCh <- fmt.Errorf("dual-port: HTTP server: %w", serveErr)
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		shut, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		httpErr := httpSrv.Shutdown(shut)
+		httpsErr := httpsSrv.Shutdown(shut)
+		if httpsErr != nil {
+			return httpsErr
+		}
+		return httpErr
+	case err := <-errCh:
+		return err
+	}
+}
+
+// redirectToHTTPS returns a handler that permanently redirects every request to
+// the same host and path over HTTPS on httpsPort. It is the non-challenge
+// fallback for the plain-HTTP listener in dual-port mode. The :443 default port
+// is stripped from the target URL.
+func (s *Server) redirectToHTTPS(httpsPort string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		target := "https://" + host
+		if httpsPort != "" && httpsPort != "443" {
+			target += ":" + httpsPort
+		}
+		target += r.URL.RequestURI()
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+	})
 }
 
 // ─── JSON helpers ─────────────────────────────────────────────────────────────
@@ -1928,11 +2061,12 @@ func (s *Server) buildHealthResponse() HealthResponse {
 	copy(pendingKeys, s.pendingRestartKeys)
 	s.pendingRestartMu.Unlock()
 
+	cfg := s.liveCfg()
 	hr := HealthResponse{
 		Project: ProjectInfo{
-			Name:        s.liveCfg().Web.SiteTitle,
-			Tagline:     "Simple, fast paste service",
-			Description: "A self-hosted pastebin with syntax highlighting and burn-after-read support.",
+			Name:        cfg.Server.Branding.EffectiveTitle(),
+			Tagline:     cfg.Server.Branding.EffectiveTagline(),
+			Description: cfg.Server.Branding.EffectiveDescription(),
 		},
 		Status:         status,
 		PendingRestart: len(pendingKeys) > 0,
@@ -2789,6 +2923,74 @@ func (s *Server) handleCCPAOptOut(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/server/privacy#ccpa-opt-out", http.StatusSeeOther)
 }
 
+// validThemes is the closed set of theme modes the server will render as a
+// class on <html> (AI.md 23294: theme-light, theme-dark, theme-auto).
+var validThemes = map[string]bool{"light": true, "dark": true, "auto": true}
+
+// themeFromRequest resolves the active theme for the current request from the
+// server-readable `theme` cookie (AI.md 23292). Precedence: valid cookie value
+// → operator's configured default → "dark" (AI.md 23292 fallback, 24076).
+func (s *Server) themeFromRequest(r *http.Request) string {
+	if c, err := r.Cookie("theme"); err == nil {
+		v := strings.TrimSpace(c.Value)
+		if validThemes[v] {
+			return v
+		}
+	}
+	if def := strings.TrimSpace(s.liveCfg().Web.Theme); validThemes[def] {
+		return def
+	}
+	return "dark"
+}
+
+// nextTheme returns the following mode in the dark → light → auto → dark cycle,
+// letting the no-JS <noscript> toggle advance one step per POST to /theme.
+func nextTheme(cur string) string {
+	switch cur {
+	case "dark":
+		return "light"
+	case "light":
+		return "auto"
+	default:
+		return "dark"
+	}
+}
+
+// handleThemeSet persists the theme preference in the `theme` cookie and
+// redirects back, giving no-JS visitors a working toggle via the <noscript>
+// form that POSTs here (AI.md 21588, 23294, 24084). The cookie is server-
+// readable so the next render emits the correct class on <html> with no FOUC.
+func (s *Server) handleThemeSet(w http.ResponseWriter, r *http.Request) {
+	theme := strings.TrimSpace(r.PostFormValue("theme"))
+	if !validThemes[theme] {
+		theme = "dark"
+	}
+	secure := r.TLS != nil
+	if s.liveCfg().Web.CSRF.Secure == "true" {
+		secure = true
+	} else if s.liveCfg().Web.CSRF.Secure == "false" {
+		secure = false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "theme",
+		Value:    theme,
+		Path:     "/",
+		MaxAge:   365 * 24 * 60 * 60,
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	// Return to the referring page so the toggle feels in-place; fall back to
+	// the site root when no same-origin referer is present.
+	dest := "/"
+	if ref := r.Header.Get("Referer"); ref != "" {
+		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {
+			dest = u.RequestURI()
+		}
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
+}
+
 func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -3105,6 +3307,12 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	data["Lang"] = lang
 	// Inject text direction for RTL languages (Arabic) — templates access it as .Dir
 	data["Dir"] = i18n.Direction(lang)
+	// Inject the theme resolved from the server-readable `theme` cookie so every
+	// <html> renders class="theme-{{.Theme}}" with no init JS and no FOUC (AI.md 23252, 23294)
+	theme := s.themeFromRequest(r)
+	data["Theme"] = theme
+	// Inject the next mode in the cycle so the no-JS toggle form can advance it (AI.md 21588)
+	data["NextTheme"] = nextTheme(theme)
 	// Inject CSRF token for forms — templates access it as .CSRFToken
 	if tok, ok := r.Context().Value(csrfTokenKey).(string); ok && tok != "" {
 		data["CSRFToken"] = tok
@@ -3148,6 +3356,10 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	lang := i18n.LangFromRequest(r)
 	data["Lang"] = lang
 	data["Dir"] = i18n.Direction(lang)
+	// Inject the theme resolved from the server-readable `theme` cookie (AI.md 23294)
+	theme := s.themeFromRequest(r)
+	data["Theme"] = theme
+	data["NextTheme"] = nextTheme(theme)
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate

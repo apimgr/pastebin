@@ -145,22 +145,37 @@ document.addEventListener('DOMContentLoaded', updateOfflineIndicator);
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
-// Apply persisted user theme preference on load.
-// Only overrides when the user has explicitly chosen (never for "auto" — CSS handles it).
-document.addEventListener('DOMContentLoaded', () => {
-    const saved = localStorage.getItem('theme');
-    if (saved === 'dark' || saved === 'light') {
-        document.documentElement.setAttribute('data-theme', saved);
-    }
-});
+// Source of truth is the server-readable `theme` cookie rendered as the class on
+// <html> (PART 16). No preference is read from localStorage. Without JS, the
+// header <form> POSTs to /theme, sets the cookie, and reloads. This enhancement
+// intercepts the submit to cycle the theme in place — no reload, no FOUC.
 
-function toggleTheme() {
-    const html = document.documentElement;
-    const current = html.getAttribute('data-theme');
-    const next = current === 'light' ? 'dark' : 'light';
-    html.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
+// themeCycle advances dark → light → auto → dark, matching nextTheme() on the server.
+function themeCycle(current) {
+    if (current === 'dark') return 'light';
+    if (current === 'light') return 'auto';
+    return 'dark';
 }
+
+// currentTheme reads the active mode from the class on <html> (theme-dark by default).
+function currentTheme() {
+    const cls = document.documentElement.className || '';
+    const m = cls.match(/theme-(dark|light|auto)/);
+    return m ? m[1] : 'dark';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.querySelector('form.theme-toggle');
+    if (!form) return;
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const next = themeCycle(currentTheme());
+        document.documentElement.className = `theme-${next}`;
+        document.cookie = `theme=${next}; path=/; max-age=31536000; SameSite=Lax`;
+        const hidden = form.querySelector('input[name="theme"]');
+        if (hidden) hidden.value = themeCycle(next);
+    });
+});
 
 // ─── Copy: code blocks (home page quick-start) ───────────────────────────────
 

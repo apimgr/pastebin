@@ -177,50 +177,6 @@ func (m *Manager) GetHTTPHandler(fallback http.Handler) http.Handler {
 	return fallback
 }
 
-// ChallengeServer handles ACME HTTP-01 challenge tokens when running without autocert.
-type ChallengeServer struct {
-	tokens map[string]string
-	mu     sync.RWMutex
-}
-
-// NewChallengeServer creates a ChallengeServer.
-func NewChallengeServer() *ChallengeServer {
-	return &ChallengeServer{tokens: make(map[string]string)}
-}
-
-// SetToken stores a challenge token.
-func (cs *ChallengeServer) SetToken(token, auth string) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	cs.tokens[token] = auth
-}
-
-// ClearToken removes a challenge token.
-func (cs *ChallengeServer) ClearToken(token string) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	delete(cs.tokens, token)
-}
-
-// ServeHTTP handles /.well-known/acme-challenge/{token} requests.
-// Returns true if the request was consumed (challenge path), false to pass through.
-func (cs *ChallengeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) bool {
-	if !strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
-		return false
-	}
-	token := strings.TrimPrefix(r.URL.Path, "/.well-known/acme-challenge/")
-	cs.mu.RLock()
-	auth, ok := cs.tokens[token]
-	cs.mu.RUnlock()
-	if !ok {
-		http.NotFound(w, r)
-		return true
-	}
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte(auth))
-	return true
-}
-
 // ParseChallenge normalises a challenge type string to its canonical form.
 func ParseChallenge(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {

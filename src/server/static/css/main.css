@@ -104,9 +104,10 @@
     --transition-slow: 300ms ease;
 }
 
-/* Auto Theme: apply light values when OS prefers light and no explicit data-theme is set */
+/* Auto Theme (PART 16, AI.md 23298): pure CSS — when the server renders
+   html.theme-auto and the OS prefers light, override the dark-default tokens */
 @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
+    html.theme-auto {
         --color-bg-primary: #fafafa;
         --color-bg-secondary: #ffffff;
         --color-bg-tertiary: #f5f5f5;
@@ -129,8 +130,8 @@
     }
 }
 
-/* Light Theme */
-[data-theme="light"] {
+/* Light Theme (PART 16, AI.md 23277) — server renders class="theme-light" on <html> */
+html.theme-light {
     --color-bg-primary: #fafafa;
     --color-bg-secondary: #ffffff;
     --color-bg-tertiary: #f5f5f5;

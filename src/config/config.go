@@ -836,6 +836,14 @@ var defaultBrandingLinks = []BrandingLink{
 	{Label: "apimgr", URL: "https://github.com/apimgr"},
 }
 
+// EffectiveTitle returns the configured branding title or the default project name.
+func (b BrandingConfig) EffectiveTitle() string {
+	if v := strings.TrimSpace(b.Title); v != "" {
+		return v
+	}
+	return "Pastebin"
+}
+
 // EffectiveTagline returns the configured tagline or the IDEA.md default.
 func (b BrandingConfig) EffectiveTagline() string {
 	if v := strings.TrimSpace(b.Tagline); v != "" {
@@ -985,7 +993,7 @@ func DefaultConfig() *Config {
 				Tasks:   map[string]SchedulerTask{},
 			},
 			Metrics: MetricsConfig{
-				Enabled:         false,
+				Enabled:         true,
 				Endpoint:        "/metrics",
 				IncludeSystem:   true,
 				IncludeRuntime:  true,
@@ -2040,6 +2048,21 @@ func ResolvePort(cfgPath string, cfg *Config, inContainer bool) error {
 		return fmt.Errorf("port allocator: could not persist port to %s: %w", cfgPath, saveErr)
 	}
 	return nil
+}
+
+// SplitPorts parses a port specification into an optional plain-HTTP port and an
+// optional HTTPS port following the PART 15 dual-port rule ("First = HTTP,
+// Second = HTTPS"). A single value (e.g. "8080") returns (value, "") and the
+// caller applies the existing single-port TLS logic. A comma-separated pair
+// (e.g. "80,443") returns the first field as the plain-HTTP port and the second
+// as the HTTPS port. Surrounding whitespace on each field is trimmed.
+func SplitPorts(spec string) (httpPort, httpsPort string) {
+	parts := strings.SplitN(strings.TrimSpace(spec), ",", 2)
+	first := strings.TrimSpace(parts[0])
+	if len(parts) == 2 {
+		return first, strings.TrimSpace(parts[1])
+	}
+	return first, ""
 }
 
 // randomUnusedPort picks a random port in [lo, hi] that can be bound.

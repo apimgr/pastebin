@@ -1,143 +1,107 @@
-# Spec-Compliance Audit (AI.md PART 0–33)
+# Project Audit — Full Spec Re-Audit vs CURRENT AI.md
 
-Full read-only sweep across all 33 PARTs. Each item verified in-code with file:line + spec
-reference. Fix items are ordered by severity; compliant PARTs are listed at the bottom.
+Started: 2026-07-04
+Method: VALUE-CHECK every config default, enum, threshold, required field, error code,
+route path, filename format, and CLI flag against the exact AI.md text. Existence alone
+is never treated as compliance. Every item cites code `file:line` and spec `AI.md:line`.
 
-Scope confirmed: AI.md has 33 numbered PARTs (no PART 34). `tui` CLI subcommand absence is
-spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 locales).
-
-## Legend
-- Status: `[ ]` open · `[x]` fixed · `[-]` deferred/needs-decision
-
----
-
-## HIGH
-
-- [x] **PART 12 — `PasteHandler.pasteURL` duplicated the simplified resolver** (`src/handler/paste.go:616`).
-  Missing DOMAIN/FQDN fallback + proxy Host/prefix handling; same regression class as the
-  already-fixed `server.baseURL`. FIXED: injected `SetBaseURLResolver(s.baseURL)`; handler
-  now delegates to the canonical PART 12 chain. Regression test added.
-- [x] **PART 12 — `CompatHandler.origin` duplicated the simplified resolver** (`src/handler/compat.go:800`).
-  Same defect (raw/termbin URLs). FIXED via the same shared resolver (`c.ph.base(r)`).
-
-## HIGH (cont.)
-
-- [x] **PART 11 — Sec-Fetch `navigate` reject over-broad; blocked GET to `/api/*`** (`src/server/server.go:1346`).
-  Code blocked `Sec-Fetch-Mode: navigate` on `/api/*` for ALL methods, so opening
-  `/api/v1/server/healthz` in a browser returned `SEC_FETCH_BLOCKED`. AI.md:13931 validates
-  `Sec-Fetch-Mode` ONLY on POST/PUT/PATCH/DELETE and EXPLICITLY allows GET/HEAD navigation
-  ("opening an API URL in a browser returns the JSON normally"). FIXED: navigate reject now
-  gated on state-changing methods only; comment/docstring corrected. Test case updated
-  (GET navigate → 200, POST navigate → 403).
-
-## HIGH — audit-error corrections (previously mis-marked "clean")
-
-- [x] **PART 19 — GeoIP disabled by default; violates the `enabled: true` mandate** (`src/config/config.go:998`).
-  DefaultConfig set `GeoIP.Enabled: false`. AI.md PART 19 (AI.md:27032 "ALL projects MUST have
-  built-in GeoIP support"; config example AI.md:27053 `enabled: true`) requires it enabled by
-  default. Live symptom: `/api/v1/server/healthz` reported `"features": {"geoip": false}` because
-  `s.geoipDB` is nil whenever `Enabled=false` (`geoip.Open()` always returns non-nil, so nil ⇒
-  disabled). AUDIT PREVIOUSLY (wrongly) listed PART 19 as "clean" — only the GeoIP *code* was
-  verified, never the config default. FIXED: default now `Enabled: true`; `Open()` fail-open keeps
-  startup safe (DBs download on first run, warn-only). Build+test green.
-
-## MEDIUM
-
-- [x] **PART 6 — Missing debug API endpoints** (`src/server/server.go:835`). Spec (AI.md:8703-8761)
-  mandated `/debug/config` (sanitized), `/debug/routes`, `/debug/cache`, `/debug/db`,
-  `/debug/scheduler` (+ optional `/debug/memory`, `/debug/goroutines`); only `/debug/pprof` +
-  `/debug/vars` were registered. FIXED: added `src/server/debug.go` with all seven handlers,
-  registered via `registerDebugRoutes` inside the debug gate. `/debug/config` round-trips the
-  live config through YAML and recursively redacts every secret key. Tests added.
-- [x] **PART 15 — Overlay `.onion`/`.i2p` self-signed fallback missing** (`src/ssl/ssl.go`).
-  Clearnet-error half is correct; overlay hosts had no cert path. FIXED: added `src/ssl/selfsigned.go`
-  (`isOverlayHost`, `ensureSelfSignedCert`, `generateSelfSigned` — ECDSA P-256, 10-year, 0600, cached
-  to `{cert_dir}/local/{fqdn}/`). `GetTLSConfig` gained an overlay-only branch placed AFTER the LE
-  check and BEFORE the clearnet error, so clearnet hosts still error and NEVER self-sign. Tests added.
-- [x] **PART 16 — `/server/about` hardcodes description + features** (`templates/about.html:41-69`,
-  `server.go:2499/3147`). Must source Tagline/Description/Features/Links from IDEA.md/config
-  Branding. Content is real (not placeholder); the sourcing mechanism is the violation.
-  FIXED: extended `BrandingConfig` with `Features []string` + `Links []BrandingLink`; added
-  IDEA.md-sourced `defaultBranding*` consts/vars and `EffectiveTagline/Description/Features/Links`
-  accessors (never blank/placeholder); seeded DefaultConfig branding block. Added
-  `Server.aboutPageData()` and wired `handleAbout` (text + HTML) to it; `about.html` now renders
-  `.Tagline`/`.Description`/`.Features` (range)/`.Links` (range) from config.
-- [x] **PART 18 — Graceful shutdown does not drain running tasks** (`src/scheduler/scheduler.go:185`).
-  `Stop()` returns immediately; task goroutines detached. Add `sync.WaitGroup` + 30s bounded
-  drain; mark interrupted tasks for retry (AI.md:26060, 27084).
-  FIXED (commit 477c1f70): added `wg sync.WaitGroup`; every run path (`tick`, `runMissed`,
-  `RunNow`) does `wg.Add(1)`/`defer wg.Done()`; `Stop()` closes `stop`, then `wg.Wait()` bounded by
-  `shutdownDrainTimeout` (30s); on timeout `markInterrupted()` sets `lastStatus="interrupted"`,
-  `nextRun=now`, persists — so the task re-runs within the catch-up window on next start.
-- [x] **PART 27 — Missing `.gitea/workflows/ci.yml`** (dir has beta/daily/docker/release only).
-  RESOLVED (user: full multi-provider). FIXED: added `.gitea/workflows/ci.yml` ported from the
-  GitHub ci.yml (same jobs/stages, `gitea.*` context, `casjaysdev/go:latest` container, SHA-pinned
-  actions, truffleHog, 60% coverage gate). YAML valid.
-- [x] **PART 27 — Missing `.gitlab-ci.yml`** at root. RESOLVED (full multi-provider). FIXED: added
-  root `.gitlab-ci.yml` (lint/test/build stages, `casjaysdev/go:latest`, CGO_ENABLED=0/-buildvcs=false,
-  no Makefile, OFFICIALSITE/VERSION resolution). YAML valid.
-- [x] **PART 27 — `release.yml` top-level `permissions: contents: write`** (`.github/workflows/release.yml:13`).
-  Release job already scopes its own write perms (line 103). FIXED: top-level baseline lowered to
-  `contents: read`; the release job retains its own `contents: write`. `act --list` passes.
-
-## LOW
-
-- [x] **PART 18 — `catch_up_window` not wired** (config lacks field; `SetCatchUpWindow` never called).
-  Hardcoded 1h. Add `CatchUpWindow` yaml field → duration → `sched.SetCatchUpWindow`.
-  FIXED (commit 477c1f70): `config.go:913` adds `catch_up_window` yaml field; `main.go:1065`
-  parses the duration and calls `sched.SetCatchUpWindow` (falls back to the 1h default when empty).
-- [x] **PART 18 — Scheduler `timezone` not wired; default not America/New_York**
-  (`scheduler.go:84` uses `time.Local`). Add `Timezone` yaml field (default America/New_York),
-  `time.LoadLocation`, `sched.SetLocation`.
-  FIXED (commit 477c1f70): `config.go:909` adds `timezone` yaml field; `main.go:1053` resolves
-  config → `TZ` env → `America/New_York` default via `time.LoadLocation` and calls `sched.SetLocation`.
-- [x] **PART 26/27 — `OFFICIAL_SITE` build-arg not passed** to docker.yml / Makefile docker target /
-  ci.yml artifact builds / Dockerfile.dev. `main.OfficialSite` resolves empty in images. Release
-  path is correct. Plumb the arg for consistency.
-  FIXED: `Dockerfile.dev` gains `ARG OFFICIAL_SITE` + `-X 'main.OfficialSite=${OFFICIAL_SITE}'`;
-  `docker.yml` resolves `OFFICIALSITE` (site.txt → `secrets.OFFICIALSITE`) and passes
-  `OFFICIAL_SITE` build-arg; `ci.yml` resolves the same and appends the `main.OfficialSite` ldflag
-  to both server and CLI builds. Matches the existing `release.yml` pattern. `act --list` passes.
-  Makefile already correct (`OFFICIALSITE` var → ldflag).
-- [x] **PART 32 — CLI update temp path** (`src/client/main.go:939` used `exe + ".new"`). Spec
-  (AI.md:40157) wants `${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/cli.update.tmp`. Note: PART 22
-  (server) contradicts this ("temp in binary dir"); PART 32 is client authority.
-  FIXED: `downloadAndApplyUpdate` now downloads + SHA-256-verifies into
-  `os.TempDir()/apimgr/pastebin-XXXXXX/cli.update.tmp` via new `updateTempDir()`, then
-  `os.Rename` to the target with an `errors.Is(err, syscall.EXDEV)` fallback to
-  `replaceCrossDevice()` (temp dir is usually a separate filesystem). Temp dir removed on exit.
-- [x] **PART 27 — Empty `.forgejo/workflows/`**. Populate or remove (AI.md:32419 allows reusing
-  Gitea workflows). RESOLVED (full multi-provider). FIXED: added `.forgejo/workflows/ci.yml` and
-  `.forgejo/workflows/release.yml` (Forgejo Actions, reusing the Gitea pattern per AI.md:32419,
-  SHA-pinned). YAML valid.
-- [x] **PART 14 — Maintenance error code `MAINTENANCE_MODE` vs canonical `MAINTENANCE`**
-  (`src/server/maintenance.go`). RESOLVED (user: AI.md is source of truth, not derived files):
-  AI.md has TWO canonical error-code tables (PART 9 AI.md:12772, PART 16 AI.md:22848) plus a code
-  example (AI.md:12816) all using `MAINTENANCE`; only one prose JSON example (AI.md:7315) said
-  `MAINTENANCE_MODE`. `config-rules.md` is a derived summary and does not override AI.md. FIXED:
-  `maintenance.go:53` + `maintenance_test.go:78` now use `MAINTENANCE` (matches `paste.go` which
-  was already correct).
-- [x] **PART 14 — Maintenance error uses compact JSON** (`maintenance.go:54` `json.NewEncoder`)
-  vs the house `writeJSON`/`MarshalIndent` 2-space standard. FIXED: routed through `writeJSON`
-  (Retry-After / X-Maintenance-* headers still set beforehand); dropped the now-unused
-  `encoding/json` import. Error code `MAINTENANCE_MODE` left unchanged (still ambiguous, below).
+Baseline: green Docker build (`casjaysdev/go:latest`, CGO_ENABLED=0) established before edits.
+Build/test run only in Docker. Changes staged, not committed.
 
 ---
 
-## Compliant PARTs (verified, no action)
+## HIGH — value mismatches the prior (presence-only) audit missed
 
-PART 0, 1, 2, 3, 4, 5 — clean. PART 6 (except debug endpoints). PART 7, 8, 9, 10, 11 — clean
-(CGO off, all SQL parameterized, no SELECT *, SHA-256 tokens, tok_ prefix, constant-time compare,
-no bcrypt/MD5/SHA-1, all CLI flags). PART 12 (server.baseURL fixed; handlers fixed above).
-PART 13 — clean. PART 14 (except the two maintenance items). PART 15 (except overlay certs).
-PART 16 (except about sourcing). PART 17, 20, 21, 22 — clean. PART 19 (except default `enabled`
-above — code clean, config default was wrong). PART 18 (except items above).
-PART 23, 24, 25, 26 — clean. PART 28, 29, 30, 31 — clean (i18n parity PASS, docs present,
-NO_COLOR + --color, a11y). PART 32 (except temp path). PART 33 — reference, conforms.
+- [x] PART 20 — Metrics disabled by default. `config.go` DefaultConfig had
+  `Metrics: MetricsConfig{ Enabled: false }` (~config.go:988). AI.md:27188 literally
+  shows `enabled: true`. FIX: `Enabled: false` → `Enabled: true`. Same value-mismatch
+  class as the GeoIP `enabled:false`→`true` bug (commit 8165a9d4f7a2).
 
-## Condensed-rule drift (NOT code violations; AI.md is source of truth)
-- `.claude/rules/features-rules.md` SMTP env var names differ from AI.md (code follows AI.md).
-- `.claude/rules/backend-rules.md`: User-Agent `pastebin/` vs AI.md `pastebin-cli/` (code correct);
-  lists `tui` command that AI.md forbids (code correct).
-</content>
-</invoke>
+- [x] PART 13 — Health/version project block hardcoded instead of sourced from branding.
+  `server.go buildHealthResponse` returned literals `"Simple, fast paste service"` and
+  `"A self-hosted pastebin..."` plus `Web.SiteTitle` (~server.go:1931). AI.md:16965-16967
+  requires Name/Tagline/Description sourced from `cfg.Server.Branding`. FIX: now reads
+  `cfg.Server.Branding.EffectiveTitle()/EffectiveTagline()/EffectiveDescription()`.
+  Added helper `EffectiveTitle()` (config.go, before `EffectiveTagline():840`) — default
+  "Pastebin" matches DefaultConfig Branding.Title:966 and SiteTitle:1216.
+
+## HIGH — functional correctness reworks
+
+- [x] PART 15 — Dual-port `"80,443"` never split; HTTP-01 challenge wired only to the
+  HTTPS listener (unreachable). `main.go:1206` built `addr = Address + ":" + Port` with no
+  split; ChallengeServer in `ssl.go` (~180-222) was dead (never instantiated).
+  AI.md:19659-19667 mandates "First = HTTP, Second = HTTPS". FIX:
+  - `config.SplitPorts(spec)` added after `ResolvePort` (~config.go:2053): `"80,443"`→
+    `("80","443")`, single→`(v,"")`, trailing-comma tolerant. + table test `TestSplitPorts`.
+  - `server.go Run` detects dual spec via `net.SplitHostPort` + `SplitPorts`; delegates to
+    new `runDualPort` (binds both listeners while privileged, single `applyPrivilegeDrop`,
+    HTTPS serves router via `ServeTLS`, HTTP serves `sslMgr.GetHTTPHandler(redirect)` so
+    autocert answers `/.well-known/acme-challenge/*` on the plain-HTTP port); new
+    `redirectToHTTPS` 308-redirects non-challenge traffic. Graceful shutdown closes both.
+  - Removed dead `ChallengeServer` + 6 tests (`ssl.go`, `ssl_test.go`) — autocert
+    `Manager.HTTPHandler` fully covers HTTP-01.
+
+- [x] PART 16 — Theme system was client-side localStorage + `data-theme` attribute +
+  CSP-violating inline `onclick`. AI.md:23252/23258/23277/23292/23294/23298 mandates a
+  cookie-based, server-rendered `class="theme-{light|dark|auto}"` on `<html>`, pure-CSS
+  auto via `@media (prefers-color-scheme)`, and a no-JS form. FIX:
+  - `server.go`: `themeFromRequest` (cookie→config default→`dark`), `nextTheme`,
+    `handleThemeSet` (~server.go:2921); route `POST /theme` (~server.go:817);
+    `renderTemplate`/`renderTemplateToString` inject `Theme` + `NextTheme`.
+  - CSS: `[data-theme="light"]`→`html.theme-light`, auto→`html.theme-auto`
+    (main.css:108,133).
+  - JS (main.js:146): removed localStorage theme persistence; cookie-writing instant
+    toggle via `addEventListener` (no inline handler). API token localStorage untouched
+    (AI.md:22303).
+  - 19 templates: `<html data-theme=…>`→`class="theme-{{.Theme}}"`; 18 toggles now use a
+    `<form method="post" action="{{.BaseURL}}/theme">` with `csrf_token` + `theme={{.NextTheme}}`
+    (works without JS). `error_test.go:93` assertion updated.
+
+---
+
+## MEDIUM / NEEDS-DECISION — flagged, not auto-fixed
+
+- [ ] PART 17 — 4 email templates never dispatched. `backup_complete`, `backup_failed`,
+  `ssl_expiring`, `ssl_renewed` exist in `src/common/email/templates/` but no code sends
+  them (only `scheduler_error` at main.go:1391 and `security_alert` at maintenance.go:176).
+  AI.md:26204-26207 specifies `ssl_expiring` at 30/14/7/3/1 days before expiry and
+  AI.md:26591-26594 defines per-event toggles under `email.events`. Net-new surface (SSL
+  expiry-threshold monitor + `Email.Events` config struct + backup success/failure hooks)
+  plus a behavioral question — does a backup failure send BOTH `scheduler_error` AND
+  `backup_failed`, or only the latter? Not guessed. NEEDS USER DECISION on scope + semantics.
+
+## LOW / NEEDS-DECISION
+
+- [ ] PART 9/14 — Non-canonical error codes. Canonical tables (AI.md:12755, AI.md:22715)
+  list no `SERVICE_UNAVAILABLE` (503→`MAINTENANCE`) or `SEC_FETCH_BLOCKED` (403→`FORBIDDEN`).
+  Code uses `SERVICE_UNAVAILABLE` (debug.go:157; server.go:3147-3201,3367) and
+  `SEC_FETCH_BLOCKED` (server.go:1340,1353). AI.md:19065 says "…etc." leaving it ambiguous
+  whether the code set is closed. Renaming `SEC_FETCH_BLOCKED`→`FORBIDDEN` drops semantic
+  detail. NEEDS USER DECISION (is the canonical table closed?).
+
+## Spec-internal contradictions — for user decision (not code bugs)
+
+- [ ] Coverage threshold: PART 27 CI gate says ≥60%; PART 28 says target ≥80%. Both quoted
+  in `.claude/rules/*`. Confirm which is the enforced gate.
+
+---
+
+## Compliant — VALUE-CHECKED (not presence-checked)
+
+- PART 19 GeoIP: DefaultConfig `Enabled: true` — matches AI.md mandate (fixed prior, 8165a9d4f7a2).
+- PART 31 Tor SocksPort: `SocksPort 0` default, `SocksPort auto` when `UseNetwork` (tor.go:452-454)
+  — matches AI.md:38923 ("auto if outbound enabled, 0 if not").
+- PART 23 reservedIDs: system UID/GID set built and enforced (service.go:23-44).
+- PART 11 tokens: SHA-256 hex storage, `tok_` prefix, `crypto/subtle` compare — verified present.
+- PART 5 booleans: `config.ParseBool()` used; no `strconv.ParseBool()` in tree.
+- PART 20 metrics buckets: histogram bucket set present for `scheduler_task_duration_seconds`.
+
+---
+
+## Build / Test — FINAL
+
+- Docker: `casjaysdev/go:latest`, CGO_ENABLED=0, GOFLAGS=-buildvcs=false, -v "$PWD":/app.
+- `go build ./...` — clean.
+- `go test ./...` — ALL packages `ok` (34 packages incl. config, server, ssl, handler,
+  database, geoip). Exit 0. Green.
+- Changes staged, not committed. Main instance reviews and commits via gitcommit.
