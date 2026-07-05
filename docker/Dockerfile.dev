@@ -9,6 +9,7 @@ ARG TARGETARCH
 ARG VERSION=devel
 ARG BUILD_DATE
 ARG COMMIT_ID
+ARG OFFICIAL_SITE
 
 WORKDIR /build
 
@@ -20,7 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build \
     -buildvcs=false -trimpath \
     -ldflags "-s -w -X 'main.Version=${VERSION}' \
               -X 'main.CommitID=${COMMIT_ID}' \
-              -X 'main.BuildDate=${BUILD_DATE}'" \
+              -X 'main.BuildDate=${BUILD_DATE}' \
+              -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/pastebin ./src
 
 # =============================================================================

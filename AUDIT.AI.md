@@ -66,9 +66,14 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   `time.LoadLocation`, `sched.SetLocation`.
   FIXED (commit 477c1f70): `config.go:909` adds `timezone` yaml field; `main.go:1053` resolves
   config → `TZ` env → `America/New_York` default via `time.LoadLocation` and calls `sched.SetLocation`.
-- [ ] **PART 26/27 — `OFFICIAL_SITE` build-arg not passed** to docker.yml / Makefile docker target /
+- [x] **PART 26/27 — `OFFICIAL_SITE` build-arg not passed** to docker.yml / Makefile docker target /
   ci.yml artifact builds / Dockerfile.dev. `main.OfficialSite` resolves empty in images. Release
   path is correct. Plumb the arg for consistency.
+  FIXED: `Dockerfile.dev` gains `ARG OFFICIAL_SITE` + `-X 'main.OfficialSite=${OFFICIAL_SITE}'`;
+  `docker.yml` resolves `OFFICIALSITE` (site.txt → `secrets.OFFICIALSITE`) and passes
+  `OFFICIAL_SITE` build-arg; `ci.yml` resolves the same and appends the `main.OfficialSite` ldflag
+  to both server and CLI builds. Matches the existing `release.yml` pattern. `act --list` passes.
+  Makefile already correct (`OFFICIALSITE` var → ldflag).
 - [x] **PART 32 — CLI update temp path** (`src/client/main.go:939` used `exe + ".new"`). Spec
   (AI.md:40157) wants `${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/cli.update.tmp`. Note: PART 22
   (server) contradicts this ("temp in binary dir"); PART 32 is client authority.
