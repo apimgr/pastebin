@@ -2501,7 +2501,7 @@ func (s *Server) handleURLRedirect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		html, err := s.renderTemplateToString(r, "about.html", s.pageData())
+		html, err := s.renderTemplateToString(r, "about.html", s.aboutPageData())
 		if err != nil {
 			fmt.Fprintf(w, "%s\n%s/server/about\n", s.liveCfg().Web.SiteTitle, s.baseURL(r))
 			return
@@ -2509,7 +2509,21 @@ func (s *Server) handleAbout(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
 		return
 	}
-	s.renderTemplate(w, r, "about.html", s.pageData())
+	s.renderTemplate(w, r, "about.html", s.aboutPageData())
+}
+
+// aboutPageData builds the /server/about template data, sourcing the tagline,
+// description, feature list, and links from the operator's Branding config with a
+// real IDEA.md fallback (PART 16 page-content sourcing). No content is hardcoded
+// in the template and no field is ever blank or a generic placeholder.
+func (s *Server) aboutPageData() map[string]interface{} {
+	b := s.liveCfg().Server.Branding
+	data := s.pageData()
+	data["Tagline"] = b.EffectiveTagline()
+	data["Description"] = b.EffectiveDescription()
+	data["Features"] = b.EffectiveFeatures()
+	data["Links"] = b.EffectiveLinks()
+	return data
 }
 
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {

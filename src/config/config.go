@@ -791,10 +791,81 @@ type LetsEncryptConfig struct {
 }
 
 // BrandingConfig holds site branding shown in the UI and metadata (PART 12/16).
+// Tagline, Description, Features, and Links source the /server/about page content
+// (PART 16 page-content sourcing); each has a real default drawn from IDEA.md so
+// the About page is never blank or generic.
 type BrandingConfig struct {
-	Title       string `yaml:"title"`
-	Tagline     string `yaml:"tagline"`
-	Description string `yaml:"description"`
+	Title       string         `yaml:"title"`
+	Tagline     string         `yaml:"tagline"`
+	Description string         `yaml:"description"`
+	Features    []string       `yaml:"features"`
+	Links       []BrandingLink `yaml:"links"`
+}
+
+// BrandingLink is a single labeled hyperlink shown on the /server/about page.
+type BrandingLink struct {
+	Label string `yaml:"label"`
+	URL   string `yaml:"url"`
+}
+
+// defaultBrandingTagline, defaultBrandingDescription, defaultBrandingFeatures, and
+// defaultBrandingLinks are the real /server/about defaults sourced from IDEA.md
+// (PART 16). They are used both to seed a fresh config and as the runtime fallback
+// when an operator leaves a branding field empty.
+const (
+	defaultBrandingTagline     = "A fast, public paste sharing service — no account required."
+	defaultBrandingDescription = "Pastebin is a fast, public paste sharing service. Share code snippets, configuration files, logs, and any text content instantly — no account required. It is a drop-in replacement for pastebin.com, microbin, and lenpaste, so existing scripts work without changes."
+)
+
+// defaultBrandingFeatures is the real feature list drawn from the IDEA.md in-scope
+// items (PART 16 About page sourcing).
+var defaultBrandingFeatures = []string{
+	"Syntax highlighting for 20+ languages",
+	"Configurable expiry (1 hour to 2 years, or never)",
+	"Burn-after-N-views for ephemeral content",
+	"Public and unlisted paste visibility",
+	"Delete token — pastes are yours to remove",
+	"Full REST API with JSON support",
+	"Compatible with pastebin.com, microbin, and lenpaste CLIs",
+	"No accounts, no tracking, no ads",
+}
+
+// defaultBrandingLinks is the real link list drawn from IDEA.md (PART 16).
+var defaultBrandingLinks = []BrandingLink{
+	{Label: "Source", URL: "https://github.com/apimgr/pastebin"},
+	{Label: "apimgr", URL: "https://github.com/apimgr"},
+}
+
+// EffectiveTagline returns the configured tagline or the IDEA.md default.
+func (b BrandingConfig) EffectiveTagline() string {
+	if v := strings.TrimSpace(b.Tagline); v != "" {
+		return v
+	}
+	return defaultBrandingTagline
+}
+
+// EffectiveDescription returns the configured description or the IDEA.md default.
+func (b BrandingConfig) EffectiveDescription() string {
+	if v := strings.TrimSpace(b.Description); v != "" {
+		return v
+	}
+	return defaultBrandingDescription
+}
+
+// EffectiveFeatures returns the configured feature list or the IDEA.md default.
+func (b BrandingConfig) EffectiveFeatures() []string {
+	if len(b.Features) > 0 {
+		return b.Features
+	}
+	return defaultBrandingFeatures
+}
+
+// EffectiveLinks returns the configured link list or the IDEA.md default.
+func (b BrandingConfig) EffectiveLinks() []BrandingLink {
+	if len(b.Links) > 0 {
+		return b.Links
+	}
+	return defaultBrandingLinks
 }
 
 // SEOConfig holds search-engine metadata (PART 12/16).
@@ -892,7 +963,11 @@ func DefaultConfig() *Config {
 			Mode:       "production",
 			APIVersion: "v1",
 			Branding: BrandingConfig{
-				Title: "Pastebin",
+				Title:       "Pastebin",
+				Tagline:     defaultBrandingTagline,
+				Description: defaultBrandingDescription,
+				Features:    defaultBrandingFeatures,
+				Links:       defaultBrandingLinks,
 			},
 			SEO: SEOConfig{
 				Keywords: []string{},

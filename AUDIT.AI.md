@@ -33,9 +33,14 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   (`isOverlayHost`, `ensureSelfSignedCert`, `generateSelfSigned` — ECDSA P-256, 10-year, 0600, cached
   to `{cert_dir}/local/{fqdn}/`). `GetTLSConfig` gained an overlay-only branch placed AFTER the LE
   check and BEFORE the clearnet error, so clearnet hosts still error and NEVER self-sign. Tests added.
-- [ ] **PART 16 — `/server/about` hardcodes description + features** (`templates/about.html:41-69`,
+- [x] **PART 16 — `/server/about` hardcodes description + features** (`templates/about.html:41-69`,
   `server.go:2499/3147`). Must source Tagline/Description/Features/Links from IDEA.md/config
   Branding. Content is real (not placeholder); the sourcing mechanism is the violation.
+  FIXED: extended `BrandingConfig` with `Features []string` + `Links []BrandingLink`; added
+  IDEA.md-sourced `defaultBranding*` consts/vars and `EffectiveTagline/Description/Features/Links`
+  accessors (never blank/placeholder); seeded DefaultConfig branding block. Added
+  `Server.aboutPageData()` and wired `handleAbout` (text + HTML) to it; `about.html` now renders
+  `.Tagline`/`.Description`/`.Features` (range)/`.Links` (range) from config.
 - [ ] **PART 18 — Graceful shutdown does not drain running tasks** (`src/scheduler/scheduler.go:185`).
   `Stop()` returns immediately; task goroutines detached. Add `sync.WaitGroup` + 30s bounded
   drain; mark interrupted tasks for retry (AI.md:26060, 27084).

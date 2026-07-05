@@ -38,35 +38,23 @@
                 </div>
 
                 <div class="paste-view page-view">
+                    <p class="lead">{{.Tagline}}</p>
+
                     <h2>What is {{.SiteTitle}}?</h2>
-                    <p>
-                        {{.SiteTitle}} is a fast, public paste sharing service. Share code snippets, configuration files,
-                        logs, and any text content instantly — no account required.
-                    </p>
+                    <p>{{.Description}}</p>
 
                     <h2 class="section-mt">{{t .Lang "about.features"}}</h2>
                     <ul class="feature-list">
-                        <li>Syntax highlighting for 20+ languages</li>
-                        <li>Configurable expiry (1 hour to 2 years, or never)</li>
-                        <li>Burn-after-N-views for ephemeral content</li>
-                        <li>Public and unlisted paste visibility</li>
-                        <li>Delete token — pastes are yours to remove</li>
-                        <li>Full REST API with JSON support</li>
-                        <li>Compatible with pastebin.com, microbin, and lenpaste CLIs</li>
-                        <li>No accounts, no tracking, no ads</li>
+                        {{range .Features}}<li>{{.}}</li>
+                        {{end}}
                     </ul>
 
-                    <h2 class="section-mt">API Compatibility</h2>
-                    <p>
-                        This service is a drop-in replacement for pastebin.com, microbin, and lenpaste.
-                        Existing scripts targeting those services work without changes by pointing them at this server.
-                    </p>
-
                     <h2 class="section-mt">Source</h2>
-                    <p>
-                        Built by <a href="https://github.com/apimgr" target="_blank">apimgr</a>.
-                        Open source, MIT licensed.
+                    <p class="about-links">
+                        {{range .Links}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a>
+                        {{end}}
                     </p>
+                    <p>Open source, MIT licensed.</p>
                 </div>
             </div>
         </section>
