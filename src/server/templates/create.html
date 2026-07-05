@@ -70,17 +70,6 @@
 
                 <form id="paste-form" class="paste-form" action="{{.BaseURL}}/pastes" method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-                    <div class="form-group">
-                        <label for="file-upload" class="form-label">{{t .Lang "paste.file_upload_label"}}</label>
-                        <input
-                            type="file"
-                            id="file-upload"
-                            name="files"
-                            class="form-input"
-                            aria-describedby="file-upload-hint"
-                        >
-                        <small id="file-upload-hint" class="form-hint">{{t .Lang "paste.file_upload_hint"}}</small>
-                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="title" class="form-label">{{t .Lang "paste.title_optional"}}</label>
@@ -180,6 +169,17 @@
                             rows="20"
                             placeholder="Paste your code or text here..."
                         ></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="file-upload" class="form-label">{{t .Lang "paste.file_upload_label"}}</label>
+                        <input
+                            type="file"
+                            id="file-upload"
+                            name="files"
+                            class="form-input"
+                            aria-describedby="file-upload-hint"
+                        >
+                        <small id="file-upload-hint" class="form-hint">{{t .Lang "paste.file_upload_hint"}}</small>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary btn-lg">
