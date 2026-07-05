@@ -83,10 +83,13 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   `replaceCrossDevice()` (temp dir is usually a separate filesystem). Temp dir removed on exit.
 - [ ] **PART 27 — Empty `.forgejo/workflows/`**. Populate or remove (AI.md:32419 allows reusing
   Gitea workflows). Tied to the multi-provider decision.
-- [-] **PART 14 — Maintenance error code `MAINTENANCE_MODE` vs canonical `MAINTENANCE`**
-  (`src/server/maintenance.go`). GENUINE SPEC CONTRADICTION: PART 9 table (AI.md:12761) says
-  `MAINTENANCE`; AI.md:7315 AND project config-rules.md say `MAINTENANCE_MODE`. Do NOT change
-  without spec-owner decision — condensed rule confirms current code.
+- [x] **PART 14 — Maintenance error code `MAINTENANCE_MODE` vs canonical `MAINTENANCE`**
+  (`src/server/maintenance.go`). RESOLVED (user: AI.md is source of truth, not derived files):
+  AI.md has TWO canonical error-code tables (PART 9 AI.md:12772, PART 16 AI.md:22848) plus a code
+  example (AI.md:12816) all using `MAINTENANCE`; only one prose JSON example (AI.md:7315) said
+  `MAINTENANCE_MODE`. `config-rules.md` is a derived summary and does not override AI.md. FIXED:
+  `maintenance.go:53` + `maintenance_test.go:78` now use `MAINTENANCE` (matches `paste.go` which
+  was already correct).
 - [x] **PART 14 — Maintenance error uses compact JSON** (`maintenance.go:54` `json.NewEncoder`)
   vs the house `writeJSON`/`MarshalIndent` 2-space standard. FIXED: routed through `writeJSON`
   (Retry-After / X-Maintenance-* headers still set beforehand); dropped the now-unused

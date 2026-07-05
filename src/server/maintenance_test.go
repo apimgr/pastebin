@@ -75,7 +75,7 @@ func TestMaintenanceMiddlewareBlocksWrites(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 			t.Fatalf("%s: bad json: %v", method, err)
 		}
-		if body.OK || body.Error != "MAINTENANCE_MODE" {
+		if body.OK || body.Error != "MAINTENANCE" {
 			t.Fatalf("%s: wrong envelope: %+v", method, body)
 		}
 		if body.Details.Reason != health.ReasonDatabaseConnection || !body.Details.SelfHealing {
