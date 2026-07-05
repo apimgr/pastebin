@@ -72,17 +72,18 @@ Build/test run only in Docker. Changes staged, not committed.
 
 ## LOW / NEEDS-DECISION
 
-- [ ] PART 9/14 — Non-canonical error codes. Canonical tables (AI.md:12755, AI.md:22715)
-  list no `SERVICE_UNAVAILABLE` (503→`MAINTENANCE`) or `SEC_FETCH_BLOCKED` (403→`FORBIDDEN`).
-  Code uses `SERVICE_UNAVAILABLE` (debug.go:157; server.go:3147-3201,3367) and
-  `SEC_FETCH_BLOCKED` (server.go:1340,1353). AI.md:19065 says "…etc." leaving it ambiguous
-  whether the code set is closed. Renaming `SEC_FETCH_BLOCKED`→`FORBIDDEN` drops semantic
-  detail. NEEDS USER DECISION (is the canonical table closed?).
+- [x] PART 9/14 — Non-canonical error codes. Canonical table (AI.md:22732) maps 503→`MAINTENANCE`,
+  403→`FORBIDDEN`. USER DECISION: canonical set is CLOSED — rename. FIX: `SERVICE_UNAVAILABLE`→
+  `MAINTENANCE` (server.go:3218/3228/3243/3257/3272/3448, debug.go:157, error_test.go:45) and
+  `SEC_FETCH_BLOCKED`→`FORBIDDEN` (server.go:1343/1356). Human-readable messages kept descriptive
+  ("scheduler not available", "direct navigation to API endpoint blocked") — only the code token
+  is canonical.
 
 ## Spec-internal contradictions — for user decision (not code bugs)
 
-- [ ] Coverage threshold: PART 27 CI gate says ≥60%; PART 28 says target ≥80%. Both quoted
-  in `.claude/rules/*`. Confirm which is the enforced gate.
+- [x] Coverage threshold: PART 27 CI gate says ≥60%; PART 28 says target ≥80%. USER DECISION:
+  ≥60% is the enforced hard CI gate; ≥80% is the aspirational target. Matches current CI and the
+  `.claude/rules/testing-rules.md` wording ("≥60% (CI gate), target ≥80%"). No code change.
 
 ---
 

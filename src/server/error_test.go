@@ -42,7 +42,7 @@ func TestErrorCodeForStatus(t *testing.T) {
 		http.StatusNotFound:            "NOT_FOUND",
 		http.StatusMethodNotAllowed:    "METHOD_NOT_ALLOWED",
 		http.StatusBadGateway:          "BAD_GATEWAY",
-		http.StatusServiceUnavailable:  "SERVICE_UNAVAILABLE",
+		http.StatusServiceUnavailable:  "MAINTENANCE",
 		http.StatusInternalServerError: "SERVER_ERROR",
 		http.StatusTeapot:              "SERVER_ERROR",
 	}

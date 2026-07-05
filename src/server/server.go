@@ -1340,7 +1340,7 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 				if r.Header.Get("Authorization") == "" && r.Header.Get("X-API-Token") == "" {
 					// Check CSRF exempt paths.
 					if !isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) {
-						writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "SEC_FETCH_BLOCKED", "message": "cross-site state-changing request blocked"})
+						writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "FORBIDDEN", "message": "cross-site state-changing request blocked"})
 						return
 					}
 				}
@@ -1353,7 +1353,7 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 		if r.Header.Get("Sec-Fetch-Mode") == "navigate" && strings.HasPrefix(r.URL.Path, "/api/") {
 			switch r.Method {
 			case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-				writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "SEC_FETCH_BLOCKED", "message": "direct navigation to API endpoint blocked"})
+				writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "FORBIDDEN", "message": "direct navigation to API endpoint blocked"})
 				return
 			}
 		}
@@ -3215,7 +3215,7 @@ func (s *Server) handleOffline(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerList returns all registered tasks.
 func (s *Server) handleSchedulerList(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "MAINTENANCE", "message": "scheduler not available"})
 		return
 	}
 	tasks := s.schedulerAPI.GetTasks()
@@ -3225,7 +3225,7 @@ func (s *Server) handleSchedulerList(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerShow returns the state for a single task.
 func (s *Server) handleSchedulerShow(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "MAINTENANCE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -3240,7 +3240,7 @@ func (s *Server) handleSchedulerShow(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerRun triggers a task to run immediately.
 func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "MAINTENANCE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -3254,7 +3254,7 @@ func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerEnable enables a task.
 func (s *Server) handleSchedulerEnable(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "MAINTENANCE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -3269,7 +3269,7 @@ func (s *Server) handleSchedulerEnable(w http.ResponseWriter, r *http.Request) {
 // handleSchedulerDisable disables a task.
 func (s *Server) handleSchedulerDisable(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"ok": false, "error": "MAINTENANCE", "message": "scheduler not available"})
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -3445,7 +3445,7 @@ func errorCodeForStatus(status int) string {
 	case http.StatusBadGateway:
 		return "BAD_GATEWAY"
 	case http.StatusServiceUnavailable:
-		return "SERVICE_UNAVAILABLE"
+		return "MAINTENANCE"
 	default:
 		return "SERVER_ERROR"
 	}

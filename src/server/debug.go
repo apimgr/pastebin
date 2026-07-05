@@ -154,7 +154,7 @@ func (s *Server) handleDebugDB(w http.ResponseWriter, r *http.Request) {
 // handleDebugScheduler returns the status of every scheduled task (PART 6).
 func (s *Server) handleDebugScheduler(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerAPI == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "SERVICE_UNAVAILABLE", "message": "scheduler not available"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "MAINTENANCE", "message": "scheduler not available"})
 		return
 	}
 	tasks := s.schedulerAPI.GetTasks()
