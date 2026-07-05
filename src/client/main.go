@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -934,8 +936,14 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 		return fmt.Errorf("resolve symlinks: %w", err)
 	}
 
-	// Download to a temp file in the same directory for an atomic rename.
-	tmpFile := exe + ".new"
+	// Download to ${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/cli.update.tmp, verify
+	// there, then atomically replace the installed binary (PART 32 step 3–5).
+	tmpDir, tmpFile, err := updateTempDir()
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
 	f, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -945,7 +953,6 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	resp, err := httpClient.Get(downloadURL)
 	if err != nil {
 		f.Close()
-		os.Remove(tmpFile)
 		return fmt.Errorf("download: %w", err)
 	}
 	defer resp.Body.Close()
@@ -954,29 +961,78 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	h := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
 		f.Close()
-		os.Remove(tmpFile)
 		return fmt.Errorf("write: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmpFile)
 		return fmt.Errorf("close: %w", err)
 	}
 
 	// Verify SHA-256.
 	got := fmt.Sprintf("%x", h.Sum(nil))
 	if !strings.EqualFold(got, expectedSHA) {
-		os.Remove(tmpFile)
 		return fmt.Errorf("SHA-256 mismatch: got %s, want %s", got, expectedSHA)
 	}
 
-	// Atomically replace the current binary.
+	// Atomically replace the current binary. os.Rename is atomic only within a
+	// filesystem; the temp dir is usually a separate tmpfs, so on a cross-device
+	// error stage the verified binary beside the target and rename from there.
 	if err := os.Rename(tmpFile, exe); err != nil {
-		os.Remove(tmpFile)
-		return fmt.Errorf("replace binary: %w", err)
+		if !errors.Is(err, syscall.EXDEV) {
+			return fmt.Errorf("replace binary: %w", err)
+		}
+		if err := replaceCrossDevice(tmpFile, exe); err != nil {
+			return err
+		}
 	}
 
 	// Re-exec or inform the user on Windows.
 	return reExec(exe)
+}
+
+// updateTempDir creates the PART 32 CLI update staging directory
+// (${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/) and returns both the directory and
+// the cli.update.tmp file path inside it. The caller removes the directory.
+func updateTempDir() (dir, file string, err error) {
+	base := filepath.Join(os.TempDir(), "apimgr")
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", "", fmt.Errorf("create temp base %s: %w", base, err)
+	}
+	dir, err = os.MkdirTemp(base, projectName+"-*")
+	if err != nil {
+		return "", "", fmt.Errorf("create temp dir: %w", err)
+	}
+	return dir, filepath.Join(dir, "cli.update.tmp"), nil
+}
+
+// replaceCrossDevice copies src to a staging file beside dst (same filesystem)
+// and atomically renames it over dst. Used when src and dst live on different
+// filesystems and a direct rename returns EXDEV.
+func replaceCrossDevice(src, dst string) error {
+	staging := dst + ".new"
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open staged binary: %w", err)
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(staging, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return fmt.Errorf("create staging file: %w", err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(staging)
+		return fmt.Errorf("copy staged binary: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(staging)
+		return fmt.Errorf("close staging file: %w", err)
+	}
+	if err := os.Rename(staging, dst); err != nil {
+		os.Remove(staging)
+		return fmt.Errorf("replace binary: %w", err)
+	}
+	return nil
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────

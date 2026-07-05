@@ -41,9 +41,13 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
   accessors (never blank/placeholder); seeded DefaultConfig branding block. Added
   `Server.aboutPageData()` and wired `handleAbout` (text + HTML) to it; `about.html` now renders
   `.Tagline`/`.Description`/`.Features` (range)/`.Links` (range) from config.
-- [ ] **PART 18 — Graceful shutdown does not drain running tasks** (`src/scheduler/scheduler.go:185`).
+- [x] **PART 18 — Graceful shutdown does not drain running tasks** (`src/scheduler/scheduler.go:185`).
   `Stop()` returns immediately; task goroutines detached. Add `sync.WaitGroup` + 30s bounded
   drain; mark interrupted tasks for retry (AI.md:26060, 27084).
+  FIXED (commit 477c1f70): added `wg sync.WaitGroup`; every run path (`tick`, `runMissed`,
+  `RunNow`) does `wg.Add(1)`/`defer wg.Done()`; `Stop()` closes `stop`, then `wg.Wait()` bounded by
+  `shutdownDrainTimeout` (30s); on timeout `markInterrupted()` sets `lastStatus="interrupted"`,
+  `nextRun=now`, persists — so the task re-runs within the catch-up window on next start.
 - [-] **PART 27 — Missing `.gitea/workflows/ci.yml`** (dir has beta/daily/docker/release only).
   NEEDS DECISION: is this project GitHub-only, or multi-provider? (remote is github/apimgr/pastebin)
 - [-] **PART 27 — Missing `.gitlab-ci.yml`** at root. Same multi-provider decision.
@@ -53,17 +57,25 @@ spec-correct (AI.md:40304 forbids it). i18n key parity PASSES (526 keys × 7 loc
 
 ## LOW
 
-- [ ] **PART 18 — `catch_up_window` not wired** (config lacks field; `SetCatchUpWindow` never called).
+- [x] **PART 18 — `catch_up_window` not wired** (config lacks field; `SetCatchUpWindow` never called).
   Hardcoded 1h. Add `CatchUpWindow` yaml field → duration → `sched.SetCatchUpWindow`.
-- [ ] **PART 18 — Scheduler `timezone` not wired; default not America/New_York**
+  FIXED (commit 477c1f70): `config.go:913` adds `catch_up_window` yaml field; `main.go:1065`
+  parses the duration and calls `sched.SetCatchUpWindow` (falls back to the 1h default when empty).
+- [x] **PART 18 — Scheduler `timezone` not wired; default not America/New_York**
   (`scheduler.go:84` uses `time.Local`). Add `Timezone` yaml field (default America/New_York),
   `time.LoadLocation`, `sched.SetLocation`.
+  FIXED (commit 477c1f70): `config.go:909` adds `timezone` yaml field; `main.go:1053` resolves
+  config → `TZ` env → `America/New_York` default via `time.LoadLocation` and calls `sched.SetLocation`.
 - [ ] **PART 26/27 — `OFFICIAL_SITE` build-arg not passed** to docker.yml / Makefile docker target /
   ci.yml artifact builds / Dockerfile.dev. `main.OfficialSite` resolves empty in images. Release
   path is correct. Plumb the arg for consistency.
-- [ ] **PART 32 — CLI update temp path** (`src/client/main.go:939` uses `exe + ".new"`). Spec
+- [x] **PART 32 — CLI update temp path** (`src/client/main.go:939` used `exe + ".new"`). Spec
   (AI.md:40157) wants `${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/cli.update.tmp`. Note: PART 22
   (server) contradicts this ("temp in binary dir"); PART 32 is client authority.
+  FIXED: `downloadAndApplyUpdate` now downloads + SHA-256-verifies into
+  `os.TempDir()/apimgr/pastebin-XXXXXX/cli.update.tmp` via new `updateTempDir()`, then
+  `os.Rename` to the target with an `errors.Is(err, syscall.EXDEV)` fallback to
+  `replaceCrossDevice()` (temp dir is usually a separate filesystem). Temp dir removed on exit.
 - [ ] **PART 27 — Empty `.forgejo/workflows/`**. Populate or remove (AI.md:32419 allows reusing
   Gitea workflows). Tied to the multi-provider decision.
 - [-] **PART 14 — Maintenance error code `MAINTENANCE_MODE` vs canonical `MAINTENANCE`**
