@@ -16,9 +16,10 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/apimgr/pastebin/src/audit"
+	"github.com/apimgr/pastebin/src/common/banner"
 	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/i18n"
-	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/daemon"
 	"github.com/apimgr/pastebin/src/database"
@@ -441,7 +442,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		// Load config to resolve configured update branch.
 		updateCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
 		updateCfg, _ := config.Load(updateCfgFile)
-		configuredBranch := updateCfg.Server.UpdateBranch
+		configuredBranch := updateCfg.Server.Update.Branch
 		if configuredBranch == "" {
 			configuredBranch = "stable"
 		}
@@ -511,8 +512,8 @@ Examples:
 			branch := parts[1]
 			switch branch {
 			case "stable", "beta", "daily":
-				// Persist the branch choice to the config file.
-				if writeErr := maintenance.SetYAMLField(updateCfgFile, "update_branch", branch); writeErr != nil {
+				// Persist the branch choice to the config file (server.update.branch).
+				if writeErr := config.SetUpdateBranch(updateCfgFile, branch); writeErr != nil {
 					fmt.Fprintf(stderr, "%s: could not persist update branch: %v\n", binaryName, writeErr)
 					return 1
 				}
@@ -535,11 +536,7 @@ Examples:
 	if emailCmd != "" {
 		cfgFile2 := filepath.Join(paths.GetConfigDir(appName), "server.yml")
 		cfg2, _ := config.Load(cfgFile2)
-		baseURL2 := cfg2.Server.BaseURL
-		if baseURL2 == "" {
-			baseURL2 = "http://localhost"
-		}
-		m := email.New(&cfg2.Server.Notifications.Email, cfg2.Web.SiteTitle, baseURL2, cfg2.Server.FQDN)
+		m := email.New(&cfg2.Server.Notifications.Email, cfg2.Web.SiteTitle, startupBaseURL(cfg2), cfg2.Server.FQDN)
 		switch emailCmd {
 		case "test":
 			if emailTo == "" {
@@ -656,15 +653,15 @@ Examples:
 			// authenticated POST to the scheduler API (PART 18).
 			scBaseURL := scCfg.Server.BaseURL
 			if scBaseURL == "" {
-				addr := scCfg.Server.Address
-				if addr == "" || addr == "0.0.0.0" {
-					addr = "127.0.0.1"
+				scAddr := scCfg.Server.Address
+				if scAddr == "" || scAddr == "0.0.0.0" {
+					scAddr = "127.0.0.1"
 				}
-				port := scCfg.Server.Port
-				if port == "" {
-					port = "80"
+				scPort := scCfg.Server.Port
+				if scPort == "" {
+					scPort = "80"
 				}
-				scBaseURL = "http://" + addr + ":" + port
+				scBaseURL = startupScheme(scCfg) + "://" + scAddr + ":" + scPort
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -1086,11 +1083,7 @@ Examples:
 	// Build the mailer once for task email dispatch (PART 17: backup/ssl events).
 	// The mailer is fail-open — if SMTP is unconfigured, Enabled() returns false
 	// and all email sends are silently skipped.
-	taskBaseURL := cfg.Server.BaseURL
-	if taskBaseURL == "" {
-		taskBaseURL = "http://localhost"
-	}
-	taskMailer := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, taskBaseURL, cfg.Server.FQDN)
+	taskMailer := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, startupBaseURL(cfg), cfg.Server.FQDN)
 	taskOperatorEmail := strings.TrimSpace(cfg.AdminEmail())
 
 	// Required PART 18 tasks — full implementations in src/task/task.go.
@@ -1190,6 +1183,11 @@ Examples:
 	logSchedErr(sched.Register("tor_health", "Tor Health", "@every 10m", true,
 		task.TorHealth(srv.TorRunning, srv.TorRestart)))
 
+	// Daily update check (PART 18/22): runs at 06:00, notify-only by default;
+	// auto-installs when server.update.auto_install is true (default false).
+	logSchedErr(sched.Register("update_check", "Update Check", "0 6 * * *", true,
+		task.UpdateCheck(Version, cfg.Server.Update.Branch, taskOperatorEmail, cfg.Server.Update.AutoInstall, cfg.Server.Update.DeferDays, taskMailer)))
+
 	// Retry policy (PART 18). Network-dependent tasks retry on failure by
 	// default with a 1h base delay; operators override per task in server.yml.
 	sched.SetRetry("blocklist_update", true, time.Hour, 0)
@@ -1252,7 +1250,24 @@ Examples:
 			cancel()
 		}()
 
-		log.Printf("listening on %s", addr)
+		// Emit the startup banner with the protocol-correct URL (PART 12/15).
+		// startupScheme() resolves {proto} from config (TLS, LE, port 443 → https,
+		// otherwise http). The listen address addr is raw ":PORT"; the banner URLs
+		// show the public base URL and the listen address with protocol.
+		proto := startupScheme(cfg)
+		publicURL := startupBaseURL(cfg)
+		listenURL := proto + "://" + addr
+		if addr != "" && addr[0] == ':' {
+			listenURL = proto + "://0.0.0.0" + addr
+		}
+		banner.PrintStartupBanner(banner.BannerConfig{
+			AppName: appName,
+			Version: Version,
+			AppMode: string(mode.Get()),
+			Debug:   mode.IsDebugEnabled(),
+			URLs:    []string{publicURL, "listening on " + listenURL},
+		})
+		log.Printf("listening on %s", listenURL)
 
 		if err := srv.Run(ctx, addr); err != nil {
 			log.Fatalf("server: %v", err)
@@ -1404,11 +1419,7 @@ func schedulerNotifier(cfg *config.Config, auditW *audit.Writer) scheduler.Notif
 		if to == "" {
 			return
 		}
-		baseURL := cfg.Server.BaseURL
-		if baseURL == "" {
-			baseURL = "http://localhost"
-		}
-		m := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, baseURL, cfg.Server.FQDN)
+		m := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, startupBaseURL(cfg), cfg.Server.FQDN)
 		if !m.Enabled() {
 			return
 		}
@@ -1420,6 +1431,50 @@ func schedulerNotifier(cfg *config.Config, auditW *audit.Writer) scheduler.Notif
 			log.Printf("scheduler: failed to send scheduler_error email: %v", err)
 		}
 	}
+}
+
+// startupScheme returns "https" when the server is configured to serve TLS,
+// and "http" otherwise. Without a live request we derive the protocol from
+// config: port 443, server.tls.enabled, or Let's Encrypt enabled all imply
+// HTTPS. Called at startup and for background-task email links (PART 12/15).
+func startupScheme(cfg *config.Config) string {
+	if cfg.Server.TLS.Enabled || cfg.Server.TLS.LetsEncrypt.Enabled {
+		return "https"
+	}
+	// Dual-port "80,443" or plain "443" → HTTPS is the primary scheme.
+	for _, p := range strings.Split(cfg.Server.Port, ",") {
+		if strings.TrimSpace(p) == "443" {
+			return "https"
+		}
+	}
+	return "http"
+}
+
+// startupBaseURL builds the canonical base URL from config when no HTTP
+// request is yet available (startup, background tasks, email links). Mirrors
+// the runtime baseURL(r) logic for the static config path (PART 12).
+func startupBaseURL(cfg *config.Config) string {
+	if u := strings.TrimRight(cfg.Server.BaseURL, "/"); u != "" {
+		return u
+	}
+	proto := startupScheme(cfg)
+	fqdn := cfg.ResolveFQDN()
+	if fqdn == "" || strings.EqualFold(fqdn, "localhost") {
+		fqdn = "localhost"
+	}
+	port := cfg.Server.Port
+	// Dual-port "80,443" — omit port from the public URL.
+	if strings.Contains(port, ",") {
+		port = ""
+	}
+	// Strip standard :80/:443.
+	if (proto == "http" && port == "80") || (proto == "https" && port == "443") {
+		port = ""
+	}
+	if port != "" {
+		return proto + "://" + fqdn + ":" + port
+	}
+	return proto + "://" + fqdn
 }
 
 // blocklistSources maps the configured blocklist sources to task.Source values.

@@ -6,6 +6,7 @@ package task
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/maintenance"
+	"github.com/apimgr/pastebin/src/updater"
 )
 
 // BackupRetention controls how many old backups to keep for each period.
@@ -694,6 +696,63 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 // may be nil, in which case an unhealthy service is only logged. When Tor is
 // not installed, torRestart is a no-op and torRunning stays false — the task
 // simply logs and never errors.
+// UpdateCheck returns a task that checks for a newer release on the configured
+// channel (PART 18/22, daily at 06:00, skippable). When autoInstall is false
+// the task only logs and fires an update_available email (off by default). When
+// autoInstall is true and an eligible release exists, the full --update yes flow
+// runs. deferDays delays eligibility: a release must be at least that many days
+// old before the task acts on it. A nil mailer or empty operatorEmail silently
+// skips email.
+func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool, deferDays int, mailer Mailer) func() error {
+	return func() error {
+		if branch == "" {
+			branch = "stable"
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		rel, err := updater.CheckForUpdate(ctx, currentVersion, branch)
+		if err != nil {
+			return fmt.Errorf("update_check: %w", err)
+		}
+		if rel == nil {
+			log.Printf("update_check: %s is up to date on branch %s", currentVersion, branch)
+			return nil
+		}
+		// Apply defer window: skip releases newer than deferDays.
+		if deferDays > 0 && !rel.PublishedAt.IsZero() {
+			age := time.Since(rel.PublishedAt)
+			if age < time.Duration(deferDays)*24*time.Hour {
+				log.Printf("update_check: %s available but deferred (%d/%d days)", rel.TagName, int(age.Hours()/24), deferDays)
+				return nil
+			}
+		}
+		log.Printf("update_check: update available %s → %s (branch %s)", currentVersion, rel.TagName, branch)
+		if mailer != nil && mailer.Enabled() && operatorEmail != "" {
+			if sendErr := mailer.Send(operatorEmail, "update_available", map[string]string{
+				"CurrentVersion": currentVersion,
+				"NewVersion":     rel.TagName,
+				"Branch":         branch,
+			}); sendErr != nil {
+				log.Printf("update_check: email notify failed: %v", sendErr)
+			}
+		}
+		if !autoInstall {
+			return nil
+		}
+		log.Printf("update_check: auto_install enabled — installing %s", rel.TagName)
+		installCtx, installCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer installCancel()
+		if err := updater.DoUpdate(installCtx, rel); err != nil {
+			return fmt.Errorf("update_check: auto-install failed: %w", err)
+		}
+		log.Printf("update_check: installed %s — restarting", rel.TagName)
+		if restartErr := updater.RestartSelf(); restartErr != nil {
+			return fmt.Errorf("update_check: restart failed: %w", restartErr)
+		}
+		return nil
+	}
+}
+
 func TorHealth(torRunning func() bool, torRestart func() error) func() error {
 	return func() error {
 		if torRunning == nil {

@@ -24,9 +24,10 @@ const (
 
 // Release represents a single GitHub release.
 type Release struct {
-	TagName    string  `json:"tag_name"`
-	Prerelease bool    `json:"prerelease"`
-	Assets     []Asset `json:"assets"`
+	TagName     string    `json:"tag_name"`
+	Prerelease  bool      `json:"prerelease"`
+	PublishedAt time.Time `json:"published_at"`
+	Assets      []Asset   `json:"assets"`
 }
 
 // Asset is a downloadable file attached to a release.

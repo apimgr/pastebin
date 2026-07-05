@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -66,9 +67,8 @@ type ServerConfig struct {
 	TLS           TLSConfig           `yaml:"tls"`
 	// Backup configures backup encryption, compliance, and retention (PART 21).
 	Backup BackupConfig `yaml:"backup"`
-	// UpdateBranch controls which release channel is used for self-updates (PART 22).
-	// Accepted values: "stable" (default), "beta", "daily".
-	UpdateBranch string `yaml:"update_branch"`
+	// Update controls the self-update channel and scheduling behaviour (PART 22).
+	Update UpdateConfig `yaml:"update"`
 	// Cache configures the in-process or remote cache driver (PART 9/12).
 	Cache CacheConfig `yaml:"cache"`
 	// Limits controls HTTP server request and body limits (PART 12).
@@ -926,6 +926,18 @@ type BackupRetentionConfig struct {
 	KeepYearly  int `yaml:"keep_yearly"`
 }
 
+// UpdateConfig controls self-update channel and scheduled check behaviour (PART 22).
+type UpdateConfig struct {
+	// Branch selects the release channel: "stable" (default), "beta", or "daily".
+	Branch string `yaml:"branch"`
+	// AutoInstall causes the daily update_check task to install eligible updates
+	// automatically. Default false — the task notifies only.
+	AutoInstall bool `yaml:"auto_install"`
+	// DeferDays delays eligibility of a release: a release is only considered once
+	// it has been public for this many days (0 = adopt immediately).
+	DeferDays int `yaml:"defer_days"`
+}
+
 // SchedulerConfig configures the built-in task scheduler (PART 12/18).
 // Tasks maps a task name to its per-task settings; absent entries use code defaults.
 type SchedulerConfig struct {
@@ -1089,6 +1101,11 @@ func DefaultConfig() *Config {
 						UpdateInstalled: true,
 					},
 				},
+			},
+			Update: UpdateConfig{
+				Branch:      "stable",
+				AutoInstall: false,
+				DeferDays:   0,
 			},
 			Backup: BackupConfig{
 				Encryption: BackupEncryptionConfig{Enabled: false},
@@ -2043,6 +2060,23 @@ func Save(path string, cfg *Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o640)
+}
+
+// SetUpdateBranch loads the config at path, sets server.update.branch to the
+// given value, and saves the file back. Creates the file and parent dirs if absent.
+func SetUpdateBranch(path, branch string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	cfg, err := Load(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+	cfg.Server.Update.Branch = branch
+	return Save(path, cfg)
 }
 
 // ResolvePort finalises cfg.Server.Port according to the PART 5 rules:
