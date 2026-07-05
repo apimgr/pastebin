@@ -61,14 +61,13 @@ Build/test run only in Docker. Changes staged, not committed.
 
 ## MEDIUM / NEEDS-DECISION — flagged, not auto-fixed
 
-- [ ] PART 17 — 4 email templates never dispatched. `backup_complete`, `backup_failed`,
-  `ssl_expiring`, `ssl_renewed` exist in `src/common/email/templates/` but no code sends
-  them (only `scheduler_error` at main.go:1391 and `security_alert` at maintenance.go:176).
-  AI.md:26204-26207 specifies `ssl_expiring` at 30/14/7/3/1 days before expiry and
-  AI.md:26591-26594 defines per-event toggles under `email.events`. Net-new surface (SSL
-  expiry-threshold monitor + `Email.Events` config struct + backup success/failure hooks)
-  plus a behavioral question — does a backup failure send BOTH `scheduler_error` AND
-  `backup_failed`, or only the latter? Not guessed. NEEDS USER DECISION on scope + semantics.
+- [x] PART 17 — All 4 email dispatches fully implemented and wired. Verified:
+  `backupSendComplete`/`backupSendFailed` called at every backup outcome path in task.go.
+  `SSLRenewalWithEmail` fires `ssl_expiring` at 30/14/7/3/1-day thresholds and `ssl_renewed`
+  on detected cert renewal (NotAfter advanced ≥24h vs stored state). All gated by
+  `EmailEventsConfig` fields with spec-correct defaults (BackupComplete=false, BackupFailed=true,
+  SSLExpiring=true, SSLRenewed=false). main.go wires all four. AI.md intent confirmed: both
+  `backup_failed` AND `scheduler_error` fire on backup failure (separate abstraction levels).
 
 ## LOW / NEEDS-DECISION
 
