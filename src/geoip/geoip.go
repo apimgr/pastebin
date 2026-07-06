@@ -379,7 +379,8 @@ func (d *DB) IsBlocked(ip net.IP) bool {
 }
 
 // Middleware returns a chi-compatible middleware that blocks requests from
-// country-blocked IPs. Must run after the allowlist middleware.
+// country-blocked IPs. Must run after realIPMiddleware (which rewrites
+// r.RemoteAddr to the true client IP per PART 12 trusted-proxy rules).
 func (d *DB) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -401,6 +402,8 @@ func (d *DB) Middleware() func(http.Handler) http.Handler {
 }
 
 // LookupRequest returns GeoIP info for the remote address of an HTTP request.
+// The server's realIPMiddleware (PART 12) must have already run so that
+// r.RemoteAddr contains the true client IP, not the proxy's IP.
 func (d *DB) LookupRequest(r *http.Request) *Info {
 	ip := realIP(r)
 	if ip == nil {
@@ -409,20 +412,11 @@ func (d *DB) LookupRequest(r *http.Request) *Info {
 	return d.Lookup(ip)
 }
 
-// realIP extracts the client IP from X-Real-IP, X-Forwarded-For, or RemoteAddr.
+// realIP extracts the client IP from r.RemoteAddr only. Forwarded-IP headers
+// (X-Real-IP, X-Forwarded-For, etc.) are intentionally NOT read here; the
+// server's realIPMiddleware already applied the PART 12 trusted-proxy gate and
+// rewrote r.RemoteAddr before any of these middleware functions run.
 func realIP(r *http.Request) net.IP {
-	if v := r.Header.Get("X-Real-IP"); v != "" {
-		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-			return ip
-		}
-	}
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		// Take the leftmost (client) IP.
-		parts := strings.SplitN(v, ",", 2)
-		if ip := net.ParseIP(strings.TrimSpace(parts[0])); ip != nil {
-			return ip
-		}
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr

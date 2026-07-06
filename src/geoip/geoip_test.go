@@ -152,35 +152,45 @@ func TestClose_NoopDB(t *testing.T) {
 
 // ─── LookupRequest ───────────────────────────────────────────────────────────
 
-func TestLookupRequest_XRealIP(t *testing.T) {
+// TestLookupRequest_XRealIPIgnored verifies that LookupRequest reads
+// r.RemoteAddr, not X-Real-IP. The server's realIPMiddleware (PART 12) is
+// responsible for proxy-header extraction before geoip middleware runs.
+func TestLookupRequest_XRealIPIgnored(t *testing.T) {
 	dir := t.TempDir()
 	db, _ := geoip.Open(geoip.Config{Dir: dir})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Real-IP", "8.8.8.8")
+	req.RemoteAddr = "203.0.113.1:1234"
 
 	info := db.LookupRequest(req)
 	if info == nil {
 		t.Fatal("expected non-nil info")
 	}
-	if info.IP != "8.8.8.8" {
-		t.Errorf("info.IP = %q; want 8.8.8.8", info.IP)
+	// Must reflect RemoteAddr, not the X-Real-IP header.
+	if info.IP != "203.0.113.1" {
+		t.Errorf("info.IP = %q; want 203.0.113.1 (RemoteAddr)", info.IP)
 	}
 }
 
-func TestLookupRequest_XForwardedFor(t *testing.T) {
+// TestLookupRequest_XForwardedForIgnored verifies that LookupRequest reads
+// r.RemoteAddr, not X-Forwarded-For. Proxy-header extraction is the server's
+// realIPMiddleware responsibility (PART 12).
+func TestLookupRequest_XForwardedForIgnored(t *testing.T) {
 	dir := t.TempDir()
 	db, _ := geoip.Open(geoip.Config{Dir: dir})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.1")
+	req.RemoteAddr = "203.0.113.2:5678"
 
 	info := db.LookupRequest(req)
 	if info == nil {
 		t.Fatal("expected non-nil info")
 	}
-	if info.IP != "1.2.3.4" {
-		t.Errorf("info.IP = %q; want 1.2.3.4", info.IP)
+	// Must reflect RemoteAddr, not the X-Forwarded-For header.
+	if info.IP != "203.0.113.2" {
+		t.Errorf("info.IP = %q; want 203.0.113.2 (RemoteAddr)", info.IP)
 	}
 }
 

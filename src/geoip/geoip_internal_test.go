@@ -323,29 +323,43 @@ func TestLookupRequest_RemoteAddr(t *testing.T) {
 	}
 }
 
-func TestLookupRequest_XRealIP(t *testing.T) {
+// TestLookupRequest_XRealIPIgnored verifies that LookupRequest reads
+// r.RemoteAddr only. X-Real-IP is never read here; the server's
+// realIPMiddleware (PART 12) handles proxy-header extraction before geoip runs.
+func TestLookupRequest_XRealIPIgnored(t *testing.T) {
 	tmp := t.TempDir()
 	db, _ := Open(Config{Dir: tmp})
 	defer db.Close()
 
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "5.6.7.8")
+	req.RemoteAddr = "203.0.113.3:9999"
 	got := db.LookupRequest(req)
 	if got == nil {
-		t.Error("LookupRequest with X-Real-IP header should return non-nil")
+		t.Error("LookupRequest with valid RemoteAddr should return non-nil")
+	}
+	if got.IP != "203.0.113.3" {
+		t.Errorf("got.IP = %q; want 203.0.113.3 (RemoteAddr, not X-Real-IP)", got.IP)
 	}
 }
 
-func TestLookupRequest_XForwardedFor(t *testing.T) {
+// TestLookupRequest_XForwardedForIgnored verifies that LookupRequest reads
+// r.RemoteAddr only. X-Forwarded-For is never read here; the server's
+// realIPMiddleware (PART 12) handles proxy-header extraction before geoip runs.
+func TestLookupRequest_XForwardedForIgnored(t *testing.T) {
 	tmp := t.TempDir()
 	db, _ := Open(Config{Dir: tmp})
 	defer db.Close()
 
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "9.10.11.12, 1.1.1.1")
+	req.RemoteAddr = "203.0.113.4:8888"
 	got := db.LookupRequest(req)
 	if got == nil {
-		t.Error("LookupRequest with X-Forwarded-For should return non-nil")
+		t.Error("LookupRequest with valid RemoteAddr should return non-nil")
+	}
+	if got.IP != "203.0.113.4" {
+		t.Errorf("got.IP = %q; want 203.0.113.4 (RemoteAddr, not X-Forwarded-For)", got.IP)
 	}
 }
 

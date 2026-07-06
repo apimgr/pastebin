@@ -47,10 +47,14 @@ func TestIsPrivate_PublicIP(t *testing.T) {
 	}
 }
 
-// ─── realIP: various header / RemoteAddr branches ────────────────────────────
+// ─── realIP: RemoteAddr-only extraction (PART 12 architecture) ───────────────
+//
+// realIPMiddleware in server.go applies the PART 12 trusted-proxy gate and
+// rewrites r.RemoteAddr before any downstream middleware runs. Therefore
+// realIP() in this package only reads r.RemoteAddr — never forwarded headers.
 
 // TestRealIP_BareRemoteAddr_NoPort covers the SplitHostPort failure branch
-// inside realIP.  When RemoteAddr contains no port (e.g. a raw IP string),
+// inside realIP. When RemoteAddr contains no port (e.g. a raw IP string),
 // net.SplitHostPort returns an error and realIP falls back to parsing the whole
 // string directly.
 func TestRealIP_BareRemoteAddr_NoPort(t *testing.T) {
@@ -68,50 +72,51 @@ func TestRealIP_BareRemoteAddr_NoPort(t *testing.T) {
 	}
 }
 
-// TestRealIP_XForwardedFor_MultipleHops verifies that realIP takes the
-// leftmost (client) entry from a comma-separated X-Forwarded-For header.
-func TestRealIP_XForwardedFor_MultipleHops(t *testing.T) {
+// TestRealIP_IgnoresXForwardedFor verifies that realIP does NOT read
+// X-Forwarded-For. Proxy header extraction is the server's realIPMiddleware
+// responsibility (PART 12); geoip only reads r.RemoteAddr.
+func TestRealIP_IgnoresXForwardedFor(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.1, 192.168.1.1")
+	req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.1")
+	req.RemoteAddr = "198.51.100.9:443"
 	got := realIP(req)
 	if got == nil {
 		t.Fatal("realIP returned nil")
 	}
-	if got.String() != "203.0.113.5" {
-		t.Errorf("realIP = %s; want 203.0.113.5", got)
+	// Must return RemoteAddr, not the X-Forwarded-For value.
+	if got.String() != "198.51.100.9" {
+		t.Errorf("realIP = %s; want 198.51.100.9 (RemoteAddr), not X-Forwarded-For", got)
 	}
 }
 
-// TestRealIP_InvalidXRealIP_FallsThrough verifies that an unparseable
-// X-Real-IP value does not cause realIP to return that garbage value;
-// it must continue to inspect X-Forwarded-For and then RemoteAddr.
-func TestRealIP_InvalidXRealIP_FallsThrough(t *testing.T) {
+// TestRealIP_IgnoresXRealIP verifies that realIP does NOT read X-Real-IP.
+// Proxy header extraction is the server's realIPMiddleware responsibility.
+func TestRealIP_IgnoresXRealIP(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Real-IP", "not-an-ip")
-	req.Header.Set("X-Forwarded-For", "198.51.100.8")
+	req.Header.Set("X-Real-IP", "8.8.8.8")
+	req.RemoteAddr = "198.51.100.9:443"
 	got := realIP(req)
 	if got == nil {
-		t.Fatal("realIP returned nil when X-Real-IP was invalid but X-Forwarded-For was valid")
+		t.Fatal("realIP returned nil")
 	}
-	if got.String() != "198.51.100.8" {
-		t.Errorf("realIP = %s; want 198.51.100.8", got)
+	// Must return RemoteAddr, not the X-Real-IP header value.
+	if got.String() != "198.51.100.9" {
+		t.Errorf("realIP = %s; want 198.51.100.9 (RemoteAddr), not X-Real-IP", got)
 	}
 }
 
-// TestRealIP_InvalidXForwardedFor_FallsToRemoteAddr verifies that realIP
-// falls through to RemoteAddr when X-Forwarded-For cannot be parsed.
-func TestRealIP_InvalidXForwardedFor_FallsToRemoteAddr(t *testing.T) {
+// TestRealIP_RemoteAddrWithPort verifies the normal host:port case.
+func TestRealIP_RemoteAddrWithPort(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "/", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Forwarded-For", "garbage")
 	req.RemoteAddr = "198.51.100.9:443"
 	got := realIP(req)
 	if got == nil {
