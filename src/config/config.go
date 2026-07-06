@@ -1164,7 +1164,7 @@ func DefaultConfig() *Config {
 				LiveReload:   true,
 			},
 			Termbin: TermbinConfig{
-				Enabled: false,
+				Enabled: true,
 				Port:    9999,
 				MaxSize: 32768,
 				Timeout: "5s",

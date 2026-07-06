@@ -94,13 +94,118 @@
                     <h2 class="section-mt">Burn after N views</h2>
                     <p>Set <code>burn_after</code> to a number 1–9999. The paste is deleted after that many views. Set to <code>0</code> to disable.</p>
 
-                    <h2 class="section-mt">pastebin.com compatibility</h2>
-                    <p>Scripts targeting <code>pastebin.com</code> work by pointing them at this server:</p>
+                    <h2 class="section-mt" id="compat">Compatibility layer</h2>
+                    <p>This server is a drop-in replacement for multiple paste services. Point existing scripts and CLIs here without modification:</p>
+
+                    <h3>pastebin.com</h3>
+                    <p>Wire-compatible with the <a href="https://pastebin.com/doc_api" target="_blank" rel="noopener">pastebin.com API</a>:</p>
                     <div class="code-block">
                         <div class="code-header"><span class="code-lang">Bash</span></div>
                         <div class="code-content"><pre>curl -d "api_dev_key=x&api_paste_code=Hello&api_option=paste" \
      {{.BaseURL}}/api/api_post.php</pre></div>
                     </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/api/api_post.php</code></td><td>Create paste (<code>api_option=paste</code>), list, delete, userdetails</td></tr>
+                        <tr><td>GET</td><td><code>/api/api_raw.php</code></td><td>Get raw paste content (<code>?i=ID</code>)</td></tr>
+                        <tr><td>POST</td><td><code>/api/api_login.php</code></td><td>Always returns ANONYMOUS (auth stub)</td></tr>
+                    </table>
+
+                    <h3 class="section-mt">microbin</h3>
+                    <p>Wire-compatible with the <a href="https://github.com/szabodanika/microbin" target="_blank" rel="noopener">microbin</a> API:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -d "content=Hello" {{.BaseURL}}/api/v1/pasta</pre></div>
+                    </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/api/v1/pasta</code></td><td>Create paste</td></tr>
+                        <tr><td>GET</td><td><code>/api/v1/pasta</code></td><td>List pastes</td></tr>
+                        <tr><td>GET</td><td><code>/api/v1/pasta/{id}</code></td><td>Get paste by ID</td></tr>
+                        <tr><td>DELETE</td><td><code>/api/v1/pasta/{id}</code></td><td>Delete paste by ID</td></tr>
+                    </table>
+
+                    <h3 class="section-mt">lenpaste</h3>
+                    <p>Wire-compatible with the <a href="https://github.com/forksmgr/lcomrade-lenpaste" target="_blank" rel="noopener">lenpaste</a> API:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -d "text=Hello&ttl=86400" {{.BaseURL}}/api/new</pre></div>
+                    </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/api/new</code> or <code>/api/v1/new</code></td><td>Create paste</td></tr>
+                        <tr><td>GET</td><td><code>/api/get</code> or <code>/api/v1/get</code></td><td>Get paste (<code>?id=ID</code>)</td></tr>
+                        <tr><td>DELETE</td><td><code>/api/remove</code> or <code>/api/v1/remove</code></td><td>Delete paste (<code>?id=ID&amp;deleteToken=TOKEN</code>)</td></tr>
+                        <tr><td>GET</td><td><code>/api/list</code> or <code>/api/v1/list</code></td><td>List pastes</td></tr>
+                        <tr><td>GET</td><td><code>/api/v1/getServerInfo</code></td><td>Server metadata</td></tr>
+                    </table>
+
+                    <h3 class="section-mt">stikked</h3>
+                    <p>Wire-compatible with the <a href="https://github.com/claudehohl/Stikked" target="_blank" rel="noopener">stikked</a> API:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -d "text=Hello&title=Test&lang=text" {{.BaseURL}}/api/create</pre></div>
+                    </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/api/create</code></td><td>Create paste; returns URL as plain text</td></tr>
+                        <tr><td>GET</td><td><code>/api/paste/{id}</code></td><td>Get paste as JSON</td></tr>
+                    </table>
+
+                    <h3 class="section-mt">hastebin / haste-server</h3>
+                    <p>Wire-compatible with the <a href="https://github.com/toptal/haste-server" target="_blank" rel="noopener">haste-server</a> API:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -X POST --data-binary "Hello" {{.BaseURL}}/documents
+# returns {"key":"AbCdEfGh"}
+curl {{.BaseURL}}/documents/AbCdEfGh</pre></div>
+                    </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/documents</code></td><td>Create paste; returns <code>{"key":"…"}</code></td></tr>
+                        <tr><td>GET</td><td><code>/documents/{key}</code></td><td>Get paste content</td></tr>
+                    </table>
+
+                    <h3 class="section-mt">dpaste</h3>
+                    <p>Wire-compatible with the <a href="https://github.com/bartTC/dpaste" target="_blank" rel="noopener">dpaste</a> API:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>curl -d "content=Hello&lexer=text&expires=86400&format=url" \
+     {{.BaseURL}}/api/</pre></div>
+                    </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/api/</code> or <code>/api/v2/</code></td><td>Create paste; <code>format=url</code> returns bare URL, <code>format=json</code> returns JSON</td></tr>
+                    </table>
+
+                    <h3 class="section-mt">0x0.st / sprunge / ix.io (curl-upload family)</h3>
+                    <p>Wire-compatible with the curl-upload one-liner family:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre># 0x0.st style
+curl -F "file=@file.txt" {{.BaseURL}}/
+
+# sprunge style
+cat file.txt | curl -F "sprunge=&lt;-" {{.BaseURL}}/
+
+# ix.io style
+curl -F "f:1=&lt;-" {{.BaseURL}}/</pre></div>
+                    </div>
+                    <table class="help-table">
+                        <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+                        <tr><td>POST</td><td><code>/</code></td><td>Upload via <code>file</code>, <code>sprunge</code>, <code>f:1</code>, or raw body; returns bare URL</td></tr>
+                    </table>
+
+                    {{if .TermbinEnabled}}
+                    <h3 class="section-mt" id="termbin">termbin / fiche (raw TCP)</h3>
+                    <p>Wire-compatible with <a href="https://termbin.com" target="_blank" rel="noopener">termbin.com</a> and the fiche server protocol. Connect, stream content, close the write side; the server replies with the paste URL and closes:</p>
+                    <div class="code-block">
+                        <div class="code-header"><span class="code-lang">Bash</span></div>
+                        <div class="code-content"><pre>echo "Hello" | nc {{.TermbinHost}} {{.TermbinPort}}
+cat file.txt | nc {{.TermbinHost}} {{.TermbinPort}}</pre></div>
+                    </div>
+                    <p>Maximum payload: {{.TermbinMaxSize}} bytes. Idle/read timeout: {{.TermbinTimeout}}. TCP port: <code>{{.TermbinPort}}</code>.</p>
+                    {{end}}
 
                     <h2 class="section-mt" id="api-docs">API Documentation</h2>
                     <p>This service provides a full REST API and a GraphQL API, each with interactive documentation:</p>

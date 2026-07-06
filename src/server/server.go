@@ -2291,15 +2291,37 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 					"GET  /remove/{id}": "delete form",
 				},
 				"compat_pastebin": map[string]string{
-					"POST /api/api_post.php":  "create paste",
+					"POST /api/api_post.php":  "create/list/delete paste (api_option field dispatches)",
 					"GET  /api/api_raw.php":   "get raw paste (?i=ID)",
 					"POST /api/api_login.php": "always returns ANONYMOUS",
 				},
+				"compat_microbin": map[string]string{
+					"POST   /api/v1/pasta":       "create paste",
+					"GET    /api/v1/pasta":        "list pastes",
+					"GET    /api/v1/pasta/{id}":   "get paste",
+					"DELETE /api/v1/pasta/{id}":   "delete paste",
+				},
 				"compat_lenpaste": map[string]string{
-					"POST /api/new":      "create paste",
-					"GET  /api/get":      "get paste (?id=ID)",
-					"DELETE /api/remove": "delete paste (?id=ID&deleteToken=TOKEN)",
-					"GET  /api/list":     "list pastes",
+					"POST   /api/new":             "create paste (also /api/v1/new)",
+					"GET    /api/get":              "get paste (?id=ID) (also /api/v1/get)",
+					"DELETE /api/remove":           "delete paste (?id=ID&deleteToken=TOKEN) (also /api/v1/remove)",
+					"GET    /api/list":             "list pastes (also /api/v1/list)",
+					"GET    /api/v1/getServerInfo": "server metadata",
+				},
+				"compat_stikked": map[string]string{
+					"POST /api/create":      "create paste; returns bare URL",
+					"GET  /api/paste/{id}":  "get paste as JSON",
+				},
+				"compat_hastebin": map[string]string{
+					"POST /documents":       "create document; returns {\"key\":\"…\"}",
+					"GET  /documents/{key}": "get document; returns {\"key\":\"…\",\"data\":\"…\"}",
+				},
+				"compat_dpaste": map[string]string{
+					"POST /api/":   "create paste (also /api/v2/); format=url|json",
+					"POST /api/v2/": "create paste (dpaste v2 alias)",
+				},
+				"compat_curl_upload": map[string]string{
+					"POST /": "0x0.st (-F file=@…) / sprunge (-F sprunge=<-) / ix.io (-F f:1=<-) / raw body; returns bare URL",
 				},
 			},
 			"examples": map[string]string{
@@ -2729,6 +2751,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 		"Theme":     s.liveCfg().Web.Theme,
 		"BaseURL":   s.baseURL(r),
 	}
+	s.injectTermbinData(r, data)
 	if detectClientType(r) == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		html, err := s.renderTemplateToString(r, "help.html", data)
@@ -3467,6 +3490,36 @@ func (s *Server) injectTorData(data map[string]interface{}) {
 		data["TorAddress"] = s.TorOnionAddress()
 	} else {
 		data["TorAddress"] = ""
+	}
+}
+
+// injectTermbinData adds the termbin config fields used by /server/help to
+// display the raw-TCP usage section when termbin is enabled (PART 18).
+func (s *Server) injectTermbinData(r *http.Request, data map[string]interface{}) {
+	cfg := s.liveCfg()
+	tb := cfg.Server.Termbin
+	data["TermbinEnabled"] = tb.Enabled
+	if tb.Enabled {
+		host := cfg.Server.Address
+		if host == "" || host == "0.0.0.0" {
+			if h, err := os.Hostname(); err == nil {
+				host = h
+			} else {
+				host = r.Host
+				if h, _, err := net.SplitHostPort(host); err == nil {
+					host = h
+				}
+			}
+		}
+		data["TermbinHost"] = host
+		data["TermbinPort"] = tb.Port
+		data["TermbinMaxSize"] = fmt.Sprintf("%d", tb.MaxSize)
+		data["TermbinTimeout"] = tb.Timeout
+	} else {
+		data["TermbinHost"] = ""
+		data["TermbinPort"] = 0
+		data["TermbinMaxSize"] = ""
+		data["TermbinTimeout"] = ""
 	}
 }
 

@@ -22,7 +22,7 @@ services:
       - PORT=80
       - DEBUG=false
       - TZ=${TZ:-America/New_York}
-      - TERMBIN_ENABLED=${TERMBIN_ENABLED:-false}
+      - TERMBIN_ENABLED=${TERMBIN_ENABLED:-true}
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'

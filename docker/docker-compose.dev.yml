@@ -23,7 +23,7 @@ services:
       - PORT=80
       - DEBUG=true
       - TZ=${TZ:-America/New_York}
-      - TERMBIN_ENABLED=${TERMBIN_ENABLED:-false}
+      - TERMBIN_ENABLED=${TERMBIN_ENABLED:-true}
     ports:
       - '172.17.0.1:64580:80'
       - '172.17.0.1:${TERMBIN_PORT:-9999}:9999'
