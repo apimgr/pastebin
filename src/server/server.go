@@ -880,10 +880,10 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/security/policy", s.handleSecurityPolicy)
 	r.Get("/server/security/thanks", s.handleSecurityThanks)
 	r.Get("/server/security/report/{tracking_id}", s.handleSecurityReportStatus)
-	r.Get("/server/healthz", s.handleHealthz)
+	r.Get("/server/healthz", s.maybeHealthRateLimit(s.handleHealthz))
 	// /healthz root alias — only when server.healthz.root.enabled: true (PART 13).
 	if s.liveCfg().Web.Healthz.Root.Enabled {
-		r.Get("/healthz", s.handleHealthz)
+		r.Get("/healthz", s.maybeHealthRateLimit(s.handleHealthz))
 	}
 	// PWA offline fallback page — referenced by service worker cache
 	r.Get("/offline", s.handleOffline)
@@ -920,28 +920,28 @@ func (s *Server) setupRoutes() {
 
 	// ── pastebin.com API compatibility ───────────────────────────────────────
 	r.Post("/api/api_post.php", s.maybeRateLimit(s.compatHandler.PastebinPost))
-	r.Get("/api/api_raw.php", s.compatHandler.PastebinRaw)
+	r.Get("/api/api_raw.php", s.maybeReadRateLimit(s.compatHandler.PastebinRaw))
 	r.Post("/api/api_login.php", s.compatHandler.PastebinLogin)
 
 	// ── lenpaste API compatibility ───────────────────────────────────────────
 	r.Post("/api/new", s.maybeRateLimit(s.compatHandler.LenCreate))
-	r.Get("/api/get", s.compatHandler.LenGet)
+	r.Get("/api/get", s.maybeReadRateLimit(s.compatHandler.LenGet))
 	r.Delete("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove))
 	// some clients use GET
 	r.Get("/api/remove", s.maybeDeleteRateLimit(s.compatHandler.LenRemove))
-	r.Get("/api/list", s.compatHandler.LenList)
+	r.Get("/api/list", s.maybeReadRateLimit(s.compatHandler.LenList))
 
 	// ── stikked API compatibility ────────────────────────────────────────────
 	r.Post("/api/create", s.maybeRateLimit(s.compatHandler.StikkedCreate))
-	r.Get("/api/paste/{id}", s.compatHandler.StikkedJSON)
-	r.Get("/view/raw/{id}", s.pasteHandler.GetRawPaste)
+	r.Get("/api/paste/{id}", s.maybeReadRateLimit(s.compatHandler.StikkedJSON))
+	r.Get("/view/raw/{id}", s.maybeReadRateLimit(s.pasteHandler.GetRawPaste))
 	r.Get("/view/{id}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/"+chi.URLParam(r, "id"), http.StatusFound)
 	})
 
 	// ── hastebin / haste-server compatibility ────────────────────────────────
 	r.Post("/documents", s.maybeRateLimit(s.compatHandler.HastebinCreate))
-	r.Get("/documents/{id}", s.compatHandler.HastebinGet)
+	r.Get("/documents/{id}", s.maybeReadRateLimit(s.compatHandler.HastebinGet))
 
 	// ── dpaste compatibility ─────────────────────────────────────────────────
 	r.Post("/api/", s.maybeRateLimit(s.compatHandler.DpasteCreate))
@@ -955,26 +955,26 @@ func (s *Server) setupRoutes() {
 
 		// Native REST API (PART 14): plural resource routes only; no singular forms.
 		r.Route("/pastes", func(r chi.Router) {
-			r.Get("/", s.pasteHandler.ListPastes)
+			r.Get("/", s.maybeReadRateLimit(s.pasteHandler.ListPastes))
 			r.Post("/", s.maybeRateLimit(s.pasteHandler.CreatePaste))
-			r.Get("/{id}", s.pasteHandler.GetPaste)
+			r.Get("/{id}", s.maybeReadRateLimit(s.pasteHandler.GetPaste))
 			r.Delete("/{id}", s.maybeDeleteRateLimit(s.pasteHandler.DeletePaste))
-			r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)
+			r.Get("/{id}/raw", s.maybeReadRateLimit(s.pasteHandler.GetRawPaste))
 		})
 
 		// microbin-style /pasta alias
-		r.Get("/pasta", s.compatHandler.MicrobinList)
-		r.Post("/pasta", s.compatHandler.MicrobinCreate)
-		r.Get("/pasta/{id}", s.compatHandler.MicrobinGet)
+		r.Get("/pasta", s.maybeReadRateLimit(s.compatHandler.MicrobinList))
+		r.Post("/pasta", s.maybeRateLimit(s.compatHandler.MicrobinCreate))
+		r.Get("/pasta/{id}", s.maybeReadRateLimit(s.compatHandler.MicrobinGet))
 		r.Delete("/pasta/{id}", s.maybeDeleteRateLimit(s.compatHandler.MicrobinDelete))
 
 		// lenpaste v1 versioned aliases
 		r.Post("/new", s.compatHandler.LenCreate)
-		r.Get("/get", s.compatHandler.LenGet)
-		r.Get("/getServerInfo", s.compatHandler.LenServerInfo)
+		r.Get("/get", s.maybeReadRateLimit(s.compatHandler.LenGet))
+		r.Get("/getServerInfo", s.maybeReadRateLimit(s.compatHandler.LenServerInfo))
 
 		// Server info
-		r.Get("/server/healthz", s.handleHealthzJSON)
+		r.Get("/server/healthz", s.maybeHealthRateLimit(s.handleHealthzJSON))
 		r.Get("/server/version", s.handleVersion)
 		r.Get("/server/swagger", s.swaggerHandler.ServeSpec)
 		// /api/v1/server/graphql — versioned GraphQL endpoint (PART 14)
@@ -995,7 +995,7 @@ func (s *Server) setupRoutes() {
 	// Unversioned aliases — same handler as versioned, served directly (no redirect) per PART 14.
 	r.Get("/api/swagger", s.swaggerHandler.ServeSpec)
 	r.Handle("/api/graphql", s.graphqlHandler)
-	r.Get("/api/healthz", s.handleHealthzJSON)
+	r.Get("/api/healthz", s.maybeHealthRateLimit(s.handleHealthzJSON))
 	// autodiscover is non-versioned by design (PART 32/14): clients use it before knowing the version.
 	r.Get("/api/autodiscover", s.handleAutodiscover)
 
@@ -1033,29 +1033,29 @@ func (s *Server) setupRoutes() {
 	})
 
 	// ── Web: paste views ─────────────────────────────────────────────────────
-	r.Get("/raw/{id}", s.pasteHandler.GetRawPaste)
-	r.Get("/r/{id}", s.pasteHandler.GetRawPaste)
-	r.Get("/dl/{id}", s.handleDownload)
-	r.Get("/download/{id}", s.handleDownload)
+	r.Get("/raw/{id}", s.maybeReadRateLimit(s.pasteHandler.GetRawPaste))
+	r.Get("/r/{id}", s.maybeReadRateLimit(s.pasteHandler.GetRawPaste))
+	r.Get("/dl/{id}", s.maybeReadRateLimit(s.handleDownload))
+	r.Get("/download/{id}", s.maybeReadRateLimit(s.handleDownload))
 	// microbin alias
-	r.Get("/file/{id}", s.handleDownload)
-	r.Get("/emb/{id}", s.handleEmbed)
-	r.Get("/qr/{id}", s.handleQR)
-	r.Get("/qr/{id}/image", s.handleQRImage)
+	r.Get("/file/{id}", s.maybeReadRateLimit(s.handleDownload))
+	r.Get("/emb/{id}", s.maybeReadRateLimit(s.handleEmbed))
+	r.Get("/qr/{id}", s.maybeReadRateLimit(s.handleQR))
+	r.Get("/qr/{id}/image", s.maybeReadRateLimit(s.handleQRImage))
 	r.Get("/remove/{id}", s.handleRemovePage)
 	r.Post("/remove/{id}", s.maybeDeleteRateLimit(s.handleRemoveSubmit))
 	// microbin upload
 	r.Post("/upload", s.maybeRateLimit(s.pasteHandler.CreatePaste))
 	// microbin upload alias
-	r.Get("/upload/{id}", s.handleViewPaste)
+	r.Get("/upload/{id}", s.maybeReadRateLimit(s.handleViewPaste))
 	// microbin short URL
-	r.Get("/p/{id}", s.handleViewPaste)
+	r.Get("/p/{id}", s.maybeReadRateLimit(s.handleViewPaste))
 	// pastebin.com /id/raw
-	r.Get("/{id}/raw", s.pasteHandler.GetRawPaste)
+	r.Get("/{id}/raw", s.maybeReadRateLimit(s.pasteHandler.GetRawPaste))
 	// microbin URL-paste redirect
-	r.Get("/url/{id}", s.handleURLRedirect)
+	r.Get("/url/{id}", s.maybeReadRateLimit(s.handleURLRedirect))
 	// microbin short URL redirect
-	r.Get("/u/{id}", s.handleURLRedirect)
+	r.Get("/u/{id}", s.maybeReadRateLimit(s.handleURLRedirect))
 
 	// Swagger UI (human-readable docs page)
 	r.Get("/server/swagger", s.swaggerHandler.ServeUI)
@@ -1063,7 +1063,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/docs/graphql", s.graphqlHandler.ServeHTTP)
 
 	// ── Paste view — catch-all (must be last) ────────────────────────────────
-	r.Get("/{id}", s.handleViewPaste)
+	r.Get("/{id}", s.maybeReadRateLimit(s.handleViewPaste))
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
