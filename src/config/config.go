@@ -1015,7 +1015,7 @@ func DefaultConfig() *Config {
 		Server: ServerConfig{
 			Port:       "",
 			Address:    "0.0.0.0",
-			FQDN:       "localhost",
+			FQDN:       "",
 			Mode:       "production",
 			APIVersion: "v1",
 			Branding: BrandingConfig{
@@ -1365,7 +1365,14 @@ func Load(path string) (*Config, error) {
 			} else {
 				log.Printf("config: generated server.token — copy it from %s", path)
 			}
-			_ = Save(path, cfg)
+			// Write canonical defaults to disk. Never bake runtime env-var overrides
+			// (MODE, DEBUG, etc.) into the persisted config — env vars are runtime-only.
+			// Copy only the generated secrets so they survive the next startup.
+			saveCfg := DefaultConfig()
+			saveCfg.Server.FQDN = cfg.ResolveFQDN()
+			saveCfg.Web.Security.EncryptionKey = cfg.Web.Security.EncryptionKey
+			saveCfg.Server.Token = cfg.Server.Token
+			_ = Save(path, saveCfg)
 			return cfg, nil
 		}
 		return cfg, err
@@ -1865,6 +1872,11 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("TERMBIN_TIMEOUT"); v != "" {
 		c.Server.Termbin.Timeout = v
 	}
+	// MODE is a runtime variable — always overrides config file (AI.md PART 5).
+	// Never baked into the persisted config; only applies at runtime.
+	if v := os.Getenv("MODE"); v != "" {
+		c.Server.Mode = v
+	}
 }
 
 // Validate checks all config values, replaces invalid ones with defaults, and
@@ -2132,12 +2144,27 @@ func ResolvePort(cfgPath string, cfg *Config, inContainer bool) error {
 	}
 	cfg.Server.Port = strconv.Itoa(port)
 
-	// Persist so subsequent restarts use the same port.
-	if saveErr := Save(cfgPath, cfg); saveErr != nil {
+	// Persist only the port. Read the canonical config file, update Server.Port,
+	// and save it back. Never save cfg directly: cfg carries runtime env-var
+	// overrides (MODE, etc.) that must not be baked into the persisted config
+	// (AI.md PART 5 — runtime variables are never persisted).
+	if saveErr := persistPortOnly(cfgPath, cfg.Server.Port); saveErr != nil {
 		// Non-fatal: log at the call site; the server can still start.
 		return fmt.Errorf("port allocator: could not persist port to %s: %w", cfgPath, saveErr)
 	}
 	return nil
+}
+
+// persistPortOnly reads the config file at path, sets Server.Port to port, and
+// saves the result. Using a clean file-round-trip ensures runtime env-var
+// overrides are never written to disk (AI.md PART 5).
+func persistPortOnly(path string, port string) error {
+	base := DefaultConfig()
+	if data, err := os.ReadFile(path); err == nil {
+		_ = yaml.Unmarshal(data, base)
+	}
+	base.Server.Port = port
+	return Save(path, base)
 }
 
 // SplitPorts parses a port specification into an optional plain-HTTP port and an

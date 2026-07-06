@@ -113,6 +113,44 @@ func TestLoad_CreatesFileIfAbsent(t *testing.T) {
 	}
 }
 
+// TestLoad_FirstRunDoesNotBakeEnvVars verifies that env-var overrides applied at
+// runtime are NOT written into the first-run config file. Env vars must remain
+// runtime-only; persisting them would cause e.g. MODE=development to survive
+// across container restarts even after the env var is removed.
+func TestLoad_FirstRunDoesNotBakeEnvVars(t *testing.T) {
+	t.Setenv("MODE", "development")
+	t.Setenv("DEBUG", "true")
+
+	path := tempConfigPath(t)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Runtime config must reflect the env var.
+	if cfg.Server.Mode != "development" {
+		t.Errorf("runtime Mode: got %q, want %q", cfg.Server.Mode, "development")
+	}
+
+	// Persisted file must contain canonical defaults, NOT the env-var values.
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load of saved file: %v", err)
+	}
+	// Clear env so we read the file value only.
+	t.Setenv("MODE", "")
+	t.Setenv("DEBUG", "")
+	savedNoEnv, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load of saved file (no env): %v", err)
+	}
+	_ = saved
+	if savedNoEnv.Server.Mode != "production" {
+		t.Errorf("persisted Mode: got %q, want %q (env vars must not be baked into first-run config)", savedNoEnv.Server.Mode, "production")
+	}
+}
+
 // ─── Env overrides ────────────────────────────────────────────────────────────
 
 // TestLoadEnv_PORT verifies that $PORT overrides the config file value.
