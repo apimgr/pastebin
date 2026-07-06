@@ -18,15 +18,15 @@
     <!-- Header -->
     <header class="header">
         <nav class="nav">
-            <a href="{{.BaseURL}}/" class="nav-brand">
+            <a href="{{.AssetPrefix}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="{{.BaseURL}}/" class="nav-link active">{{t .Lang "nav.home"}}</a>
-                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
-                <form class="theme-toggle" method="post" action="{{.BaseURL}}/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
+                <a href="{{.AssetPrefix}}/" class="nav-link active">{{t .Lang "nav.home"}}</a>
+                <a href="{{.AssetPrefix}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.AssetPrefix}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
             </div>
         </nav>
     </header>
@@ -47,10 +47,10 @@
                         Share code snippets, text, and files instantly. Syntax highlighting, expiration options, and powerful API for automation.
                     </p>
                     <div class="hero-actions">
-                        <a href="{{.BaseURL}}/create" class="btn btn-primary btn-lg">
+                        <a href="{{.AssetPrefix}}/create" class="btn btn-primary btn-lg">
                             {{t .Lang "home.create_paste"}}
                         </a>
-                        <a href="{{.BaseURL}}/recent" class="btn btn-secondary btn-lg">
+                        <a href="{{.AssetPrefix}}/recent" class="btn btn-secondary btn-lg">
                             {{t .Lang "home.browse_recent"}}
                         </a>
                     </div>
@@ -80,17 +80,17 @@
                     <p class="section-description">{{t .Lang "home.features_desc"}}</p>
                 </div>
                 <div class="features-grid">
-                    <a href="{{.BaseURL}}/create" class="feature-card">
+                    <a href="{{.AssetPrefix}}/create" class="feature-card">
                         <div class="feature-icon">📝</div>
                         <h3 class="feature-title">{{t .Lang "home.feature_create_title"}}</h3>
                         <p class="feature-description">{{t .Lang "home.feature_create_desc"}}</p>
                     </a>
-                    <a href="{{.BaseURL}}/recent" class="feature-card">
+                    <a href="{{.AssetPrefix}}/recent" class="feature-card">
                         <div class="feature-icon">📋</div>
                         <h3 class="feature-title">{{t .Lang "home.feature_recent_title"}}</h3>
                         <p class="feature-description">{{t .Lang "home.feature_recent_desc"}}</p>
                     </a>
-                    <a href="{{.BaseURL}}/api" class="feature-card">
+                    <a href="{{.AssetPrefix}}/api" class="feature-card">
                         <div class="feature-icon">⚡</div>
                         <h3 class="feature-title">{{t .Lang "home.feature_api_title"}}</h3>
                         <p class="feature-description">{{t .Lang "home.feature_api_desc"}}</p>

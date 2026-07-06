@@ -17,15 +17,15 @@
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
-            <a href="{{.BaseURL}}/" class="nav-brand">
+            <a href="{{.AssetPrefix}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="{{.BaseURL}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
-                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
-                <form class="theme-toggle" method="post" action="{{.BaseURL}}/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
+                <a href="{{.AssetPrefix}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="{{.AssetPrefix}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.AssetPrefix}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
             </div>
         </nav>
     </header>
@@ -45,8 +45,8 @@
                     <p class="delete-hint">
                         Paste <code>{{.ID}}</code> has been permanently deleted.
                     </p>
-                    <a href="{{.BaseURL}}/" class="btn btn-primary">{{t .Lang "paste.go_home"}}</a>
-                    <a href="{{.BaseURL}}/create" class="btn btn-secondary">{{t .Lang "paste.create_new_paste"}}</a>
+                    <a href="{{.AssetPrefix}}/" class="btn btn-primary">{{t .Lang "paste.go_home"}}</a>
+                    <a href="{{.AssetPrefix}}/create" class="btn btn-secondary">{{t .Lang "paste.create_new_paste"}}</a>
                 </div>
                 {{else}}
                 <div class="paste-view">
@@ -56,7 +56,7 @@
                     </div>
                     {{end}}
 
-                    <form action="{{.BaseURL}}/remove/{{.ID}}" method="POST" class="paste-form">
+                    <form action="{{.AssetPrefix}}/remove/{{.ID}}" method="POST" class="paste-form">
                         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                         <div class="form-group">
                             <label for="token" class="form-label">{{t .Lang "paste.delete_token_label"}}</label>
@@ -74,7 +74,7 @@
                             </p>
                         </div>
                         <div class="form-actions">
-                            <a href="{{.BaseURL}}/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.cancel"}}</a>
+                            <a href="{{.AssetPrefix}}/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.cancel"}}</a>
                             <button type="submit" class="btn btn-danger">{{t .Lang "paste.delete_btn"}}</button>
                         </div>
                     </form>

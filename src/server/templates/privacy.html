@@ -17,15 +17,15 @@
     <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="header">
         <nav class="nav">
-            <a href="{{.BaseURL}}/" class="nav-brand">
+            <a href="{{.AssetPrefix}}/" class="nav-brand">
                 <div class="nav-brand-icon">📋</div>
                 <span>{{.SiteTitle}}</span>
             </a>
             <div class="nav-links">
-                <a href="{{.BaseURL}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
-                <a href="{{.BaseURL}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
-                <a href="{{.BaseURL}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
-                <form class="theme-toggle" method="post" action="{{.BaseURL}}/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
+                <a href="{{.AssetPrefix}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
+                <a href="{{.AssetPrefix}}/create" class="nav-link">{{t .Lang "nav.create"}}</a>
+                <a href="{{.AssetPrefix}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
+                <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
             </div>
         </nav>
     </header>
@@ -126,7 +126,7 @@
                     {{if .Privacy.IsCCPAApplicable}}
                         {{if .CCPAOptedOut}}
                         <p>You have opted out of the sale of your personal information. We will not sell your data.</p>
-                        <form method="POST" action="{{.BaseURL}}/server/privacy/ccpa">
+                        <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <input type="hidden" name="action" value="opt_in">
                             <button type="submit" class="btn btn-secondary">Undo opt-out</button>
@@ -136,7 +136,7 @@
                             Under the California Consumer Privacy Act (CCPA) you may opt out of the sale of your
                             personal information. Click below to record your preference on this device.
                         </p>
-                        <form method="POST" action="{{.BaseURL}}/server/privacy/ccpa">
+                        <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <input type="hidden" name="action" value="opt_out">
                             <button type="submit" class="btn btn-primary">Do Not Sell My Personal Information</button>
@@ -148,7 +148,7 @@
 
                     <h2 class="section-mt">Contact</h2>
                     <p>
-                        For questions or concerns, use our <a href="{{.BaseURL}}/server/contact">contact page</a>.
+                        For questions or concerns, use our <a href="{{.AssetPrefix}}/server/contact">contact page</a>.
                     </p>
                 </div>
             </div>
