@@ -13,6 +13,7 @@ package handler
 //   sprunge/0x0/ix.io:   curl-upload family (POST / with a single field)
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -806,16 +807,20 @@ func (c *CompatHandler) rawURL(r *http.Request, id string) string {
 	return c.origin(r) + "/raw/" + id
 }
 
+// writeJSON encodes v as indented JSON and writes it to w.
+// SetEscapeHTML(false) prevents < > & from being mangled to < > &.
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		http.Error(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}`, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write(data)
-	w.Write([]byte("\n"))
+	w.Write(buf.Bytes())
 }
 
 func expiryUnix(t *time.Time) int64 {

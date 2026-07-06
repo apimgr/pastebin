@@ -251,14 +251,27 @@ func TestPasteURL(t *testing.T) {
 		}
 	})
 
-	t.Run("https_via_forwarded_proto", func(t *testing.T) {
+	// X-Forwarded-Proto without a trusted resolver must NOT be honoured (PART 12
+	// proxy-spoofing guard). The bare connection scheme is used instead.
+	t.Run("forwarded_proto_ignored_without_resolver", func(t *testing.T) {
 		h := &PasteHandler{db: db}
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.Host = "paste.example.com"
 		r.Header.Set("X-Forwarded-Proto", "https")
 		got := h.pasteURL(r, "abc12345")
+		if !strings.HasPrefix(got, "http://") {
+			t.Errorf("expected http:// (bare connection, header untrusted), got %q", got)
+		}
+	})
+
+	t.Run("https_via_trusted_resolver", func(t *testing.T) {
+		h := &PasteHandler{db: db}
+		h.SetBaseURLResolver(func(*http.Request) string { return "https://paste.example.com" })
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Host = "paste.example.com"
+		got := h.pasteURL(r, "abc12345")
 		if !strings.HasPrefix(got, "https://") {
-			t.Errorf("expected https:// prefix, got %q", got)
+			t.Errorf("expected https:// from trusted resolver, got %q", got)
 		}
 	})
 

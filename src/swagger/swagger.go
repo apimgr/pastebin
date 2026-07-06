@@ -3,6 +3,7 @@
 package swagger
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,9 +14,10 @@ import (
 // JSON spec: GET /api/v1/server/swagger
 // HTML UI:   GET /server/swagger (and /server/docs/swagger)
 type Handler struct {
-	title   string
-	version string
-	baseURL string // may be empty; derived at request time if so
+	title      string
+	version    string
+	baseURL    string                        // static override; takes precedence over baseURLFn
+	baseURLFn  func(*http.Request) string    // dynamic resolver; used when baseURL is empty
 }
 
 // New creates a Handler. baseURL can be left empty to auto-detect from the request.
@@ -23,19 +25,30 @@ func New(title, version, baseURL string) *Handler {
 	return &Handler{title: title, version: version, baseURL: baseURL}
 }
 
+// SetBaseURLResolver registers a trusted dynamic base-URL resolver.
+// When set, it is called instead of the bare request-header fallback when
+// the static baseURL field is empty. The resolver is expected to honour
+// the PART 12 trusted-proxy rules (e.g. Server.baseURL).
+func (h *Handler) SetBaseURLResolver(fn func(*http.Request) string) {
+	h.baseURLFn = fn
+}
+
 // ServeSpec writes the OpenAPI 3.0.3 JSON specification.
+// SetEscapeHTML(false) prevents < > & in description fields from being mangled.
 func (h *Handler) ServeSpec(w http.ResponseWriter, r *http.Request) {
 	spec := h.buildSpec(h.resolveBase(r))
-	data, err := json.MarshalIndent(spec, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(spec); err != nil {
 		http.Error(w, "spec generation error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
-	w.Write([]byte("\n"))
+	w.Write(buf.Bytes())
 }
 
 // ServeUI writes the self-contained HTML Swagger viewer.
@@ -49,19 +62,21 @@ func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveBase returns the effective base URL for the current request.
+// Priority: static baseURL field → registered trusted resolver → bare connection.
+// X-Forwarded-* headers are never read here; the resolver (e.g. Server.baseURL)
+// applies the PART 12 trusted-proxy gate instead (header-spoofing guard).
 func (h *Handler) resolveBase(r *http.Request) string {
 	if h.baseURL != "" {
 		return h.baseURL
 	}
+	if h.baseURLFn != nil {
+		return h.baseURLFn(r)
+	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil {
 		scheme = "https"
 	}
-	host := r.Host
-	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
-		host = fwd
-	}
-	return scheme + "://" + host
+	return scheme + "://" + r.Host
 }
 
 // buildSpec generates the OpenAPI 3.0.3 document from the route annotations.

@@ -673,8 +673,8 @@ func (h *PasteHandler) pasteURL(r *http.Request, id string) string {
 // base resolves the per-request absolute base URL (no trailing slash). It
 // delegates to the injected server resolver (PART 12 full chain) when present;
 // otherwise it honours the static baseURL override, and finally falls back to
-// the request scheme+Host. The trailing-slash trim keeps callers that append
-// "/{id}" from emitting a double slash.
+// the bare connection scheme+Host. X-Forwarded-* headers are never read here —
+// the trusted-proxy gate is the server resolver's responsibility (PART 12).
 func (h *PasteHandler) base(r *http.Request) string {
 	if h.baseURLFn != nil {
 		return strings.TrimRight(h.baseURLFn(r), "/")
@@ -683,7 +683,7 @@ func (h *PasteHandler) base(r *http.Request) string {
 		return strings.TrimRight(h.baseURL, "/")
 	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host

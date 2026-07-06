@@ -197,8 +197,9 @@ type Server struct {
 	metricsCollector *metrics.Collector
 	geoipDB          *geoip.DB
 	torManager       *tor.Manager
-	createLimiter    *rateLimiter
-	deleteLimiter    *rateLimiter
+	readLimiter   *rateLimiter
+	writeLimiter  *rateLimiter
+	healthLimiter *rateLimiter
 	version          string
 	commitID         string
 	buildDate        string
@@ -417,6 +418,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.pasteHandler.SetBaseURLResolver(s.baseURL)
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
+	s.swaggerHandler.SetBaseURLResolver(s.baseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
 	s.metricsCollector = metrics.NewWithOptions(metrics.Options{
 		Version:         version,
@@ -518,19 +520,34 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		s.cacheStore = cs
 	}
 
-	// Default: 30 creates per IP per minute; configurable via rate_limit.create_per_minute.
-	createLimit := cfg.RateLimit.CreatePerM
-	if createLimit <= 0 {
-		createLimit = 30
-	}
-	// Default: 10 deletes per IP per minute (stricter than creates to prevent enumeration).
-	deleteLimit := cfg.RateLimit.DeletePerM
-	if deleteLimit <= 0 {
-		deleteLimit = 10
-	}
 	if cfg.RateLimit.Enabled {
-		s.createLimiter = newRateLimiter(createLimit, time.Minute)
-		s.deleteLimiter = newRateLimiter(deleteLimit, time.Minute)
+		readReqs := cfg.RateLimit.Read.Requests
+		writeReqs := cfg.RateLimit.Write.Requests
+		healthReqs := cfg.RateLimit.Health.Requests
+		if readReqs <= 0 {
+			readReqs = 120
+		}
+		if writeReqs <= 0 {
+			writeReqs = 10
+		}
+		if healthReqs <= 0 {
+			healthReqs = 120
+		}
+		readWin := time.Duration(cfg.RateLimit.Read.Window) * time.Second
+		writeWin := time.Duration(cfg.RateLimit.Write.Window) * time.Second
+		healthWin := time.Duration(cfg.RateLimit.Health.Window) * time.Second
+		if readWin <= 0 {
+			readWin = time.Minute
+		}
+		if writeWin <= 0 {
+			writeWin = time.Minute
+		}
+		if healthWin <= 0 {
+			healthWin = time.Minute
+		}
+		s.readLimiter = newRateLimiter(readReqs, readWin)
+		s.writeLimiter = newRateLimiter(writeReqs, writeWin)
+		s.healthLimiter = newRateLimiter(healthReqs, healthWin)
 	}
 
 	tmpl, err := s.buildTemplates()
@@ -647,11 +664,14 @@ func fmtUserDate(t time.Time) string {
 // OnConfigChange is called by the ConfigManager after each successful hot-reload.
 // It updates rate limiter thresholds and tracks restart-required key changes.
 func (s *Server) OnConfigChange(next *config.Config) {
-	if s.createLimiter != nil && next.RateLimit.CreatePerM > 0 {
-		s.createLimiter.UpdateLimit(next.RateLimit.CreatePerM)
+	if s.readLimiter != nil && next.RateLimit.Read.Requests > 0 {
+		s.readLimiter.UpdateLimit(next.RateLimit.Read.Requests)
 	}
-	if s.deleteLimiter != nil && next.RateLimit.DeletePerM > 0 {
-		s.deleteLimiter.UpdateLimit(next.RateLimit.DeletePerM)
+	if s.writeLimiter != nil && next.RateLimit.Write.Requests > 0 {
+		s.writeLimiter.UpdateLimit(next.RateLimit.Write.Requests)
+	}
+	if s.healthLimiter != nil && next.RateLimit.Health.Requests > 0 {
+		s.healthLimiter.UpdateLimit(next.RateLimit.Health.Requests)
 	}
 
 	// Detect restart-required changes and record them for healthz.
@@ -714,21 +734,39 @@ func (s *Server) TorOnionAddress() string {
 	return s.torManager.OnionAddress()
 }
 
-// maybeRateLimit wraps h with the create rate limiter if enabled.
-func (s *Server) maybeRateLimit(h http.HandlerFunc) http.HandlerFunc {
-	if s.createLimiter == nil {
+// maybeReadRateLimit wraps h with the read (GET/HEAD) rate limiter if enabled (PART 12).
+func (s *Server) maybeReadRateLimit(h http.HandlerFunc) http.HandlerFunc {
+	if s.readLimiter == nil {
 		return h
 	}
-	mw := rateLimitMiddleware(s.createLimiter, "create")
+	mw := rateLimitMiddleware(s.readLimiter, "read")
 	return mw(h).ServeHTTP
 }
 
-// maybeDeleteRateLimit wraps h with the delete rate limiter if enabled.
-func (s *Server) maybeDeleteRateLimit(h http.HandlerFunc) http.HandlerFunc {
-	if s.deleteLimiter == nil {
+// maybeRateLimit wraps h with the write (POST/PUT/PATCH/DELETE) rate limiter if enabled (PART 12).
+func (s *Server) maybeRateLimit(h http.HandlerFunc) http.HandlerFunc {
+	if s.writeLimiter == nil {
 		return h
 	}
-	mw := rateLimitMiddleware(s.deleteLimiter, "delete")
+	mw := rateLimitMiddleware(s.writeLimiter, "write")
+	return mw(h).ServeHTTP
+}
+
+// maybeDeleteRateLimit wraps h with the write rate limiter (DELETE is a write operation, PART 12).
+func (s *Server) maybeDeleteRateLimit(h http.HandlerFunc) http.HandlerFunc {
+	if s.writeLimiter == nil {
+		return h
+	}
+	mw := rateLimitMiddleware(s.writeLimiter, "write")
+	return mw(h).ServeHTTP
+}
+
+// maybeHealthRateLimit wraps h with the health endpoint rate limiter if enabled (PART 12).
+func (s *Server) maybeHealthRateLimit(h http.HandlerFunc) http.HandlerFunc {
+	if s.healthLimiter == nil {
+		return h
+	}
+	mw := rateLimitMiddleware(s.healthLimiter, "health")
 	return mw(h).ServeHTTP
 }
 
@@ -2013,10 +2051,14 @@ func (s *Server) redirectToHTTPS(httpsPort string) http.Handler {
 
 // ─── JSON helpers ─────────────────────────────────────────────────────────────
 
-// writeJSON marshals v with 2-space indent and writes it with a trailing newline.
+// writeJSON encodes v as indented JSON and writes it to w.
+// SetEscapeHTML(false) prevents < > & from being mangled to < > &.
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}` + "\n"))
@@ -2024,8 +2066,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write(data)
-	w.Write([]byte("\n"))
+	w.Write(buf.Bytes())
 }
 
 // ─── Health & info handlers ───────────────────────────────────────────────────
@@ -3609,6 +3650,7 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 
 // baseURL constructs the base URL for the current request (PART 12).
 // Resolution order (highest priority first):
+//  0. Tor: when Host matches tor.onion_address → http://{onion_address} (no port, always http)
 //  1. Config/CLI: server.base_url
 //  2. X-Forwarded-Prefix header (from trusted reverse proxy)
 //  3. X-Forwarded-Path header (alternative prefix header)
@@ -3618,6 +3660,19 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 // X-Forwarded-* headers are only honored when the immediate peer is a trusted
 // proxy (loopback, private ranges, or server.trusted_proxies.additional).
 func (s *Server) baseURL(r *http.Request) string {
+	// Priority 0: Tor hidden service — when the request Host matches the configured
+	// onion address, resolve unconditionally as http://{onion_address}. No port, always
+	// http, no proxy header inspection, no IP check (PART 12 priority-0 rule).
+	if onion := strings.TrimSpace(s.cfg.Server.Tor.OnionAddress); onion != "" {
+		reqHost := r.Host
+		if h, _, err := net.SplitHostPort(reqHost); err == nil {
+			reqHost = h
+		}
+		if strings.EqualFold(reqHost, onion) {
+			return "http://" + onion
+		}
+	}
+
 	if s.cfg.Server.BaseURL != "" {
 		return s.cfg.Server.BaseURL
 	}

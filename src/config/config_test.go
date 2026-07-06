@@ -531,39 +531,48 @@ func TestValidate(t *testing.T) {
 		}
 	})
 
-	t.Run("negative_rate_limit_create_gets_defaulted", func(t *testing.T) {
+	t.Run("negative_rate_limit_write_gets_defaulted", func(t *testing.T) {
 		cfg := fresh()
-		cfg.RateLimit.CreatePerM = -5
+		cfg.RateLimit.Write.Requests = -5
 		config.Validate(cfg)
-		if cfg.RateLimit.CreatePerM != 10 {
-			t.Errorf("expected CreatePerM reset to 10, got %d", cfg.RateLimit.CreatePerM)
+		if cfg.RateLimit.Write.Requests != 10 {
+			t.Errorf("expected Write.Requests reset to 10, got %d", cfg.RateLimit.Write.Requests)
 		}
 	})
 
 	t.Run("negative_rate_limit_read_gets_defaulted", func(t *testing.T) {
 		cfg := fresh()
-		cfg.RateLimit.ReadPerM = -1
+		cfg.RateLimit.Read.Requests = -1
 		config.Validate(cfg)
-		if cfg.RateLimit.ReadPerM != 120 {
-			t.Errorf("expected ReadPerM reset to 120, got %d", cfg.RateLimit.ReadPerM)
+		if cfg.RateLimit.Read.Requests != 120 {
+			t.Errorf("expected Read.Requests reset to 120, got %d", cfg.RateLimit.Read.Requests)
 		}
 	})
 
-	t.Run("negative_rate_limit_delete_gets_defaulted", func(t *testing.T) {
+	t.Run("negative_rate_limit_health_gets_defaulted", func(t *testing.T) {
 		cfg := fresh()
-		cfg.RateLimit.DeletePerM = -99
+		cfg.RateLimit.Health.Requests = -99
 		config.Validate(cfg)
-		if cfg.RateLimit.DeletePerM != 10 {
-			t.Errorf("expected DeletePerM reset to 10, got %d", cfg.RateLimit.DeletePerM)
+		if cfg.RateLimit.Health.Requests != 120 {
+			t.Errorf("expected Health.Requests reset to 120, got %d", cfg.RateLimit.Health.Requests)
+		}
+	})
+
+	t.Run("negative_global_burst_gets_defaulted", func(t *testing.T) {
+		cfg := fresh()
+		cfg.RateLimit.GlobalBurst = -1
+		config.Validate(cfg)
+		if cfg.RateLimit.GlobalBurst != 240 {
+			t.Errorf("expected GlobalBurst reset to 240, got %d", cfg.RateLimit.GlobalBurst)
 		}
 	})
 
 	t.Run("zero_rate_limit_not_changed", func(t *testing.T) {
 		cfg := fresh()
-		cfg.RateLimit.CreatePerM = 0
+		cfg.RateLimit.Write.Requests = 0
 		config.Validate(cfg)
-		if cfg.RateLimit.CreatePerM != 0 {
-			t.Errorf("zero rate limit was changed to %d; zero is valid (disables limiting)", cfg.RateLimit.CreatePerM)
+		if cfg.RateLimit.Write.Requests != 0 {
+			t.Errorf("zero rate limit was changed to %d; zero is valid (disables limiting)", cfg.RateLimit.Write.Requests)
 		}
 	})
 

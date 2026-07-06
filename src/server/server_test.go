@@ -1554,7 +1554,7 @@ func TestMaybeRateLimitNilLimiter(t *testing.T) {
 	wrapped(w, r)
 
 	if !called {
-		t.Error("inner handler should be called when createLimiter is nil")
+		t.Error("inner handler should be called when writeLimiter is nil")
 	}
 }
 
@@ -1572,7 +1572,7 @@ func TestMaybeDeleteRateLimitNilLimiter(t *testing.T) {
 	wrapped(w, r)
 
 	if !called {
-		t.Error("inner handler should be called when deleteLimiter is nil")
+		t.Error("inner handler should be called when writeLimiter is nil")
 	}
 }
 
@@ -1770,22 +1770,22 @@ func TestBlocklistMiddleware(t *testing.T) {
 func TestOnConfigChange(t *testing.T) {
 	t.Run("rate limiters updated on change", func(t *testing.T) {
 		cfg := &config.Config{}
-		cfg.RateLimit.CreatePerM = 10
-		cfg.RateLimit.DeletePerM = 5
+		cfg.RateLimit.Write.Requests = 10
+		cfg.RateLimit.Read.Requests = 120
 		s := newMinimalServer(cfg)
-		s.createLimiter = newRateLimiter(10, time.Minute)
-		s.deleteLimiter = newRateLimiter(5, time.Minute)
+		s.writeLimiter = newRateLimiter(10, time.Minute)
+		s.readLimiter = newRateLimiter(120, time.Minute)
 
 		next := &config.Config{}
-		next.RateLimit.CreatePerM = 20
-		next.RateLimit.DeletePerM = 10
+		next.RateLimit.Write.Requests = 20
+		next.RateLimit.Read.Requests = 60
 		s.OnConfigChange(next)
 
-		if s.createLimiter.limit != 20 {
-			t.Errorf("createLimiter.limit = %d, want 20", s.createLimiter.limit)
+		if s.writeLimiter.limit != 20 {
+			t.Errorf("writeLimiter.limit = %d, want 20", s.writeLimiter.limit)
 		}
-		if s.deleteLimiter.limit != 10 {
-			t.Errorf("deleteLimiter.limit = %d, want 10", s.deleteLimiter.limit)
+		if s.readLimiter.limit != 60 {
+			t.Errorf("readLimiter.limit = %d, want 60", s.readLimiter.limit)
 		}
 	})
 
@@ -1976,7 +1976,7 @@ func TestSchedulerHandlersNilScheduler(t *testing.T) {
 
 func TestMaybeRateLimitWithLimiter(t *testing.T) {
 	s := newMinimalServer(&config.Config{})
-	s.createLimiter = newRateLimiter(1, time.Minute)
+	s.writeLimiter = newRateLimiter(1, time.Minute)
 
 	calls := 0
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3037,17 +3037,20 @@ func TestNewWithRateLimitEnabled(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
 	cfg.RateLimit.Enabled = true
-	cfg.RateLimit.CreatePerM = 5
-	cfg.RateLimit.DeletePerM = 3
+	cfg.RateLimit.Write.Requests = 5
+	cfg.RateLimit.Read.Requests = 60
 	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
-	if s.createLimiter == nil {
-		t.Error("createLimiter should be non-nil when rate limiting enabled")
+	if s.writeLimiter == nil {
+		t.Error("writeLimiter should be non-nil when rate limiting enabled")
 	}
-	if s.deleteLimiter == nil {
-		t.Error("deleteLimiter should be non-nil when rate limiting enabled")
+	if s.readLimiter == nil {
+		t.Error("readLimiter should be non-nil when rate limiting enabled")
 	}
-	if s.createLimiter.limit != 5 {
-		t.Errorf("createLimiter.limit = %d, want 5", s.createLimiter.limit)
+	if s.writeLimiter.limit != 5 {
+		t.Errorf("writeLimiter.limit = %d, want 5", s.writeLimiter.limit)
+	}
+	if s.readLimiter.limit != 60 {
+		t.Errorf("readLimiter.limit = %d, want 60", s.readLimiter.limit)
 	}
 }
 
@@ -3189,7 +3192,7 @@ func TestNewHandlersWithTemplates(t *testing.T) {
 
 func TestMaybeDeleteRateLimitWithLimiter(t *testing.T) {
 	s := newMinimalServer(&config.Config{})
-	s.deleteLimiter = newRateLimiter(1, time.Minute)
+	s.writeLimiter = newRateLimiter(1, time.Minute)
 
 	calls := 0
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

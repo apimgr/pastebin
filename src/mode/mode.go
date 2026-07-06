@@ -57,17 +57,17 @@ func SetAppMode(m string) {
 }
 
 // ParseMode parses a mode string into a Mode constant
-// Accepts: "dev", "development", "prod", "production" (case-insensitive)
+// Accepts: "dev", "devel", "development", "prod", "production" (case-insensitive)
 func ParseMode(s string) (Mode, error) {
 	normalized := strings.ToLower(strings.TrimSpace(s))
 
 	switch normalized {
-	case "development", "dev":
+	case "development", "dev", "devel":
 		return Development, nil
 	case "production", "prod":
 		return Production, nil
 	default:
-		return "", fmt.Errorf("invalid mode: %q (expected: production, prod, development, or dev)", s)
+		return "", fmt.Errorf("invalid mode: %q (expected: production, prod, development, dev, or devel)", s)
 	}
 }
 

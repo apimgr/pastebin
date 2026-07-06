@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Embed the IANA timezone database so time.LoadLocation works in CGO_ENABLED=0 static binaries.
+	_ "time/tzdata"
 
 	"golang.org/x/term"
 

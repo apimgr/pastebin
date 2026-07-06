@@ -1,6 +1,7 @@
 package graphql
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,9 +76,13 @@ func (h *Handler) serveUI(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeJSON encodes v as indented JSON and writes it to w.
+// SetEscapeHTML(false) prevents < > & from being mangled to < > &.
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"errors":[{"message":"internal server error"}]}` + "\n"))
@@ -85,8 +90,7 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	w.Write(data)
-	w.Write([]byte("\n"))
+	w.Write(buf.Bytes())
 }
 
 // renderUI returns a self-contained HTML page with an interactive query editor.

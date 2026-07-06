@@ -192,14 +192,41 @@ func TestServeSpec_BaseURLFromRequest(t *testing.T) {
 	}
 }
 
-// TestServeSpec_BaseURLFromForwardedHeaders verifies that X-Forwarded-Proto and
-// X-Forwarded-Host are honoured when no static baseURL is set.
-func TestServeSpec_BaseURLFromForwardedHeaders(t *testing.T) {
+// TestServeSpec_ForwardedHeadersIgnoredWithoutResolver verifies that
+// X-Forwarded-Proto and X-Forwarded-Host are NOT honoured when no trusted
+// resolver is registered (PART 12 proxy-spoofing guard). The bare connection
+// info (r.TLS + r.Host) is used instead.
+func TestServeSpec_ForwardedHeadersIgnoredWithoutResolver(t *testing.T) {
 	h := swagger.New("API", "1.0.0", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	req.Host = "internal.host"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "public.example.com")
+	rec := httptest.NewRecorder()
+	h.ServeSpec(rec, req)
+
+	var spec map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	servers := spec["servers"].([]interface{})
+	first := servers[0].(map[string]interface{})
+	// Without a trusted resolver the handler uses the bare connection: http + r.Host.
+	want := "http://internal.host"
+	if first["url"] != want {
+		t.Errorf("servers[0].url: got %v, want %q", first["url"], want)
+	}
+}
+
+// TestServeSpec_BaseURLFromResolver verifies that a registered base-URL resolver
+// is called and its result is used as the server URL in the spec (PART 12).
+func TestServeSpec_BaseURLFromResolver(t *testing.T) {
+	h := swagger.New("API", "1.0.0", "")
+	h.SetBaseURLResolver(func(_ *http.Request) string {
+		return "https://public.example.com"
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
+	req.Host = "internal.host"
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
 

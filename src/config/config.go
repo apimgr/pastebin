@@ -523,6 +523,17 @@ type TorConfig struct {
 	// Hidden service.
 	NumIntroPoints int `yaml:"num_intro_points"`
 	VirtualPort    int `yaml:"virtual_port"`
+
+	// OnionAddress is the v3 .onion address (56 chars) assigned to this hidden service.
+	// Set automatically on first successful Tor bootstrap; may be overridden to use a
+	// pre-generated key. Used by baseURL() priority-0 check (PART 12) and Tor privacy
+	// rules — clearnet contact email is NEVER shown when Host matches this address.
+	OnionAddress string `yaml:"onion_address"`
+
+	// ContactEmail is the Tor-specific operator contact address.
+	// Shown on Tor responses instead of any clearnet contact email (PART 12/31).
+	// When empty, no contact email is disclosed on Tor responses.
+	ContactEmail string `yaml:"contact_email"`
 }
 
 // GeoIPConfig configures GeoIP detection and country blocking.
@@ -607,12 +618,23 @@ type PasteConfig struct {
 	AllowUnlisted   bool   `yaml:"allow_unlisted"`   // allow unlisted pastes (default true)
 }
 
-// RateLimitConfig controls request throttling.
+// RateLimitEndpoint configures the per-IP request quota for one endpoint class (PART 12).
+type RateLimitEndpoint struct {
+	// Requests is the maximum number of requests allowed per IP within Window seconds.
+	Requests int `yaml:"requests"`
+	// Window is the sliding window in seconds.
+	Window int `yaml:"window"`
+}
+
+// RateLimitConfig controls request throttling (PART 12).
+// Endpoint classes: Read (GET/HEAD), Write (POST/PUT/PATCH/DELETE), Health (status endpoints).
+// GlobalBurst is the absolute ceiling across all classes combined.
 type RateLimitConfig struct {
-	Enabled    bool `yaml:"enabled"`
-	CreatePerM int  `yaml:"create_per_minute"` // paste creates per IP per minute
-	ReadPerM   int  `yaml:"read_per_minute"`   // paste reads per IP per minute
-	DeletePerM int  `yaml:"delete_per_minute"` // paste deletes per IP per minute
+	Enabled     bool              `yaml:"enabled"`
+	Read        RateLimitEndpoint `yaml:"read"`
+	Write       RateLimitEndpoint `yaml:"write"`
+	Health      RateLimitEndpoint `yaml:"health"`
+	GlobalBurst int               `yaml:"global_burst"`
 }
 
 // WebConfig holds web-UI settings.
@@ -1288,10 +1310,11 @@ func DefaultConfig() *Config {
 			AllowUnlisted:   true,
 		},
 		RateLimit: RateLimitConfig{
-			Enabled:    true,
-			CreatePerM: 10,
-			ReadPerM:   120,
-			DeletePerM: 10,
+			Enabled:     true,
+			Read:        RateLimitEndpoint{Requests: 120, Window: 60},
+			Write:       RateLimitEndpoint{Requests: 10, Window: 60},
+			Health:      RateLimitEndpoint{Requests: 120, Window: 60},
+			GlobalBurst: 240,
 		},
 		Web: WebConfig{
 			SiteTitle: "Pastebin",
@@ -1946,21 +1969,26 @@ func Validate(cfg *Config) {
 		cfg.Web.Theme = "dark"
 	}
 
-	// Rate limit counts must be non-negative.
-	if cfg.RateLimit.CreatePerM < 0 {
-		log.Printf("[config] WARNING: rate_limit.create_per_minute < 0, using default %d",
-			d.RateLimit.CreatePerM)
-		cfg.RateLimit.CreatePerM = d.RateLimit.CreatePerM
+	// Rate limit counts must be non-negative (zero means "disabled for this class").
+	if cfg.RateLimit.Read.Requests < 0 {
+		log.Printf("[config] WARNING: rate_limit.read.requests < 0, using default %d",
+			d.RateLimit.Read.Requests)
+		cfg.RateLimit.Read.Requests = d.RateLimit.Read.Requests
 	}
-	if cfg.RateLimit.ReadPerM < 0 {
-		log.Printf("[config] WARNING: rate_limit.read_per_minute < 0, using default %d",
-			d.RateLimit.ReadPerM)
-		cfg.RateLimit.ReadPerM = d.RateLimit.ReadPerM
+	if cfg.RateLimit.Write.Requests < 0 {
+		log.Printf("[config] WARNING: rate_limit.write.requests < 0, using default %d",
+			d.RateLimit.Write.Requests)
+		cfg.RateLimit.Write.Requests = d.RateLimit.Write.Requests
 	}
-	if cfg.RateLimit.DeletePerM < 0 {
-		log.Printf("[config] WARNING: rate_limit.delete_per_minute < 0, using default %d",
-			d.RateLimit.DeletePerM)
-		cfg.RateLimit.DeletePerM = d.RateLimit.DeletePerM
+	if cfg.RateLimit.Health.Requests < 0 {
+		log.Printf("[config] WARNING: rate_limit.health.requests < 0, using default %d",
+			d.RateLimit.Health.Requests)
+		cfg.RateLimit.Health.Requests = d.RateLimit.Health.Requests
+	}
+	if cfg.RateLimit.GlobalBurst < 0 {
+		log.Printf("[config] WARNING: rate_limit.global_burst < 0, using default %d",
+			d.RateLimit.GlobalBurst)
+		cfg.RateLimit.GlobalBurst = d.RateLimit.GlobalBurst
 	}
 
 	// Paste size must be positive.
@@ -2302,9 +2330,10 @@ func (m *ConfigManager) applyHotSettings(prev, next *Config) {
 			prev.Server.Logging.Level, next.Server.Logging.Level)
 	}
 	if prev.RateLimit.Enabled != next.RateLimit.Enabled ||
-		prev.RateLimit.CreatePerM != next.RateLimit.CreatePerM ||
-		prev.RateLimit.ReadPerM != next.RateLimit.ReadPerM ||
-		prev.RateLimit.DeletePerM != next.RateLimit.DeletePerM {
+		prev.RateLimit.Read != next.RateLimit.Read ||
+		prev.RateLimit.Write != next.RateLimit.Write ||
+		prev.RateLimit.Health != next.RateLimit.Health ||
+		prev.RateLimit.GlobalBurst != next.RateLimit.GlobalBurst {
 		log.Printf("[config] hot-reload: rate_limit settings updated")
 	}
 	if prev.Web.Security.CORS != next.Web.Security.CORS {

@@ -34,7 +34,7 @@ PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 
 # Go cache bind-mounted from host so modules are cached across builds (PART 25)
 GO_CACHE  ?= $(HOME)/go/pkg/mod
-GO_BUILD  ?= $(HOME)/.cache/go-build
+GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
 
 # Docker (PART 25)
 REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)

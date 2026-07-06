@@ -441,14 +441,17 @@ func TestGetRawPaste_BurnAfter(t *testing.T) {
 
 // ─── CreatePaste HTTPS link ───────────────────────────────────────────────────
 
+// TestCreatePaste_HTTPSLink verifies that when a trusted base-URL resolver
+// returns an https URL, the created paste link uses https (PART 12).
+// X-Forwarded-Proto without a resolver must NOT be trusted (proxy-spoofing guard).
 func TestCreatePaste_HTTPSLink(t *testing.T) {
 	h, _ := newTestHandler(t)
+	h.SetBaseURLResolver(func(*http.Request) string { return "https://paste.example.com" })
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
 		strings.NewReader(`{"content":"https test"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Host = "paste.example.com"
 
 	rr := httptest.NewRecorder()
