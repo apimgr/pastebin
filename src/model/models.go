@@ -15,6 +15,7 @@ type Paste struct {
 	ID              string     `json:"id"`
 	Title           string     `json:"title"`
 	Content         string     `json:"content,omitempty"` // omitted in list views
+	ContentType     string     `json:"content_type,omitempty"` // detected MIME type; empty = plain text
 	Language        string     `json:"language"`
 	Visibility      int        `json:"visibility"` // 0=public, 1=unlisted
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`

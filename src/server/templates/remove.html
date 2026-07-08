@@ -94,14 +94,23 @@
     <script>
         // Progressive enhancement only — the form works as a plain POST without
         // this. Pre-fill the delete-token field from the owner token saved at
-        // creation time (AI.md 22303 canonical localStorage key: api_token).
+        // creation time (canonical localStorage key: api_token).
+        // If the page is showing an error, the saved token was invalid — clear it
+        // so the user is not silently retrying with a bad token on the next attempt.
         (function () {
             const tokenField = document.getElementById('token');
-            if (!tokenField || tokenField.value) return;
-            const saved = localStorage.getItem('api_token') || '';
-            if (saved) {
-                tokenField.value = saved;
+            if (!tokenField) return;
+            {{if .Error}}
+            // Server returned an error: the stored token was rejected. Rotate it.
+            localStorage.removeItem('api_token');
+            {{else}}
+            if (!tokenField.value) {
+                const saved = localStorage.getItem('api_token') || '';
+                if (saved) {
+                    tokenField.value = saved;
+                }
             }
+            {{end}}
         })();
     </script>
 </body>

@@ -2529,11 +2529,11 @@ func detectClientType(r *http.Request) string {
 	if strings.Contains(accept, "application/json") {
 		return "json"
 	}
-	if strings.Contains(accept, "text/plain") {
-		return "text"
-	}
 	if strings.Contains(accept, "text/html") {
 		return "html"
+	}
+	if strings.Contains(accept, "text/plain") {
+		return "text"
 	}
 
 	// Our client is INTERACTIVE — receives JSON, renders own TUI/GUI.
@@ -2567,7 +2567,12 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 
 	paste, err := s.pasteHandler.GetPasteForWeb(id)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
+		switch detectClientType(r) {
+		case "json":
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
+		default:
+			s.renderErrorPage(w, r, http.StatusInternalServerError, "An internal error occurred. Please try again.")
+		}
 		return
 	}
 	if paste == nil {
@@ -2589,12 +2594,22 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build template data; binary uploads (images, etc.) are rendered as <img> tags.
+	isImage := strings.HasPrefix(paste.ContentType, "image/")
+	var imageDataURI string
+	if isImage {
+		encoded := base64.StdEncoding.EncodeToString([]byte(paste.Content))
+		imageDataURI = "data:" + paste.ContentType + ";base64," + encoded
+	}
+
 	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
-		"SiteTitle": s.liveCfg().Web.SiteTitle,
-		"Theme":     s.liveCfg().Web.Theme,
-		"Paste":     paste,
-		"ID":        id,
-		"Content":   handler.HighlightedContent(paste),
+		"SiteTitle":    s.liveCfg().Web.SiteTitle,
+		"Theme":        s.liveCfg().Web.Theme,
+		"Paste":        paste,
+		"ID":           id,
+		"Content":      handler.HighlightedContent(paste),
+		"IsImage":      isImage,
+		"ImageDataURI": imageDataURI,
 	})
 }
 

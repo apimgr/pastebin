@@ -160,6 +160,8 @@ type CreateRequest struct {
 	ExpiresIn string `json:"expires_in"`
 	// BurnAfter is 0=disabled, 1-9999.
 	BurnAfter int `json:"burn_after"`
+	// ContentType is the detected MIME type for non-text uploads; empty = plain text.
+	ContentType string `json:"content_type,omitempty"`
 }
 
 // createFromRequest parses the request body (JSON, multipart, urlencoded, or
@@ -224,6 +226,19 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 	req.Content = strings.TrimRight(req.Content, "\n")
 	if strings.TrimSpace(req.Content) == "" {
 		return nil, http.StatusBadRequest, fmt.Errorf("content is required")
+	}
+
+	// Detect binary MIME type so the viewer can render images correctly.
+	// Only set when the detected type is non-text; plain text pastes keep ContentType empty.
+	if req.ContentType == "" && len(req.Content) > 0 {
+		sample := []byte(req.Content)
+		if len(sample) > 512 {
+			sample = sample[:512]
+		}
+		detected := http.DetectContentType(sample)
+		if !strings.HasPrefix(detected, "text/") {
+			req.ContentType = detected
+		}
 	}
 
 	// Visibility
@@ -296,14 +311,15 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 	}
 
 	paste := &model.Paste{
-		ID:         pasteID,
-		Title:      req.Title,
-		Content:    req.Content,
-		Language:   req.Language,
-		Visibility: vis,
-		ExpiresAt:  expiresAt,
-		BurnAfter:  burn,
-		Views:      0,
+		ID:          pasteID,
+		Title:       req.Title,
+		Content:     req.Content,
+		ContentType: req.ContentType,
+		Language:    req.Language,
+		Visibility:  vis,
+		ExpiresAt:   expiresAt,
+		BurnAfter:   burn,
+		Views:       0,
 	}
 
 	if err := h.db.CreatePaste(paste); err != nil {

@@ -183,6 +183,7 @@ func ensureSchema(db *sql.DB) error {
 			title            TEXT NOT NULL DEFAULT 'Untitled',
 			content          TEXT NOT NULL,
 			language         TEXT NOT NULL DEFAULT 'text',
+			content_type     TEXT NOT NULL DEFAULT '',
 			visibility       INTEGER NOT NULL DEFAULT 0,
 			expires_at       DATETIME,
 			burn_after       INTEGER NOT NULL DEFAULT 0,
@@ -364,6 +365,7 @@ func ensureSchema(db *sql.DB) error {
 	updates := []string{
 		`ALTER TABLE pastes ADD COLUMN burn_after INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE pastes ADD COLUMN delete_token_hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE pastes ADD COLUMN content_type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE security_reports ADD COLUMN token_last_used DATETIME`,
 	}
 
@@ -423,9 +425,9 @@ func (s *SQLiteDB) CreatePaste(p *model.Paste) error {
 	defer cancel()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO pastes
-			(id, title, content, language, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Title, p.Content, p.Language, p.Visibility, p.ExpiresAt,
+			(id, title, content, language, content_type, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Title, p.Content, p.Language, p.ContentType, p.Visibility, p.ExpiresAt,
 		p.BurnAfter, p.DeleteTokenHash, p.Views, p.CreatedAt, p.UpdatedAt,
 	)
 	return err
@@ -439,9 +441,9 @@ func (s *SQLiteDB) GetPasteByID(id string) (*model.Paste, error) {
 	ctx, cancel := dbCtx(dbReadTimeout)
 	defer cancel()
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, content, language, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at
+		`SELECT id, title, content, language, content_type, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at
 		 FROM pastes WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Title, &p.Content, &p.Language, &p.Visibility,
+	).Scan(&p.ID, &p.Title, &p.Content, &p.Language, &p.ContentType, &p.Visibility,
 		&expiresAt, &p.BurnAfter, &p.DeleteTokenHash, &p.Views, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {

@@ -54,7 +54,13 @@
                         </div>
                     </div>
                     <div class="paste-content">
+                        {{if .IsImage}}
+                        <div class="paste-image">
+                            <img src="{{.ImageDataURI}}" alt="{{.Paste.Title}}" style="max-width:100%;height:auto;display:block;">
+                        </div>
+                        {{else}}
                         <pre><code id="paste-code">{{.Content}}</code></pre>
+                        {{end}}
                     </div>
                 </div>
             </div>

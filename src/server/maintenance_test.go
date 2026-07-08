@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -180,4 +181,172 @@ func TestMaintenanceMiddlewareAllowsReads(t *testing.T) {
 			t.Fatalf("%s: read should pass through during maintenance", method)
 		}
 	}
+}
+
+// ─── trimBackups additional coverage ─────────────────────────────────────────
+
+func TestTrimBackupsFewFilesNoDelete(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Only 2 backup files; keep=5 → nothing should be deleted.
+	for i := 0; i < 2; i++ {
+		name := filepath.Join(backupDir, "pastebin_backup_2026-07-0"+strconv.Itoa(i)+"_120000.tar.gz")
+		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := &Server{cfg: &config.Config{}}
+	s.trimBackups(backupDir, 5)
+
+	entries, _ := os.ReadDir(backupDir)
+	if len(entries) != 2 {
+		t.Errorf("expected 2 files kept, got %d", len(entries))
+	}
+}
+
+func TestTrimBackupsNonBackupFilesIgnored(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A file without "_backup_" in the name must never be deleted.
+	unrelated := filepath.Join(backupDir, "README.txt")
+	if err := os.WriteFile(unrelated, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: &config.Config{}}
+	s.trimBackups(backupDir, 0)
+
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Errorf("non-backup file was incorrectly deleted: %v", err)
+	}
+}
+
+func TestTrimBackupsNonExistentDirNoPanic(t *testing.T) {
+	s := &Server{cfg: &config.Config{}}
+	// Directory does not exist → ReadDir error → silent return, no panic.
+	s.trimBackups("/this/path/does/not/exist/backup", 5)
+}
+
+// ─── trimOldLogs additional coverage ─────────────────────────────────────────
+
+func TestTrimOldLogsNonLogFilesSkipped(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Files with non-.log extensions and subdirectories must never be removed.
+	keep := filepath.Join(logDir, "config.conf")
+	keepTxt := filepath.Join(logDir, "notes.txt")
+	subDir := filepath.Join(logDir, "archive")
+	if err := os.WriteFile(keep, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keepTxt, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Back-date everything so age is not the reason they survive.
+	old := time.Now().Add(-100 * 24 * time.Hour)
+	for _, p := range []string{keep, keepTxt} {
+		_ = os.Chtimes(p, old, old)
+	}
+
+	s := &Server{cfg: &config.Config{}}
+	s.trimOldLogs(logDir, 7*24*time.Hour)
+
+	for _, p := range []string{keep, keepTxt} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("non-.log file %s was incorrectly removed", filepath.Base(p))
+		}
+	}
+	if _, err := os.Stat(subDir); err != nil {
+		t.Error("subdirectory was incorrectly removed")
+	}
+}
+
+func TestTrimOldLogsRecentFileKept(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recent := filepath.Join(logDir, "recent.log")
+	if err := os.WriteFile(recent, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Modification time is ~now; it must survive a 7-day retention pass.
+	s := &Server{cfg: &config.Config{}}
+	s.trimOldLogs(logDir, 7*24*time.Hour)
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("recent log was incorrectly removed: %v", err)
+	}
+}
+
+// ─── maintenanceCleanup default values ───────────────────────────────────────
+
+func TestMaintenanceCleanupDefaultLimits(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backup")
+	logDir := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create 7 backup files — more than the default keep count of 5.
+	base := time.Now()
+	for i := 0; i < 7; i++ {
+		name := filepath.Join(backupDir, "pastebin_backup_2026-07-0"+strconv.Itoa(i)+"_000000.tar.gz")
+		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		mt := base.Add(time.Duration(i) * time.Hour)
+		_ = os.Chtimes(name, mt, mt)
+	}
+
+	// Zero config values must trigger the defaults: BackupKeepCount=5, LogRetentionDays=7.
+	cfg := &config.Config{}
+	cfg.Server.Maintenance.Cleanup.BackupKeepCount = 0
+	cfg.Server.Maintenance.Cleanup.LogRetentionDays = 0
+	s := &Server{cfg: cfg, dataDir: dir}
+	s.maintenanceCleanup()
+
+	entries, _ := os.ReadDir(backupDir)
+	if len(entries) != 5 {
+		t.Errorf("expected 5 backups after default-limit cleanup, got %d", len(entries))
+	}
+}
+
+// ─── maintenanceNotify with email enabled ─────────────────────────────────────
+
+func TestMaintenanceNotifyEmailEnabledBothBranches(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.Notifications.Email.Enabled = true
+	cfg.Server.Notifications.Email.SMTP.Host = "127.0.0.1"
+	cfg.Server.Notifications.Email.SMTP.Port = 1
+	cfg.Server.Contact.Admin.Email = "admin@example.com"
+
+	s := &Server{cfg: cfg}
+
+	// Both branches of the `if event == "exit"` block must be reached without panic.
+	// Send calls will fail (nothing is listening on port 1) and the error is logged.
+	s.maintenanceNotify("enter", health.Snapshot{
+		Reason:             health.ReasonFileWrite,
+		Message:            "Disk full",
+		SelfHealingEnabled: true,
+		RetryInterval:      30 * time.Second,
+	})
+	s.maintenanceNotify("exit", health.Snapshot{
+		Reason:   health.ReasonFileWrite,
+		Attempts: 3,
+	})
 }

@@ -43,7 +43,7 @@
                 <div class="pastes-list">
                     {{range .Pastes}}
                     <div class="paste-item">
-                        <a href="{{$.BaseURL}}/{{.ID}}" class="paste-title">{{.Title}}</a>
+                        <a href="{{$.AssetPrefix}}/{{.ID}}" class="paste-title">{{.Title}}</a>
                         <div class="paste-item-meta">
                             <span class="language">{{.Language}}</span>
                             <span>{{.Views}} {{t $.Lang "recent.views"}}</span>
