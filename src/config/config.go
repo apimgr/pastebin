@@ -1794,7 +1794,12 @@ func (c *Config) ensureWebhookSecrets() (bool, error) {
 }
 
 func (c *Config) loadEnv() {
+	// PART 8: the canonical env override is {PROJECT_NAME}_PORT (PASTEBIN_PORT);
+	// PORT is the generic docker alias. PASTEBIN_PORT wins when both are set.
 	if v := os.Getenv("PORT"); v != "" {
+		c.Server.Port = v
+	}
+	if v := os.Getenv("PASTEBIN_PORT"); v != "" {
 		c.Server.Port = v
 	}
 	// LISTEN is the AI.md-canonical name (PART 5); ADDRESS is an accepted alias.
@@ -2146,22 +2151,28 @@ func SetUpdateBranch(path, branch string) error {
 	return Save(path, cfg)
 }
 
-// ResolvePort finalises cfg.Server.Port according to the PART 5 rules:
+// ResolvePort finalises cfg.Server.Port according to the PART 5 / PART 8 rules.
+// Precedence (highest first):
 //
-//   - Container environment → "80" (always, regardless of other settings)
-//   - Explicit --port flag / $PORT env / config file value → use as-is
-//   - No port configured (empty) → pick a random unused port in 64000-64999,
-//     persist it to cfgPath so subsequent restarts use the same port
+//   - Explicit --port flag / $PASTEBIN_PORT / $PORT env / config file value → use as-is
+//   - No port configured (empty), container environment → "80" (docker default)
+//   - No port configured (empty), non-container → pick a random unused port in
+//     64000-64999, persist it to cfgPath so subsequent restarts use the same port
 //
 // The caller must apply CLI flag overrides to cfg BEFORE calling this function
-// so that an explicit --port value takes precedence over the persisted value.
-// cfgPath is the path used to save the selected random port.
+// so that an explicit --port value takes precedence over the container default
+// and the persisted value. cfgPath is the path used to save the selected random
+// port. In a container an explicit port always wins; 80 is only the fallback
+// default when nothing else set it.
 func ResolvePort(cfgPath string, cfg *Config, inContainer bool) error {
-	if inContainer {
-		cfg.Server.Port = "80"
+	// An explicit value (flag, env, or config file) always wins, in or out of
+	// a container.
+	if cfg.Server.Port != "" {
 		return nil
 	}
-	if cfg.Server.Port != "" {
+	if inContainer {
+		// Container default when nothing else configured the port.
+		cfg.Server.Port = "80"
 		return nil
 	}
 

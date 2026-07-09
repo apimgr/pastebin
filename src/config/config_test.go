@@ -197,7 +197,8 @@ func TestLoadEnv_MAX_SIZE_BYTES(t *testing.T) {
 
 // ─── ResolvePort ──────────────────────────────────────────────────────────────
 
-// TestResolvePort_Container confirms that the container path always yields port 80.
+// TestResolvePort_Container confirms that the container path defaults to port 80
+// when no port was otherwise configured.
 func TestResolvePort_Container(t *testing.T) {
 	cfg := config.DefaultConfig()
 	// cfgPath is irrelevant in the container branch.
@@ -206,6 +207,19 @@ func TestResolvePort_Container(t *testing.T) {
 	}
 	if cfg.Server.Port != "80" {
 		t.Errorf("Port: got %q, want %q", cfg.Server.Port, "80")
+	}
+}
+
+// TestResolvePort_ContainerExplicitPort confirms that an explicit port (from a
+// --port flag or PASTEBIN_PORT/PORT env) wins over the container default of 80.
+func TestResolvePort_ContainerExplicitPort(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Port = "9090"
+	if err := config.ResolvePort("/dev/null", cfg, true); err != nil {
+		t.Fatalf("ResolvePort container explicit: %v", err)
+	}
+	if cfg.Server.Port != "9090" {
+		t.Errorf("Port: got %q, want %q (explicit port must win over container default)", cfg.Server.Port, "9090")
 	}
 }
 

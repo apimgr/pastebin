@@ -61,7 +61,7 @@ build: clean
 	@$(GO_DOCKER) go mod download
 
 	@echo "Building local binary..."
-	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+	@$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME) ./src"
 
 	@for platform in $(PLATFORMS); do \
@@ -77,7 +77,7 @@ build: clean
 
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECTNAME)-cli..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
 		for platform in $(PLATFORMS); do \
 			OS=$${platform%/*}; \
@@ -105,12 +105,12 @@ local: clean
 	@$(GO_DOCKER) go mod download
 
 	@echo "Building $(PROJECTNAME)..."
-	@$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+	@$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME) ./src"
 
 	@if [ -d "src/client" ]; then \
 		echo "Building $(PROJECTNAME)-cli..."; \
-		$(GO_DOCKER) sh -c "GOOS=$$(go env GOOS) GOARCH=$$(go env GOARCH) \
+		$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
 			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
 	fi
 
@@ -199,14 +199,23 @@ dev:
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)"
 	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
-		$(GO_DOCKER) sh -c "go mod tidy && \
+		docker run --rm \
+			--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+			-v $(PWD):/app \
+			-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
+			-v $(GO_BUILD):/usr/local/share/go/cache \
+			-v $$BUILD_DIR:$$BUILD_DIR \
+			-w /app \
+			-e CGO_ENABLED=0 \
+			-e GOFLAGS=-buildvcs=false \
+			casjaysdev/go:latest sh -c "go mod tidy && \
 			go build -buildvcs=false -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
 			echo 'Built: $$BUILD_DIR/$(PROJECTNAME)' && \
 			if [ -d 'src/client' ]; then \
 				go build -buildvcs=false -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
 				echo 'Built: $$BUILD_DIR/$(PROJECTNAME)-cli'; \
-			fi && \
-			echo 'Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help'"
+			fi" && \
+		echo "Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
 
 # =============================================================================
 # CLEAN - Remove build artifacts

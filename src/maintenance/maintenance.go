@@ -563,22 +563,28 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 	case "users.db":
 		dest = filepath.Join(dataDir, "db", "users.db")
 	default:
-		if strings.HasPrefix(hdr.Name, "template/") {
-			rel := strings.TrimPrefix(hdr.Name, "template/")
-			dest = filepath.Join(configDir, "template", rel)
-		} else if strings.HasPrefix(hdr.Name, "theme/") {
-			rel := strings.TrimPrefix(hdr.Name, "theme/")
-			dest = filepath.Join(configDir, "theme", rel)
-		} else if strings.HasPrefix(hdr.Name, "security/") {
-			rel := strings.TrimPrefix(hdr.Name, "security/")
-			// Guard against path traversal in archive names.
-			if strings.Contains(rel, "..") {
-				return nil
-			}
-			dest = filepath.Join(configDir, "security", rel)
-		} else {
+		// Sub-directory entries (template/, theme/, security/) carry a relative
+		// path from a crafted archive. Guard every branch against path traversal
+		// so a malicious backup cannot escape its destination base directory.
+		var base, prefix string
+		switch {
+		case strings.HasPrefix(hdr.Name, "template/"):
+			base, prefix = filepath.Join(configDir, "template"), "template/"
+		case strings.HasPrefix(hdr.Name, "theme/"):
+			base, prefix = filepath.Join(configDir, "theme"), "theme/"
+		case strings.HasPrefix(hdr.Name, "security/"):
+			base, prefix = filepath.Join(configDir, "security"), "security/"
+		default:
 			return nil // unknown entry — skip
 		}
+		rel := strings.TrimPrefix(hdr.Name, prefix)
+		candidate := filepath.Join(base, rel)
+		// Reject any entry that escapes the base directory (absolute paths,
+		// "..", or symlink-style prefixes all resolve outside base).
+		if candidate != base && !strings.HasPrefix(candidate, base+string(os.PathSeparator)) {
+			return nil
+		}
+		dest = candidate
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
