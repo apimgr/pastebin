@@ -2483,6 +2483,28 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimSuffix(resp.Link, "/"+resp.ID)
 	data["RawLink"] = base + "/raw/" + resp.ID
 	data["DownloadLink"] = base + "/dl/" + resp.ID
+
+	// Set the owner_token cookie so web management (delete form) works with
+	// JS disabled (PART 11 / PART 16). HttpOnly keeps the raw token off the
+	// JS heap; SameSite=Strict + POST-only mutations provide CSRF protection.
+	// Secure is set when the connection is TLS; for HTTP dev environments the
+	// cookie is still set so the delete form works locally.
+	maxAge := 730 * 24 * 60 * 60 // 2-year default for tokens with no expiry
+	if resp.ExpiresAt != nil {
+		if secs := int(time.Until(*resp.ExpiresAt).Seconds()); secs > 0 {
+			maxAge = secs
+		}
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "owner_token",
+		Value:    resp.OwnerToken,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	s.renderTemplate(w, r, "create.html", data)
 }
 
@@ -2710,6 +2732,15 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := r.FormValue("token")
+	// Cookie fallback: web management forms may use the owner_token cookie set
+	// on creation when the token field is left blank (PART 11 / PART 16).
+	// API routes (/api/...) never reach this handler, so this is always a
+	// browser-context form POST — cookie use is safe here.
+	if token == "" {
+		if c, err := r.Cookie("owner_token"); err == nil && c.Value != "" {
+			token = c.Value
+		}
+	}
 	if token == "" {
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
 			"SiteTitle": s.liveCfg().Web.SiteTitle,
