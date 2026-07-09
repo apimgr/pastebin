@@ -813,7 +813,8 @@ Examples:
 
 	if daemonFlag {
 		if err := daemon.Daemonize(); err != nil {
-			log.Fatalf("daemon: %v", err)
+			log.Printf("daemon: %v", err)
+			os.Exit(71) // EX_OSERR
 		}
 		// If Daemonize returned without exiting, we are the daemon child.
 		// Continue with normal server startup below.
@@ -1027,7 +1028,8 @@ Examples:
 
 	db, err := database.NewDatabase(cfg.Database.Type, cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		log.Printf("database: %v", err)
+		os.Exit(70) // EX_SOFTWARE
 	}
 	defer db.Close()
 
@@ -1038,7 +1040,8 @@ Examples:
 	if cleanExpired {
 		n, err := db.DeleteExpiredPastes()
 		if err != nil {
-			log.Fatalf("clean expired: %v", err)
+			log.Printf("clean expired: %v", err)
+			os.Exit(70) // EX_SOFTWARE
 		}
 		b, _ := db.DeleteBurnedPastes()
 		log.Printf("deleted %d expired + %d burned pastes", n, b)
@@ -1220,7 +1223,8 @@ Examples:
 	// instance of our binary is already running.
 
 	if err := pid.WritePIDFile(pidFile); err != nil {
-		log.Fatalf("pid file: %v", err)
+		log.Printf("pid file: %v", err)
+		os.Exit(74) // EX_IOERR
 	}
 	defer pid.RemovePIDFile(pidFile) //nolint:errcheck
 
@@ -1272,7 +1276,8 @@ Examples:
 		log.Printf("listening on %s", listenURL)
 
 		if err := srv.Run(ctx, addr); err != nil {
-			log.Fatalf("server: %v", err)
+			log.Printf("server: %v", err)
+			os.Exit(70) // EX_SOFTWARE
 		}
 	}
 
@@ -1280,7 +1285,8 @@ Examples:
 	// handler. On all other platforms (and interactive Windows), run directly.
 	if service.IsWindowsService() {
 		if err := service.RunAsWindowsService(appName, runServer); err != nil {
-			log.Fatalf("windows service: %v", err)
+			log.Printf("windows service: %v", err)
+			os.Exit(70) // EX_SOFTWARE
 		}
 		return 0
 	}
@@ -1289,9 +1295,10 @@ Examples:
 	return 0
 }
 
-// normalizeArgs expands the two spec-allowed short flags: -h → --help, -v → --version.
-// All other arguments are passed through unchanged. Single-dash multi-character flags
-// are NOT converted — spec mandates short flags are ONLY -h and -v (PART 8).
+// normalizeArgs expands short flags (-h → --help, -v → --version) and splits
+// --flag=value forms into two tokens so both space and equals forms are accepted.
+// Single-dash multi-character flags are NOT converted — spec mandates short flags
+// are ONLY -h and -v (PART 8).
 func normalizeArgs(args []string) []string {
 	out := make([]string, 0, len(args))
 	for _, a := range args {
@@ -1301,6 +1308,13 @@ func normalizeArgs(args []string) []string {
 		case "-v":
 			out = append(out, "--version")
 		default:
+			// Split --flag=value into --flag + value so both forms are accepted.
+			if strings.HasPrefix(a, "--") {
+				if eq := strings.IndexByte(a, '='); eq != -1 {
+					out = append(out, a[:eq], a[eq+1:])
+					continue
+				}
+			}
 			out = append(out, a)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -187,7 +188,17 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		if err == nil {
 			defer file.Close()
 			raw, _ := io.ReadAll(io.LimitReader(file, 10<<20))
-			req.Content = string(raw)
+			// Detect the MIME type from the actual file bytes before storage.
+			detectedCT := http.DetectContentType(raw[:min512(len(raw))])
+			// Non-text binary data (images, executables, archives, etc.) is
+			// stored as base64 so it round-trips safely through the TEXT column.
+			// ContentType is set so viewers know to decode before rendering.
+			if strings.HasPrefix(detectedCT, "text/") {
+				req.Content = string(raw)
+			} else {
+				req.Content = base64.StdEncoding.EncodeToString(raw)
+				req.ContentType = detectedCT
+			}
 			req.Title = header.Filename
 			req.Language = DetectLanguage(header.Filename)
 		} else {
@@ -223,7 +234,11 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		req.ExpiresIn = r.Header.Get("X-Expires-In")
 	}
 
-	req.Content = strings.TrimRight(req.Content, "\n")
+	// Only trim trailing newlines from plain-text content; base64-encoded binary
+	// must not be modified after encoding (ContentType is set for binary uploads).
+	if req.ContentType == "" {
+		req.Content = strings.TrimRight(req.Content, "\n")
+	}
 	if strings.TrimSpace(req.Content) == "" {
 		return nil, http.StatusBadRequest, fmt.Errorf("content is required")
 	}
@@ -463,11 +478,24 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 		metrics.PastesDeletedTotal.Inc()
 	}
 
-	body := []byte(paste.Content)
+	// Binary pastes are stored as base64 to survive the TEXT DB column; decode
+	// them back to raw bytes before serving. Text pastes use the string directly.
+	var body []byte
+	if paste.ContentType != "" && !strings.HasPrefix(paste.ContentType, "text/") {
+		if decoded, err := base64.StdEncoding.DecodeString(paste.Content); err == nil {
+			body = decoded
+		} else {
+			body = []byte(paste.Content)
+		}
+	} else {
+		body = []byte(paste.Content)
+	}
 
-	// Sniff the content type from the first 512 bytes.
-	// DetectContentType always returns a valid MIME type.
-	detected := http.DetectContentType(body[:min512(len(body))])
+	// Use the stored ContentType when available; otherwise sniff from bytes.
+	detected := paste.ContentType
+	if detected == "" {
+		detected = http.DetectContentType(body[:min512(len(body))])
+	}
 
 	// Strip parameters for the allow-list check (e.g. "text/plain; charset=utf-8" → "text/plain").
 	baseType := detected
@@ -482,7 +510,7 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", detected)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Write(body)
+	w.Write(body) //nolint:errcheck
 }
 
 // min512 returns n capped at 512 for the DetectContentType sniff buffer.
@@ -621,7 +649,13 @@ func (h *PasteHandler) GetPasteForWeb(id string) (*model.Paste, error) {
 
 // HighlightedContent returns Chroma-highlighted HTML for the paste content.
 // Falls back to HTML-escaped plain text if the language is unknown or highlighting fails.
+// Returns empty string for binary pastes (ContentType set, non-text) — callers render
+// those via <img>, <audio>, <video>, or a download prompt instead.
 func HighlightedContent(paste *model.Paste) template.HTML {
+	if paste.ContentType != "" && !strings.HasPrefix(paste.ContentType, "text/") {
+		return ""
+	}
+
 	lexer := lexers.Get(paste.Language)
 	if lexer == nil {
 		lexer = lexers.Fallback

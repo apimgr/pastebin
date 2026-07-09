@@ -336,7 +336,7 @@ func TestLookupRequest_XRealIPIgnored(t *testing.T) {
 	req.RemoteAddr = "203.0.113.3:9999"
 	got := db.LookupRequest(req)
 	if got == nil {
-		t.Error("LookupRequest with valid RemoteAddr should return non-nil")
+		t.Fatal("LookupRequest with valid RemoteAddr should return non-nil")
 	}
 	if got.IP != "203.0.113.3" {
 		t.Errorf("got.IP = %q; want 203.0.113.3 (RemoteAddr, not X-Real-IP)", got.IP)
@@ -356,7 +356,7 @@ func TestLookupRequest_XForwardedForIgnored(t *testing.T) {
 	req.RemoteAddr = "203.0.113.4:8888"
 	got := db.LookupRequest(req)
 	if got == nil {
-		t.Error("LookupRequest with valid RemoteAddr should return non-nil")
+		t.Fatal("LookupRequest with valid RemoteAddr should return non-nil")
 	}
 	if got.IP != "203.0.113.4" {
 		t.Errorf("got.IP = %q; want 203.0.113.4 (RemoteAddr, not X-Forwarded-For)", got.IP)

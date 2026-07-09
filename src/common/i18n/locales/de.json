@@ -573,7 +573,13 @@
     "download_label": "Herunterladen",
     "owner_token_warning": "Speichern Sie dieses Token — es steuert das Löschen Ihrer Pastes.",
     "copy_token": "Token kopieren",
-    "view_paste": "Paste ansehen"
+    "view_paste": "Paste ansehen",
+    "audio_unsupported": "Ihr Browser unterstützt keine Audiowiedergabe. Laden Sie die Datei stattdessen herunter.",
+    "video_unsupported": "Ihr Browser unterstützt keine Videowiedergabe. Laden Sie die Datei stattdessen herunter.",
+    "active_content_title": "Aktiver Inhalt — Download erforderlich",
+    "active_content_desc": "Dieser Dateityp kann Scripts im Browser ausführen und kann aus Sicherheitsgründen nicht inline angezeigt werden.",
+    "binary_title": "Binärdatei",
+    "binary_desc": "Diese Datei ist kein Textformat und kann nicht im Browser angezeigt werden."
   },
   "qr": {
     "download_qr": "QR herunterladen",

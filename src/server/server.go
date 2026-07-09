@@ -2444,18 +2444,19 @@ func (s *Server) handleCreatePage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleWebCreate handles browser form submissions to POST /create. The form
-// submits as a standard urlencoded POST (no JavaScript required, PART 16); the
+// handleWebCreate handles browser form submissions to POST /pastes. The form
+// uses enctype="multipart/form-data" to support file uploads (PART 16); the
 // result — including the one-time owner token — is rendered server-side back
-// into create.html. Non-browser callers (JSON/multipart/raw) are delegated to
-// the content-negotiating API handler.
+// into create.html. Non-browser callers (JSON API, raw, CLI) are delegated to
+// the content-negotiating handler.
 func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
-	// Only browser form submissions render the server-side HTML result page.
-	// JSON/multipart/raw callers, and CLI clients posting form-encoded data,
-	// are delegated to the content-negotiating handler (PART 16 Smart Content
-	// Detection) so they receive text/JSON rather than an HTML page.
-	if !strings.HasPrefix(ct, "application/x-www-form-urlencoded") || detectClientType(r) != "html" {
+	// Route browser form submissions (urlencoded or multipart) to the HTML
+	// result flow. All other callers — JSON API, raw body, CLI — get the
+	// content-negotiating handler that returns text or JSON (PART 16).
+	isFormPost := strings.HasPrefix(ct, "application/x-www-form-urlencoded") ||
+		strings.HasPrefix(ct, "multipart/form-data")
+	if !isFormPost || detectClientType(r) != "html" {
 		s.pasteHandler.CreatePaste(w, r)
 		return
 	}
@@ -2583,8 +2584,13 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	// Content negotiation per PART 16: CLI tools get raw text, browsers get HTML.
 	switch detectClientType(r) {
 	case "text":
+		// Binary pastes (base64-stored) should be fetched via /raw/{id}.
+		if paste.ContentType != "" && !strings.HasPrefix(paste.ContentType, "text/") {
+			http.Redirect(w, r, "/raw/"+id, http.StatusFound)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte(paste.Content))
+		w.Write([]byte(paste.Content)) //nolint:errcheck
 		return
 	case "json":
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -2594,22 +2600,53 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build template data; binary uploads (images, etc.) are rendered as <img> tags.
-	isImage := strings.HasPrefix(paste.ContentType, "image/")
+	// Categorise the stored content so the template renders it correctly.
+	// Binary pastes are stored as base64 (ContentType is set for all non-text
+	// uploads). Active types must NEVER be rendered inline — serve as download.
+	fileCT := paste.ContentType
+
+	// Active content: can execute scripts in a browser — force download only.
+	isActiveContent := fileCT == "text/html" || fileCT == "application/xhtml+xml" ||
+		fileCT == "image/svg+xml" || fileCT == "text/xml" || fileCT == "application/xml" ||
+		fileCT == "application/javascript" || fileCT == "text/javascript"
+
+	// Raster images safe to embed as data URI (SVG excluded — active content).
+	isImage := strings.HasPrefix(fileCT, "image/") && !isActiveContent
+
+	// Audio and video safe for native browser players.
+	isAudio := strings.HasPrefix(fileCT, "audio/")
+	isVideo := strings.HasPrefix(fileCT, "video/")
+
+	// All other non-text binary content (executables, archives, PDFs, etc.).
+	isBinary := fileCT != "" && !isImage && !isAudio && !isVideo && !isActiveContent &&
+		!strings.HasPrefix(fileCT, "text/")
+
+	// For images, Content is already base64-encoded (stored that way on upload).
 	var imageDataURI string
 	if isImage {
-		encoded := base64.StdEncoding.EncodeToString([]byte(paste.Content))
-		imageDataURI = "data:" + paste.ContentType + ";base64," + encoded
+		imageDataURI = "data:" + fileCT + ";base64," + paste.Content
+	}
+
+	// For audio/video, Content is also base64; build a data URI for the player.
+	var mediaDataURI string
+	if isAudio || isVideo {
+		mediaDataURI = "data:" + fileCT + ";base64," + paste.Content
 	}
 
 	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
-		"SiteTitle":    s.liveCfg().Web.SiteTitle,
-		"Theme":        s.liveCfg().Web.Theme,
-		"Paste":        paste,
-		"ID":           id,
-		"Content":      handler.HighlightedContent(paste),
-		"IsImage":      isImage,
-		"ImageDataURI": imageDataURI,
+		"SiteTitle":       s.liveCfg().Web.SiteTitle,
+		"Theme":           s.liveCfg().Web.Theme,
+		"Paste":           paste,
+		"ID":              id,
+		"Content":         handler.HighlightedContent(paste),
+		"IsImage":         isImage,
+		"ImageDataURI":    imageDataURI,
+		"IsAudio":         isAudio,
+		"IsVideo":         isVideo,
+		"MediaDataURI":    mediaDataURI,
+		"IsActiveContent": isActiveContent,
+		"IsBinary":        isBinary,
+		"FileContentType": fileCT,
 	})
 }
 
@@ -2742,9 +2779,26 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		filename = id
 	}
 
-	w.Header().Set("Content-Type", "application/octet-stream")
+	// Binary pastes are stored as base64; decode to raw bytes before sending.
+	var body []byte
+	ct := paste.ContentType
+	if ct != "" && !strings.HasPrefix(ct, "text/") {
+		if decoded, err := base64.StdEncoding.DecodeString(paste.Content); err == nil {
+			body = decoded
+		} else {
+			body = []byte(paste.Content)
+		}
+	} else {
+		body = []byte(paste.Content)
+	}
+
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
-	w.Write([]byte(paste.Content))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Write(body) //nolint:errcheck
 }
 
 // handleURLRedirect redirects to the paste content if it is a URL; otherwise

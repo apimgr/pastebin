@@ -58,6 +58,38 @@
                         <div class="paste-image">
                             <img src="{{.ImageDataURI}}" alt="{{.Paste.Title}}" style="max-width:100%;height:auto;display:block;">
                         </div>
+                        {{else if .IsAudio}}
+                        <div class="paste-media">
+                            <audio controls style="width:100%">
+                                <source src="{{.MediaDataURI}}" type="{{.FileContentType}}">
+                                {{t .Lang "paste.audio_unsupported"}}
+                            </audio>
+                        </div>
+                        {{else if .IsVideo}}
+                        <div class="paste-media">
+                            <video controls style="max-width:100%;height:auto;display:block">
+                                <source src="{{.MediaDataURI}}" type="{{.FileContentType}}">
+                                {{t .Lang "paste.video_unsupported"}}
+                            </video>
+                        </div>
+                        {{else if .IsActiveContent}}
+                        <div class="paste-binary">
+                            <div class="alert alert-warning" role="alert">
+                                <p><strong>{{t .Lang "paste.active_content_title"}}</strong></p>
+                                <p>{{t .Lang "paste.active_content_desc"}}</p>
+                                <p><code class="long-string">{{.FileContentType}}</code></p>
+                                <a href="{{.AssetPrefix}}/dl/{{.ID}}" class="btn btn-primary mt-2">{{t .Lang "common.download"}}</a>
+                            </div>
+                        </div>
+                        {{else if .IsBinary}}
+                        <div class="paste-binary">
+                            <div class="alert alert-info" role="alert">
+                                <p><strong>{{t .Lang "paste.binary_title"}}</strong></p>
+                                <p>{{t .Lang "paste.binary_desc"}}</p>
+                                <p><code class="long-string">{{.FileContentType}}</code></p>
+                                <a href="{{.AssetPrefix}}/dl/{{.ID}}" class="btn btn-primary mt-2">{{t .Lang "common.download"}}</a>
+                            </div>
+                        </div>
                         {{else}}
                         <pre><code id="paste-code">{{.Content}}</code></pre>
                         {{end}}

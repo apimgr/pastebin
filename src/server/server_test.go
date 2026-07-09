@@ -2040,11 +2040,12 @@ func TestSecurityHeadersHSTS(t *testing.T) {
 // ─── stubDB implements database.DB for testing ────────────────────────────────
 
 type stubDB struct {
-	pingErr        error
-	pastesCount    int64
-	taskHistory    []*database.TaskHistory
-	historyErr     error
-	getPasteByIDFn func(id string) (*model.Paste, error)
+	pingErr           error
+	pastesCount       int64
+	taskHistory       []*database.TaskHistory
+	historyErr        error
+	getPasteByIDFn    func(id string) (*model.Paste, error)
+	verifyAPITokenErr error
 }
 
 func (d *stubDB) Close() error                  { return nil }
@@ -2079,7 +2080,7 @@ func (d *stubDB) ListTaskHistory(taskID string, limit int) ([]*database.TaskHist
 	return d.taskHistory, d.historyErr
 }
 func (d *stubDB) CreateAPIToken(hash, prefix, rtype, rid string, exp *time.Time) error { return nil }
-func (d *stubDB) VerifyAPIToken(hash [32]byte, rtype, rid string) error               { return nil }
+func (d *stubDB) VerifyAPIToken(hash [32]byte, rtype, rid string) error               { return d.verifyAPITokenErr }
 func (d *stubDB) ValidateAPIToken(hash [32]byte, rtype string) error                   { return nil }
 func (d *stubDB) RevokeAPIToken(prefix, reason string) error                           { return nil }
 func (d *stubDB) ListAPITokens() ([]*database.APITokenRecord, error)                   { return nil, nil }
@@ -2944,6 +2945,114 @@ func TestHandleDownload(t *testing.T) {
 	})
 }
 
+// ─── handleViewPaste binary redirect and file-type tests ─────────────────────
+
+func TestHandleViewPaste_BinaryPaths(t *testing.T) {
+	t.Run("text client binary paste redirects to raw", func(t *testing.T) {
+		db := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "AAAA", ContentType: "image/png"}, nil
+			},
+		}
+		s := newServerWithPasteHandler(&config.Config{}, db)
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		w := httptest.NewRecorder()
+		s.handleViewPaste(w, r)
+		if w.Code != http.StatusFound {
+			t.Errorf("text binary redirect status = %d, want 302", w.Code)
+		}
+		if !strings.Contains(w.Header().Get("Location"), "/raw/testid") {
+			t.Errorf("expected /raw/testid redirect, got: %q", w.Header().Get("Location"))
+		}
+	})
+
+	t.Run("text client text paste returns content", func(t *testing.T) {
+		db := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "hello"}, nil
+			},
+		}
+		s := newServerWithPasteHandler(&config.Config{}, db)
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		w := httptest.NewRecorder()
+		s.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("text paste status = %d, want 200", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "hello") {
+			t.Errorf("expected content in body, got: %q", w.Body.String())
+		}
+	})
+}
+
+// ─── handleDownload binary decoding tests ─────────────────────────────────────
+
+func TestHandleDownload_BinaryContent(t *testing.T) {
+	t.Run("binary paste is base64-decoded before sending", func(t *testing.T) {
+		rawBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+		encoded := "iVBORw0KGgo="
+		db := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Title: "img.png", Content: encoded, ContentType: "image/png"}, nil
+			},
+		}
+		s := newServerWithPasteHandler(&config.Config{}, db)
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/dl/testid", nil), "testid")
+		w := httptest.NewRecorder()
+		s.handleDownload(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("binary download status = %d, want 200", w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+			t.Errorf("Content-Type = %q, want image/png", ct)
+		}
+		if !strings.Contains(w.Header().Get("Content-Disposition"), "attachment") {
+			t.Errorf("expected attachment Content-Disposition")
+		}
+		got := w.Body.Bytes()[:len(rawBytes)]
+		for i, b := range rawBytes {
+			if got[i] != b {
+				t.Errorf("byte[%d] = %02x, want %02x", i, got[i], b)
+			}
+		}
+	})
+
+	t.Run("binary paste with invalid base64 falls back to raw", func(t *testing.T) {
+		db := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Title: "data.bin", Content: "not-base64!!!", ContentType: "application/octet-stream"}, nil
+			},
+		}
+		s := newServerWithPasteHandler(&config.Config{}, db)
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/dl/testid", nil), "testid")
+		w := httptest.NewRecorder()
+		s.handleDownload(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("fallback binary download status = %d, want 200", w.Code)
+		}
+		if !strings.Contains(w.Header().Get("Content-Disposition"), "attachment") {
+			t.Errorf("expected attachment Content-Disposition")
+		}
+	})
+
+	t.Run("binary paste with no ContentType uses octet-stream", func(t *testing.T) {
+		db := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "text content"}, nil
+			},
+		}
+		s := newServerWithPasteHandler(&config.Config{}, db)
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/dl/testid", nil), "testid")
+		w := httptest.NewRecorder()
+		s.handleDownload(w, r)
+		if ct := w.Header().Get("Content-Type"); ct != "application/octet-stream" {
+			t.Errorf("Content-Type = %q, want application/octet-stream", ct)
+		}
+	})
+}
+
 // ─── handleURLRedirect tests ─────────────────────────────────────────────────
 
 func TestHandleURLRedirect(t *testing.T) {
@@ -3177,6 +3286,96 @@ func TestNewHandlersWithTemplates(t *testing.T) {
 		}
 	})
 
+	// HTML browser requesting a binary image paste — renders image data URI.
+	t.Run("handleViewPaste_html_image", func(t *testing.T) {
+		db2 := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "iVBORw0KGgo=", ContentType: "image/png", Title: "img.png"}, nil
+			},
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s2.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("image paste HTML status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+	})
+
+	// HTML browser requesting an audio paste — renders audio player.
+	t.Run("handleViewPaste_html_audio", func(t *testing.T) {
+		db2 := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "SUQzBA==", ContentType: "audio/mpeg", Title: "song.mp3"}, nil
+			},
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s2.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("audio paste HTML status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+	})
+
+	// HTML browser requesting a video paste — renders video player.
+	t.Run("handleViewPaste_html_video", func(t *testing.T) {
+		db2 := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "AAAAIGZ0eXA=", ContentType: "video/mp4", Title: "clip.mp4"}, nil
+			},
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s2.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("video paste HTML status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+	})
+
+	// HTML browser requesting an active-content paste — shows download warning.
+	t.Run("handleViewPaste_html_active_content", func(t *testing.T) {
+		db2 := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "<html><body>hi</body></html>", ContentType: "text/html", Title: "page.html"}, nil
+			},
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s2.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("active content paste HTML status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+	})
+
+	// HTML browser requesting a generic binary paste — shows download prompt.
+	t.Run("handleViewPaste_html_binary", func(t *testing.T) {
+		db2 := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: "f0VMRgIBAQAAAA==", ContentType: "application/octet-stream", Title: "prog"}, nil
+			},
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s2.handleViewPaste(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("binary paste HTML status = %d, want 200; body: %q", w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+	})
+
 	t.Run("handleRemoveSubmit_no_token", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/remove/abc", strings.NewReader(""))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -3184,6 +3383,54 @@ func TestNewHandlersWithTemplates(t *testing.T) {
 		s.handleRemoveSubmit(w, r)
 		if w.Code != http.StatusOK {
 			t.Errorf("remove submit no-token status = %d, want 200 (template rendered)", w.Code)
+		}
+	})
+
+	t.Run("handleContact_html", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/server/contact", nil)
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleContact(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("handleContact HTML = %d, want 200", w.Code)
+		}
+	})
+
+	t.Run("handleContact_text", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/server/contact", nil)
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		w := httptest.NewRecorder()
+		s.handleContact(w, r)
+		if w.Code == http.StatusInternalServerError {
+			t.Errorf("handleContact text unexpectedly returned 500")
+		}
+	})
+
+	t.Run("handleQRImage_generates_png", func(t *testing.T) {
+		r := withChiID(httptest.NewRequest(http.MethodGet, "/qr/testid", nil), "testid")
+		w := httptest.NewRecorder()
+		s.handleQRImage(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("handleQRImage status = %d, want 200", w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+			t.Errorf("handleQRImage Content-Type = %q, want image/png", ct)
+		}
+	})
+
+	t.Run("handleRemoveSubmit_invalid_token_renders_error", func(t *testing.T) {
+		db2 := &stubDB{
+			verifyAPITokenErr: os.ErrNotExist,
+		}
+		ph := handler.NewPasteHandler(db2, "", [32]byte{})
+		s2 := &Server{cfg: cfg, db: db2, pasteHandler: ph, templates: s.templates, startTime: time.Now()}
+		body := "token=tok_invalid"
+		r := withChiID(httptest.NewRequest(http.MethodPost, "/remove/abc", strings.NewReader(body)), "abc")
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		s2.handleRemoveSubmit(w, r)
+		if w.Code != http.StatusOK {
+			t.Errorf("handleRemoveSubmit invalid token = %d, want 200 (error page)", w.Code)
 		}
 	})
 }
@@ -3355,6 +3602,33 @@ func TestHandleWebCreate(t *testing.T) {
 			t.Error("CLI form-encoded request must not render the HTML result page")
 		}
 	})
+
+	// Browser forms always use multipart/form-data (enctype on create.html).
+	// The handler must accept this encoding from browsers and render the HTML
+	// success page — this was the root cause of /pastes showing plain text.
+	t.Run("multipart_browser_success_renders_token", func(t *testing.T) {
+		var buf strings.Builder
+		boundary := "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+		buf.WriteString("--" + boundary + "\r\n")
+		buf.WriteString("Content-Disposition: form-data; name=\"content\"\r\n\r\n")
+		buf.WriteString("multipart hello world\r\n")
+		buf.WriteString("--" + boundary + "\r\n")
+		buf.WriteString("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
+		buf.WriteString("text\r\n")
+		buf.WriteString("--" + boundary + "--\r\n")
+		r := httptest.NewRequest(http.MethodPost, "/pastes", strings.NewReader(buf.String()))
+		r.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+		r.Header.Set("Accept", "text/html")
+		w := httptest.NewRecorder()
+		s.handleWebCreate(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("multipart browser create status = %d, want 200; body: %q",
+				w.Code, w.Body.String()[:min(len(w.Body.String()), 300)])
+		}
+		if !strings.Contains(w.Body.String(), "created-token") {
+			t.Error("multipart browser create should render the HTML result page with owner token")
+		}
+	})
 }
 
 // ─── startTermbin ──────────────────────────────────────────────────────────────
@@ -3492,6 +3766,375 @@ func TestStartTermbin_BaseURLFallback(t *testing.T) {
 }
 
 // TestValidPathPrefix verifies the rooted-path guard rejects protocol-relative
+// ─── themeFromRequest ────────────────────────────────────────────────────────
+
+func TestThemeFromRequest(t *testing.T) {
+	s := newServerWithDB(&config.Config{}, &stubDB{})
+
+	t.Run("no cookie no config returns dark", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		if got := s.themeFromRequest(r); got != "dark" {
+			t.Errorf("themeFromRequest() = %q, want dark", got)
+		}
+	})
+
+	t.Run("valid cookie light returns light", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.AddCookie(&http.Cookie{Name: "theme", Value: "light"})
+		if got := s.themeFromRequest(r); got != "light" {
+			t.Errorf("themeFromRequest() = %q, want light", got)
+		}
+	})
+
+	t.Run("valid cookie auto returns auto", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.AddCookie(&http.Cookie{Name: "theme", Value: "auto"})
+		if got := s.themeFromRequest(r); got != "auto" {
+			t.Errorf("themeFromRequest() = %q, want auto", got)
+		}
+	})
+
+	t.Run("invalid cookie falls back to config default", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Web.Theme = "light"
+		s2 := newServerWithDB(cfg, &stubDB{})
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.AddCookie(&http.Cookie{Name: "theme", Value: "invalid"})
+		if got := s2.themeFromRequest(r); got != "light" {
+			t.Errorf("themeFromRequest() with invalid cookie = %q, want light (config)", got)
+		}
+	})
+
+	t.Run("invalid cookie and invalid config returns dark", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Web.Theme = "bad"
+		s2 := newServerWithDB(cfg, &stubDB{})
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.AddCookie(&http.Cookie{Name: "theme", Value: "also-bad"})
+		if got := s2.themeFromRequest(r); got != "dark" {
+			t.Errorf("themeFromRequest() with no valid theme = %q, want dark", got)
+		}
+	})
+}
+
+// ─── realIPMiddleware ─────────────────────────────────────────────────────────
+
+func TestRealIPMiddleware(t *testing.T) {
+	makeServer := func() *Server {
+		return &Server{cfg: &config.Config{}, db: &stubDB{}, startTime: time.Now()}
+	}
+
+	captureAddr := func(s *Server, r *http.Request) string {
+		var got string
+		h := s.realIPMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+			got = req.RemoteAddr
+		}))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		return got
+	}
+
+	t.Run("untrusted peer is not modified", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "203.0.113.1:9999"
+		r.Header.Set("CF-Connecting-IP", "1.2.3.4")
+		got := captureAddr(s, r)
+		if got != "203.0.113.1:9999" {
+			t.Errorf("untrusted peer RemoteAddr = %q, want unchanged", got)
+		}
+	})
+
+	t.Run("trusted peer CF-Connecting-IP updates addr", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("CF-Connecting-IP", "1.2.3.4")
+		got := captureAddr(s, r)
+		if !strings.Contains(got, "1.2.3.4") {
+			t.Errorf("CF-Connecting-IP: RemoteAddr = %q, want 1.2.3.4", got)
+		}
+	})
+
+	t.Run("trusted peer True-Client-IP updates addr", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("True-Client-IP", "5.6.7.8")
+		got := captureAddr(s, r)
+		if !strings.Contains(got, "5.6.7.8") {
+			t.Errorf("True-Client-IP: RemoteAddr = %q, want 5.6.7.8", got)
+		}
+	})
+
+	t.Run("trusted peer X-Real-IP updates addr", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("X-Real-IP", "9.10.11.12")
+		got := captureAddr(s, r)
+		if !strings.Contains(got, "9.10.11.12") {
+			t.Errorf("X-Real-IP: RemoteAddr = %q, want 9.10.11.12", got)
+		}
+	})
+
+	t.Run("trusted peer X-Forwarded-For uses leftmost", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("X-Forwarded-For", "13.14.15.16, 17.18.19.20")
+		got := captureAddr(s, r)
+		if !strings.Contains(got, "13.14.15.16") {
+			t.Errorf("X-Forwarded-For: RemoteAddr = %q, want leftmost 13.14.15.16", got)
+		}
+	})
+
+	t.Run("trusted peer X-Client-IP as fallback", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("X-Client-IP", "21.22.23.24")
+		got := captureAddr(s, r)
+		if !strings.Contains(got, "21.22.23.24") {
+			t.Errorf("X-Client-IP: RemoteAddr = %q, want 21.22.23.24", got)
+		}
+	})
+
+	t.Run("trusted peer invalid IP in header is ignored", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		r.Header.Set("CF-Connecting-IP", "not-an-ip")
+		got := captureAddr(s, r)
+		if got != "127.0.0.1:12345" {
+			t.Errorf("invalid header IP: RemoteAddr = %q, want unchanged 127.0.0.1:12345", got)
+		}
+	})
+
+	t.Run("trusted peer no proxy headers unchanged", func(t *testing.T) {
+		s := makeServer()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:12345"
+		got := captureAddr(s, r)
+		if got != "127.0.0.1:12345" {
+			t.Errorf("no headers: RemoteAddr = %q, want unchanged 127.0.0.1:12345", got)
+		}
+	})
+}
+
+// ─── injectTermbinData ────────────────────────────────────────────────────────
+
+func TestInjectTermbinData(t *testing.T) {
+	t.Run("termbin disabled sets TermbinEnabled=false", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.Termbin.Enabled = false
+		s := newServerWithDB(cfg, &stubDB{})
+		data := map[string]interface{}{}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		s.injectTermbinData(r, data)
+		if data["TermbinEnabled"] != false {
+			t.Errorf("TermbinEnabled = %v, want false", data["TermbinEnabled"])
+		}
+		if data["TermbinHost"] != "" {
+			t.Errorf("TermbinHost = %q, want empty", data["TermbinHost"])
+		}
+	})
+
+	t.Run("termbin enabled with explicit address uses it", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.Termbin.Enabled = true
+		cfg.Server.Termbin.Port = 9999
+		cfg.Server.Address = "192.168.1.50"
+		s := newServerWithDB(cfg, &stubDB{})
+		data := map[string]interface{}{}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		s.injectTermbinData(r, data)
+		if data["TermbinEnabled"] != true {
+			t.Errorf("TermbinEnabled = %v, want true", data["TermbinEnabled"])
+		}
+		if data["TermbinHost"] != "192.168.1.50" {
+			t.Errorf("TermbinHost = %q, want 192.168.1.50", data["TermbinHost"])
+		}
+		if data["TermbinPort"] != 9999 {
+			t.Errorf("TermbinPort = %v, want 9999", data["TermbinPort"])
+		}
+	})
+
+	t.Run("termbin enabled with 0.0.0.0 falls back to hostname or request host", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.Termbin.Enabled = true
+		cfg.Server.Termbin.Port = 9999
+		cfg.Server.Address = "0.0.0.0"
+		s := newServerWithDB(cfg, &stubDB{})
+		data := map[string]interface{}{}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Host = "example.com:8080"
+		s.injectTermbinData(r, data)
+		if data["TermbinEnabled"] != true {
+			t.Errorf("TermbinEnabled = %v, want true", data["TermbinEnabled"])
+		}
+		host, _ := data["TermbinHost"].(string)
+		if host == "" || host == "0.0.0.0" {
+			t.Errorf("TermbinHost = %q with 0.0.0.0 address, want hostname or request host", host)
+		}
+	})
+}
+
+// ─── refreshDNSTrustedProxies ─────────────────────────────────────────────────
+
+func TestRefreshDNSTrustedProxies(t *testing.T) {
+	t.Run("empty additional list is a noop", func(t *testing.T) {
+		cfg := &config.Config{}
+		s := newServerWithDB(cfg, &stubDB{})
+		s.refreshDNSTrustedProxies(context.Background())
+		s.resolvedProxyMu.RLock()
+		n := len(s.resolvedProxyIPs)
+		s.resolvedProxyMu.RUnlock()
+		if n != 0 {
+			t.Errorf("resolvedProxyIPs len = %d, want 0", n)
+		}
+	})
+
+	t.Run("IP and CIDR entries are skipped", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.TrustedProxies.Additional = []string{"10.0.0.1", "192.168.0.0/24"}
+		s := newServerWithDB(cfg, &stubDB{})
+		s.refreshDNSTrustedProxies(context.Background())
+		s.resolvedProxyMu.RLock()
+		n := len(s.resolvedProxyIPs)
+		s.resolvedProxyMu.RUnlock()
+		if n != 0 {
+			t.Errorf("resolvedProxyIPs len = %d, want 0 (IPs/CIDRs skipped)", n)
+		}
+	})
+
+	t.Run("invalid hostname lookup failure is tolerated", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.TrustedProxies.Additional = []string{"this.hostname.does.not.exist.invalid"}
+		s := newServerWithDB(cfg, &stubDB{})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.refreshDNSTrustedProxies(ctx)
+		s.resolvedProxyMu.RLock()
+		n := len(s.resolvedProxyIPs)
+		s.resolvedProxyMu.RUnlock()
+		if n != 0 {
+			t.Errorf("resolvedProxyIPs len = %d, want 0 after DNS failure", n)
+		}
+	})
+
+	t.Run("localhost hostname resolves and is stored", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.TrustedProxies.Additional = []string{"localhost"}
+		s := newServerWithDB(cfg, &stubDB{})
+		s.refreshDNSTrustedProxies(context.Background())
+		s.resolvedProxyMu.RLock()
+		ips := s.resolvedProxyIPs["localhost"]
+		s.resolvedProxyMu.RUnlock()
+		if len(ips) == 0 {
+			t.Log("localhost did not resolve (acceptable in some CI environments)")
+		}
+	})
+}
+
+// ─── domainObserveMiddleware ──────────────────────────────────────────────────
+
+func TestDomainObserveMiddleware(t *testing.T) {
+	t.Run("nil domainLearner does not panic", func(t *testing.T) {
+		s := &Server{cfg: &config.Config{}, db: &stubDB{}, startTime: time.Now()}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("X-Forwarded-Host", "example.com")
+		called := false
+		h := s.domainObserveMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			called = true
+		}))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		if !called {
+			t.Error("next handler not called")
+		}
+	})
+
+	t.Run("untrusted peer does not call Observe", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.URLDetection.Learning = true
+		dl := newDomainLearner(&cfg.Server.URLDetection)
+		s := &Server{cfg: cfg, db: &stubDB{}, startTime: time.Now(), domainLearner: dl}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "203.0.113.1:9999"
+		r.Header.Set("X-Forwarded-Host", "evil.com")
+		h := s.domainObserveMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		if got := dl.BaseDomain(); got != "" {
+			t.Errorf("BaseDomain = %q after untrusted observe, want empty", got)
+		}
+	})
+
+	t.Run("trusted peer with X-Forwarded-Host calls Observe", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.URLDetection.Learning = true
+		cfg.Server.URLDetection.MinSamples = 1
+		dl := newDomainLearner(&cfg.Server.URLDetection)
+		s := &Server{cfg: cfg, db: &stubDB{}, startTime: time.Now(), domainLearner: dl}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("X-Forwarded-Host", "trusted.example.com")
+		called := false
+		h := s.domainObserveMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			called = true
+		}))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		if !called {
+			t.Error("next handler not called")
+		}
+	})
+
+	t.Run("trusted peer with X-Forwarded-Host host:port strips port", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.URLDetection.Learning = true
+		cfg.Server.URLDetection.MinSamples = 1
+		dl := newDomainLearner(&cfg.Server.URLDetection)
+		s := &Server{cfg: cfg, db: &stubDB{}, startTime: time.Now(), domainLearner: dl}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:1234"
+		r.Header.Set("X-Forwarded-Host", "trusted.example.com:443")
+		h := s.domainObserveMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	})
+}
+
+// ─── handleContactPost ────────────────────────────────────────────────────────
+
+func TestHandleContactPost(t *testing.T) {
+	t.Run("contact disabled returns 404", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.Pages.Contact.Enabled = false
+		s := newServerWithDB(cfg, &stubDB{})
+		r := httptest.NewRequest(http.MethodPost, "/server/contact", strings.NewReader("name=Alice"))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		s.handleContactPost(w, r)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("handleContactPost disabled = %d, want 404", w.Code)
+		}
+	})
+
+	t.Run("contact enabled with missing fields re-renders form", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.Pages.Contact.Enabled = true
+		s := newServerWithDB(cfg, &stubDB{})
+		body := "name=Alice&email=alice%40example.com&subject=Hello&message=Hi"
+		r := httptest.NewRequest(http.MethodPost, "/server/contact", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		s.handleContactPost(w, r)
+		if w.Code == http.StatusInternalServerError {
+			t.Errorf("handleContactPost unexpectedly returned 500")
+		}
+	})
+}
+
+// ─── validPathPrefix ──────────────────────────────────────────────────────────
+
 // and scheme/host/control-character injection while accepting real sub-path
 // mounts (defense against header-controlled asset-prefix injection).
 func TestValidPathPrefix(t *testing.T) {

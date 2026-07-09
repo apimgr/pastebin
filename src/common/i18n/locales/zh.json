@@ -573,7 +573,13 @@
     "download_label": "下载",
     "owner_token_warning": "请保存此令牌——它用于控制删除您的粘贴。",
     "copy_token": "复制令牌",
-    "view_paste": "查看粘贴"
+    "view_paste": "查看粘贴",
+    "audio_unsupported": "您的浏览器不支持音频播放，请下载该文件。",
+    "video_unsupported": "您的浏览器不支持视频播放，请下载该文件。",
+    "active_content_title": "活跃内容——需要下载",
+    "active_content_desc": "此文件类型可在浏览器中执行脚本，出于安全原因无法内联显示。",
+    "binary_title": "二进制文件",
+    "binary_desc": "此文件不是文本格式，无法在浏览器中显示。"
   },
   "qr": {
     "download_qr": "下载二维码",

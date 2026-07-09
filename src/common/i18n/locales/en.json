@@ -194,7 +194,13 @@
     "download_label": "Download",
     "owner_token_warning": "Save this token — it controls deletion of your pastes.",
     "copy_token": "Copy Token",
-    "view_paste": "View Paste"
+    "view_paste": "View Paste",
+    "audio_unsupported": "Your browser does not support audio playback. Download the file instead.",
+    "video_unsupported": "Your browser does not support video playback. Download the file instead.",
+    "active_content_title": "Active Content — Download Required",
+    "active_content_desc": "This file type can execute scripts in a browser and cannot be rendered inline for security reasons.",
+    "binary_title": "Binary File",
+    "binary_desc": "This file is not a text format and cannot be displayed in the browser."
   },
   "recent": {
     "title": "Recent Pastes",

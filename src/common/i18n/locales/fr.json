@@ -573,7 +573,13 @@
     "download_label": "Télécharger",
     "owner_token_warning": "Conservez ce jeton — il contrôle la suppression de vos pastes.",
     "copy_token": "Copier le jeton",
-    "view_paste": "Voir le paste"
+    "view_paste": "Voir le paste",
+    "audio_unsupported": "Votre navigateur ne supporte pas la lecture audio. Téléchargez le fichier.",
+    "video_unsupported": "Votre navigateur ne supporte pas la lecture vidéo. Téléchargez le fichier.",
+    "active_content_title": "Contenu actif — téléchargement requis",
+    "active_content_desc": "Ce type de fichier peut exécuter des scripts dans un navigateur et ne peut pas être affiché en ligne pour des raisons de sécurité.",
+    "binary_title": "Fichier binaire",
+    "binary_desc": "Ce fichier n'est pas un format texte et ne peut pas être affiché dans le navigateur."
   },
   "qr": {
     "download_qr": "Télécharger le QR",
