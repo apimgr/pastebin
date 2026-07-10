@@ -864,7 +864,8 @@ func TestCmdCreate_FromStdin(t *testing.T) {
 	defer func() { os.Stdin = origStdin }()
 
 	c := &client{server: srv.URL}
-	c.cmdCreate([]string{}) // no args → reads from os.Stdin
+	// no args → reads from os.Stdin
+	c.cmdCreate([]string{})
 }
 
 func TestDefaultServerURL(t *testing.T) {

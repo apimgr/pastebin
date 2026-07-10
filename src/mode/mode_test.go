@@ -132,9 +132,9 @@ func TestGet(t *testing.T) {
 // TestIsDevelopment confirms the predicate tracks the active mode.
 func TestIsDevelopment(t *testing.T) {
 	cases := []struct {
-		name  string
-		set   string
-		want  bool
+		name string
+		set  string
+		want bool
 	}{
 		{"dev mode → true", "dev", true},
 		{"production mode → false", "production", false},
@@ -258,10 +258,11 @@ func TestGetErrorDetail(t *testing.T) {
 	sentinel := errors.New("database connection refused")
 
 	cases := []struct {
-		name     string
-		setMode  string
-		err      error
-		wantFull bool // true → expect err.Error() verbatim; false → generic message
+		name    string
+		setMode string
+		err     error
+		// true → expect err.Error() verbatim; false → generic message
+		wantFull bool
 	}{
 		{"nil error returns empty", "production", nil, false},
 		{"development returns full detail", "dev", sentinel, true},
@@ -301,10 +302,11 @@ func TestGetErrorDetail(t *testing.T) {
 // TestGetCacheHeaders verifies no-cache for dev and public/immutable for prod.
 func TestGetCacheHeaders(t *testing.T) {
 	cases := []struct {
-		name              string
-		setMode           string
-		wantCacheControl  string
-		wantNoCache       bool // true → must NOT contain "public"
+		name             string
+		setMode          string
+		wantCacheControl string
+		// true → must NOT contain "public"
+		wantNoCache bool
 	}{
 		{"development → no-cache", "dev", "no-cache, no-store, must-revalidate", true},
 		{"production → public immutable", "production", "public, max-age=31536000, immutable", false},

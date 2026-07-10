@@ -72,8 +72,8 @@ func TestSecurityReportClosedAt(t *testing.T) {
 	updatedTime := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
 
 	cases := []struct {
-		name      string
-		rep       *database.SecurityReport
+		name       string
+		rep        *database.SecurityReport
 		wantClosed bool
 		wantTime   time.Time
 	}{

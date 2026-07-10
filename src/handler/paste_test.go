@@ -335,9 +335,11 @@ func TestParseExpiry(t *testing.T) {
 		{"1y", false, 366 * 24 * time.Hour},
 		{"2y", false, 731 * 24 * time.Hour},
 		{"never", true, 0},
-		{"3600", false, 2 * time.Hour},   // raw seconds = 1 hour
+		// raw seconds = 1 hour
+		{"3600", false, 2 * time.Hour},
 		{"bad", true, 0},
-		{"0", true, 0},   // non-positive seconds → nil
+		// non-positive seconds → nil
+		{"0", true, 0},
 		{"", true, 0},
 	}
 	for _, tc := range cases {
@@ -380,7 +382,8 @@ func TestDetectLanguage(t *testing.T) {
 		{"data.json", "json"},
 		{"config.yml", "yaml"},
 		{"config.yaml", "yaml"},
-		{"Dockerfile", "dockerfile"}, // no dot → whole lowercase name is the key
+		// no dot → whole lowercase name is the key
+		{"Dockerfile", "dockerfile"},
 		{"unknown.xyz", "text"},
 		{"noextension", "text"},
 	}
@@ -423,5 +426,6 @@ func TestHashToken(t *testing.T) {
 	if he == "" {
 		t.Error("HashToken of empty string should not be empty")
 	}
-	_ = bytes.NewBufferString(he) // silence unused import warning if any
+	// silence unused import warning if any
+	_ = bytes.NewBufferString(he)
 }

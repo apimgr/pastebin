@@ -197,9 +197,9 @@ type Server struct {
 	metricsCollector *metrics.Collector
 	geoipDB          *geoip.DB
 	torManager       *tor.Manager
-	readLimiter   *rateLimiter
-	writeLimiter  *rateLimiter
-	healthLimiter *rateLimiter
+	readLimiter      *rateLimiter
+	writeLimiter     *rateLimiter
+	healthLimiter    *rateLimiter
 	version          string
 	commitID         string
 	buildDate        string
@@ -2337,28 +2337,28 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 					"POST /api/api_login.php": "always returns ANONYMOUS",
 				},
 				"compat_microbin": map[string]string{
-					"POST   /api/v1/pasta":       "create paste",
-					"GET    /api/v1/pasta":        "list pastes",
-					"GET    /api/v1/pasta/{id}":   "get paste",
-					"DELETE /api/v1/pasta/{id}":   "delete paste",
+					"POST   /api/v1/pasta":      "create paste",
+					"GET    /api/v1/pasta":      "list pastes",
+					"GET    /api/v1/pasta/{id}": "get paste",
+					"DELETE /api/v1/pasta/{id}": "delete paste",
 				},
 				"compat_lenpaste": map[string]string{
-					"POST   /api/new":             "create paste (also /api/v1/new)",
+					"POST   /api/new":              "create paste (also /api/v1/new)",
 					"GET    /api/get":              "get paste (?id=ID) (also /api/v1/get)",
 					"DELETE /api/remove":           "delete paste (?id=ID&deleteToken=TOKEN) (also /api/v1/remove)",
 					"GET    /api/list":             "list pastes (also /api/v1/list)",
 					"GET    /api/v1/getServerInfo": "server metadata",
 				},
 				"compat_stikked": map[string]string{
-					"POST /api/create":      "create paste; returns bare URL",
-					"GET  /api/paste/{id}":  "get paste as JSON",
+					"POST /api/create":     "create paste; returns bare URL",
+					"GET  /api/paste/{id}": "get paste as JSON",
 				},
 				"compat_hastebin": map[string]string{
 					"POST /documents":       "create document; returns {\"key\":\"…\"}",
 					"GET  /documents/{key}": "get document; returns {\"key\":\"…\",\"data\":\"…\"}",
 				},
 				"compat_dpaste": map[string]string{
-					"POST /api/":   "create paste (also /api/v2/); format=url|json",
+					"POST /api/":    "create paste (also /api/v2/); format=url|json",
 					"POST /api/v2/": "create paste (dpaste v2 alias)",
 				},
 				"compat_curl_upload": map[string]string{
@@ -2489,7 +2489,8 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 	// JS heap; SameSite=Strict + POST-only mutations provide CSRF protection.
 	// Secure is set when the connection is TLS; for HTTP dev environments the
 	// cookie is still set so the delete form works locally.
-	maxAge := 730 * 24 * 60 * 60 // 2-year default for tokens with no expiry
+	// 2-year default for tokens with no expiry
+	maxAge := 730 * 24 * 60 * 60
 	if resp.ExpiresAt != nil {
 		if secs := int(time.Until(*resp.ExpiresAt).Seconds()); secs > 0 {
 			maxAge = secs

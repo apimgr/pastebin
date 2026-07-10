@@ -193,8 +193,9 @@ func TestCmdList_ExactlyFortyCharTitle(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"pastes": []interface{}{
 				map[string]interface{}{
-					"id":         "p2",
-					"title":      "1234567890123456789012345678901234567890", // exactly 40 chars
+					"id": "p2",
+					// exactly 40 chars
+					"title":      "1234567890123456789012345678901234567890",
 					"language":   "text",
 					"views":      1,
 					"created_at": "2025-06-01T12:00:00Z",
@@ -359,9 +360,10 @@ func TestCmdCreate_NoDeleteToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{
-			"id":           "xyz",
-			"link":         "http://example.com/xyz",
-			"delete_token": "", // empty token
+			"id":   "xyz",
+			"link": "http://example.com/xyz",
+			// empty token
+			"delete_token": "",
 		})
 	}))
 	defer srv.Close()

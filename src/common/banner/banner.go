@@ -12,7 +12,8 @@ import (
 type BannerConfig struct {
 	AppName string
 	Version string
-	AppMode string   // production/development
+	// production/development
+	AppMode string
 	Debug   bool
 	URLs    []string
 }

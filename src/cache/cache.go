@@ -43,10 +43,10 @@ type Config struct {
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
 
-	TLS           bool   `yaml:"tls"`
-	TLSSkipVerify bool   `yaml:"tls_skip_verify"`
-	PoolSize      int    `yaml:"pool_size"`
-	MinIdle       int    `yaml:"min_idle"`
+	TLS           bool `yaml:"tls"`
+	TLSSkipVerify bool `yaml:"tls_skip_verify"`
+	PoolSize      int  `yaml:"pool_size"`
+	MinIdle       int  `yaml:"min_idle"`
 	// Timeout is the read/write/dial timeout for remote drivers.
 	Timeout time.Duration `yaml:"timeout"`
 	// Prefix is prepended to every key to avoid namespace collisions.
@@ -163,7 +163,7 @@ func (c *memoryCache) Delete(_ context.Context, key string) error {
 }
 
 func (c *memoryCache) Ping(_ context.Context) error { return nil }
-func (c *memoryCache) Close() error                  { return nil }
+func (c *memoryCache) Close() error                 { return nil }
 
 // reaperTickInterval controls how often the reaper sweeps for expired entries.
 // Overridden in tests to avoid waiting 5 minutes.
@@ -198,11 +198,11 @@ type noopCache struct{}
 
 func newNoopCache() *noopCache { return &noopCache{} }
 
-func (c *noopCache) Get(_ context.Context, _ string) (string, error) { return "", ErrCacheMiss }
+func (c *noopCache) Get(_ context.Context, _ string) (string, error)           { return "", ErrCacheMiss }
 func (c *noopCache) Set(_ context.Context, _, _ string, _ time.Duration) error { return nil }
 func (c *noopCache) Delete(_ context.Context, _ string) error                  { return nil }
-func (c *noopCache) Ping(_ context.Context) error                               { return nil }
-func (c *noopCache) Close() error                                               { return nil }
+func (c *noopCache) Ping(_ context.Context) error                              { return nil }
+func (c *noopCache) Close() error                                              { return nil }
 
 // ── Redis / Valkey driver ─────────────────────────────────────────────────────
 

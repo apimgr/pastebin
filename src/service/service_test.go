@@ -374,7 +374,8 @@ func TestInstall_ReturnsResultWithoutPanic(t *testing.T) {
 	// In containers with no service manager it returns "unsupported service manager".
 	// On hosts with a service manager it may succeed or fail — both are acceptable.
 	err := Install()
-	_ = err // error is acceptable; we only require no panic
+	// error is acceptable; we only require no panic
+	_ = err
 }
 
 func TestUninstall_ReturnsResultWithoutPanic(t *testing.T) {

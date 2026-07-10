@@ -68,13 +68,15 @@ func CheckForUpdateURL(ctx context.Context, currentVersion, branch, apiURL strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil // no updates available
+		// no updates available
+		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API: HTTP %d", resp.StatusCode)
 	}
 
-	lr := io.LimitReader(resp.Body, 4<<20) // 4 MiB cap
+	// 4 MiB cap
+	lr := io.LimitReader(resp.Body, 4<<20)
 
 	if branch == "stable" || branch == "" {
 		var rel Release
@@ -131,7 +133,8 @@ func DoUpdate(ctx context.Context, release *Release) error {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) // best-effort cleanup on error
+	// best-effort cleanup on error
+	defer os.Remove(tmpPath)
 
 	client := &http.Client{Timeout: 10 * time.Minute}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
@@ -148,7 +151,8 @@ func DoUpdate(ctx context.Context, release *Release) error {
 	defer resp.Body.Close()
 
 	h := sha256.New()
-	lr := io.LimitReader(resp.Body, 256<<20) // 256 MiB cap
+	// 256 MiB cap
+	lr := io.LimitReader(resp.Body, 256<<20)
 	if _, err := io.Copy(io.MultiWriter(tmpFile, h), lr); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("writing download: %w", err)

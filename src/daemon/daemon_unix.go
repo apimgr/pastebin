@@ -34,8 +34,9 @@ func Daemonize() error {
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	// create new session — detaches from controlling terminal
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true, // create new session — detaches from controlling terminal
+		Setsid: true,
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -44,7 +45,8 @@ func Daemonize() error {
 
 	fmt.Printf("Daemon started with PID %d\n", cmd.Process.Pid)
 	os.Exit(0)
-	return nil // unreachable
+	// unreachable
+	return nil
 }
 
 // filterDaemonFlag removes --daemon and -d from a slice of CLI arguments.

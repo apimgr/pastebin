@@ -34,9 +34,12 @@ func TestMatchesBranch(t *testing.T) {
 		{"beta", "v1.0.0-rc1", false, false},
 		// daily branch — 14-char tag with no dots
 		{"daily", "20250115120000", false, true},
-		{"daily", "2025011512000", false, false},  // too short (13)
-		{"daily", "202501151200000", false, false}, // too long (15)
-		{"daily", "v1.0.20250115", false, false},   // contains dot
+		// too short (13)
+		{"daily", "2025011512000", false, false},
+		// too long (15)
+		{"daily", "202501151200000", false, false},
+		// contains dot
+		{"daily", "v1.0.20250115", false, false},
 		// unknown branch behaves like stable
 		{"unknown", "v2.0.0", false, true},
 		{"unknown", "v2.0.0", true, false},

@@ -100,7 +100,8 @@ func TestLogRotation_DeletesOldGzFiles(t *testing.T) {
 	if err := os.WriteFile(gzPath, []byte("gz"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-100 * 24 * time.Hour) // 100 days, 3×30 = 90
+	// 100 days, 3×30 = 90
+	old := time.Now().Add(-100 * 24 * time.Hour)
 	if err := os.Chtimes(gzPath, old, old); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,8 @@ func TestLogRotation_SkipsRecentLogs(t *testing.T) {
 
 func TestLogRotation_DefaultMaxAge(t *testing.T) {
 	dir := t.TempDir()
-	fn := task.LogRotation(dir, 0) // 0 = use default (30 days)
+	// 0 = use default (30 days)
+	fn := task.LogRotation(dir, 0)
 	if err := fn(); err != nil {
 		t.Fatalf("LogRotation with default maxAge error: %v", err)
 	}

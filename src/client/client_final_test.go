@@ -101,8 +101,9 @@ func TestCmdList_TitleTruncatedAt40(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"pastes": []interface{}{
 				map[string]interface{}{
-					"id":         "p1",
-					"title":      "12345678901234567890123456789012345678901", // 41 chars
+					"id": "p1",
+					// 41 chars
+					"title":      "12345678901234567890123456789012345678901",
 					"language":   "text",
 					"views":      1,
 					"created_at": "2025-01-01T00:00:00Z",
@@ -174,7 +175,8 @@ func TestCmdUpdate_YesAction_NoDownloadNeeded(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(autodiscoverResponse{
 			CLIVersions: map[string]cliVersionInfo{
-				osArch: {Version: "2.0.0"}, // same as current
+				// same as current
+				osArch: {Version: "2.0.0"},
 			},
 		})
 	}))
@@ -435,9 +437,9 @@ func TestSaveIfEmptyOrInvalid_Table(t *testing.T) {
 	valid := func(s string) bool { return strings.HasPrefix(s, "http") }
 
 	cases := []struct {
-		name        string
-		current     string
-		flagValue   string
+		name         string
+		current      string
+		flagValue    string
 		wantResolved string
 		wantPersist  bool
 	}{
@@ -468,10 +470,10 @@ func TestEnvOrDefault_Table(t *testing.T) {
 	envKey := "TEST_PASTEBIN_CLI_ENV_TABLE"
 
 	cases := []struct {
-		envVal  string
-		setEnv  bool
-		defVal  string
-		want    string
+		envVal string
+		setEnv bool
+		defVal string
+		want   string
 	}{
 		{"value", true, "default", "value"},
 		{"", true, "default", "default"},

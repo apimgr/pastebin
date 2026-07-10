@@ -707,11 +707,11 @@ type NotificationsConfig struct {
 
 // EmailConfig holds SMTP and sender settings for outbound email.
 type EmailConfig struct {
-	Enabled     bool             `yaml:"enabled"`
-	SMTP        SMTPConfig       `yaml:"smtp"`
-	From        EmailFrom        `yaml:"from"`
-	ReplyTo     string           `yaml:"reply_to"`
-	TemplateDir string           `yaml:"template_dir"` // custom override dir; empty = use embedded defaults
+	Enabled     bool              `yaml:"enabled"`
+	SMTP        SMTPConfig        `yaml:"smtp"`
+	From        EmailFrom         `yaml:"from"`
+	ReplyTo     string            `yaml:"reply_to"`
+	TemplateDir string            `yaml:"template_dir"` // custom override dir; empty = use embedded defaults
 	Events      EmailEventsConfig `yaml:"events"`
 }
 
@@ -1073,8 +1073,9 @@ func DefaultConfig() *Config {
 				AllowedIPs:      []string{},
 			},
 			GeoIP: GeoIPConfig{
-				Enabled:        true,
-				Dir:            "", // resolved at startup to {data_dir}/security/geoip
+				Enabled: true,
+				// resolved at startup to {data_dir}/security/geoip
+				Dir:            "",
 				DenyCountries:  []string{},
 				AllowCountries: []string{},
 				Databases: GeoIPDatabasesConfig{
@@ -1170,7 +1171,8 @@ func DefaultConfig() *Config {
 				TTL:      "1h",
 			},
 			Limits: LimitsConfig{
-				MaxBodySize:  10 << 20, // 10 MiB
+				// 10 MiB
+				MaxBodySize:  10 << 20,
 				ReadTimeout:  "30s",
 				WriteTimeout: "30s",
 				IdleTimeout:  "120s",
@@ -1300,10 +1302,12 @@ func DefaultConfig() *Config {
 		},
 		Database: DatabaseConfig{
 			Type: "sqlite",
-			Path: "", // resolved at startup relative to data dir
+			// resolved at startup relative to data dir
+			Path: "",
 		},
 		Paste: PasteConfig{
-			MaxSizeBytes:    10 << 20, // 10 MiB
+			// 10 MiB
+			MaxSizeBytes:    10 << 20,
 			DefaultExpiry:   "never",
 			DefaultLanguage: "text",
 			MaxBurnAfter:    9999,
@@ -1324,8 +1328,9 @@ func DefaultConfig() *Config {
 				Deny:  []string{},
 			},
 			Security: SecurityConfig{
-				CORS:          "*",
-				EncryptionKey: "", // auto-generated on first run
+				CORS: "*",
+				// auto-generated on first run
+				EncryptionKey: "",
 				Blocklists: BlocklistsConfig{
 					Enabled: true,
 					Sources: []BlocklistSource{
@@ -1346,8 +1351,9 @@ func DefaultConfig() *Config {
 				},
 			},
 			HSTS: HSTSConfig{
-				Enabled:           true,
-				MaxAgeSeconds:     63072000, // 2 years (preload-list eligible)
+				Enabled: true,
+				// 2 years (preload-list eligible)
+				MaxAgeSeconds:     63072000,
 				IncludeSubdomains: true,
 				Preload:           true,
 			},

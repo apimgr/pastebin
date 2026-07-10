@@ -86,7 +86,7 @@ type Config struct {
 	CircuitTimeout            int
 	BootstrapTimeout          int
 	SafeLogging               bool
-	MaxStreamsPerCircuit       int
+	MaxStreamsPerCircuit      int
 	CloseCircuitOnStreamLimit bool
 	BandwidthRate             string
 	BandwidthBurst            string
@@ -95,8 +95,10 @@ type Config struct {
 	VirtualPort               int
 
 	// Directory paths resolved at startup.
-	ConfigDir string // {config_dir} — torrc written here
-	DataDir   string // {data_dir} — Tor data + hidden service keys
+	// {config_dir} — torrc written here
+	ConfigDir string
+	// {data_dir} — Tor data + hidden service keys
+	DataDir string
 }
 
 // service holds a running Tor instance.

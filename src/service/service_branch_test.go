@@ -67,7 +67,8 @@ func TestCanEscalate_GroupMembership(t *testing.T) {
 
 	// Call canEscalate and verify it handles group lookup without error.
 	got := canEscalate()
-	_ = got // Result depends on environment; we just verify no panic.
+	// Result depends on environment; we just verify no panic.
+	_ = got
 }
 
 // ─── DetectServiceManager additional coverage ────────────────────────────────

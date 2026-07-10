@@ -7,10 +7,10 @@ import (
 
 func TestColorEnabled(t *testing.T) {
 	cases := []struct {
-		name    string
-		envVal  string
-		setEnv  bool
-		want    bool
+		name   string
+		envVal string
+		setEnv bool
+		want   bool
 	}{
 		{"no_color_empty", "", true, true},
 		{"no_color_one", "1", true, false},

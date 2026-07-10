@@ -184,8 +184,8 @@ func TestManager_Start_NoTorBinary(t *testing.T) {
 
 func TestGetTorConfig_SafeLoggingEnabled(t *testing.T) {
 	cfg := &Config{
-		SafeLogging:   true,
-		BandwidthRate: "1 MB",
+		SafeLogging:    true,
+		BandwidthRate:  "1 MB",
 		BandwidthBurst: "2 MB",
 	}
 	out := getTorConfig(cfg)

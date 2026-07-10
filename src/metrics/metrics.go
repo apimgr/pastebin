@@ -339,9 +339,11 @@ var (
 
 // Collector bundles scrape-time collection dependencies.
 type Collector struct {
-	startTime        time.Time
-	token            string // bearer token for access control; empty = no auth
-	lastPauseTotalNs uint64 // tracks accumulated GC pause nanoseconds between scrapes
+	startTime time.Time
+	// bearer token for access control; empty = no auth
+	token string
+	// tracks accumulated GC pause nanoseconds between scrapes
+	lastPauseTotalNs uint64
 
 	includeSystem  bool
 	includeRuntime bool

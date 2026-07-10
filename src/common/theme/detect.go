@@ -55,7 +55,8 @@ func isWindowsDarkTheme() bool {
 		"/v", "AppsUseLightTheme")
 	out, err := cmd.Output()
 	if err != nil {
-		return true // default dark
+		// default dark
+		return true
 	}
 	// AppsUseLightTheme = 0 means dark mode
 	return strings.Contains(string(out), "0x0")
@@ -65,7 +66,8 @@ func isWindowsDarkTheme() bool {
 func isTerminalDarkTheme() bool {
 	colorfgbg := os.Getenv("COLORFGBG")
 	if colorfgbg == "" {
-		return true // default to dark
+		// default to dark
+		return true
 	}
 	// Format: "fg;bg" where bg < 8 typically means dark background
 	parts := strings.Split(colorfgbg, ";")

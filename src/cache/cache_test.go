@@ -13,7 +13,6 @@ import (
 	"github.com/apimgr/pastebin/src/cache"
 )
 
-
 // ── DefaultConfig ─────────────────────────────────────────────────────────────
 
 func TestDefaultConfig(t *testing.T) {

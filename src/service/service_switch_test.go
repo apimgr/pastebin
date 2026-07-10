@@ -68,7 +68,8 @@ func TestLifecycle_RunitPath(t *testing.T) {
 	_ = Start()
 	_ = Stop()
 	_ = Restart()
-	_ = Reload() // Falls back to Restart for runit
+	// Falls back to Restart for runit
+	_ = Reload()
 }
 
 func TestLifecycle_OpenRCPath(t *testing.T) {

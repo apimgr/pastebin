@@ -95,9 +95,9 @@ func TestThemePalette_ToRootCSS(t *testing.T) {
 func TestThemePaletteDark_Fields(t *testing.T) {
 	p := theme.ThemePaletteDark
 	cases := []struct {
-		name  string
-		got   string
-		want  string
+		name string
+		got  string
+		want string
 	}{
 		{"Background", p.Background, "#1a1b26"},
 		{"Foreground", p.Foreground, "#c0caf5"},

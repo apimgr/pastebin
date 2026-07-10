@@ -84,20 +84,29 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 
 	// Subcommands that take optional secondary positional arguments.
 	var (
-		shellCmd        string
-		shellArg        string
-		serviceCmd      string
-		maintenanceCmd  string
-		maintenanceArg  string   // second positional arg after --maintenance subcommand
-		maintenancePGP  []string // remaining positionals for "--maintenance pgp <action> [args...]"
-		maintenancePass string // --password flag for --maintenance backup/restore
+		shellCmd       string
+		shellArg       string
+		serviceCmd     string
+		maintenanceCmd string
+		// second positional arg after --maintenance subcommand
+		maintenanceArg string
+		// remaining positionals for "--maintenance pgp <action> [args...]"
+		maintenancePGP []string
+		// --password flag for --maintenance backup/restore
+		maintenancePass string
 		updateCmd       string
-		emailCmd        string // --email <subcommand>
-		emailTo         string // --email test <address>
-		schedulerCmd    string // scheduler <subcommand>
-		schedulerArg    string // scheduler <subcommand> <id>
-		tokenCmd        string // token <subcommand>
-		tokenArg        string // token <subcommand> <prefix>
+		// --email <subcommand>
+		emailCmd string
+		// --email test <address>
+		emailTo string
+		// scheduler <subcommand>
+		schedulerCmd string
+		// scheduler <subcommand> <id>
+		schedulerArg string
+		// token <subcommand>
+		tokenCmd string
+		// token <subcommand> <prefix>
+		tokenArg string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -149,7 +158,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			langFlag = val()
 		case "--shell":
 			shellCmd = val()
-			shellArg = val() // optional SHELL name (bash, zsh, fish, …)
+			// optional SHELL name (bash, zsh, fish, …)
+			shellArg = val()
 		case "--service":
 			serviceCmd = val()
 		case "--password":
@@ -321,7 +331,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		// Paths must be resolved before maintenance commands.
 		mcConfigDir := paths.GetConfigDir(appName)
 		mcDataDir := paths.GetDataDir(appName)
-		mcBackupDir := mcDataDir // default; will be adjusted below when full path resolution runs
+		// default; will be adjusted below when full path resolution runs
+		mcBackupDir := mcDataDir
 		_ = mcBackupDir
 
 		switch maintenanceCmd {
@@ -359,7 +370,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				BackupDir:  filepath.Join(mcDataDir, "backups"),
 				AppVersion: Version,
 				Password:   maintenancePass,
-				Filename:   maintenanceArg, // optional custom filename
+				// optional custom filename
+				Filename: maintenanceArg,
 			}
 			if err := maintenance.Backup(opts); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance backup: %v\n", binaryName, err)
@@ -814,7 +826,8 @@ Examples:
 	if daemonFlag {
 		if err := daemon.Daemonize(); err != nil {
 			log.Printf("daemon: %v", err)
-			os.Exit(71) // EX_OSERR
+			// EX_OSERR
+			os.Exit(71)
 		}
 		// If Daemonize returned without exiting, we are the daemon child.
 		// Continue with normal server startup below.
@@ -822,7 +835,8 @@ Examples:
 
 	// Resolve active language for CLI output.
 	activeLang := i18n.GetLanguage(langFlag)
-	_ = activeLang // used by CLI output helpers; stored for future message formatting
+	// used by CLI output helpers; stored for future message formatting
+	_ = activeLang
 
 	// ── Application mode ─────────────────────────────────────────────────────
 
@@ -977,7 +991,8 @@ Examples:
 	if err := config.ResolvePort(cfgFile, cfg, paths.IsContainer()); err != nil {
 		log.Printf("warning: %v", err)
 		if cfg.Server.Port == "" {
-			cfg.Server.Port = "64080" // last-resort fallback
+			// last-resort fallback
+			cfg.Server.Port = "64080"
 		}
 	}
 
@@ -1029,7 +1044,8 @@ Examples:
 	db, err := database.NewDatabase(cfg.Database.Type, cfg.Database.Path)
 	if err != nil {
 		log.Printf("database: %v", err)
-		os.Exit(70) // EX_SOFTWARE
+		// EX_SOFTWARE
+		os.Exit(70)
 	}
 	defer db.Close()
 
@@ -1041,7 +1057,8 @@ Examples:
 		n, err := db.DeleteExpiredPastes()
 		if err != nil {
 			log.Printf("clean expired: %v", err)
-			os.Exit(70) // EX_SOFTWARE
+			// EX_SOFTWARE
+			os.Exit(70)
 		}
 		b, _ := db.DeleteBurnedPastes()
 		log.Printf("deleted %d expired + %d burned pastes", n, b)
@@ -1224,7 +1241,8 @@ Examples:
 
 	if err := pid.WritePIDFile(pidFile); err != nil {
 		log.Printf("pid file: %v", err)
-		os.Exit(74) // EX_IOERR
+		// EX_IOERR
+		os.Exit(74)
 	}
 	defer pid.RemovePIDFile(pidFile) //nolint:errcheck
 
@@ -1277,7 +1295,8 @@ Examples:
 
 		if err := srv.Run(ctx, addr); err != nil {
 			log.Printf("server: %v", err)
-			os.Exit(70) // EX_SOFTWARE
+			// EX_SOFTWARE
+			os.Exit(70)
 		}
 	}
 
@@ -1286,7 +1305,8 @@ Examples:
 	if service.IsWindowsService() {
 		if err := service.RunAsWindowsService(appName, runServer); err != nil {
 			log.Printf("windows service: %v", err)
-			os.Exit(70) // EX_SOFTWARE
+			// EX_SOFTWARE
+			os.Exit(70)
 		}
 		return 0
 	}

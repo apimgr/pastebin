@@ -16,8 +16,8 @@ import (
 type domainLearner struct {
 	mu sync.RWMutex
 	// observations maps a bare hostname to the list of times it was observed.
-	observations map[string][]time.Time
-	cfg          *config.URLDetectionConfig
+	observations   map[string][]time.Time
+	cfg            *config.URLDetectionConfig
 	baseDomain     string
 	wildcardDomain string
 }

@@ -32,9 +32,9 @@ func (res *Resolver) Resolve(query string, vars map[string]interface{}) (interfa
 	if strings.Contains(q, "__schema") || strings.Contains(q, "__type") {
 		return map[string]interface{}{
 			"__schema": map[string]interface{}{
-				"types":         introspectionTypes(),
-				"queryType":     map[string]interface{}{"name": "Query"},
-				"mutationType":  nil,
+				"types":            introspectionTypes(),
+				"queryType":        map[string]interface{}{"name": "Query"},
+				"mutationType":     nil,
 				"subscriptionType": nil,
 			},
 		}, nil

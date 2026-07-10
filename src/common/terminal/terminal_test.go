@@ -14,12 +14,12 @@ import (
 // TestSizeMode_Predicates verifies the helper method thresholds match the spec.
 func TestSizeMode_Predicates(t *testing.T) {
 	cases := []struct {
-		name          string
-		mode          terminal.SizeMode
-		wantASCII     bool
-		wantBorders   bool
-		wantSidebar   bool
-		wantIcons     bool
+		name        string
+		mode        terminal.SizeMode
+		wantASCII   bool
+		wantBorders bool
+		wantSidebar bool
+		wantIcons   bool
 	}{
 		{"micro", terminal.SizeModeMicro, false, false, false, false},
 		{"minimal", terminal.SizeModeMinimal, false, false, false, true},

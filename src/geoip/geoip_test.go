@@ -103,8 +103,9 @@ func TestIsBlocked_PrivateIP_NeverBlocked(t *testing.T) {
 func TestIsBlocked_AllowlistBypass(t *testing.T) {
 	dir := t.TempDir()
 	db, _ := geoip.Open(geoip.Config{
-		Dir:            dir,
-		AllowCountries: []string{"DE"}, // only allow Germany
+		Dir: dir,
+		// only allow Germany
+		AllowCountries: []string{"DE"},
 		Allowlist:      []string{"1.2.3.4"},
 	})
 

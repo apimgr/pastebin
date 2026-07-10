@@ -85,7 +85,7 @@ type intervalSched struct {
 }
 
 func (s *intervalSched) Next(t time.Time) time.Time { return t.Add(s.d) }
-func (s *intervalSched) String() string              { return s.raw }
+func (s *intervalSched) String() string             { return s.raw }
 
 // ── Cron expression ──────────────────────────────────────────────────────────
 
@@ -93,10 +93,11 @@ func (s *intervalSched) String() string              { return s.raw }
 // Minute: 0-59, Hour: 0-23, DOM: 1-31, Month: 1-12, DOW: 0-6 (0=Sunday).
 type fieldSet struct {
 	bits [64]bool
-	star bool // true = every value allowed
+	// true = every value allowed
+	star bool
 }
 
-func star() fieldSet  { return fieldSet{star: true} }
+func star() fieldSet { return fieldSet{star: true} }
 func single(v int) fieldSet {
 	var f fieldSet
 	f.bits[v] = true
@@ -115,7 +116,7 @@ func (f *fieldSet) contains(v int) bool {
 
 // cronExpr holds the parsed five-field cron schedule.
 type cronExpr struct {
-	raw   string
+	raw                           string
 	minute, hour, dom, month, dow fieldSet
 }
 
@@ -150,7 +151,8 @@ func (c *cronExpr) Next(t time.Time) time.Time {
 		}
 		return next
 	}
-	return time.Time{} // should never happen for valid expressions
+	// should never happen for valid expressions
+	return time.Time{}
 }
 
 func advanceToMonth(t time.Time, f *fieldSet) time.Time {

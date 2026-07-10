@@ -53,5 +53,6 @@ func RestartSelf() error {
 
 	time.Sleep(100 * time.Millisecond)
 	os.Exit(0)
-	return nil // unreachable
+	// unreachable
+	return nil
 }

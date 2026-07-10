@@ -2,7 +2,8 @@ name: Docker Build
 
 on:
   push:
-    branches: ['**']  # ALL branches
+    # ALL branches
+    branches: ['**']
     tags:
       - 'v*'
       - '*.*.*'

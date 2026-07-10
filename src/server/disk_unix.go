@@ -16,8 +16,10 @@ func (s *Server) checkDisk() bool {
 	var stat syscall.Statfs_t
 	dir := os.TempDir()
 	if err := syscall.Statfs(dir, &stat); err != nil {
-		return true // assume ok if we can't check
+		// assume ok if we can't check
+		return true
 	}
 	free := int64(stat.Bavail) * int64(stat.Bsize)
-	return free > 100<<20 // 100 MiB
+	// 100 MiB
+	return free > 100<<20
 }

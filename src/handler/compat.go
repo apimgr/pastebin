@@ -52,19 +52,21 @@ func NewCompatHandler(ph *PasteHandler, db database.DB, version string) *CompatH
 // PastebinPost handles POST /api/api_post.php (pastebin.com API create)
 //
 // Accepted form fields (subset):
-//   api_paste_code       — content (required)
-//   api_paste_name       — title (optional)
-//   api_paste_format     — language (optional)
-//   api_paste_private    — 0=public, 1=unlisted, 2=private (treat 2 as unlisted)
-//   api_paste_expire_date — N/A/10M/1H/1D/1W/2W/1M/6M/1Y → expiry
-//   api_dev_key          — silently ignored
-//   api_user_key         — silently ignored
+//
+//	api_paste_code       — content (required)
+//	api_paste_name       — title (optional)
+//	api_paste_format     — language (optional)
+//	api_paste_private    — 0=public, 1=unlisted, 2=private (treat 2 as unlisted)
+//	api_paste_expire_date — N/A/10M/1H/1D/1W/2W/1M/6M/1Y → expiry
+//	api_dev_key          — silently ignored
+//	api_user_key         — silently ignored
+//
 // PastebinPost handles POST /api/api_post.php — dispatches on api_option.
 //
-//   api_option=paste        — create paste (default when field absent)
-//   api_option=list         — list recent public pastes as XML
-//   api_option=delete       — delete paste by api_paste_key using api_user_key as token
-//   api_option=userdetails  — return stub XML user record
+//	api_option=paste        — create paste (default when field absent)
+//	api_option=list         — list recent public pastes as XML
+//	api_option=delete       — delete paste by api_paste_key using api_user_key as token
+//	api_option=userdetails  — return stub XML user record
 func (c *CompatHandler) PastebinPost(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad Request | invalid form", http.StatusBadRequest)
@@ -78,7 +80,8 @@ func (c *CompatHandler) PastebinPost(w http.ResponseWriter, r *http.Request) {
 		c.pastebinDelete(w, r)
 	case "userdetails":
 		c.pastebinUserDetails(w, r)
-	default: // "paste" or empty
+	default:
+		// "paste" or empty
 		c.pastebinCreate(w, r)
 	}
 }
@@ -257,7 +260,8 @@ func parsePastebinExpiry(code string) *time.Time {
 		d = 180 * 24 * time.Hour
 	case "1Y":
 		d = 365 * 24 * time.Hour
-	default: // "N" (never) or unknown
+	default:
+		// "N" (never) or unknown
 		return nil
 	}
 	t := time.Now().Add(d)
@@ -297,12 +301,13 @@ func (c *CompatHandler) MicrobinList(w http.ResponseWriter, r *http.Request) {
 // LenCreate handles POST /api/new
 //
 // lenpaste form fields:
-//   title          — paste title
-//   body           — content
-//   syntax         — language
-//   lifetime       — seconds until expiry (0=never)
-//   oneUse         — "true" maps to burn_after=1
-//   createTokenHash — ignored (public instance)
+//
+//	title          — paste title
+//	body           — content
+//	syntax         — language
+//	lifetime       — seconds until expiry (0=never)
+//	oneUse         — "true" maps to burn_after=1
+//	createTokenHash — ignored (public instance)
 func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid form"})
@@ -537,7 +542,7 @@ func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 		"serverRules":    "",
 		"adminName":      "",
 		"adminMail":      "",
-		"syntaxes": data.Languages(),
+		"syntaxes":       data.Languages(),
 	})
 }
 
@@ -546,13 +551,15 @@ func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 // StikkedCreate handles POST /api/create (stikked API create).
 //
 // stikked form fields:
-//   text     — content (required)
-//   title    — paste title (optional)
-//   name     — author name (ignored)
-//   lang     — language (default "text")
-//   expire   — minutes until expiry (0/absent = never)
-//   private  — "1" marks the paste unlisted
-//   apikey   — ignored (open instance)
+//
+//	text     — content (required)
+//	title    — paste title (optional)
+//	name     — author name (ignored)
+//	lang     — language (default "text")
+//	expire   — minutes until expiry (0/absent = never)
+//	private  — "1" marks the paste unlisted
+//	apikey   — ignored (open instance)
+//
 // Responds with a plain-text view URL, or "Error: <msg>" on failure.
 func (c *CompatHandler) StikkedCreate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -652,10 +659,12 @@ func (c *CompatHandler) HastebinGet(w http.ResponseWriter, r *http.Request) {
 // DpasteCreate handles POST /api/ and POST /api/v2/ (dpaste create).
 //
 // dpaste form fields:
-//   content  — content (required)
-//   lexer    — language (aliases: "syntax", "filename")
-//   expires  — days until expiry (0/absent = never)
-//   format   — "default" (quoted URL), "url" (bare URL), "json"
+//
+//	content  — content (required)
+//	lexer    — language (aliases: "syntax", "filename")
+//	expires  — days until expiry (0/absent = never)
+//	format   — "default" (quoted URL), "url" (bare URL), "json"
+//
 // The native GET /{id}/raw route serves raw content for dpaste clients.
 func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
@@ -711,9 +720,9 @@ func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
 // recognised field is present it delegates to the native create handler so the
 // lenpaste form-POST-to-root behaviour is preserved.
 //
-//   0x0.st:  multipart file field "file" (delete token returned in X-Token)
-//   sprunge: form field "sprunge"
-//   ix.io:   form field "f:1"
+//	0x0.st:  multipart file field "file" (delete token returned in X-Token)
+//	sprunge: form field "sprunge"
+//	ix.io:   form field "f:1"
 func (c *CompatHandler) RootUpload(w http.ResponseWriter, r *http.Request) {
 	if file, _, err := r.FormFile("file"); err == nil {
 		defer file.Close()

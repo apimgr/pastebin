@@ -112,12 +112,18 @@ type pgpManager struct {
 
 // ── on-disk paths (mirror the server package so the two never drift) ──────────
 
-func (m *pgpManager) securityDir() string          { return filepath.Join(m.configDir, "security") }
-func (m *pgpManager) pubPath() string               { return filepath.Join(m.securityDir(), "pgp.pub.asc") }
-func (m *pgpManager) privPath() string              { return filepath.Join(m.securityDir(), "pgp.priv.asc.enc") }
-func (m *pgpManager) rotatedPath() string           { return filepath.Join(m.securityDir(), "pgp.priv.asc.enc.old") }
-func (m *pgpManager) keyserversStatePath() string   { return filepath.Join(m.securityDir(), "keyservers.state") }
-func (m *pgpManager) exportStatePath() string       { return filepath.Join(m.securityDir(), "private_export.state") }
+func (m *pgpManager) securityDir() string { return filepath.Join(m.configDir, "security") }
+func (m *pgpManager) pubPath() string     { return filepath.Join(m.securityDir(), "pgp.pub.asc") }
+func (m *pgpManager) privPath() string    { return filepath.Join(m.securityDir(), "pgp.priv.asc.enc") }
+func (m *pgpManager) rotatedPath() string {
+	return filepath.Join(m.securityDir(), "pgp.priv.asc.enc.old")
+}
+func (m *pgpManager) keyserversStatePath() string {
+	return filepath.Join(m.securityDir(), "keyservers.state")
+}
+func (m *pgpManager) exportStatePath() string {
+	return filepath.Join(m.securityDir(), "private_export.state")
+}
 
 // ── key material read/write ───────────────────────────────────────────────────
 

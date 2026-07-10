@@ -40,8 +40,10 @@ func TestIsTextBrowser(t *testing.T) {
 	}{
 		{"Lynx/2.9.0dev.10 libwww-FM/2.14", true},
 		{"w3m/0.5.3", true},
-		{"Links (2.28; Linux)", true},    // "links " with space
-		{"Links/2.28 (Linux)", true},     // "links/"
+		// "links " with space
+		{"Links (2.28; Linux)", true},
+		// "links/"
+		{"Links/2.28 (Linux)", true},
 		{"ELinks/0.13.2 (Linux)", true},
 		{"Browsh/1.6.4", true},
 		{"Carbonyl/0.0.3", true},
@@ -71,7 +73,8 @@ func TestIsHttpTool(t *testing.T) {
 		{"Go-http-client/1.1", true},
 		{"axios/0.21.1", true},
 		{"node-fetch/2.6.1", true},
-		{"", true},   // no UA = non-interactive
+		// no UA = non-interactive
+		{"", true},
 		{"Mozilla/5.0", false},
 		{"pastebin-cli/1.0", false},
 		{"Lynx/2.9.0", false},
@@ -123,10 +126,14 @@ func TestIsNonInteractiveClient(t *testing.T) {
 		{"curl/7.68.0", true},
 		{"Wget/1.21", true},
 		{"", true},
-		{"pastebin-cli/1.0", false},    // our client is INTERACTIVE
-		{"Lynx/2.9.0dev", false},       // text browser is INTERACTIVE
-		{"w3m/0.5.3", false},           // text browser is INTERACTIVE
-		{"Mozilla/5.0", false},         // full browser is INTERACTIVE
+		// our client is INTERACTIVE
+		{"pastebin-cli/1.0", false},
+		// text browser is INTERACTIVE
+		{"Lynx/2.9.0dev", false},
+		// text browser is INTERACTIVE
+		{"w3m/0.5.3", false},
+		// full browser is INTERACTIVE
+		{"Mozilla/5.0", false},
 	}
 	for _, tc := range cases {
 		if got := IsNonInteractiveClient(req(tc.ua)); got != tc.want {

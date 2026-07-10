@@ -82,11 +82,11 @@ func TestCanUseANSI(t *testing.T) {
 
 func TestDisplayEnv_Predicates(t *testing.T) {
 	cases := []struct {
-		name        string
-		mode        display.DisplayMode
-		wantGUI     bool
-		wantTUI     bool
-		wantCLI     bool
+		name         string
+		mode         display.DisplayMode
+		wantGUI      bool
+		wantTUI      bool
+		wantCLI      bool
 		wantHeadless bool
 	}{
 		{"Headless mode", display.DisplayModeHeadless, false, false, false, true},

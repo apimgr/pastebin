@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -142,9 +142,11 @@ func (s *Server) allowlistMiddleware(next http.Handler) http.Handler {
 
 // blocklistStore holds an in-memory IP/CIDR blocklist loaded from text files.
 type blocklistStore struct {
-	mu   sync.RWMutex
-	ips  map[string]struct{} // exact IP strings for O(1) lookup
-	nets []*net.IPNet        // CIDR ranges
+	mu sync.RWMutex
+	// exact IP strings for O(1) lookup
+	ips map[string]struct{}
+	// CIDR ranges
+	nets []*net.IPNet
 }
 
 // loadBlocklists reads all *.txt files from dir and populates the store.

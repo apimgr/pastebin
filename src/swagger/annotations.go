@@ -14,8 +14,9 @@ type Route struct {
 
 // Param describes an operation parameter (path, query, header).
 type Param struct {
-	Name        string
-	In          string // "path", "query", "header"
+	Name string
+	// "path", "query", "header"
+	In          string
 	Required    bool
 	Description string
 	Schema      map[string]interface{}
@@ -268,13 +269,13 @@ func Routes() []Route {
 				Schema: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"api_option":           map[string]interface{}{"type": "string", "enum": []string{"paste", "list", "delete", "userdetails"}, "default": "paste"},
-						"api_paste_code":       map[string]interface{}{"type": "string", "description": "Paste content (required for paste)"},
-						"api_paste_name":       map[string]interface{}{"type": "string", "description": "Optional title"},
-						"api_paste_format":     map[string]interface{}{"type": "string", "description": "Language/format identifier"},
-						"api_paste_private":    map[string]interface{}{"type": "string", "enum": []string{"0", "1", "2"}, "description": "0=public 1=unlisted 2=private (treated as unlisted)"},
+						"api_option":            map[string]interface{}{"type": "string", "enum": []string{"paste", "list", "delete", "userdetails"}, "default": "paste"},
+						"api_paste_code":        map[string]interface{}{"type": "string", "description": "Paste content (required for paste)"},
+						"api_paste_name":        map[string]interface{}{"type": "string", "description": "Optional title"},
+						"api_paste_format":      map[string]interface{}{"type": "string", "description": "Language/format identifier"},
+						"api_paste_private":     map[string]interface{}{"type": "string", "enum": []string{"0", "1", "2"}, "description": "0=public 1=unlisted 2=private (treated as unlisted)"},
 						"api_paste_expire_date": map[string]interface{}{"type": "string", "description": "N/A 10M 1H 1D 1W 2W 1M 6M 1Y"},
-						"api_dev_key":          map[string]interface{}{"type": "string", "description": "Ignored — any value accepted"},
+						"api_dev_key":           map[string]interface{}{"type": "string", "description": "Ignored — any value accepted"},
 					},
 				},
 			},
@@ -347,10 +348,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "GET",
-			Path:    "/api/v1/pasta/{id}",
-			Tag:     "compatibility",
-			Summary: "microbin — get paste",
+			Method:      "GET",
+			Path:        "/api/v1/pasta/{id}",
+			Tag:         "compatibility",
+			Summary:     "microbin — get paste",
 			Description: "Returns a single paste by ID in microbin JSON format.",
 			Params: []Param{
 				{Name: "id", In: "path", Required: true, Description: "Paste ID", Schema: map[string]interface{}{"type": "string"}},
@@ -361,10 +362,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "DELETE",
-			Path:    "/api/v1/pasta/{id}",
-			Tag:     "compatibility",
-			Summary: "microbin — delete paste",
+			Method:      "DELETE",
+			Path:        "/api/v1/pasta/{id}",
+			Tag:         "compatibility",
+			Summary:     "microbin — delete paste",
 			Description: "Deletes a paste by ID.",
 			Params: []Param{
 				{Name: "id", In: "path", Required: true, Description: "Paste ID", Schema: map[string]interface{}{"type": "string"}},
@@ -403,10 +404,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "GET",
-			Path:    "/api/get",
-			Tag:     "compatibility",
-			Summary: "lenpaste — get paste",
+			Method:      "GET",
+			Path:        "/api/get",
+			Tag:         "compatibility",
+			Summary:     "lenpaste — get paste",
 			Description: "Returns a paste by ID in lenpaste JSON format. Also available at `/api/v1/get`.",
 			Params: []Param{
 				{Name: "id", In: "query", Required: true, Description: "Paste ID", Schema: map[string]interface{}{"type": "string"}},
@@ -417,10 +418,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "DELETE",
-			Path:    "/api/remove",
-			Tag:     "compatibility",
-			Summary: "lenpaste — delete paste",
+			Method:      "DELETE",
+			Path:        "/api/remove",
+			Tag:         "compatibility",
+			Summary:     "lenpaste — delete paste",
 			Description: "Deletes a paste. Also available at `/api/v1/remove` and via GET for legacy clients.",
 			Params: []Param{
 				{Name: "id", In: "query", Required: true, Description: "Paste ID", Schema: map[string]interface{}{"type": "string"}},
@@ -433,10 +434,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "GET",
-			Path:    "/api/list",
-			Tag:     "compatibility",
-			Summary: "lenpaste — list pastes",
+			Method:      "GET",
+			Path:        "/api/list",
+			Tag:         "compatibility",
+			Summary:     "lenpaste — list pastes",
 			Description: "Returns a paginated list of pastes in lenpaste JSON format. Also available at `/api/v1/list`.",
 			Params: []Param{
 				{Name: "pageNum", In: "query", Required: false, Description: "Page number (default 1)", Schema: map[string]interface{}{"type": "integer"}},
@@ -485,10 +486,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "GET",
-			Path:    "/api/paste/{id}",
-			Tag:     "compatibility",
-			Summary: "stikked — get paste as JSON",
+			Method:      "GET",
+			Path:        "/api/paste/{id}",
+			Tag:         "compatibility",
+			Summary:     "stikked — get paste as JSON",
 			Description: "Returns paste metadata and content in stikked JSON format.",
 			Params: []Param{
 				{Name: "id", In: "path", Required: true, Description: "Paste ID", Schema: map[string]interface{}{"type": "string"}},
@@ -525,10 +526,10 @@ func Routes() []Route {
 			},
 		},
 		{
-			Method:  "GET",
-			Path:    "/documents/{key}",
-			Tag:     "compatibility",
-			Summary: "hastebin — get document",
+			Method:      "GET",
+			Path:        "/documents/{key}",
+			Tag:         "compatibility",
+			Summary:     "hastebin — get document",
 			Description: "Returns document content in hastebin JSON format: `{\"key\":\"…\",\"data\":\"…\"}`.",
 			Params: []Param{
 				{Name: "key", In: "path", Required: true, Description: "Document key returned by POST /documents", Schema: map[string]interface{}{"type": "string"}},

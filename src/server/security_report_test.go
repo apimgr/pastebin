@@ -249,9 +249,12 @@ func TestHandleSecurityReportDisclosureDaysBounds(t *testing.T) {
 	}{
 		{"30", false},
 		{"365", false},
-		{"0", true},   // out of range → default
-		{"366", true}, // out of range → default
-		{"bad", true}, // non-numeric → default
+		// out of range → default
+		{"0", true},
+		// out of range → default
+		{"366", true},
+		// non-numeric → default
+		{"bad", true},
 	}
 	for _, tc := range cases {
 		t.Run("days="+tc.input, func(t *testing.T) {
@@ -264,7 +267,9 @@ func TestHandleSecurityReportDisclosureDaysBounds(t *testing.T) {
 				t.Fatalf("status %d; body=%s", rec.Code, rec.Body.String())
 			}
 			var resp struct {
-				Data struct{ TrackingID string `json:"tracking_id"` } `json:"data"`
+				Data struct {
+					TrackingID string `json:"tracking_id"`
+				} `json:"data"`
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 				t.Fatalf("decode: %v", err)

@@ -57,12 +57,12 @@ type BackupConfig struct {
 	// Empty or nil Mailer disables email for that task invocation.
 	OperatorEmail string
 	// Mailer sends backup outcome emails; nil = no email.
-	Mailer    Mailer
+	Mailer Mailer
 	// SendOnComplete controls whether backup_complete emails are sent (AI.md:26591).
 	SendOnComplete bool
 	// SendOnFailed controls whether backup_failed emails are sent (AI.md:26592).
 	SendOnFailed bool
-	Retention BackupRetention
+	Retention    BackupRetention
 }
 
 // sslWarnThresholds are the days-before-expiry at which ssl_expiring emails are sent
@@ -71,16 +71,16 @@ var sslWarnThresholds = []int{30, 14, 7, 3, 1}
 
 // SSLRenewalConfig carries optional email settings for the ssl_renewal task.
 type SSLRenewalConfig struct {
-	ConfigDir     string
-	FQDN          string
+	ConfigDir string
+	FQDN      string
 	// OperatorEmail is the admin recipient for ssl_expiring/ssl_renewed emails.
 	OperatorEmail string
 	// Mailer sends SSL-expiry emails; nil = no email.
-	Mailer        Mailer
+	Mailer Mailer
 	// SendExpiring controls whether ssl_expiring emails are sent (AI.md:26593).
-	SendExpiring  bool
+	SendExpiring bool
 	// SendRenewed controls whether ssl_renewed emails are sent (AI.md:26594).
-	SendRenewed   bool
+	SendRenewed bool
 }
 
 // SSLRenewal returns a task that checks certificates in
@@ -638,7 +638,8 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 	// Classify each backup by its highest-priority retention tier.
 	type tier int
 	const (
-		tierYearly  tier = iota // highest priority
+		// highest priority
+		tierYearly  tier = iota
 		tierMonthly tier = iota
 		tierWeekly  tier = iota
 		tierDaily   tier = iota
@@ -687,7 +688,6 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 	}
 	return nil
 }
-
 
 // TorHealth returns a task that checks whether Tor is running and restarts it
 // when it is unhealthy (PART 18, restart_on_fail). torRunning reports the

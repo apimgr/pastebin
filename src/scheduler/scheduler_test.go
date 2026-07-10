@@ -136,30 +136,30 @@ func (m *mockDB) ListTaskHistory(taskID string, limit int) ([]*database.TaskHist
 
 // ── Unused interface methods (paste / token / misc) ──────────────────────────
 
-func (m *mockDB) Close() error                                     { return nil }
-func (m *mockDB) Type() string                                     { return "mock" }
-func (m *mockDB) Ping() error                                      { return nil }
-func (m *mockDB) CreatePaste(p *model.Paste) error                 { return nil }
-func (m *mockDB) GetPasteByID(id string) (*model.Paste, error)     { return nil, nil }
+func (m *mockDB) Close() error                                 { return nil }
+func (m *mockDB) Type() string                                 { return "mock" }
+func (m *mockDB) Ping() error                                  { return nil }
+func (m *mockDB) CreatePaste(p *model.Paste) error             { return nil }
+func (m *mockDB) GetPasteByID(id string) (*model.Paste, error) { return nil, nil }
 func (m *mockDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error) {
 	return nil, 0, nil
 }
-func (m *mockDB) IncrementPasteViews(id string) error                     { return nil }
-func (m *mockDB) DeletePaste(id string) error                             { return nil }
-func (m *mockDB) DeletePasteByToken(id, hash string) error                { return nil }
-func (m *mockDB) DeleteExpiredPastes() (int64, error)                     { return 0, nil }
-func (m *mockDB) DeleteBurnedPastes() (int64, error)                      { return 0, nil }
+func (m *mockDB) IncrementPasteViews(id string) error      { return nil }
+func (m *mockDB) DeletePaste(id string) error              { return nil }
+func (m *mockDB) DeletePasteByToken(id, hash string) error { return nil }
+func (m *mockDB) DeleteExpiredPastes() (int64, error)      { return 0, nil }
+func (m *mockDB) DeleteBurnedPastes() (int64, error)       { return 0, nil }
 func (m *mockDB) CreateAPIToken(hash, prefix, rType, rID string, expiresAt *time.Time) error {
 	return nil
 }
-func (m *mockDB) VerifyAPIToken(hash [32]byte, rType, rID string) error   { return nil }
-func (m *mockDB) ValidateAPIToken(hash [32]byte, rType string) error      { return nil }
-func (m *mockDB) RevokeAPIToken(prefix, reason string) error              { return nil }
-func (m *mockDB) ListAPITokens() ([]*database.APITokenRecord, error)      { return nil, nil }
-func (m *mockDB) DeleteExpiredAPITokens() (int64, error)                  { return 0, nil }
-func (m *mockDB) EnsureAppSecret(key string) ([]byte, error)              { return nil, nil }
-func (m *mockDB) CountPastes() (int64, error)                             { return 0, nil }
-func (m *mockDB) CreateSecurityReport(r *database.SecurityReport) error   { return nil }
+func (m *mockDB) VerifyAPIToken(hash [32]byte, rType, rID string) error { return nil }
+func (m *mockDB) ValidateAPIToken(hash [32]byte, rType string) error    { return nil }
+func (m *mockDB) RevokeAPIToken(prefix, reason string) error            { return nil }
+func (m *mockDB) ListAPITokens() ([]*database.APITokenRecord, error)    { return nil, nil }
+func (m *mockDB) DeleteExpiredAPITokens() (int64, error)                { return 0, nil }
+func (m *mockDB) EnsureAppSecret(key string) ([]byte, error)            { return nil, nil }
+func (m *mockDB) CountPastes() (int64, error)                           { return 0, nil }
+func (m *mockDB) CreateSecurityReport(r *database.SecurityReport) error { return nil }
 func (m *mockDB) GetSecurityReport(id string) (*database.SecurityReport, error) {
 	return nil, nil
 }
@@ -168,8 +168,8 @@ func (m *mockDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, err
 	return nil, nil
 }
 func (m *mockDB) MarkSecurityReportTokenUsed(id string, at time.Time) error { return nil }
-func (m *mockDB) GetSecurityKeypair() (*database.SecurityKeypair, error)     { return nil, nil }
-func (m *mockDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error   { return nil }
+func (m *mockDB) GetSecurityKeypair() (*database.SecurityKeypair, error)    { return nil, nil }
+func (m *mockDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error  { return nil }
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 

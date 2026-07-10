@@ -349,4 +349,3 @@ func TestManager_Monitor_ExitsOnCancel(t *testing.T) {
 		t.Error("Monitor did not exit after context cancellation within 2 seconds")
 	}
 }
-

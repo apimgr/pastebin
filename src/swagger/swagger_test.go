@@ -480,9 +480,9 @@ func TestHandlerViaMux(t *testing.T) {
 	mux.HandleFunc("/server/swagger", h.ServeUI)
 
 	cases := []struct {
-		name        string
-		path        string
-		wantStatus  int
+		name         string
+		path         string
+		wantStatus   int
 		wantCTPrefix string
 		wantBodyStr  string
 	}{

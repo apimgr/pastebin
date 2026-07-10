@@ -362,7 +362,8 @@ func TestDelegateUpdateSetup(t *testing.T) {
 	m.state = stateSetup
 
 	newM, _ := m.delegateUpdate(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
-	_ = newM // Just ensure no crash
+	// Just ensure no crash
+	_ = newM
 }
 
 func TestDelegateUpdateListing(t *testing.T) {
@@ -517,7 +518,8 @@ func TestModelViewHelp(t *testing.T) {
 func TestModelViewUnknownStateReturnsEmpty(t *testing.T) {
 	cfg := ClientConfig{Server: "https://example.com"}
 	m := newModel(cfg)
-	m.state = state(99) // Invalid state
+	// Invalid state
+	m.state = state(99)
 
 	view := m.View()
 	if view != "" {

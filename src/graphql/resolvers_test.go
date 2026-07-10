@@ -15,13 +15,13 @@ import (
 
 // mockDB implements the DB interface for testing without a real database.
 type mockDB struct {
-	paste       *model.Paste
-	pasteErr    error
-	pastes      []model.PasteListItem
-	total       int
-	pastesErr   error
-	lastPage    int
-	lastLimit   int
+	paste     *model.Paste
+	pasteErr  error
+	pastes    []model.PasteListItem
+	total     int
+	pastesErr error
+	lastPage  int
+	lastLimit int
 }
 
 func (m *mockDB) GetPasteByID(id string) (*model.Paste, error) {
@@ -245,10 +245,10 @@ func TestResolve_Pastes_DBError(t *testing.T) {
 // plus the no-match case.
 func TestExtractInlineArg(t *testing.T) {
 	cases := []struct {
-		name  string
-		q     string
-		arg   string
-		want  string
+		name string
+		q    string
+		arg  string
+		want string
 	}{
 		{"double_quoted", `paste(id: "abc123") { id }`, "id", "abc123"},
 		{"single_quoted", `paste(id: 'abc123') { id }`, "id", "abc123"},

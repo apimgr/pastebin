@@ -80,7 +80,8 @@ func TestCheckForUpdate_ServerError(t *testing.T) {
 
 func TestCheckForUpdate_BetaBranch(t *testing.T) {
 	releases := []updater.Release{
-		{TagName: "v2.0.0-beta", Prerelease: false}, // matches beta
+		// matches beta
+		{TagName: "v2.0.0-beta", Prerelease: false},
 		{TagName: "v1.5.0", Prerelease: false},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +103,8 @@ func TestCheckForUpdate_BetaBranch(t *testing.T) {
 
 func TestCheckForUpdate_DailyBranch(t *testing.T) {
 	releases := []updater.Release{
-		{TagName: "20250115120000", Prerelease: false}, // daily
+		// daily
+		{TagName: "20250115120000", Prerelease: false},
 		{TagName: "v1.5.0", Prerelease: false},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

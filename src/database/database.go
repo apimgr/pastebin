@@ -33,11 +33,12 @@ type APITokenRecord struct {
 
 // TaskState holds the persistent state for a single scheduler task.
 type TaskState struct {
-	TaskID     string
-	TaskName   string
-	Schedule   string
-	LastRun    time.Time
-	LastStatus string // "pending" | "success" | "failed" | "skipped"
+	TaskID   string
+	TaskName string
+	Schedule string
+	LastRun  time.Time
+	// "pending" | "success" | "failed" | "skipped"
+	LastStatus string
 	LastError  string
 	NextRun    time.Time
 	RunCount   int64

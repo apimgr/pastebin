@@ -80,7 +80,8 @@ type Config struct {
 	EnableWHOIS    bool
 	DenyCountries  []string
 	AllowCountries []string
-	Allowlist      []string // IPs that always bypass country blocking
+	// IPs that always bypass country blocking
+	Allowlist []string
 }
 
 // DB holds open MMDB handles and the blocking configuration.
@@ -434,7 +435,8 @@ func isPrivate(ip net.IP) bool {
 		"172.16.0.0/12",
 		"192.168.0.0/16",
 		"fc00::/7",
-		"100.64.0.0/10", // CGNAT
+		// CGNAT
+		"100.64.0.0/10",
 	}
 	for _, cidr := range private {
 		_, network, err := net.ParseCIDR(cidr)
@@ -451,7 +453,8 @@ func isPrivate(ip net.IP) bool {
 // ensureFile downloads src to dst if dst does not exist or is empty.
 func ensureFile(dst, src string) error {
 	if info, err := os.Stat(dst); err == nil && info.Size() > 0 {
-		return nil // already present
+		// already present
+		return nil
 	}
 
 	log.Printf("geoip: downloading %s → %s", src, dst)

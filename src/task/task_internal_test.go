@@ -183,9 +183,12 @@ func TestApplyRetention_ExceedsAllTiers(t *testing.T) {
 
 	// Create many backups: some yearly, some monthly, some weekly, many daily.
 	dates := []string{
-		"2024-01-01", // yearly + monthly + possible weekly
-		"2024-12-01", // monthly
-		"2025-01-05", // Sunday (weekly)
+		// yearly + monthly + possible weekly
+		"2024-01-01",
+		// monthly
+		"2024-12-01",
+		// Sunday (weekly)
+		"2025-01-05",
 		"2025-01-06",
 		"2025-01-07",
 		"2025-01-08",

@@ -16,10 +16,14 @@ import (
 type state int
 
 const (
-	stateSetup   state = iota // server URL setup wizard
-	stateListing              // paste list view
-	stateDetail               // paste detail view
-	stateHelp                 // help overlay (shown on top of the current view)
+	// server URL setup wizard
+	stateSetup state = iota
+	// paste list view
+	stateListing
+	// paste detail view
+	stateDetail
+	// help overlay (shown on top of the current view)
+	stateHelp
 )
 
 // ClientConfig is passed from main.go to tui.Run.
@@ -36,8 +40,8 @@ type ClientConfig struct {
 
 // Model is the root bubbletea model for the TUI.
 type Model struct {
-	cfg      ClientConfig
-	state    state
+	cfg       ClientConfig
+	state     state
 	prevState state
 
 	width  int

@@ -471,9 +471,9 @@ func TestCountPastes(t *testing.T) {
 	db := newTestDB(t)
 
 	cases := []struct {
-		name   string
-		setup  func()
-		want   int64
+		name  string
+		setup func()
+		want  int64
 	}{
 		{"empty", func() {}, 0},
 		{"after_insert", func() {

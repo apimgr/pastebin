@@ -34,12 +34,12 @@ func TestTick_SkipsNotYetDueTasks(t *testing.T) {
 		t.Fatalf("ParseSchedule: %v", err)
 	}
 	s.tasks["notyet"] = &taskEntry{
-		id:      "notyet",
-		name:    "Not Yet Due",
+		id:       "notyet",
+		name:     "Not Yet Due",
 		schedule: sched,
-		enabled: true,
-		nextRun: time.Now().Add(1 * time.Hour),
-		fn:      func() error { atomic.AddInt32(&called, 1); return nil },
+		enabled:  true,
+		nextRun:  time.Now().Add(1 * time.Hour),
+		fn:       func() error { atomic.AddInt32(&called, 1); return nil },
 	}
 	s.tick()
 	if atomic.LoadInt32(&called) != 0 {
@@ -58,11 +58,11 @@ func TestTick_ExecutesDueTask(t *testing.T) {
 		t.Fatalf("ParseSchedule: %v", err)
 	}
 	s.tasks["overdue"] = &taskEntry{
-		id:      "overdue",
-		name:    "Overdue Task",
+		id:       "overdue",
+		name:     "Overdue Task",
 		schedule: sched,
-		enabled: true,
-		nextRun: time.Now().Add(-1 * time.Second),
+		enabled:  true,
+		nextRun:  time.Now().Add(-1 * time.Second),
 		fn: func() error {
 			close(done)
 			return nil
@@ -87,12 +87,12 @@ func TestTick_SkipsDisabledTasks(t *testing.T) {
 		t.Fatalf("ParseSchedule: %v", err)
 	}
 	s.tasks["disabled"] = &taskEntry{
-		id:      "disabled",
-		name:    "Disabled Task",
+		id:       "disabled",
+		name:     "Disabled Task",
 		schedule: sched,
-		enabled: false,
-		nextRun: time.Now().Add(-1 * time.Second),
-		fn:      func() error { atomic.AddInt32(&called, 1); return nil },
+		enabled:  false,
+		nextRun:  time.Now().Add(-1 * time.Second),
+		fn:       func() error { atomic.AddInt32(&called, 1); return nil },
 	}
 	s.tick()
 	time.Sleep(50 * time.Millisecond)
@@ -124,11 +124,11 @@ func TestRunMissed_ExecutesMissedTask(t *testing.T) {
 		t.Fatalf("ParseSchedule: %v", err)
 	}
 	s.tasks["missed"] = &taskEntry{
-		id:      "missed",
-		name:    "Missed Task",
+		id:       "missed",
+		name:     "Missed Task",
 		schedule: sched,
-		enabled: true,
-		nextRun: time.Now().Add(-30 * time.Minute),
+		enabled:  true,
+		nextRun:  time.Now().Add(-30 * time.Minute),
 		fn: func() error {
 			close(done)
 			return nil
@@ -154,12 +154,12 @@ func TestRunMissed_SkipsOutsideCatchUpWindow(t *testing.T) {
 		t.Fatalf("ParseSchedule: %v", err)
 	}
 	s.tasks["ancient"] = &taskEntry{
-		id:      "ancient",
-		name:    "Ancient Task",
+		id:       "ancient",
+		name:     "Ancient Task",
 		schedule: sched,
-		enabled: true,
-		nextRun: time.Now().Add(-2 * time.Hour),
-		fn:      func() error { atomic.AddInt32(&called, 1); return nil },
+		enabled:  true,
+		nextRun:  time.Now().Add(-2 * time.Hour),
+		fn:       func() error { atomic.AddInt32(&called, 1); return nil },
 	}
 	s.runMissed()
 	time.Sleep(50 * time.Millisecond)
@@ -234,14 +234,17 @@ func TestExecute_RetryExhaustionFallsBackToSchedule(t *testing.T) {
 	s := New(nil)
 	e := failEntry(t, "exhaust", "boom", true, time.Minute, 2)
 
-	_ = s.execute(e) // attempt 1
-	_ = s.execute(e) // attempt 2 (retryAttempt now == retryMax)
+	// attempt 1
+	_ = s.execute(e)
+	// attempt 2 (retryAttempt now == retryMax)
+	_ = s.execute(e)
 	if e.retryAttempt != 2 {
 		t.Fatalf("retryAttempt = %d, want 2 before exhaustion", e.retryAttempt)
 	}
 
 	before := time.Now()
-	_ = s.execute(e) // retryAttempt == retryMax -> fall back to schedule
+	// retryAttempt == retryMax -> fall back to schedule
+	_ = s.execute(e)
 	if e.retryAttempt != 0 {
 		t.Errorf("retryAttempt = %d, want 0 after exhaustion (reset)", e.retryAttempt)
 	}
@@ -257,7 +260,8 @@ func TestExecute_SuccessResetsRetryAttempt(t *testing.T) {
 	s := New(nil)
 	e := failEntry(t, "recover", "boom", true, time.Minute, 3)
 
-	_ = s.execute(e) // one failure -> retryAttempt == 1
+	// one failure -> retryAttempt == 1
+	_ = s.execute(e)
 	if e.retryAttempt != 1 {
 		t.Fatalf("retryAttempt = %d, want 1", e.retryAttempt)
 	}
@@ -291,10 +295,12 @@ func TestExecute_NotifierFiresWithOutcome(t *testing.T) {
 	})
 
 	e := failEntry(t, "notifyme", "kaboom", true, time.Minute, 3)
-	_ = s.execute(e) // failure, will retry
+	// failure, will retry
+	_ = s.execute(e)
 
 	e.fn = func() error { return nil }
-	_ = s.execute(e) // success
+	// success
+	_ = s.execute(e)
 
 	mu.Lock()
 	defer mu.Unlock()

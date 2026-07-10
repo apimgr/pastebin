@@ -12,13 +12,13 @@ import (
 // TestAutoDetectDisplayMode covers all branches of autoDetectDisplayMode.
 func TestAutoDetectDisplayMode(t *testing.T) {
 	cases := []struct {
-		name        string
-		isTerminal  bool
-		hasDisplay  bool
-		termType    string
-		isSSH       bool
-		isMosh      bool
-		wantMode    DisplayMode
+		name       string
+		isTerminal bool
+		hasDisplay bool
+		termType   string
+		isSSH      bool
+		isMosh     bool
+		wantMode   DisplayMode
 	}{
 		// !IsTerminal && !HasDisplay → Headless
 		{"headless", false, false, "xterm", false, false, DisplayModeHeadless},

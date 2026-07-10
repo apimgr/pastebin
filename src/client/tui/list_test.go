@@ -308,11 +308,12 @@ func TestColumnsForMode(t *testing.T) {
 		{3, 3},
 		{4, 4},
 		{6, 6},
-		{10, 6}, // max is 6 columns
+		{10, 6},
 		{20, 6},
 	}
 
 	for _, tc := range tests {
+		// max is 6 columns
 		cols := columnsForMode(tc.maxCols)
 		if len(cols) != tc.want {
 			t.Errorf("columnsForMode(%d) returned %d columns, want %d", tc.maxCols, len(cols), tc.want)

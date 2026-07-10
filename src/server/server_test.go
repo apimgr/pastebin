@@ -640,7 +640,7 @@ func TestRateLimiterIndependentIPs(t *testing.T) {
 	}{
 		{
 			name: "different IPs independent",
-			ip1: "10.0.0.1", ip2: "10.0.0.2",
+			ip1:  "10.0.0.1", ip2: "10.0.0.2",
 			limit: 1, reqs: 1,
 			wantIP1: false, wantIP2: true,
 		},
@@ -1286,14 +1286,14 @@ func TestNoTrailingSlash(t *testing.T) {
 
 func TestSecFetchMiddleware(t *testing.T) {
 	cases := []struct {
-		name           string
-		enabled        bool
-		method         string
-		path           string
-		secFetchSite   string
-		authHeader     string
-		secFetchMode   string
-		wantStatus     int
+		name         string
+		enabled      bool
+		method       string
+		path         string
+		secFetchSite string
+		authHeader   string
+		secFetchMode string
+		wantStatus   int
 	}{
 		{"disabled passes all", false, http.MethodPost, "/api/v1/pastes", "cross-site", "", "", http.StatusOK},
 		{"cross-site POST blocked", true, http.MethodPost, "/api/v1/pastes", "cross-site", "", "", http.StatusForbidden},
@@ -1424,9 +1424,9 @@ func TestBuildCSP(t *testing.T) {
 
 func TestBuildReportingHeaders(t *testing.T) {
 	cases := []struct {
-		name        string
-		fqdn        string
-		tlsEnabled  bool
+		name         string
+		fqdn         string
+		tlsEnabled   bool
 		wantNonEmpty bool
 	}{
 		{"no fqdn returns empty", "", true, false},
@@ -2048,12 +2048,12 @@ type stubDB struct {
 	verifyAPITokenErr error
 }
 
-func (d *stubDB) Close() error                  { return nil }
-func (d *stubDB) Type() string                  { return "stub" }
-func (d *stubDB) Ping() error                   { return d.pingErr }
-func (d *stubDB) CountPastes() (int64, error)   { return d.pastesCount, nil }
+func (d *stubDB) Close() error                { return nil }
+func (d *stubDB) Type() string                { return "stub" }
+func (d *stubDB) Ping() error                 { return d.pingErr }
+func (d *stubDB) CountPastes() (int64, error) { return d.pastesCount, nil }
 
-func (d *stubDB) CreatePaste(p *model.Paste) error  { return nil }
+func (d *stubDB) CreatePaste(p *model.Paste) error { return nil }
 func (d *stubDB) GetPasteByID(id string) (*model.Paste, error) {
 	if d.getPasteByIDFn != nil {
 		return d.getPasteByIDFn(id)
@@ -2063,36 +2063,38 @@ func (d *stubDB) GetPasteByID(id string) (*model.Paste, error) {
 func (d *stubDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error) {
 	return nil, 0, nil
 }
-func (d *stubDB) IncrementPasteViews(id string) error            { return nil }
-func (d *stubDB) DeletePaste(id string) error                     { return nil }
-func (d *stubDB) DeletePasteByToken(id, tok string) error         { return nil }
-func (d *stubDB) DeleteExpiredPastes() (int64, error)             { return 0, nil }
-func (d *stubDB) DeleteBurnedPastes() (int64, error)              { return 0, nil }
-func (d *stubDB) UpsertSchedulerTask(t *database.TaskState) error  { return nil }
+func (d *stubDB) IncrementPasteViews(id string) error                     { return nil }
+func (d *stubDB) DeletePaste(id string) error                             { return nil }
+func (d *stubDB) DeletePasteByToken(id, tok string) error                 { return nil }
+func (d *stubDB) DeleteExpiredPastes() (int64, error)                     { return 0, nil }
+func (d *stubDB) DeleteBurnedPastes() (int64, error)                      { return 0, nil }
+func (d *stubDB) UpsertSchedulerTask(t *database.TaskState) error         { return nil }
 func (d *stubDB) GetSchedulerTask(id string) (*database.TaskState, error) { return nil, nil }
-func (d *stubDB) ListSchedulerTasks() ([]*database.TaskState, error) { return nil, nil }
+func (d *stubDB) ListSchedulerTasks() ([]*database.TaskState, error)      { return nil, nil }
 func (d *stubDB) UpdateTaskRun(id string, lastRun time.Time, status, lastErr string, run, fail int64, next time.Time) error {
 	return nil
 }
-func (d *stubDB) SetTaskEnabled(id string, enabled bool) error     { return nil }
-func (d *stubDB) RecordTaskHistory(h *database.TaskHistory) error  { return nil }
+func (d *stubDB) SetTaskEnabled(id string, enabled bool) error    { return nil }
+func (d *stubDB) RecordTaskHistory(h *database.TaskHistory) error { return nil }
 func (d *stubDB) ListTaskHistory(taskID string, limit int) ([]*database.TaskHistory, error) {
 	return d.taskHistory, d.historyErr
 }
 func (d *stubDB) CreateAPIToken(hash, prefix, rtype, rid string, exp *time.Time) error { return nil }
-func (d *stubDB) VerifyAPIToken(hash [32]byte, rtype, rid string) error               { return d.verifyAPITokenErr }
+func (d *stubDB) VerifyAPIToken(hash [32]byte, rtype, rid string) error                { return d.verifyAPITokenErr }
 func (d *stubDB) ValidateAPIToken(hash [32]byte, rtype string) error                   { return nil }
 func (d *stubDB) RevokeAPIToken(prefix, reason string) error                           { return nil }
 func (d *stubDB) ListAPITokens() ([]*database.APITokenRecord, error)                   { return nil, nil }
 func (d *stubDB) DeleteExpiredAPITokens() (int64, error)                               { return 0, nil }
 func (d *stubDB) EnsureAppSecret(key string) ([]byte, error)                           { return nil, nil }
-func (d *stubDB) CreateSecurityReport(r *database.SecurityReport) error                 { return nil }
-func (d *stubDB) GetSecurityReport(trackingID string) (*database.SecurityReport, error) { return nil, nil }
-func (d *stubDB) UpdateSecurityReportStatus(trackingID, status, comment string) error   { return nil }
-func (d *stubDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, error)     { return nil, nil }
-func (d *stubDB) MarkSecurityReportTokenUsed(trackingID string, at time.Time) error     { return nil }
-func (d *stubDB) GetSecurityKeypair() (*database.SecurityKeypair, error)                { return nil, nil }
-func (d *stubDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error              { return nil }
+func (d *stubDB) CreateSecurityReport(r *database.SecurityReport) error                { return nil }
+func (d *stubDB) GetSecurityReport(trackingID string) (*database.SecurityReport, error) {
+	return nil, nil
+}
+func (d *stubDB) UpdateSecurityReportStatus(trackingID, status, comment string) error { return nil }
+func (d *stubDB) ListDisclosedSecurityReports() ([]*database.SecurityReport, error)   { return nil, nil }
+func (d *stubDB) MarkSecurityReportTokenUsed(trackingID string, at time.Time) error   { return nil }
+func (d *stubDB) GetSecurityKeypair() (*database.SecurityKeypair, error)              { return nil, nil }
+func (d *stubDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error            { return nil }
 
 // newServerWithDB creates a minimal Server with both cfg and db set.
 func newServerWithDB(cfg *config.Config, db database.DB) *Server {

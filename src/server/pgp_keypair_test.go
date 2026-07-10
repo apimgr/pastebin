@@ -347,4 +347,3 @@ func TestDecryptSecurityReportPGPNoKeyFiles(t *testing.T) {
 		t.Error("expected error when no PGP private key files exist")
 	}
 }
-

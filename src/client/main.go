@@ -105,12 +105,12 @@ type cliConfig struct {
 	} `yaml:"cache"`
 	Debug    bool `yaml:"debug"`
 	Defaults struct {
-		Lang    string `yaml:"lang"`
-		Public  bool   `yaml:"public"`
-		Expire  string `yaml:"expire"`
-		Syntax  string `yaml:"syntax"`
-		Output  string `yaml:"output"`
-		Limit   int    `yaml:"limit"`
+		Lang   string `yaml:"lang"`
+		Public bool   `yaml:"public"`
+		Expire string `yaml:"expire"`
+		Syntax string `yaml:"syntax"`
+		Output string `yaml:"output"`
+		Limit  int    `yaml:"limit"`
 	} `yaml:"defaults"`
 }
 

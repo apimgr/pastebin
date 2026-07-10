@@ -14,10 +14,12 @@ import (
 // JSON spec: GET /api/v1/server/swagger
 // HTML UI:   GET /server/swagger (and /server/docs/swagger)
 type Handler struct {
-	title      string
-	version    string
-	baseURL    string                        // static override; takes precedence over baseURLFn
-	baseURLFn  func(*http.Request) string    // dynamic resolver; used when baseURL is empty
+	title   string
+	version string
+	// static override; takes precedence over baseURLFn
+	baseURL string
+	// dynamic resolver; used when baseURL is empty
+	baseURLFn func(*http.Request) string
 }
 
 // New creates a Handler. baseURL can be left empty to auto-detect from the request.

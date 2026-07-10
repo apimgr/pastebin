@@ -11,24 +11,37 @@ import (
 type DisplayMode int
 
 const (
-	DisplayModeHeadless DisplayMode = iota // No display, no TTY
-	DisplayModeCLI                          // Command-line only (piped or command provided)
-	DisplayModeTUI                          // Terminal UI (interactive terminal)
-	DisplayModeGUI                          // Native graphical UI
+	// No display, no TTY
+	DisplayModeHeadless DisplayMode = iota
+	// Command-line only (piped or command provided)
+	DisplayModeCLI
+	// Terminal UI (interactive terminal)
+	DisplayModeTUI
+	// Native graphical UI
+	DisplayModeGUI
 )
 
 // DisplayEnv - detected display environment
 type DisplayEnv struct {
-	Mode         DisplayMode
-	HasDisplay   bool   // X11, Wayland, Windows, macOS display
-	DisplayType  string // "x11", "wayland", "windows", "macos", "none"
-	IsTerminal   bool   // stdout is a TTY
-	IsSSH        bool   // Running over SSH
-	IsMosh       bool   // Running over mosh
-	IsScreen     bool   // Running in screen/tmux
-	TerminalType string // TERM value
-	Cols         int    // Terminal columns (0 if no terminal)
-	Rows         int    // Terminal rows (0 if no terminal)
+	Mode DisplayMode
+	// X11, Wayland, Windows, macOS display
+	HasDisplay bool
+	// "x11", "wayland", "windows", "macos", "none"
+	DisplayType string
+	// stdout is a TTY
+	IsTerminal bool
+	// Running over SSH
+	IsSSH bool
+	// Running over mosh
+	IsMosh bool
+	// Running in screen/tmux
+	IsScreen bool
+	// TERM value
+	TerminalType string
+	// Terminal columns (0 if no terminal)
+	Cols int
+	// Terminal rows (0 if no terminal)
+	Rows int
 }
 
 // DetectDisplayEnv - auto-detect display environment

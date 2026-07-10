@@ -293,12 +293,12 @@ func TestRoundTrip_WriteCheckRemoveCheck(t *testing.T) {
 // contents that are either corrupt or represent PIDs that are not running.
 func TestCheckPIDFile_ContentVariants(t *testing.T) {
 	cases := []struct {
-		name         string
-		content      string
-		wantRunning  bool
-		wantPID      int
-		wantErr      bool
-		wantRemoved  bool
+		name        string
+		content     string
+		wantRunning bool
+		wantPID     int
+		wantErr     bool
+		wantRemoved bool
 	}{
 		{
 			name:        "empty file",

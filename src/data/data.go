@@ -4,8 +4,8 @@
 package data
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 )
 
 //go:embed languages.json

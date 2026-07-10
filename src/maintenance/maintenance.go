@@ -47,8 +47,10 @@ type BackupOptions struct {
 	DataDir    string
 	BackupDir  string
 	AppVersion string
-	Password   string // empty = no encryption
-	Filename   string // empty = auto-generate
+	// empty = no encryption
+	Password string
+	// empty = auto-generate
+	Filename string
 }
 
 // Backup creates a tar.gz (optionally AES-256-GCM encrypted) backup of the
@@ -71,8 +73,9 @@ func Backup(opts BackupOptions) error {
 
 	// Collect files to archive.
 	type entry struct {
-		src  string
-		name string // path inside the archive
+		src string
+		// path inside the archive
+		name string
 	}
 	var entries []entry
 	var contents []string
@@ -226,7 +229,8 @@ func Restore(archivePath, configDir, dataDir, password string) error {
 			return fmt.Errorf("reading archive: %w", err)
 		}
 		if hdr.Name == "manifest.json" {
-			continue // skip — informational only
+			// skip — informational only
+			continue
 		}
 		if err := extractEntry(tr, hdr, configDir, dataDir); err != nil {
 			return fmt.Errorf("extracting %s: %w", hdr.Name, err)
@@ -426,7 +430,8 @@ func VerifyBackup(path, password string) error {
 		if err != nil {
 			return fmt.Errorf("verify: extract %s: %w", hdr.Name, err)
 		}
-		lr := io.LimitReader(tr, 256<<20) // 256 MiB cap per entry
+		// 256 MiB cap per entry
+		lr := io.LimitReader(tr, 256<<20)
 		tee := io.TeeReader(lr, contentHash)
 		if _, err := io.Copy(f, tee); err != nil {
 			f.Close()
@@ -575,7 +580,8 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 		case strings.HasPrefix(hdr.Name, "security/"):
 			base, prefix = filepath.Join(configDir, "security"), "security/"
 		default:
-			return nil // unknown entry — skip
+			// unknown entry — skip
+			return nil
 		}
 		rel := strings.TrimPrefix(hdr.Name, prefix)
 		candidate := filepath.Join(base, rel)
@@ -597,7 +603,8 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 	}
 	defer f.Close()
 
-	lr := io.LimitReader(tr, 256<<20) // 256 MiB cap per entry
+	// 256 MiB cap per entry
+	lr := io.LimitReader(tr, 256<<20)
 	_, err = io.Copy(f, lr)
 	return err
 }
