@@ -200,7 +200,8 @@
     "active_content_title": "Active Content — Download Required",
     "active_content_desc": "This file type can execute scripts in a browser and cannot be rendered inline for security reasons.",
     "binary_title": "Binary File",
-    "binary_desc": "This file is not a text format and cannot be displayed in the browser."
+    "binary_desc": "This file is not a text format and cannot be displayed in the browser.",
+    "embed_title": "Embed this paste"
   },
   "recent": {
     "title": "Recent Pastes",

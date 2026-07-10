@@ -1234,6 +1234,15 @@ func (s *Server) buildCSP(r *http.Request) (header string, reportOnly bool) {
 	if csp.FrameSrcExtra != "" {
 		frameSrc += " " + csp.FrameSrcExtra
 	}
+	// /emb/{id} is the frame-ancestors allow-listed endpoint (PART 11) — it is
+	// designed to be iframed by third-party sites. Everything else stays 'self'.
+	frameAncestors := "'self'"
+	if isEmbedPath(r.URL.Path) {
+		frameAncestors = strings.TrimSpace(csp.EmbedFrameAncestors)
+		if frameAncestors == "" {
+			frameAncestors = "*"
+		}
+	}
 	formAction := "'self'"
 	if csp.FormActionExtra != "" {
 		formAction += " " + csp.FormActionExtra
@@ -1250,7 +1259,7 @@ func (s *Server) buildCSP(r *http.Request) (header string, reportOnly bool) {
 		"worker-src 'self' blob:",
 		"manifest-src 'self'",
 		"frame-src " + frameSrc,
-		"frame-ancestors 'self'",
+		"frame-ancestors " + frameAncestors,
 		"base-uri 'self'",
 		"form-action " + formAction,
 		"object-src 'none'",
@@ -1294,7 +1303,12 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 
 		// Mandatory legacy security headers (PART 11).
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "SAMEORIGIN")
+		// X-Frame-Options has no per-origin allow form, so the embeddable
+		// /emb/{id} endpoint omits it and lets CSP frame-ancestors govern
+		// framing; every other route stays SAMEORIGIN.
+		if !isEmbedPath(r.URL.Path) {
+			h.Set("X-Frame-Options", "SAMEORIGIN")
+		}
 		h.Set("X-XSS-Protection", "1; mode=block")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("X-Permitted-Cross-Domain-Policies", "none")
@@ -1410,6 +1424,19 @@ func (s *Server) secFetchMiddleware(next http.Handler) http.Handler {
 
 		// Check Sec-Fetch-Site: cross-site on state-changing methods.
 		fetchSite := r.Header.Get("Sec-Fetch-Site")
+
+		// Sec-Fetch-Dest defense-in-depth (AI.md PART 11): reject cross-site
+		// framing of any endpoint not on the frame-ancestors allow-list.
+		// /emb/{id} is the only allow-listed endpoint. Same-site framing falls
+		// through to X-Frame-Options/frame-ancestors response headers.
+		if fetchSite == "cross-site" && !isEmbedPath(r.URL.Path) {
+			switch r.Header.Get("Sec-Fetch-Dest") {
+			case "iframe", "frame", "embed", "object":
+				writeJSON(w, http.StatusForbidden, map[string]interface{}{"ok": false, "error": "FORBIDDEN", "message": "cross-site framing of this endpoint is not allowed"})
+				return
+			}
+		}
+
 		if fetchSite == "cross-site" {
 			switch r.Method {
 			case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -2625,6 +2652,7 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cc := classifyPasteContent(paste)
+	embedHTML, embedMarkdown := buildEmbedSnippets(s.baseURL(r), id, paste.Title, cc.IsImage)
 
 	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
 		"SiteTitle":       s.liveCfg().Web.SiteTitle,
@@ -2640,7 +2668,31 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		"IsActiveContent": cc.IsActiveContent,
 		"IsBinary":        cc.IsBinary,
 		"FileContentType": cc.FileContentType,
+		"EmbedHTML":       embedHTML,
+		"EmbedMarkdown":   embedMarkdown,
 	})
+}
+
+// markdownTitleEscaper neutralises the markdown link-syntax characters in a
+// paste title so a copied snippet cannot break out of its link text.
+var markdownTitleEscaper = strings.NewReplacer(
+	`\`, `\\`, `[`, `\[`, `]`, `\]`, `(`, `\(`, `)`, `\)`,
+)
+
+// buildEmbedSnippets returns copy-ready HTML and Markdown embed snippets for a
+// paste. The HTML snippet iframes /emb/{id} (the frame-ancestors allow-listed
+// endpoint); Markdown has no iframe syntax, so images link inline via /raw/{id}
+// and everything else becomes a plain link to the paste view.
+func buildEmbedSnippets(base, id, title string, isImage bool) (embedHTML, embedMarkdown string) {
+	escTitle := template.HTMLEscapeString(title)
+	embedHTML = `<iframe src="` + base + `/emb/` + id + `" width="100%" height="400" loading="lazy" title="` + escTitle + `"></iframe>`
+	mdTitle := markdownTitleEscaper.Replace(title)
+	if isImage {
+		embedMarkdown = "![" + mdTitle + "](" + base + "/raw/" + id + ")"
+	} else {
+		embedMarkdown = "[" + mdTitle + "](" + base + "/" + id + ")"
+	}
+	return embedHTML, embedMarkdown
 }
 
 // pasteContentClass categorises stored paste content for template rendering.
@@ -2707,6 +2759,14 @@ func classifyPasteContent(paste *model.Paste) pasteContentClass {
 		ImageDataURI:    imageDataURI,
 		MediaDataURI:    mediaDataURI,
 	}
+}
+
+// isEmbedPath reports whether the request path is the embeddable paste view.
+// /emb/{id} is the only endpoint on the frame-ancestors allow-list (PART 11):
+// it drops X-Frame-Options, widens frame-ancestors, and is exempt from the
+// Sec-Fetch-Dest iframe rejection so third-party sites can iframe it.
+func isEmbedPath(path string) bool {
+	return strings.HasPrefix(path, "/emb/") && len(path) > len("/emb/")
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {

@@ -1799,6 +1799,63 @@ main {
     padding: var(--space-5);
 }
 
+/* Embed snippets: copy-ready HTML/Markdown iframe code under the paste */
+.embed-snippets {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5);
+    margin-top: var(--space-4);
+}
+
+.embed-snippets-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-3);
+}
+
+.embed-snippet {
+    margin-bottom: var(--space-3);
+}
+
+.embed-snippet:last-child {
+    margin-bottom: 0;
+}
+
+.embed-snippet-label {
+    display: block;
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-1);
+}
+
+.embed-snippet-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.embed-snippet-row .btn {
+    min-height: 44px;
+}
+
+.embed-snippet-input {
+    flex: 1;
+    min-height: 44px;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    word-break: break-all;
+    overflow-wrap: break-word;
+}
+
+@media (min-width: 768px) {
+    .embed-snippet-row {
+        flex-direction: row;
+        align-items: stretch;
+    }
+}
+
 /* Paste List Items */
 .pastes-list {
     display: flex;

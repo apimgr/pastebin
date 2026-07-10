@@ -1027,6 +1027,10 @@ type CSPConfig struct {
 	FrameSrcExtra     string `yaml:"frame_src_extra"`
 	FormActionExtra   string `yaml:"form_action_extra"`
 	ScriptSrcOverride string `yaml:"script_src_override"`
+	// frame-ancestors value for the embeddable /emb/{id} endpoint only.
+	// Default "*" (any site may iframe embeds); operator can restrict to
+	// specific origins, e.g. "'self' https://example.com". Empty = "*".
+	EmbedFrameAncestors string `yaml:"embed_frame_ancestors"`
 }
 
 // DefaultConfig returns a config with sensible defaults.
@@ -1358,8 +1362,9 @@ func DefaultConfig() *Config {
 				Preload:           true,
 			},
 			CSP: CSPConfig{
-				Enabled: true,
-				Mode:    "enforce",
+				Enabled:             true,
+				Mode:                "enforce",
+				EmbedFrameAncestors: "*",
 			},
 			Headers: HeadersConfig{
 				SecFetchValidation: true,

@@ -579,7 +579,8 @@
     "active_content_title": "Aktiver Inhalt — Download erforderlich",
     "active_content_desc": "Dieser Dateityp kann Scripts im Browser ausführen und kann aus Sicherheitsgründen nicht inline angezeigt werden.",
     "binary_title": "Binärdatei",
-    "binary_desc": "Diese Datei ist kein Textformat und kann nicht im Browser angezeigt werden."
+    "binary_desc": "Diese Datei ist kein Textformat und kann nicht im Browser angezeigt werden.",
+    "embed_title": "Diesen Paste einbetten"
   },
   "qr": {
     "download_qr": "QR herunterladen",

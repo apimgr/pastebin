@@ -579,7 +579,8 @@
     "active_content_title": "活跃内容——需要下载",
     "active_content_desc": "此文件类型可在浏览器中执行脚本，出于安全原因无法内联显示。",
     "binary_title": "二进制文件",
-    "binary_desc": "此文件不是文本格式，无法在浏览器中显示。"
+    "binary_desc": "此文件不是文本格式，无法在浏览器中显示。",
+    "embed_title": "嵌入此贴文"
   },
   "qr": {
     "download_qr": "下载二维码",
