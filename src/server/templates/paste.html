@@ -56,18 +56,18 @@
                     <div class="paste-content">
                         {{if .IsImage}}
                         <div class="paste-image">
-                            <img src="{{.ImageDataURI}}" alt="{{.Paste.Title}}" style="max-width:100%;height:auto;display:block;">
+                            <img src="{{.ImageDataURI}}" alt="{{.Paste.Title}}">
                         </div>
                         {{else if .IsAudio}}
                         <div class="paste-media">
-                            <audio controls style="width:100%">
+                            <audio controls>
                                 <source src="{{.MediaDataURI}}" type="{{.FileContentType}}">
                                 {{t .Lang "paste.audio_unsupported"}}
                             </audio>
                         </div>
                         {{else if .IsVideo}}
                         <div class="paste-media">
-                            <video controls style="max-width:100%;height:auto;display:block">
+                            <video controls>
                                 <source src="{{.MediaDataURI}}" type="{{.FileContentType}}">
                                 {{t .Lang "paste.video_unsupported"}}
                             </video>

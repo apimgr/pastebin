@@ -659,6 +659,38 @@ main {
     color: var(--color-text-muted);
 }
 
+/* File input: style the native picker button to match .btn-secondary */
+.form-input[type="file"] {
+    padding: var(--space-2);
+    cursor: pointer;
+}
+
+.form-input[type="file"]::file-selector-button {
+    min-height: 44px;
+    padding: var(--space-2) var(--space-5);
+    margin-right: var(--space-4);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.form-input[type="file"]::file-selector-button:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+}
+
+/* RTL: the picker button sits to the right of the filename */
+[dir="rtl"] .form-input[type="file"]::file-selector-button {
+    margin-right: 0;
+    margin-left: var(--space-4);
+}
+
 .form-actions {
     display: flex;
     gap: var(--space-3);
@@ -1732,6 +1764,39 @@ main {
     background: transparent;
     padding: 0;
     font-size: inherit;
+}
+
+/* Binary paste rendering: images and media players */
+.paste-image {
+    padding: var(--space-5);
+}
+
+.paste-image img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+    border-radius: var(--radius-md);
+}
+
+.paste-media {
+    padding: var(--space-5);
+}
+
+.paste-media audio {
+    display: block;
+    width: 100%;
+}
+
+.paste-media video {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+}
+
+.paste-binary {
+    padding: var(--space-5);
 }
 
 /* Paste List Items */

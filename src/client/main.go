@@ -16,6 +16,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -665,6 +666,18 @@ func (c *client) cmdCreate(args []string) {
 		"expires_in": *expiry,
 		"burn_after": *burn,
 		"visibility": vis,
+	}
+
+	// Binary files (images, archives, etc.) cannot travel as raw bytes inside a
+	// JSON string — invalid UTF-8 gets replaced and corrupts the data. Detect
+	// the MIME type, base64-encode, and tell the server via content_type.
+	sample := content
+	if len(sample) > 512 {
+		sample = sample[:512]
+	}
+	if detected := http.DetectContentType(sample); !strings.HasPrefix(detected, "text/") {
+		body["content"] = base64.StdEncoding.EncodeToString(content)
+		body["content_type"] = detected
 	}
 
 	resp, err := c.postJSON("/api/v1/pastes", body)

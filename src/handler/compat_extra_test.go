@@ -6,6 +6,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -295,5 +296,57 @@ func TestRootUpload_FallthroughToCreate(t *testing.T) {
 	// The native create handler responds (redirect or success), never a 404.
 	if rr.Code == http.StatusNotFound {
 		t.Fatalf("fallthrough status = %d, native create did not run", rr.Code)
+	}
+}
+
+// ─── createPasteInternal — binary content ────────────────────────────────────
+
+// TestCreatePasteInternal_BinaryStoredBase64 verifies the compat/termbin
+// creation path detects binary content, stores it base64-encoded, and sets
+// ContentType so viewers render it correctly.
+func TestCreatePasteInternal_BinaryStoredBase64(t *testing.T) {
+	h, db := newCompatHandler(t)
+
+	raw := string([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01})
+	id, _, err := h.ph.createPasteInternal("img", raw, "text", 0, 0, nil)
+	if err != nil {
+		t.Fatalf("createPasteInternal: %v", err)
+	}
+
+	paste, err := db.GetPasteByID(id)
+	if err != nil || paste == nil {
+		t.Fatalf("GetPasteByID(%q): %v", id, err)
+	}
+	if paste.ContentType != "image/png" {
+		t.Errorf("ContentType: got %q, want image/png", paste.ContentType)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(paste.Content)
+	if err != nil {
+		t.Fatalf("stored content is not base64: %v", err)
+	}
+	if string(decoded) != raw {
+		t.Errorf("decoded content does not match original bytes")
+	}
+}
+
+// TestCreatePasteInternal_TextKeepsEmptyContentType verifies plain text is
+// stored unmodified with an empty ContentType.
+func TestCreatePasteInternal_TextKeepsEmptyContentType(t *testing.T) {
+	h, db := newCompatHandler(t)
+
+	id, _, err := h.ph.createPasteInternal("t", "plain text content", "text", 0, 0, nil)
+	if err != nil {
+		t.Fatalf("createPasteInternal: %v", err)
+	}
+
+	paste, err := db.GetPasteByID(id)
+	if err != nil || paste == nil {
+		t.Fatalf("GetPasteByID(%q): %v", id, err)
+	}
+	if paste.ContentType != "" {
+		t.Errorf("ContentType: got %q, want empty", paste.ContentType)
+	}
+	if paste.Content != "plain text content" {
+		t.Errorf("Content: got %q, want unmodified text", paste.Content)
 	}
 }

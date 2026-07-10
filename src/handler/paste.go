@@ -234,17 +234,18 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		req.ExpiresIn = r.Header.Get("X-Expires-In")
 	}
 
-	// Only trim trailing newlines from plain-text content; base64-encoded binary
-	// must not be modified after encoding (ContentType is set for binary uploads).
-	if req.ContentType == "" {
-		req.Content = strings.TrimRight(req.Content, "\n")
-	}
-	if strings.TrimSpace(req.Content) == "" {
-		return nil, http.StatusBadRequest, fmt.Errorf("content is required")
+	// Binary uploads that arrive with ContentType already set (multipart, JSON
+	// clients) MUST carry base64 content — reject anything that will not decode,
+	// otherwise the stored paste can never be rendered or downloaded correctly.
+	if req.ContentType != "" && !strings.HasPrefix(req.ContentType, "text/") {
+		if _, err := base64.StdEncoding.DecodeString(req.Content); err != nil {
+			return nil, http.StatusBadRequest, fmt.Errorf("binary content must be base64-encoded")
+		}
 	}
 
-	// Detect binary MIME type so the viewer can render images correctly.
-	// Only set when the detected type is non-text; plain text pastes keep ContentType empty.
+	// Detect binary MIME type BEFORE any trimming so binary bytes are never
+	// modified, then base64-encode so the content round-trips safely through
+	// the TEXT DB column. Plain text pastes keep ContentType empty.
 	if req.ContentType == "" && len(req.Content) > 0 {
 		sample := []byte(req.Content)
 		if len(sample) > 512 {
@@ -253,7 +254,17 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		detected := http.DetectContentType(sample)
 		if !strings.HasPrefix(detected, "text/") {
 			req.ContentType = detected
+			req.Content = base64.StdEncoding.EncodeToString([]byte(req.Content))
 		}
+	}
+
+	// Only trim trailing newlines from plain-text content; base64-encoded binary
+	// must not be modified after encoding (ContentType is set for binary uploads).
+	if req.ContentType == "" {
+		req.Content = strings.TrimRight(req.Content, "\n")
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		return nil, http.StatusBadRequest, fmt.Errorf("content is required")
 	}
 
 	// Visibility

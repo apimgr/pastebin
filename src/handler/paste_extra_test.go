@@ -5,6 +5,7 @@ package handler_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -528,5 +529,109 @@ func TestCreateFromForm_EmptyContent(t *testing.T) {
 	}
 	if resp != nil {
 		t.Errorf("expected nil resp on error, got %+v", resp)
+	}
+}
+
+// ─── CreatePaste — binary content handling ───────────────────────────────────
+
+// TestCreatePaste_JSONBinaryDetectedAndEncoded verifies that raw non-text
+// content arriving via JSON is MIME-detected, base64-encoded, and stored with
+// its ContentType so viewers can decode and render it.
+func TestCreatePaste_JSONBinaryDetectedAndEncoded(t *testing.T) {
+	h, db := newTestHandler(t)
+
+	raw := "%PDF-1.4 fake pdf body"
+	body, _ := json.Marshal(map[string]string{"content": raw})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr := httptest.NewRecorder()
+	h.CreatePaste(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201\nbody: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	id := resp["data"].(map[string]interface{})["id"].(string)
+
+	paste, err := db.GetPasteByID(id)
+	if err != nil || paste == nil {
+		t.Fatalf("GetPasteByID(%q): %v", id, err)
+	}
+	if paste.ContentType != "application/pdf" {
+		t.Errorf("ContentType: got %q, want application/pdf", paste.ContentType)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(paste.Content)
+	if err != nil {
+		t.Fatalf("stored content is not base64: %v", err)
+	}
+	if string(decoded) != raw {
+		t.Errorf("decoded content: got %q, want %q", decoded, raw)
+	}
+}
+
+// TestCreatePaste_BinaryContentTypeNonBase64Rejected verifies that a client
+// claiming a binary content_type but sending non-base64 content gets a 400.
+func TestCreatePaste_BinaryContentTypeNonBase64Rejected(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
+		strings.NewReader(`{"content":"@@ not base64 @@","content_type":"image/png"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr := httptest.NewRecorder()
+	h.CreatePaste(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestCreatePaste_MultipartBinaryFileStoredBase64 verifies that a binary file
+// uploaded via multipart form is stored base64-encoded with its detected MIME
+// type and round-trips byte-for-byte.
+func TestCreatePaste_MultipartBinaryFileStoredBase64(t *testing.T) {
+	h, db := newTestHandler(t)
+
+	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01, 0x02, 0x03}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("files", "img.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	fw.Write(png)
+	w.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Accept", "application/json")
+
+	rr := httptest.NewRecorder()
+	h.CreatePaste(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201\nbody: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	id := resp["data"].(map[string]interface{})["id"].(string)
+
+	paste, err := db.GetPasteByID(id)
+	if err != nil || paste == nil {
+		t.Fatalf("GetPasteByID(%q): %v", id, err)
+	}
+	if paste.ContentType != "image/png" {
+		t.Errorf("ContentType: got %q, want image/png", paste.ContentType)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(paste.Content)
+	if err != nil {
+		t.Fatalf("stored content is not base64: %v", err)
+	}
+	if !bytes.Equal(decoded, png) {
+		t.Errorf("decoded content does not match uploaded bytes")
 	}
 }

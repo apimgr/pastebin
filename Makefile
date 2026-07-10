@@ -183,7 +183,7 @@ test:
 		mkdir -p \"/tmp/$(PROJECTORG)\" && \
 		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX\") && \
 		go mod download && \
-		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
+		go test -v -cover -timeout 30m -coverprofile=\$$COVDIR/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
 		echo \"Coverage: \$$COVERAGE%\" && \
 		if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \

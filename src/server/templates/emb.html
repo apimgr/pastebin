@@ -14,7 +14,32 @@
             <span class="ml-auto">{{.Paste.Views}} {{t .Lang "paste.views"}}</span>
         </div>
         <div class="emb-body">
+            {{if .IsImage}}
+            <div class="paste-image">
+                <img src="{{.ImageDataURI}}" alt="{{.Paste.Title}}">
+            </div>
+            {{else if .IsAudio}}
+            <div class="paste-media">
+                <audio controls>
+                    <source src="{{.MediaDataURI}}" type="{{.FileContentType}}">
+                    {{t .Lang "paste.audio_unsupported"}}
+                </audio>
+            </div>
+            {{else if .IsVideo}}
+            <div class="paste-media">
+                <video controls>
+                    <source src="{{.MediaDataURI}}" type="{{.FileContentType}}">
+                    {{t .Lang "paste.video_unsupported"}}
+                </video>
+            </div>
+            {{else if or .IsActiveContent .IsBinary}}
+            <div class="paste-binary">
+                <p><code class="long-string">{{.FileContentType}}</code></p>
+                <a href="{{.AssetPrefix}}/dl/{{.ID}}" class="btn btn-primary">{{t .Lang "common.download"}}</a>
+            </div>
+            {{else}}
             <pre><code>{{.Content}}</code></pre>
+            {{end}}
         </div>
     </div>
 </body>

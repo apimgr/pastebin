@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -811,5 +813,78 @@ func TestVersionLessThan_NonNumericFirstComponentSorted(t *testing.T) {
 func TestVersionLessThan_NonNumericEqualComponent(t *testing.T) {
 	if versionLessThan("1.0.alpha", "1.0.alpha") {
 		t.Error("equal non-numeric components should not be less than")
+	}
+}
+
+// ─── cmdCreate — binary file base64 encoding ──────────────────────────────────
+
+// TestCmdCreate_BinaryFileBase64Encoded verifies that a binary file is sent
+// base64-encoded with a content_type field so raw bytes never travel inside a
+// JSON string (invalid UTF-8 would be corrupted by the encoder).
+func TestCmdCreate_BinaryFileBase64Encoded(t *testing.T) {
+	var received map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &received)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"id": "b", "link": "http://example.com/b"})
+	}))
+	defer srv.Close()
+
+	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x01, 0x02, 0x03}
+	tmp := t.TempDir()
+	f := filepath.Join(tmp, "img.png")
+	if err := os.WriteFile(f, png, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &client{server: srv.URL}
+	c.cmdCreate([]string{f})
+
+	if received == nil {
+		t.Fatal("server received no body")
+	}
+	if ct, _ := received["content_type"].(string); ct != "image/png" {
+		t.Errorf("content_type = %q; want image/png", received["content_type"])
+	}
+	content, _ := received["content"].(string)
+	decoded, err := base64.StdEncoding.DecodeString(content)
+	if err != nil {
+		t.Fatalf("content is not base64: %v", err)
+	}
+	if !bytes.Equal(decoded, png) {
+		t.Errorf("decoded content does not match file bytes")
+	}
+}
+
+// TestCmdCreate_TextFileNotEncoded verifies plain text files are sent as-is
+// with no content_type field.
+func TestCmdCreate_TextFileNotEncoded(t *testing.T) {
+	var received map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &received)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"id": "c", "link": "http://example.com/c"})
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	f := filepath.Join(tmp, "note.txt")
+	if err := os.WriteFile(f, []byte("just text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &client{server: srv.URL}
+	c.cmdCreate([]string{f})
+
+	if received == nil {
+		t.Fatal("server received no body")
+	}
+	if got, _ := received["content"].(string); got != "just text" {
+		t.Errorf("content = %q; want unmodified text", got)
+	}
+	if _, present := received["content_type"]; present {
+		t.Errorf("content_type should be absent for text, got %v", received["content_type"])
 	}
 }

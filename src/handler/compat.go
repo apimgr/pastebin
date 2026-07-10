@@ -15,6 +15,7 @@ package handler
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -490,6 +491,20 @@ func (c *PasteHandler) createPasteInternal(
 		lang = "text"
 	}
 
+	// Detect non-text binary content and store it as base64 with ContentType
+	// set so viewers render it correctly (same rule as HTTP upload parsing).
+	var contentType string
+	if len(content) > 0 {
+		sample := []byte(content)
+		if len(sample) > 512 {
+			sample = sample[:512]
+		}
+		if detected := http.DetectContentType(sample); !strings.HasPrefix(detected, "text/") {
+			contentType = detected
+			content = base64.StdEncoding.EncodeToString([]byte(content))
+		}
+	}
+
 	for range 10 {
 		id, e := generateID()
 		if e != nil {
@@ -517,6 +532,7 @@ func (c *PasteHandler) createPasteInternal(
 		ID:              pasteID,
 		Title:           title,
 		Content:         content,
+		ContentType:     contentType,
 		Language:        lang,
 		Visibility:      vis,
 		ExpiresAt:       expiresAt,

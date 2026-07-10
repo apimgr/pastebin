@@ -43,6 +43,7 @@ import (
 	"github.com/apimgr/pastebin/src/health"
 	"github.com/apimgr/pastebin/src/metrics"
 	"github.com/apimgr/pastebin/src/mode"
+	"github.com/apimgr/pastebin/src/model"
 	"github.com/apimgr/pastebin/src/notify"
 	"github.com/apimgr/pastebin/src/ssl"
 	"github.com/apimgr/pastebin/src/swagger"
@@ -2623,9 +2624,41 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Categorise the stored content so the template renders it correctly.
-	// Binary pastes are stored as base64 (ContentType is set for all non-text
-	// uploads). Active types must NEVER be rendered inline — serve as download.
+	cc := classifyPasteContent(paste)
+
+	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
+		"SiteTitle":       s.liveCfg().Web.SiteTitle,
+		"Theme":           s.liveCfg().Web.Theme,
+		"Paste":           paste,
+		"ID":              id,
+		"Content":         handler.HighlightedContent(paste),
+		"IsImage":         cc.IsImage,
+		"ImageDataURI":    cc.ImageDataURI,
+		"IsAudio":         cc.IsAudio,
+		"IsVideo":         cc.IsVideo,
+		"MediaDataURI":    cc.MediaDataURI,
+		"IsActiveContent": cc.IsActiveContent,
+		"IsBinary":        cc.IsBinary,
+		"FileContentType": cc.FileContentType,
+	})
+}
+
+// pasteContentClass categorises stored paste content for template rendering.
+type pasteContentClass struct {
+	IsImage         bool
+	IsAudio         bool
+	IsVideo         bool
+	IsActiveContent bool
+	IsBinary        bool
+	FileContentType string
+	ImageDataURI    template.URL
+	MediaDataURI    template.URL
+}
+
+// classifyPasteContent categorises the stored content so templates render it
+// correctly. Binary pastes are stored as base64 (ContentType is set for all
+// non-text uploads). Active types must NEVER be rendered inline — download only.
+func classifyPasteContent(paste *model.Paste) pasteContentClass {
 	fileCT := paste.ContentType
 
 	// Active content: can execute scripts in a browser — force download only.
@@ -2644,33 +2677,36 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 	isBinary := fileCT != "" && !isImage && !isAudio && !isVideo && !isActiveContent &&
 		!strings.HasPrefix(fileCT, "text/")
 
-	// For images, Content is already base64-encoded (stored that way on upload).
-	var imageDataURI string
+	// Binary content is stored base64-encoded; legacy pastes may hold raw bytes,
+	// so re-encode anything that does not decode to keep the data URI valid.
+	binaryB64 := func(content string) string {
+		if _, err := base64.StdEncoding.DecodeString(content); err != nil {
+			return base64.StdEncoding.EncodeToString([]byte(content))
+		}
+		return content
+	}
+
+	// Data URIs must be typed template.URL — html/template rewrites untyped
+	// data: URLs to #ZgotmplZ. Safe here: the URI is built server-side from a
+	// sniffed non-active MIME type plus base64 (cannot break out of the attr).
+	var imageDataURI, mediaDataURI template.URL
 	if isImage {
-		imageDataURI = "data:" + fileCT + ";base64," + paste.Content
+		imageDataURI = template.URL("data:" + fileCT + ";base64," + binaryB64(paste.Content))
 	}
-
-	// For audio/video, Content is also base64; build a data URI for the player.
-	var mediaDataURI string
 	if isAudio || isVideo {
-		mediaDataURI = "data:" + fileCT + ";base64," + paste.Content
+		mediaDataURI = template.URL("data:" + fileCT + ";base64," + binaryB64(paste.Content))
 	}
 
-	s.renderTemplate(w, r, "paste.html", map[string]interface{}{
-		"SiteTitle":       s.liveCfg().Web.SiteTitle,
-		"Theme":           s.liveCfg().Web.Theme,
-		"Paste":           paste,
-		"ID":              id,
-		"Content":         handler.HighlightedContent(paste),
-		"IsImage":         isImage,
-		"ImageDataURI":    imageDataURI,
-		"IsAudio":         isAudio,
-		"IsVideo":         isVideo,
-		"MediaDataURI":    mediaDataURI,
-		"IsActiveContent": isActiveContent,
-		"IsBinary":        isBinary,
-		"FileContentType": fileCT,
-	})
+	return pasteContentClass{
+		IsImage:         isImage,
+		IsAudio:         isAudio,
+		IsVideo:         isVideo,
+		IsActiveContent: isActiveContent,
+		IsBinary:        isBinary,
+		FileContentType: fileCT,
+		ImageDataURI:    imageDataURI,
+		MediaDataURI:    mediaDataURI,
+	}
 }
 
 func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
@@ -2682,9 +2718,20 @@ func (s *Server) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cc := classifyPasteContent(paste)
+
 	s.renderTemplate(w, r, "emb.html", map[string]interface{}{
-		"Paste":   paste,
-		"Content": handler.HighlightedContent(paste),
+		"ID":              id,
+		"IsImage":         cc.IsImage,
+		"ImageDataURI":    cc.ImageDataURI,
+		"IsAudio":         cc.IsAudio,
+		"IsVideo":         cc.IsVideo,
+		"MediaDataURI":    cc.MediaDataURI,
+		"IsActiveContent": cc.IsActiveContent,
+		"IsBinary":        cc.IsBinary,
+		"FileContentType": cc.FileContentType,
+		"Paste":           paste,
+		"Content":         handler.HighlightedContent(paste),
 	})
 }
 
