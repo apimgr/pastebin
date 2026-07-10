@@ -463,6 +463,8 @@ func main() {
 		*server = resolved
 	}
 
+	*server = defaultServerURL(*server, OfficialSite)
+
 	// Resolve the API token (PART 32 priority): --token flag → PASTEBIN_CLI_TOKEN env → cli.yml auth.token.
 	// The env var never persists; the --token flag saves to cli.yml only when the stored token is empty/invalid.
 	token := *tokenFlag
@@ -864,6 +866,15 @@ func (c *client) cmdList(args []string) {
 	tw.Flush()
 	fmt.Printf("\n(%d total, page %d of %d)\n",
 		result.Pagination.Total, *page, result.Pagination.TotalPages)
+}
+
+// defaultServerURL falls back to the embedded OfficialSite (site.txt at build time)
+// when --server, $PASTEBIN_SERVER, and cli.yml are all unset. Never persisted to cli.yml.
+func defaultServerURL(resolved, official string) string {
+	if resolved == "" {
+		return official
+	}
+	return resolved
 }
 
 // cmdUpdate handles 'pastebin-cli --update check|yes'.

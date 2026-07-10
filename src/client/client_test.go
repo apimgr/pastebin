@@ -866,3 +866,24 @@ func TestCmdCreate_FromStdin(t *testing.T) {
 	c := &client{server: srv.URL}
 	c.cmdCreate([]string{}) // no args → reads from os.Stdin
 }
+
+func TestDefaultServerURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		resolved string
+		official string
+		want     string
+	}{
+		{"empty falls back to OfficialSite", "", "https://paste.example.com", "https://paste.example.com"},
+		{"both empty stays empty", "", "", ""},
+		{"resolved wins over OfficialSite", "https://my.server", "https://paste.example.com", "https://my.server"},
+		{"resolved kept when OfficialSite empty", "https://my.server", "", "https://my.server"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := defaultServerURL(tt.resolved, tt.official); got != tt.want {
+				t.Errorf("defaultServerURL(%q, %q) = %q, want %q", tt.resolved, tt.official, got, tt.want)
+			}
+		})
+	}
+}
