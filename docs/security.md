@@ -28,6 +28,14 @@
 - `Access-Control-Allow-Origin: *` on all responses (public API by design)
 - HTTPS strongly recommended in production (use a reverse proxy or `--tls`)
 
+## Framing & Embeds
+
+- All routes send `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'` — third-party sites cannot iframe the app
+- **Exception:** `/emb/{id}` is the designated embeddable endpoint — it omits `X-Frame-Options` and sends a configurable `frame-ancestors` directive instead
+- Default embed policy is `*` (any site may iframe an embed); restrict it via `web.csp.embed_frame_ancestors` in `server.yml`, e.g. `'self' https://example.com`
+- Defense in depth: when a browser sends `Sec-Fetch-Dest: iframe|frame|embed|object` cross-site for any endpoint other than `/emb/{id}`, the request is rejected with 403 (requires `web.headers.sec_fetch_validation`)
+- The paste view page offers copy-ready HTML (`<iframe>` of `/emb/{id}`) and Markdown embed snippets
+
 ## Rate Limiting
 
 - Default: 30 paste creations per IP per minute

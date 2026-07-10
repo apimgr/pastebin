@@ -58,6 +58,13 @@ termbin:
   port: 9999
   max_size: 32768    # max payload in bytes
   timeout: "5s"      # idle/read timeout
+
+web:
+  csp:
+    # frame-ancestors for the embeddable /emb/{id} endpoint only
+    # default "*" (any site may iframe embeds); restrict with origins,
+    # e.g. "'self' https://example.com"
+    embed_frame_ancestors: "*"
 ```
 
 ## Environment Variables
