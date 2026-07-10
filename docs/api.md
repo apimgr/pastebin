@@ -1,6 +1,6 @@
 # API Reference
 
-Base URL: `https://your-server`  
+Base URL: `https://pste.us` (official site) or your self-hosted instance  
 API version prefix: `/api/v1`
 
 All responses include `Access-Control-Allow-Origin: *`.
@@ -8,7 +8,7 @@ All responses include `Access-Control-Allow-Origin: *`.
 ## Create Paste
 
 ```
-POST /api/v1/paste
+POST https://pste.us/api/v1/paste
 ```
 
 **Request body** (JSON, form, or multipart):
@@ -27,7 +27,7 @@ POST /api/v1/paste
 ```json
 {
   "id": "abc12345",
-  "url": "https://your-server/abc12345",
+  "url": "https://pste.us/abc12345",
   "delete_token": "raw-plaintext-token-shown-once-only"
 }
 ```
@@ -38,7 +38,7 @@ POST /api/v1/paste
 ## Get Paste
 
 ```
-GET /api/v1/paste/{id}
+GET https://pste.us/api/v1/paste/{id}
 ```
 
 **Response** (200 OK):
@@ -60,18 +60,18 @@ GET /api/v1/paste/{id}
 ## Delete Paste
 
 ```
-DELETE /api/v1/paste/{id}
+DELETE https://pste.us/api/v1/paste/{id}
 Authorization: Bearer <delete-token>
 ```
 
-Or via query parameter: `DELETE /api/v1/paste/{id}?token=<delete-token>`
+Or via query parameter: `DELETE https://pste.us/api/v1/paste/{id}?token=<delete-token>`
 
 **Response**: 204 No Content on success.
 
 ## Raw Paste Text
 
 ```
-GET /api/v1/paste/{id}/raw
+GET https://pste.us/api/v1/paste/{id}/raw
 ```
 
 Returns plain text.
@@ -79,7 +79,7 @@ Returns plain text.
 ## List Recent Pastes
 
 ```
-GET /api/v1/pastes?page=1&limit=20
+GET https://pste.us/api/v1/pastes?page=1&limit=20
 ```
 
 Returns paginated list of public (non-unlisted) pastes.
@@ -87,18 +87,18 @@ Returns paginated list of public (non-unlisted) pastes.
 ## Health Check
 
 ```
-GET /server/healthz
+GET https://pste.us/server/healthz
 ```
 
 Content negotiated: HTML for browsers, JSON for API clients, plain text for CLI.
 
 ## OpenAPI / Swagger
 
-Interactive API docs at `/api/v1/server/swagger`.
+Interactive API docs at `https://pste.us/api/v1/server/swagger`.
 
 ## GraphQL
 
-Endpoint: `/graphql`
+Endpoint: `https://pste.us/graphql`
 
 ```graphql
 # Get a paste
@@ -130,6 +130,6 @@ Mutations are not available via GraphQL — use REST for create and delete.
 ## Raw Body (curl pipe)
 
 ```bash
-echo "Hello" | curl -X POST https://your-server/api/v1/paste \
+echo "Hello" | curl -X POST https://pste.us/api/v1/paste \
   --data-binary @- -H 'Content-Type: text/plain'
 ```

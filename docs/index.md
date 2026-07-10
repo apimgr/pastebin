@@ -3,6 +3,11 @@
 A fast, full-stack Go web application for creating and sharing text snippets anonymously.
 Drop-in replacement for pastebin.com, microbin, and lenpaste.
 
+## Official Site
+
+**[https://pste.us](https://pste.us)** — the official hosted instance. The CLI client
+uses it as the default server; use `--server <url>` to target your own instance.
+
 ## Features
 
 - Anonymous paste creation via web form, JSON API, raw body, or multipart file upload
@@ -31,8 +36,9 @@ Open your browser at `http://localhost:3010`.
 
 ## Links
 
-- [Installation](install.md)
-- [Configuration](config.md)
+- [Official Site](https://pste.us)
+- [Installation](installation.md)
+- [Configuration](configuration.md)
 - [API Reference](api.md)
 - [CLI Reference](cli.md)
 - [Compatibility](compat.md)

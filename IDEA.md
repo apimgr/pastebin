@@ -10,6 +10,7 @@ internal_name: pastebin
 internal_org: apimgr
 app_name: Pastebin
 repo: https://github.com/apimgr/pastebin
+official_site: https://pste.us
 license: MIT
 binary: pastebin
 client_binary: pastebin-cli

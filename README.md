@@ -6,6 +6,11 @@ A fast, full-stack Go web application for creating and sharing text snippets ano
 Drop-in replacement for pastebin.com, microbin, and lenpaste — existing scripts, CLIs,
 and integrations work without modification.
 
+## Official Site
+
+**[https://pste.us](https://pste.us)** — the official hosted instance. The CLI client
+uses it as the default server; use `--server <url>` to target your own instance.
+
 ## Features
 
 - Anonymous paste creation via web form, JSON API, raw body, or multipart file upload
@@ -96,30 +101,30 @@ pastebin-cli delete abc12345 <delete-token>
 # List recent pastes
 pastebin-cli list --limit 20
 
-# Target custom server
-pastebin-cli --server https://paste.example.com create myfile.txt
+# Target a custom server (default: https://pste.us)
+pastebin-cli --server https://your-server.example.com create myfile.txt
 ```
 
 ## API
 
 ```bash
 # Create a paste
-curl -X POST https://paste.example.com/api/v1/paste \
+curl -X POST https://pste.us/api/v1/paste \
   -H 'Content-Type: application/json' \
   -d '{"content":"Hello","language":"text","expires_in":"1d"}'
 
 # Get a paste
-curl https://paste.example.com/api/v1/paste/{id}
+curl https://pste.us/api/v1/paste/{id}
 
 # Delete a paste
-curl -X DELETE https://paste.example.com/api/v1/paste/{id} \
+curl -X DELETE https://pste.us/api/v1/paste/{id} \
   -H 'Authorization: Bearer <delete-token>'
 
 # List recent pastes
-curl https://paste.example.com/api/v1/pastes
+curl https://pste.us/api/v1/pastes
 
 # Pipe to paste (raw body)
-cat file.txt | curl -X POST https://paste.example.com/api/v1/paste \
+cat file.txt | curl -X POST https://pste.us/api/v1/paste \
   --data-binary @- -H 'Content-Type: text/plain'
 ```
 
@@ -163,7 +168,7 @@ Platform default paths:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PASTEBIN_SERVER` | (required) | Server base URL — e.g. `https://paste.example.com` |
+| `PASTEBIN_SERVER` | `https://pste.us` (embedded) | Server base URL override for self-hosted instances |
 | `NO_COLOR` | unset | Set to any value to disable ANSI color output |
 
 ## License

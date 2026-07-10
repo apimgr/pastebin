@@ -6,7 +6,7 @@ The `pastebin-cli` binary is a fully spec-compliant command-line client.
 
 | Flag | Description |
 |------|-------------|
-| `--server URL` | Target server URL (default: `http://localhost:3010`) |
+| `--server URL` | Target server URL (default: `https://pste.us`, the embedded official site) |
 | `--json` | Output in JSON format |
 | `-h, --help` | Show help |
 | `-v, --version` | Show version |
@@ -46,14 +46,14 @@ pastebin-cli create --burn 1 --expiry 1h secret.txt
 # Unlisted paste with title
 pastebin-cli create notes.txt --title "Meeting Notes" --unlisted
 
-# Target custom server
-pastebin-cli --server https://paste.example.com create myfile.txt
+# Target a custom server (default: https://pste.us)
+pastebin-cli --server https://your-server.example.com create myfile.txt
 ```
 
 **Output:**
 
 ```
-URL:          https://your-server/abc12345
+URL:          https://pste.us/abc12345
 Delete Token: 64-char-hex-token (save this — shown once only)
 ```
 
