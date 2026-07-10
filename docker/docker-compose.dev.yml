@@ -1,5 +1,5 @@
-# pastebin - development
 # nginx proxy address - http://172.17.0.1:64580
+# pastebin - development
 # FOR HUMAN USE ONLY - AI must never use this file directly.
 # Use temp dir workflow: cp docker/docker-compose.dev.yml $TEMP_DIR/docker-compose.yml
 

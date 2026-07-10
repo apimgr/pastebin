@@ -1,5 +1,5 @@
-# pastebin - fast, public pastebin service
 # nginx proxy address - http://172.17.0.1:64580
+# pastebin - fast, public pastebin service
 # FOR HUMAN USE ONLY - AI must never use this file directly.
 
 name: pastebin
