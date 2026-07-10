@@ -17,13 +17,25 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build \
+RUN mkdir -p /app/binary && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build \
     -buildvcs=false -trimpath \
     -ldflags "-s -w -X 'main.Version=${VERSION}' \
               -X 'main.CommitID=${COMMIT_ID}' \
               -X 'main.BuildDate=${BUILD_DATE}' \
               -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
-    -o /app/pastebin ./src
+    -o /app/binary/pastebin ./src
+
+# Build client binary if src/client/ exists (same as release image)
+RUN if [ -d ./src/client ]; then \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build \
+        -buildvcs=false -trimpath \
+        -ldflags "-s -w -X 'main.Version=${VERSION}' \
+                  -X 'main.CommitID=${COMMIT_ID}' \
+                  -X 'main.BuildDate=${BUILD_DATE}' \
+                  -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
+        -o /app/binary/pastebin-cli ./src/client; \
+fi
 
 # =============================================================================
 FROM alpine:latest
@@ -35,10 +47,10 @@ RUN apk add --no-cache \
     tini \
     tor
 
-COPY --from=builder /app/pastebin /usr/local/bin/pastebin
+COPY --from=builder /app/binary/ /usr/local/bin/
 COPY docker/rootfs/ /
 
-RUN chmod 755 /usr/local/bin/pastebin
+RUN chmod 755 /usr/local/bin/*
 
 # Development defaults
 ENV TZ=America/New_York \

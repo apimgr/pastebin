@@ -1,5 +1,5 @@
 # pastebin - fast, public pastebin service
-# nginx proxy address - http://172.17.0.1:${HOST_PORT:-64580}
+# nginx proxy address - http://172.17.0.1:64580
 
 name: pastebin
 
@@ -22,12 +22,16 @@ services:
       - PORT=80
       - DEBUG=false
       - TZ=${TZ:-America/New_York}
+      - CACHE_URL=valkey://pastebin-cache:6379
       - TERMBIN_ENABLED=${TERMBIN_ENABLED:-true}
+      # For remote libsql/Turso: set DATABASE_DRIVER=libsql and DATABASE_URL
+      # - DATABASE_DRIVER=libsql
+      # - DATABASE_URL=libsql://your-db.turso.io?authToken=${TURSO_AUTH_TOKEN}
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
     ports:
-      - '172.17.0.1:${HOST_PORT:-64580}:80'
+      - '172.17.0.1:64580:80'
       - '172.17.0.1:${TERMBIN_PORT:-9999}:9999'
     healthcheck:
       test: /usr/local/bin/pastebin --status
@@ -35,6 +39,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
+    depends_on:
+      pastebin-cache:
+        condition: service_healthy
+    networks:
+      - pastebin
+
+  pastebin-cache:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: pastebin-cache
+    restart: always
+    logging: *default-logging
+    volumes:
+      - './volumes/data/db/valkey:/data:z'
+    healthcheck:
+      test: valkey-cli ping || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - pastebin
 
