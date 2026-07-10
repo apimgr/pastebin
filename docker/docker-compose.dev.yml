@@ -1,5 +1,6 @@
 # pastebin - development
-# ⚠️ FOR HUMAN USE ONLY — AI must never use this file directly.
+# nginx proxy address - http://172.17.0.1:64580
+# FOR HUMAN USE ONLY - AI must never use this file directly.
 # Use temp dir workflow: cp docker/docker-compose.dev.yml $TEMP_DIR/docker-compose.yml
 
 name: pastebin
@@ -26,7 +27,8 @@ services:
       - TERMBIN_ENABLED=${TERMBIN_ENABLED:-true}
     ports:
       - '172.17.0.1:64580:80'
-      - '172.17.0.1:${TERMBIN_PORT:-9999}:9999'
+      # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
+      - '${TERMBIN_PORT:-9999}:9999'
     volumes:
       # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
       # NEVER run from project directory — always use temp dir workflow
