@@ -14,6 +14,8 @@ official_site: https://pste.us
 license: MIT
 binary: pastebin
 client_binary: pastebin-cli
+maintainer_name: apimgr
+maintainer_email: git-admin@casjaysdev.pro
 api_version: v1
 coverage_minimum: 80
 
@@ -30,7 +32,7 @@ coverage_minimum: 80
 - Visibility: public (listed in recent pastes) or unlisted (URL-only, not listed)
 - Owner token: a `tok_`-prefixed cryptographically random token returned in every API create response; reusable across pastes created by the same caller; stored as a SHA-256 hash; required to delete the paste before natural expiry
 - Token reuse: callers may supply an existing owner token on paste creation to link the new paste to that token; the web UI saves the token to `localStorage` key `pastebin_owner_token` and pre-fills it on subsequent creates
-- Raw paste view, file download, iframe-embeddable view, QR code PNG
+- Raw paste view, file download, iframe-embeddable view at `/emb/{id}` with copy-ready HTML and Markdown embed snippets on the paste view page, QR code page at `/qr/{id}` and PNG image at `/qr/{id}/image`
 - View count tracking; automatic background cleanup of expired and burned pastes
 - Full web frontend (server-side Go templates, dark/light/auto theme, PWA, mobile-first)
 - Static info pages: about, help, health check, privacy, terms
@@ -50,10 +52,12 @@ coverage_minimum: 80
 - Rate limiting: per-endpoint, IP-based, configurable; proxy-aware (`X-Forwarded-For`, `CF-Connecting-IP`, `True-Client-IP`)
 - IP/CIDR/country blocklist: loaded from a URL or local file; refreshed hourly by `blocklist_update` scheduled task
 - Email notifications: SMTP; 7 template types (`security_alert`, `backup_complete`, `backup_failed`, `ssl_expiring`, `ssl_renewed`, `scheduler_error`, `test`); silently disabled when unconfigured
+- Security report system: `/server/security` report submission flow with optional PGP-encrypted reports, `security.txt` (RFC 9116) at `/.well-known/security.txt`, and operator PGP key at `/.well-known/pgp-key.asc`
+- Cookie consent and CCPA opt-out: consent banner (works without JavaScript) and `POST /server/privacy/ccpa` do-not-sell endpoint; preferences stored client-side, no server-side tracking
 
 **Non-goals:**
 - No user accounts, registration, or login of any kind
-- No admin web panel — server configured via `server.yml` only; no runtime config API
+- No admin web panel — server configured via `server.yml` only; no general-purpose runtime configuration API (the scheduler management endpoints under `/api/v1/scheduler/*` are the spec-mandated exception)
 - No paste editing after creation — pastes are immutable
 - No password-protected pastes (microbin per-paste encryption not implemented)
 - No paid tiers, no rate-limited access tiers, no feature gating
