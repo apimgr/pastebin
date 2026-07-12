@@ -54,7 +54,7 @@ _%s() {
 
     case "${prev}" in
         --color)
-            COMPREPLY=($(compgen -W "auto always never" -- "${cur}"))
+            COMPREPLY=($(compgen -W "auto yes no" -- "${cur}"))
             return 0 ;;
         --shell)
             COMPREPLY=($(compgen -W "completions init --help" -- "${cur}"))
@@ -97,7 +97,7 @@ _%s() {
     _arguments -C \
         '--server[Server base URL]:url:' \
         '--json[Machine-readable JSON output]' \
-        '--color[Color output]:when:(auto always never)' \
+        '--color[Color output]:when:(auto yes no)' \
         '--debug[Enable debug output]' \
         '--version[Print version]' \
         '--shell[Shell integration]:subcmd:(completions init --help)' \
@@ -143,7 +143,7 @@ func printClientFish(bin string) {
 # Global flags
 complete -c %s -l server  -d 'Server base URL' -r
 complete -c %s -l json    -d 'Machine-readable JSON output'
-complete -c %s -l color   -d 'Color output' -xa 'auto always never'
+complete -c %s -l color   -d 'Color output' -xa 'auto yes no'
 complete -c %s -l debug   -d 'Enable debug output'
 complete -c %s -l version -d 'Print version'
 complete -c %s -l shell   -d 'Shell integration' -xa 'completions init --help'

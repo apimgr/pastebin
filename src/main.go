@@ -1424,8 +1424,8 @@ func normalizeArgs(args []string) []string {
 }
 
 // applyColor applies the --color flag, updating NO_COLOR as needed.
-// Spec canonical values: auto, always, never (PART 8 / binary-rules.md).
-// yes/no are accepted as backward-compatible aliases.
+// Spec canonical values: auto, yes, no (AI.md PART 8).
+// always/never are accepted as backward-compatible aliases.
 func applyColor(v string) {
 	switch v {
 	case "never", "no":
@@ -1466,7 +1466,7 @@ Server Configuration:
       --baseurl PATH                URL path prefix (default: /)
       --daemon                      Run as daemon (detach from terminal)
       --debug                       Enable debug mode
-      --color {auto|always|never}   Color output (default: auto)
+      --color {auto|yes|no}         Color output (default: auto)
       --lang CODE                   Language for output (default: auto)
 
 Service Management:

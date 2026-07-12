@@ -26,11 +26,14 @@ Override with: `--config /path/to/server.yml`
 --backup DIR              Backup directory
 --pid FILE                PID file path
 --address ADDR            Listen address (default: 0.0.0.0)
---port PORT               Listen port (default: 3010 local, 80 container)
+--port PORT               Listen port (default: random 64xxx local, 80 container)
 --baseurl PATH            URL path prefix (default: /)
 --debug                   Enable debug mode
 --daemon                  Run as daemon
+--color {auto|yes|no}     Color output (default: auto)
+--lang CODE               Language for output (default: auto)
 --clean-expired           Delete expired/burned pastes and exit
+--shell CMD [SHELL]       Shell integration (completions, init)
 --service CMD             Service management
 --maintenance CMD         Maintenance operations
 --update [CMD]            Check/perform updates
@@ -41,7 +44,8 @@ Override with: `--config /path/to/server.yml`
 ```yaml
 server:
   address: "0.0.0.0"
-  port: "3010"
+  # first run picks a random unused 64000-64999 port and saves it here
+  port: "64123"
   mode: "production"
   base_url: ""
 

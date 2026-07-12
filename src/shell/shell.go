@@ -155,10 +155,10 @@ _%s() {
             COMPREPLY=($(compgen -W "completions init --help" -- "${cur}"))
             return 0 ;;
         --service)
-            COMPREPLY=($(compgen -W "install uninstall start stop restart status enable disable --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "start stop restart reload --install --uninstall --disable --help" -- "${cur}"))
             return 0 ;;
         --maintenance)
-            COMPREPLY=($(compgen -W "backup restore rotate-logs mode --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "backup restore update mode setup pgp --help" -- "${cur}"))
             return 0 ;;
         --update)
             COMPREPLY=($(compgen -W "check yes branch --help" -- "${cur}"))
@@ -167,7 +167,7 @@ _%s() {
             COMPREPLY=($(compgen -W "production development" -- "${cur}"))
             return 0 ;;
         --color)
-            COMPREPLY=($(compgen -W "auto always never" -- "${cur}"))
+            COMPREPLY=($(compgen -W "auto yes no" -- "${cur}"))
             return 0 ;;
         --config|--data|--cache|--log|--backup)
             COMPREPLY=($(compgen -d -- "${cur}"))
@@ -197,8 +197,8 @@ _%s() {
         '--debug[Enable debug logging]'
         '--clean-expired[Remove expired pastes and exit]'
         '--shell[Shell integration]:subcmd:(completions init --help)'
-        '--service[Service management]:subcmd:(install uninstall start stop restart status enable disable --help)'
-        '--maintenance[Maintenance tasks]:subcmd:(backup restore rotate-logs mode --help)'
+        '--service[Service management]:subcmd:(start stop restart reload --install --uninstall --disable --help)'
+        '--maintenance[Maintenance tasks]:subcmd:(backup restore update mode setup pgp --help)'
         '--update[Update management]:subcmd:(check yes branch --help)'
         '--config[Config directory]:dir:_directories'
         '--data[Data directory]:dir:_directories'
@@ -210,7 +210,7 @@ _%s() {
         '--address[Listen address]:addr:'
         '--baseurl[Base URL]:url:'
         '--mode[Application mode]:mode:(production development)'
-        '--color[Color output]:when:(auto always never)'
+        '--color[Color output]:when:(auto yes no)'
         '--lang[Language]:lang:(en fr de es pt ja zh)'
     )
     _arguments -s "${opts[@]}"
@@ -229,8 +229,8 @@ complete -c %s -l debug   -d 'Enable debug logging'
 complete -c %s -l clean-expired -d 'Remove expired pastes and exit'
 
 complete -c %s -l shell -d 'Shell integration' -xa 'completions init --help'
-complete -c %s -l service -d 'Service management' -xa 'install uninstall start stop restart status enable disable --help'
-complete -c %s -l maintenance -d 'Maintenance tasks' -xa 'backup restore rotate-logs mode --help'
+complete -c %s -l service -d 'Service management' -xa 'start stop restart reload --install --uninstall --disable --help'
+complete -c %s -l maintenance -d 'Maintenance tasks' -xa 'backup restore update mode setup pgp --help'
 complete -c %s -l update -d 'Update management' -xa 'check yes branch --help'
 
 complete -c %s -l config  -d 'Config directory'  -xa '(__fish_complete_directories)'
@@ -244,7 +244,7 @@ complete -c %s -l port    -d 'Listen port'
 complete -c %s -l address -d 'Listen address'
 complete -c %s -l baseurl -d 'Base URL'
 complete -c %s -l mode    -d 'Application mode'  -xa 'production development'
-complete -c %s -l color   -d 'Color output'      -xa 'auto always never'
+complete -c %s -l color   -d 'Color output'      -xa 'auto yes no'
 complete -c %s -l lang    -d 'Language'          -xa 'en fr de es pt ja zh'
 `, bin,
 		bin, bin, bin, bin, bin, bin,

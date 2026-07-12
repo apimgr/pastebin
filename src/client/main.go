@@ -372,7 +372,7 @@ func main() {
 
 	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", fileCfg.Server), "server base URL")
 	asJSON := flag.Bool("json", false, "machine-readable JSON output")
-	colorFlag := flag.String("color", "auto", "color output: auto, always, never")
+	colorFlag := flag.String("color", "auto", "color output: auto, yes, no")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	showHelp := flag.Bool("help", false, "show help and exit")
 	debugFlag := flag.Bool("debug", false, "enable debug output")
@@ -390,8 +390,8 @@ func main() {
 	flag.Parse()
 
 	// Honour NO_COLOR env var (https://no-color.org/) and --color flag.
-	// Spec canonical values: auto, always, never (PART 8 / binary-rules.md).
-	// yes/no are accepted as backward-compatible aliases.
+	// Spec canonical values: auto, yes, no (AI.md PART 8).
+	// always/never are accepted as backward-compatible aliases.
 	switch *colorFlag {
 	case "never", "no":
 		os.Setenv("NO_COLOR", "1")
@@ -1161,7 +1161,7 @@ LIST FLAGS
 GLOBAL FLAGS
     --server <url>       Server base URL (required; or set $PASTEBIN_SERVER)
     --json               Output machine-readable JSON
-    --color <when>       Color output: auto, always, never (default: auto; honors NO_COLOR)
+    --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
     --lang <code>        Output language (default: auto-detect from LANG)
     --debug              Enable debug output
     --update check|yes   Check for or apply CLI updates
