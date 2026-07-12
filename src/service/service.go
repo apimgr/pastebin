@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/apimgr/pastebin/src/paths"
 )
 
 const (
@@ -35,6 +37,8 @@ func init() {
 	for i := 170; i <= 179; i++ {
 		reservedIDs[i] = true
 	}
+	// Reserve 65534 (nobody/nogroup — universal nobody user) per spec.
+	reservedIDs[65534] = true
 }
 
 // findAvailableSystemID scans from 899 down to 200 and returns the first UID/GID
@@ -228,8 +232,23 @@ func confirmDestructive() bool {
 	return answer == "y" || answer == "yes"
 }
 
-// purgeData removes the application data, config, cache, and log directories
-// and the dedicated service user/group. Removal failures are reported but do
+// purgeDirs returns the platform-correct directories removed during uninstall
+// per PART 23: config, data, cache, log, and backup directories. Paths come
+// from the paths package so BSD (/var/db, /usr/local/etc) and macOS layouts
+// are honored instead of hardcoded Linux locations.
+func purgeDirs() []string {
+	return []string{
+		paths.GetConfigDir(appName),
+		paths.GetDataDir(appName),
+		paths.GetCacheDir(appName),
+		paths.GetLogsDir(appName),
+		paths.GetBackupDir(appName),
+	}
+}
+
+// purgeData removes the application config, data, cache, log, and backup
+// directories, the PID file, and the dedicated service user/group (PART 23
+// Service Uninstall Logic step 4-5). Removal failures are reported but do
 // not abort the remaining cleanup.
 func purgeData() {
 	if runtime.GOOS == "windows" {
@@ -240,19 +259,24 @@ func purgeData() {
 		return
 	}
 
-	dirs := []string{
-		fmt.Sprintf("/etc/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
-	}
-	for _, dir := range dirs {
+	for _, dir := range purgeDirs() {
 		if rmErr := os.RemoveAll(dir); rmErr != nil && !os.IsNotExist(rmErr) {
 			fmt.Printf("Warning: could not remove %s: %v\n", dir, rmErr)
 		}
 	}
 
+	// PART 23: remove the PID file left behind by a previous run.
+	pidFile := paths.GetPIDFile(appName)
+	if rmErr := os.Remove(pidFile); rmErr != nil && !os.IsNotExist(rmErr) {
+		fmt.Printf("Warning: could not remove %s: %v\n", pidFile, rmErr)
+	}
+
 	// Remove the dedicated service user and group created during install.
+	if runtime.GOOS == "darwin" {
+		exec.Command("dscl", ".", "-delete", "/Users/"+serviceUser).Run()
+		exec.Command("dscl", ".", "-delete", "/Groups/"+serviceUser).Run()
+		return
+	}
 	exec.Command("userdel", serviceUser).Run()
 	exec.Command("groupdel", serviceUser).Run()
 }
@@ -593,10 +617,81 @@ func uninstallRunit() error {
 	return nil
 }
 
+// findAvailableMacOSSystemID scans the macOS-safe system range from 399 down
+// to 200 and returns the first ID usable as both UID and GID: not reserved,
+// not in the user database, and not in the group database (PART 23 macOS
+// UID/GID ranges — same reservedIDs list as Linux applies).
+func findAvailableMacOSSystemID() (int, error) {
+	for id := 399; id >= 200; id-- {
+		if reservedIDs[id] {
+			continue
+		}
+		// Check if UID is already in use.
+		if _, err := user.LookupId(strconv.Itoa(id)); err == nil {
+			continue
+		}
+		// Check if GID is already in use.
+		if _, err := user.LookupGroupId(strconv.Itoa(id)); err == nil {
+			continue
+		}
+		return id, nil
+	}
+	return 0, fmt.Errorf("no available UID/GID in macOS safe range 200-399")
+}
+
+// createMacOSServiceUser creates the hidden macOS service account and matching
+// group via dscl (PART 23 macOS sequence): group first, then the user with
+// matching UID/GID, no shell, starred password, and IsHidden=1 so the account
+// never appears on the login window.
+func createMacOSServiceUser(name string, id int, homeDir string) error {
+	commands := [][]string{
+		// Create group
+		{"dscl", ".", "-create", "/Groups/" + name},
+		{"dscl", ".", "-create", "/Groups/" + name, "PrimaryGroupID", strconv.Itoa(id)},
+		{"dscl", ".", "-create", "/Groups/" + name, "Password", "*"},
+		// Create user
+		{"dscl", ".", "-create", "/Users/" + name},
+		{"dscl", ".", "-create", "/Users/" + name, "UniqueID", strconv.Itoa(id)},
+		{"dscl", ".", "-create", "/Users/" + name, "PrimaryGroupID", strconv.Itoa(id)},
+		{"dscl", ".", "-create", "/Users/" + name, "UserShell", "/usr/bin/false"},
+		{"dscl", ".", "-create", "/Users/" + name, "RealName", name + " service account"},
+		{"dscl", ".", "-create", "/Users/" + name, "NFSHomeDirectory", homeDir},
+		{"dscl", ".", "-create", "/Users/" + name, "Password", "*"},
+		// Hide user from login window
+		{"dscl", ".", "-create", "/Users/" + name, "IsHidden", "1"},
+	}
+
+	for _, cmd := range commands {
+		if err := exec.Command(cmd[0], cmd[1:]...).Run(); err != nil {
+			return fmt.Errorf("failed to run %v: %w", cmd, err)
+		}
+	}
+	return nil
+}
+
 // installLaunchd creates macOS launchd plist
 func installLaunchd() error {
 	binaryPath := GetBinaryPath()
 	plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
+
+	// PART 23: create the hidden macOS service account before writing the
+	// plist. Runtime-guarded so this shared code never runs dscl elsewhere.
+	if runtime.GOOS == "darwin" {
+		if _, lookErr := user.Lookup(serviceUser); lookErr != nil {
+			sysID, idErr := findAvailableMacOSSystemID()
+			if idErr != nil {
+				return fmt.Errorf("could not find available macOS system UID/GID: %w", idErr)
+			}
+			// PART 23 macOS: service account home is /usr/local/var/{org}/{name}.
+			homeDir := fmt.Sprintf("/usr/local/var/%s/%s", orgName, appName)
+			if mkErr := os.MkdirAll(homeDir, 0755); mkErr != nil {
+				return fmt.Errorf("failed to create service home directory %s: %w", homeDir, mkErr)
+			}
+			if userErr := createMacOSServiceUser(serviceUser, sysID, homeDir); userErr != nil {
+				return fmt.Errorf("failed to create macOS service user: %w", userErr)
+			}
+		}
+	}
 
 	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

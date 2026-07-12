@@ -202,13 +202,8 @@ func TestPurgeData_RemovesDirectories(t *testing.T) {
 		t.Skip("requires root")
 	}
 
-	// Create test directories
-	testDirs := []string{
-		"/etc/" + orgName + "/" + appName,
-		"/var/lib/" + orgName + "/" + appName,
-		"/var/cache/" + orgName + "/" + appName,
-		"/var/log/" + orgName + "/" + appName,
-	}
+	// Create test directories from the same paths-derived list purgeData uses
+	testDirs := purgeDirs()
 
 	for _, dir := range testDirs {
 		os.MkdirAll(dir, 0o755)
@@ -217,10 +212,9 @@ func TestPurgeData_RemovesDirectories(t *testing.T) {
 
 	t.Cleanup(func() {
 		// Clean up any remaining dirs
-		os.RemoveAll("/etc/" + orgName)
-		os.RemoveAll("/var/lib/" + orgName)
-		os.RemoveAll("/var/cache/" + orgName)
-		os.RemoveAll("/var/log/" + orgName)
+		for _, dir := range testDirs {
+			os.RemoveAll(dir)
+		}
 	})
 
 	purgeData()

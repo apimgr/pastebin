@@ -115,38 +115,6 @@ func TestApplyRetention_InvalidDir(t *testing.T) {
 	}
 }
 
-// ─── gzipFile ────────────────────────────────────────────────────────────────
-
-func TestGzipFile_CompressesAndRemovesSource(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "test.log")
-	if err := os.WriteFile(src, []byte("hello world log\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := gzipFile(src); err != nil {
-		t.Fatalf("gzipFile error: %v", err)
-	}
-
-	// Source should be gone.
-	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Errorf("source file should have been removed")
-	}
-
-	// Compressed file should exist.
-	gz := src + ".gz"
-	if _, err := os.Stat(gz); err != nil {
-		t.Errorf("compressed file should exist: %v", err)
-	}
-}
-
-func TestGzipFile_NonexistentSource(t *testing.T) {
-	err := gzipFile("/nonexistent/file.log")
-	if err == nil {
-		t.Error("expected error for nonexistent source, got nil")
-	}
-}
-
 // ─── backupFileRE ─────────────────────────────────────────────────────────────
 
 func TestApplyRetention_KeepsMonthly(t *testing.T) {

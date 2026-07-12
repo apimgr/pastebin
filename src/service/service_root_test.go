@@ -379,13 +379,8 @@ func TestPurgeData_RootBranches(t *testing.T) {
 		t.Skip("Unix path test")
 	}
 
-	// Create directories to be purged
-	dirs := []string{
-		"/etc/" + orgName + "/" + appName,
-		"/var/lib/" + orgName + "/" + appName,
-		"/var/cache/" + orgName + "/" + appName,
-		"/var/log/" + orgName + "/" + appName,
-	}
+	// Create the paths-derived directories purgeData is expected to remove
+	dirs := purgeDirs()
 
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

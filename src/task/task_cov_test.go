@@ -1,102 +1,22 @@
 // Package task (internal coverage test) — targets uncovered branches in
-// gzipFile, SSLRenewal, BackupDaily, BackupHourly, BlocklistUpdate, CVEUpdate,
-// LogRotation, and applyRetention.  All tests use t.TempDir(); no files are
-// written to the project tree.
+// SSLRenewal, BackupDaily, BackupHourly, BlocklistUpdate, CVEUpdate, and
+// applyRetention.  All tests use t.TempDir(); no files are written to the
+// project tree.
 package task
 
 import (
-	"compress/gzip"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"io"
 	"math/big"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
-
-// ─── gzipFile — error paths ───────────────────────────────────────────────────
-
-// TestGzipFile_DestinationIsDirectory triggers the os.OpenFile error by
-// pre-creating a directory at the destination path (src + ".gz").
-func TestGzipFile_DestinationIsDirectory(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "app.log")
-	if err := os.WriteFile(src, []byte("data\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Create a directory where the .gz output should go.
-	dst := src + ".gz"
-	if err := os.Mkdir(dst, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	err := gzipFile(src)
-	if err == nil {
-		t.Error("expected error when destination is a directory, got nil")
-	}
-	// Source file should still exist because the open failed before any removal.
-	if _, statErr := os.Stat(src); statErr != nil {
-		t.Errorf("source file should remain after failed gzip: %v", statErr)
-	}
-}
-
-// TestGzipFile_VerifyContent verifies that the compressed bytes decompress back
-// to the original content, covering the io.Copy happy path more thoroughly.
-func TestGzipFile_VerifyContent(t *testing.T) {
-	original := "line one\nline two\nline three\n"
-	dir := t.TempDir()
-	src := filepath.Join(dir, "verify.log")
-	if err := os.WriteFile(src, []byte(original), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := gzipFile(src); err != nil {
-		t.Fatalf("gzipFile error: %v", err)
-	}
-	gz := src + ".gz"
-	f, err := os.Open(gz)
-	if err != nil {
-		t.Fatalf("open gz: %v", err)
-	}
-	defer f.Close()
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatalf("gzip.NewReader: %v", err)
-	}
-	defer gr.Close()
-	got, err := io.ReadAll(gr)
-	if err != nil {
-		t.Fatalf("read gz: %v", err)
-	}
-	if string(got) != original {
-		t.Errorf("decompressed content = %q, want %q", got, original)
-	}
-}
-
-// TestGzipFile_EmptyFile verifies that an empty source file is compressed
-// without error and the resulting .gz is non-zero (gzip header overhead).
-func TestGzipFile_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "empty.log")
-	if err := os.WriteFile(src, []byte{}, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := gzipFile(src); err != nil {
-		t.Fatalf("gzipFile on empty file: %v", err)
-	}
-	info, err := os.Stat(src + ".gz")
-	if err != nil {
-		t.Fatalf("gz file missing: %v", err)
-	}
-	if info.Size() == 0 {
-		t.Error("expected non-zero gz file even for empty input (gzip header)")
-	}
-}
 
 // ─── BlocklistUpdate — MkdirAll failure ──────────────────────────────────────
 
@@ -144,68 +64,6 @@ func TestCVEUpdate_CountsFiles(t *testing.T) {
 	fn := CVEUpdate(dir)
 	if err := fn(); err != nil {
 		t.Fatalf("CVEUpdate with files: %v", err)
-	}
-}
-
-// ─── LogRotation — gzip error path ───────────────────────────────────────────
-
-// TestLogRotation_GzipErrorCollected triggers the gzip error path inside the
-// walker by placing a directory at the .gz destination and verifies that
-// LogRotation returns a non-nil error containing the path.
-func TestLogRotation_GzipErrorCollected(t *testing.T) {
-	dir := t.TempDir()
-	// Create an old .log file.
-	logPath := filepath.Join(dir, "app.log")
-	if err := os.WriteFile(logPath, []byte("content\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Make the destination .gz path a directory so gzipFile fails.
-	gzPath := logPath + ".gz"
-	if err := os.Mkdir(gzPath, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	// Set the .log file mtime to 60 days ago so it is eligible for compression.
-	old := time.Now().Add(-60 * 24 * time.Hour)
-	if err := os.Chtimes(logPath, old, old); err != nil {
-		t.Fatal(err)
-	}
-	fn := LogRotation(dir, 30*24*time.Hour)
-	err := fn()
-	if err == nil {
-		t.Error("expected error from LogRotation when gzip fails, got nil")
-	}
-	if !strings.Contains(err.Error(), "log_rotation") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-// TestLogRotation_GzFileRemoveError verifies that when a .log.gz file cannot be
-// removed (parent dir is read-only after creation), the error is collected and
-// returned.  This is skipped when running as root because root bypasses
-// permission checks.
-func TestLogRotation_GzFileRemoveError(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("running as root — permission restrictions do not apply")
-	}
-	dir := t.TempDir()
-	gzPath := filepath.Join(dir, "old.log.gz")
-	if err := os.WriteFile(gzPath, []byte("gz"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// 100 days old — past the 3×30 = 90 day delete threshold.
-	old := time.Now().Add(-100 * 24 * time.Hour)
-	if err := os.Chtimes(gzPath, old, old); err != nil {
-		t.Fatal(err)
-	}
-	// Make dir read-only so os.Remove fails.
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(dir, 0o750)
-	fn := LogRotation(dir, 30*24*time.Hour)
-	err := fn()
-	if err == nil {
-		t.Error("expected error when gz file cannot be removed, got nil")
 	}
 }
 

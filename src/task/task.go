@@ -5,7 +5,6 @@
 package task
 
 import (
-	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -21,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/maintenance"
 	"github.com/apimgr/pastebin/src/updater"
 )
@@ -35,6 +35,10 @@ type BackupRetention struct {
 	KeepMonthly int
 	// KeepYearly keeps Jan 1st backups; 0 = disabled.
 	KeepYearly int
+	// MaxTotalSize caps the combined size of retained dated backups: percent
+	// of the backup volume ("10%") or an absolute size ("50G", "500MB");
+	// falsey values disable the cap. Overrides the count limits (PART 21).
+	MaxTotalSize string
 }
 
 // Mailer is the subset of email.Mailer used by task functions. Callers inject a
@@ -63,6 +67,11 @@ type BackupConfig struct {
 	// SendOnFailed controls whether backup_failed emails are sent (AI.md:26592).
 	SendOnFailed bool
 	Retention    BackupRetention
+	// DiskThreshold is the disk-usage percentage above which backups are
+	// skipped (PART 21); ≤0 uses the 90% default.
+	DiskThreshold int
+	// Audit records backup.skipped_disk_full events; nil = no audit logging.
+	Audit *audit.Writer
 }
 
 // sslWarnThresholds are the days-before-expiry at which ssl_expiring emails are sent
@@ -294,101 +303,26 @@ func downloadFile(url, dst string) error {
 	return nil
 }
 
-// LogRotation returns a task that rotates and compresses log files in logsDir.
-//   - Files matching *.log older than maxAge are gzip-compressed in place.
-//   - Already-compressed files (*.log.gz) older than 3×maxAge are deleted.
-//
-// A maxAge of 0 defaults to 30 days.
-func LogRotation(logsDir string, maxAge time.Duration) func() error {
-	if maxAge <= 0 {
-		maxAge = 30 * 24 * time.Hour
-	}
+// LogRotator applies each log file's rotate/keep policy (server.logs).
+// Implemented by *logging.Manager; declared here so the task package does
+// not depend on the logging package directly.
+type LogRotator interface {
+	RotateCheck() error
+}
+
+// LogRotation returns the PART 18 log_rotation task. Size and age limits come
+// from each log's rotate/keep policy in server.logs, applied by the rotator
+// (the logging manager owns the per-file writers and their policies).
+func LogRotation(rotator LogRotator) func() error {
 	return func() error {
-		now := time.Now()
-		var errs []string
-
-		walkErr := filepath.WalkDir(logsDir, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-
-			info, err := d.Info()
-			if err != nil {
-				return nil
-			}
-
-			age := now.Sub(info.ModTime())
-
-			if strings.HasSuffix(path, ".log.gz") {
-				if age > 3*maxAge {
-					if rmErr := os.Remove(path); rmErr != nil {
-						errs = append(errs, fmt.Sprintf("remove %s: %v", path, rmErr))
-					} else {
-						log.Printf("log_rotation: deleted old archive %s", filepath.Base(path))
-					}
-				}
-				return nil
-			}
-
-			if strings.HasSuffix(path, ".log") && age > maxAge {
-				if gzErr := gzipFile(path); gzErr != nil {
-					errs = append(errs, fmt.Sprintf("compress %s: %v", path, gzErr))
-				} else {
-					log.Printf("log_rotation: compressed %s", filepath.Base(path))
-				}
-			}
-
+		if rotator == nil {
 			return nil
-		})
-
-		if walkErr != nil {
-			return fmt.Errorf("log_rotation: walk: %w", walkErr)
 		}
-		if len(errs) > 0 {
-			return fmt.Errorf("log_rotation: %s", strings.Join(errs, "; "))
+		if err := rotator.RotateCheck(); err != nil {
+			return fmt.Errorf("log_rotation: %w", err)
 		}
 		return nil
 	}
-}
-
-// gzipFile compresses src to src+".gz" then removes src.
-func gzipFile(src string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	dst := src + ".gz"
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
-	if err != nil {
-		return err
-	}
-
-	gz, err := gzip.NewWriterLevel(out, gzip.BestCompression)
-	if err != nil {
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-
-	if _, err := io.Copy(gz, in); err != nil {
-		gz.Close()
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-	if err := gz.Close(); err != nil {
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		os.Remove(dst)
-		return err
-	}
-
-	return os.Remove(src)
 }
 
 // BackupDaily returns a task that runs the PART 21 backup protocol:
@@ -407,6 +341,14 @@ func BackupDaily(cfg BackupConfig) func() error {
 	return func() error {
 		if err := os.MkdirAll(cfg.BackupDir, 0o750); err != nil {
 			return fmt.Errorf("backup_daily: mkdir: %w", err)
+		}
+
+		// Step 2 (PART 21): disk space pre-check — skip (without error) when
+		// free space or disk usage make a new backup unsafe.
+		if skip, reason := diskPreCheck(cfg); skip {
+			log.Printf("backup_daily: skipped: %s", reason)
+			auditBackupSkipped(cfg, reason)
+			return nil
 		}
 
 		ext := ".tar.gz"
@@ -686,6 +628,11 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 			}
 		}
 	}
+
+	// PART 21 step 8: after count-based pruning, enforce the max_total_size
+	// cap — it overrides all count limits.
+	applySizeCap(dir, project, resolveSizeCap(dir, ret.MaxTotalSize))
+
 	return nil
 }
 

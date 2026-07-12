@@ -25,6 +25,7 @@ import (
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/daemon"
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/logging"
 	"github.com/apimgr/pastebin/src/maintenance"
 	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/paths"
@@ -331,9 +332,17 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		// Paths must be resolved before maintenance commands.
 		mcConfigDir := paths.GetConfigDir(appName)
 		mcDataDir := paths.GetDataDir(appName)
-		// default; will be adjusted below when full path resolution runs
-		mcBackupDir := mcDataDir
-		_ = mcBackupDir
+		// Backups always live in the canonical backup dir (PART 21), matching
+		// the scheduled backup tasks.
+		mcBackupDir := paths.GetBackupDir(appName)
+		// Sensitive maintenance operations (setup/restore/mode) require
+		// authorization proof (AI.md PART 5 sensitive operations).
+		mcAuthOpts := maintenance.AuthOptions{
+			ConfigDir:   mcConfigDir,
+			DBPath:      paths.GetDBPath(appName),
+			LogDir:      paths.GetLogsDir(appName),
+			ServiceUser: appName,
+		}
 
 		switch maintenanceCmd {
 		case "--help":
@@ -367,7 +376,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			opts := maintenance.BackupOptions{
 				ConfigDir:  mcConfigDir,
 				DataDir:    mcDataDir,
-				BackupDir:  filepath.Join(mcDataDir, "backups"),
+				BackupDir:  mcBackupDir,
 				AppVersion: Version,
 				Password:   maintenancePass,
 				// optional custom filename
@@ -382,6 +391,10 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "%s: --maintenance restore requires a filename argument\n", binaryName)
 				fmt.Fprintf(stderr, "Usage: %s --maintenance restore <backup-file>\n", binaryName)
 				return 2
+			}
+			if err := maintenance.AuthorizeRestore(mcAuthOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance restore: %v\n", binaryName, err)
+				return 1
 			}
 			restorePass := maintenancePass
 			// Prompt for password when restoring an encrypted backup and none was provided.
@@ -399,6 +412,9 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "%s: maintenance restore: %v\n", binaryName, err)
 				return 1
 			}
+			maintenance.AuditMaintenanceEvent(mcAuthOpts, "backup.restored", map[string]any{
+				"filename": filepath.Base(maintenanceArg),
+			})
 			return 0
 		case "update":
 			// Alias for --update yes: handled by the update block below.
@@ -409,12 +425,24 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "Usage: %s --maintenance mode <production|development>\n", binaryName)
 				return 2
 			}
+			if err := maintenance.AuthorizeMode(mcAuthOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance mode: %v\n", binaryName, err)
+				return 1
+			}
 			if err := maintenance.SetMode(mcConfigDir, maintenanceArg); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance mode: %v\n", binaryName, err)
 				return 1
 			}
+			maintenance.AuditMaintenanceEvent(mcAuthOpts, "config.updated", map[string]any{
+				"changed_keys": []string{"mode"},
+				"mode":         maintenanceArg,
+			})
 			return 0
 		case "setup":
+			if err := maintenance.AuthorizeSetup(mcAuthOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance setup: %v\n", binaryName, err)
+				return 1
+			}
 			if err := maintenance.Setup(mcConfigDir); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance setup: %v\n", binaryName, err)
 				return 1
@@ -1108,6 +1136,62 @@ Examples:
 	taskMailer := email.New(&cfg.Server.Notifications.Email, cfg.Web.SiteTitle, startupBaseURL(cfg), cfg.Server.FQDN)
 	taskOperatorEmail := strings.TrimSpace(cfg.AdminEmail())
 
+	// JSON Lines audit log (AI.md server.logs.audit): configuration, security,
+	// backup, and server-lifecycle events, one JSON object per line. Built here
+	// so backup tasks can record backup.skipped_disk_full events.
+	ac := cfg.Server.Logging.Audit
+	auditW := audit.New(audit.Config{
+		Enabled:          ac.Enabled,
+		Dir:              logsDir,
+		Filename:         ac.Filename,
+		IncludeUserAgent: ac.IncludeUserAgent,
+		MaskEmails:       ac.MaskEmails,
+		Events: audit.EventCategories{
+			Configuration: ac.Events.Configuration,
+			Security:      ac.Events.Security,
+			Backup:        ac.Events.Backup,
+			Server:        ac.Events.Server,
+		},
+	})
+
+	// Logging manager (AI.md server.logs): owns access/server/error/app/auth/
+	// debug log files plus scheduled rotation for audit.log and security.log.
+	logCfg := cfg.Server.Logging
+	logMgr := logging.New(logging.Options{
+		Dir:       logsDir,
+		Level:     logCfg.Level,
+		Tag:       appName,
+		DebugGate: mode.IsDebugEnabled,
+		Access:    logFileOpts(logCfg.Access),
+		Server:    logFileOpts(logCfg.Server),
+		Error:     logFileOpts(logCfg.Error),
+		App:       logFileOpts(logCfg.App),
+		Auth: logging.FileOptions{
+			Enabled:  true,
+			Filename: logCfg.Auth.Filename,
+			Format:   logCfg.Auth.Format,
+			Rotate:   logCfg.Auth.Rotate,
+			Keep:     logCfg.Auth.Keep,
+		},
+		Debug: logging.FileOptions{
+			Enabled:  logCfg.Debug.Enabled,
+			Filename: logCfg.Debug.Filename,
+			Format:   logCfg.Debug.Format,
+			Custom:   logCfg.Debug.Custom,
+			Rotate:   logCfg.Debug.Rotate,
+			Keep:     logCfg.Debug.Keep,
+		},
+		Audit: logging.FileOptions{
+			Enabled:  ac.Enabled,
+			Filename: ac.Filename,
+			Rotate:   ac.Rotate,
+			Keep:     ac.Keep,
+			Compress: ac.Compress,
+		},
+		Security: logFileOpts(logCfg.Security),
+	})
+	defer logMgr.Close()
+
 	// Required PART 18 tasks — full implementations in src/task/task.go.
 	logSchedErr(sched.Register("ssl_renewal", "SSL Renewal", "0 3 * * *", true,
 		task.SSLRenewalWithEmail(task.SSLRenewalConfig{
@@ -1133,7 +1217,7 @@ Examples:
 		return nil
 	}))
 	logSchedErr(sched.Register("log_rotation", "Log Rotation", "0 0 * * *", true,
-		task.LogRotation(logsDir, 30*24*time.Hour)))
+		task.LogRotation(logMgr)))
 	backupCfg := task.BackupConfig{
 		ProjectName:    appName,
 		ConfigDir:      configDir,
@@ -1144,7 +1228,15 @@ Examples:
 		Mailer:         taskMailer,
 		SendOnComplete: cfg.Server.Notifications.Email.Events.BackupComplete,
 		SendOnFailed:   cfg.Server.Notifications.Email.Events.BackupFailed,
-		Retention:      task.BackupRetention{MaxBackups: 1},
+		Retention: task.BackupRetention{
+			MaxBackups:   cfg.Server.Backup.Retention.MaxBackups,
+			KeepWeekly:   cfg.Server.Backup.Retention.KeepWeekly,
+			KeepMonthly:  cfg.Server.Backup.Retention.KeepMonthly,
+			KeepYearly:   cfg.Server.Backup.Retention.KeepYearly,
+			MaxTotalSize: cfg.Server.Backup.Retention.MaxTotalSize,
+		},
+		DiskThreshold: cfg.Server.Maintenance.Cleanup.DiskThreshold,
+		Audit:         auditW,
 	}
 	logSchedErr(sched.Register("backup_daily", "Backup Daily", "0 2 * * *", true,
 		task.BackupDaily(backupCfg)))
@@ -1173,24 +1265,8 @@ Examples:
 
 	srv := server.New(db, cfg, cfgMgr, Version, CommitID, BuildDate, configDir, dataDir)
 	srv.SetLogDir(logsDir)
-
-	// JSON Lines audit log (AI.md server.logs.audit): configuration, security,
-	// backup, and server-lifecycle events, one JSON object per line.
-	ac := cfg.Server.Logging.Audit
-	auditW := audit.New(audit.Config{
-		Enabled:          ac.Enabled,
-		Dir:              logsDir,
-		Filename:         ac.Filename,
-		IncludeUserAgent: ac.IncludeUserAgent,
-		MaskEmails:       ac.MaskEmails,
-		Events: audit.EventCategories{
-			Configuration: ac.Events.Configuration,
-			Security:      ac.Events.Security,
-			Backup:        ac.Events.Backup,
-			Server:        ac.Events.Server,
-		},
-	})
 	srv.SetAuditWriter(auditW)
+	srv.SetLogManager(logMgr)
 
 	// Weekly GeoIP database refresh (Sunday 03:00).
 	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func() error {
@@ -1269,6 +1345,7 @@ Examples:
 		go func() {
 			<-sig
 			log.Printf("shutting down…")
+			logMgr.Server("info", "server shutting down")
 			pid.RemovePIDFile(pidFile) //nolint:errcheck
 			close(stopCfgMgr)
 			cancel()
@@ -1292,9 +1369,14 @@ Examples:
 			URLs:    []string{publicURL, "listening on " + listenURL},
 		})
 		log.Printf("listening on %s", listenURL)
+		logMgr.Server("info", "server started",
+			"address", listenURL,
+			"version", Version,
+			"mode", string(mode.Get()))
 
 		if err := srv.Run(ctx, addr); err != nil {
 			log.Printf("server: %v", err)
+			logMgr.Error("server run failed", "error", err.Error())
 			// EX_SOFTWARE
 			os.Exit(70)
 		}
@@ -1405,6 +1487,20 @@ Maintenance:
 
 Run '%s <command> --help' for detailed help on any command.
 `, name, Version, name, name)
+}
+
+// logFileOpts maps a config log-file block onto logging.FileOptions. The
+// Enabled flag defaults true — log files are always-on unless the type has an
+// explicit toggle (auth, debug, audit), which is handled at the call site.
+func logFileOpts(c config.LogFileConfig) logging.FileOptions {
+	return logging.FileOptions{
+		Enabled:  true,
+		Filename: c.Filename,
+		Format:   c.Format,
+		Custom:   c.Custom,
+		Rotate:   c.Rotate,
+		Keep:     c.Keep,
+	}
 }
 
 // logSchedErr logs a scheduler registration error and continues. Registration

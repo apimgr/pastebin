@@ -19,6 +19,8 @@ import (
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/apimgr/pastebin/src/logging"
 )
 
 // Config is the top-level configuration for the pastebin server.
@@ -62,7 +64,7 @@ type ServerConfig struct {
 	Metrics       MetricsConfig       `yaml:"metrics"`
 	GeoIP         GeoIPConfig         `yaml:"geoip"`
 	Tor           TorConfig           `yaml:"tor"`
-	Logging       LoggingConfig       `yaml:"logging"`
+	Logging       LoggingConfig       `yaml:"logs"`
 	Notifications NotificationsConfig `yaml:"notifications"`
 	TLS           TLSConfig           `yaml:"tls"`
 	// Backup configures backup encryption, compliance, and retention (PART 21).
@@ -572,11 +574,43 @@ type MetricsConfig struct {
 	AllowedIPs []string `yaml:"allowed_ips"`
 }
 
-// LoggingConfig controls access log format and log level.
+// LoggingConfig is the `server.logs` block (AI.md "Logging"): the global log
+// level plus one sub-block per server-owned log file. Every file has its own
+// rotate/keep policy; formats are per-file (access: apache/nginx/json/custom,
+// server/error/debug: text/json, app: logfmt/json, auth: syslog/json,
+// security: fail2ban/syslog/cef/json/text, audit: json only).
 type LoggingConfig struct {
-	AccessFormat string      `yaml:"access_format"`
-	Level        string      `yaml:"level"`
-	Audit        AuditConfig `yaml:"audit"`
+	Level    string         `yaml:"level"`
+	Access   LogFileConfig  `yaml:"access"`
+	Server   LogFileConfig  `yaml:"server"`
+	Error    LogFileConfig  `yaml:"error"`
+	App      LogFileConfig  `yaml:"app"`
+	Auth     LogFileConfig  `yaml:"auth"`
+	Audit    AuditConfig    `yaml:"audit"`
+	Security LogFileConfig  `yaml:"security"`
+	Debug    DebugLogConfig `yaml:"debug"`
+}
+
+// LogFileConfig configures one server-owned log file (server.logs.*).
+// Custom is only honored by files whose format may be "custom" (access,
+// security); other files ignore it.
+type LogFileConfig struct {
+	Filename string `yaml:"filename"`
+	Format   string `yaml:"format"`
+	Custom   string `yaml:"custom"`
+	Rotate   string `yaml:"rotate"`
+	Keep     string `yaml:"keep"`
+}
+
+// DebugLogConfig configures debug.log (server.logs.debug). Lines are written
+// only when Enabled is true AND the server runs with debug mode active.
+type DebugLogConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Filename string `yaml:"filename"`
+	Format   string `yaml:"format"`
+	Custom   string `yaml:"custom"`
+	Rotate   string `yaml:"rotate"`
+	Keep     string `yaml:"keep"`
 }
 
 // AuditConfig controls the JSON Lines audit log (AI.md `server.logs.audit`).
@@ -966,6 +1000,10 @@ type BackupRetentionConfig struct {
 	KeepWeekly  int `yaml:"keep_weekly"`
 	KeepMonthly int `yaml:"keep_monthly"`
 	KeepYearly  int `yaml:"keep_yearly"`
+	// MaxTotalSize is a hard size cap on retained backups: a percent of the
+	// backup volume ("10%") or an absolute size ("50G", "500MB"); falsey
+	// values ("0", "off", ...) disable the cap. Overrides the count limits.
+	MaxTotalSize string `yaml:"max_total_size"`
 }
 
 // UpdateConfig controls self-update channel and scheduled check behaviour (PART 22).
@@ -1106,8 +1144,53 @@ func DefaultConfig() *Config {
 				VirtualPort:               80,
 			},
 			Logging: LoggingConfig{
-				AccessFormat: "apache",
-				Level:        "info",
+				Level: "info",
+				Access: LogFileConfig{
+					Filename: "access.log",
+					Format:   "apache",
+					Custom:   "",
+					Rotate:   "monthly",
+					Keep:     "none",
+				},
+				Server: LogFileConfig{
+					Filename: "server.log",
+					Format:   "text",
+					Rotate:   "weekly,50MB",
+					Keep:     "none",
+				},
+				Error: LogFileConfig{
+					Filename: "error.log",
+					Format:   "text",
+					Rotate:   "weekly,50MB",
+					Keep:     "none",
+				},
+				App: LogFileConfig{
+					Filename: "app.log",
+					Format:   "logfmt",
+					Rotate:   "weekly,50MB",
+					Keep:     "none",
+				},
+				Auth: LogFileConfig{
+					Filename: "auth.log",
+					Format:   "syslog",
+					Rotate:   "weekly,50MB",
+					Keep:     "none",
+				},
+				Security: LogFileConfig{
+					Filename: "security.log",
+					Format:   "fail2ban",
+					Custom:   "",
+					Rotate:   "weekly,50MB",
+					Keep:     "none",
+				},
+				Debug: DebugLogConfig{
+					Enabled:  true,
+					Filename: "debug.log",
+					Format:   "text",
+					Custom:   "",
+					Rotate:   "weekly,50MB",
+					Keep:     "none",
+				},
 				Audit: AuditConfig{
 					Enabled:          true,
 					Filename:         "audit.log",
@@ -1158,10 +1241,11 @@ func DefaultConfig() *Config {
 				Encryption: BackupEncryptionConfig{Enabled: false},
 				Compliance: BackupComplianceConfig{Enabled: false},
 				Retention: BackupRetentionConfig{
-					MaxBackups:  30,
-					KeepWeekly:  4,
-					KeepMonthly: 12,
-					KeepYearly:  3,
+					MaxBackups:   30,
+					KeepWeekly:   4,
+					KeepMonthly:  12,
+					KeepYearly:   3,
+					MaxTotalSize: "10%",
 				},
 			},
 			Cache: CacheConfig{
@@ -1918,6 +2002,47 @@ func (c *Config) loadEnv() {
 	}
 }
 
+// validateLogFile normalizes one server.logs.* block in place: blank fields
+// take the default, unknown formats and unparseable rotate/keep policies warn
+// and default. formats lists the values valid for this file type.
+func validateLogFile(name string, c *LogFileConfig, def LogFileConfig, formats ...string) {
+	if strings.TrimSpace(c.Filename) == "" {
+		c.Filename = def.Filename
+	}
+	c.Format = strings.ToLower(strings.TrimSpace(c.Format))
+	if c.Format == "" {
+		c.Format = def.Format
+	}
+	valid := false
+	for _, f := range formats {
+		if c.Format == f {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		log.Printf("[config] WARNING: invalid %s.format %q, using default %q",
+			name, c.Format, def.Format)
+		c.Format = def.Format
+	}
+	if strings.TrimSpace(c.Rotate) == "" {
+		c.Rotate = def.Rotate
+	}
+	if _, err := logging.ParseRotate(c.Rotate); err != nil {
+		log.Printf("[config] WARNING: invalid %s.rotate %q, using default %q",
+			name, c.Rotate, def.Rotate)
+		c.Rotate = def.Rotate
+	}
+	if strings.TrimSpace(c.Keep) == "" {
+		c.Keep = def.Keep
+	}
+	if _, err := logging.ParseKeep(c.Keep); err != nil {
+		log.Printf("[config] WARNING: invalid %s.keep %q, using default %q",
+			name, c.Keep, def.Keep)
+		c.Keep = def.Keep
+	}
+}
+
 // Validate checks all config values, replaces invalid ones with defaults, and
 // logs a warning for each replacement. It never returns an error; the server
 // must always start with sane defaults even if the config file is malformed (PART 12).
@@ -2037,6 +2162,38 @@ func Validate(cfg *Config) {
 			cfg.Server.Logging.Level)
 		cfg.Server.Logging.Level = "info"
 	}
+
+	// Per-file log settings: blank filename/format/rotate/keep fall back to
+	// the defaults; unknown formats warn and default (never fail startup).
+	validateLogFile("logs.access", &cfg.Server.Logging.Access, d.Server.Logging.Access,
+		"apache", "nginx", "json", "custom")
+	validateLogFile("logs.server", &cfg.Server.Logging.Server, d.Server.Logging.Server,
+		"text", "json")
+	validateLogFile("logs.error", &cfg.Server.Logging.Error, d.Server.Logging.Error,
+		"text", "json")
+	validateLogFile("logs.app", &cfg.Server.Logging.App, d.Server.Logging.App,
+		"logfmt", "json")
+	validateLogFile("logs.auth", &cfg.Server.Logging.Auth, d.Server.Logging.Auth,
+		"syslog", "json")
+	validateLogFile("logs.security", &cfg.Server.Logging.Security, d.Server.Logging.Security,
+		"fail2ban", "syslog", "cef", "json", "text")
+	debugAsFile := LogFileConfig{
+		Filename: cfg.Server.Logging.Debug.Filename,
+		Format:   cfg.Server.Logging.Debug.Format,
+		Custom:   cfg.Server.Logging.Debug.Custom,
+		Rotate:   cfg.Server.Logging.Debug.Rotate,
+		Keep:     cfg.Server.Logging.Debug.Keep,
+	}
+	validateLogFile("logs.debug", &debugAsFile, LogFileConfig{
+		Filename: d.Server.Logging.Debug.Filename,
+		Format:   d.Server.Logging.Debug.Format,
+		Rotate:   d.Server.Logging.Debug.Rotate,
+		Keep:     d.Server.Logging.Debug.Keep,
+	}, "text", "json")
+	cfg.Server.Logging.Debug.Filename = debugAsFile.Filename
+	cfg.Server.Logging.Debug.Format = debugAsFile.Format
+	cfg.Server.Logging.Debug.Rotate = debugAsFile.Rotate
+	cfg.Server.Logging.Debug.Keep = debugAsFile.Keep
 
 	// Consent banner position must be top or bottom.
 	switch cfg.Server.Privacy.Consent.Position {

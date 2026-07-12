@@ -41,6 +41,7 @@ import (
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/health"
+	"github.com/apimgr/pastebin/src/logging"
 	"github.com/apimgr/pastebin/src/metrics"
 	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/model"
@@ -212,6 +213,10 @@ type Server struct {
 	// auditLogger is the JSON Lines audit-log writer (AI.md server.logs.audit),
 	// set by main via SetAuditWriter. A nil writer silently drops entries.
 	auditLogger *audit.Writer
+	// logManager owns the server's log files (access/server/error/app/auth/
+	// debug — AI.md server.logs), set by main via SetLogManager. A nil manager
+	// silently drops all lines.
+	logManager *logging.Manager
 	// maintenance is the runtime self-healing maintenance-mode monitor (PART 20).
 	maintenance *health.Monitor
 	startTime   time.Time
@@ -808,7 +813,7 @@ func (s *Server) setupRoutes() {
 	if s.geoipDB != nil {
 		r.Use(s.geoipDB.Middleware())
 	}
-	r.Use(middleware.Logger)
+	r.Use(s.accessLogMiddleware)
 	r.Use(s.countRequests)
 	r.Use(s.metricsCollector.Middleware())
 	// .txt extension middleware for API routes (PART 14): strips ".txt" suffix from /api/
@@ -1080,6 +1085,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		const prefix = "Bearer "
 		if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
 			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			s.authLog(r, "operator", "fail", "missing_bearer_token")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"ok": false, "error": "UNAUTHORIZED", "message": "operator token required",
@@ -1091,6 +1097,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		var zeroHash [32]byte
 		if s.operatorTokenHash == zeroHash {
 			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			s.authLog(r, "operator", "fail", "token_not_configured")
 			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 				"ok": false, "error": "SERVER_ERROR", "message": "server.token not configured",
 			})
@@ -1098,6 +1105,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		}
 		if subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) != 1 {
 			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			s.authLog(r, "operator", "fail", "invalid_token")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"ok": false, "error": "UNAUTHORIZED", "message": "operator token required",
@@ -1105,6 +1113,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 			return
 		}
 		metrics.AuthAttemptsTotal.WithLabelValues("bearer", "success").Inc()
+		s.authLog(r, "operator", "success", "")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -1917,7 +1926,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			srv.Handler = sslMgr.GetHTTPHandler(s.router)
 			ln, err := s.bindAndDrop(addr)
 			if err != nil {
-				return err
+				return fmt.Errorf("bind %s: %w", addr, err)
 			}
 			go func() {
 				if err := srv.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
@@ -1931,7 +1940,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 				defer cancel()
 				return srv.Shutdown(shut)
 			case err := <-errCh:
-				return err
+				return fmt.Errorf("serve https %s: %w", addr, err)
 			}
 		}
 	}
@@ -1939,7 +1948,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	// Plain HTTP (no TLS, or TLS setup failed).
 	ln, err := s.bindAndDrop(addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("bind %s: %w", addr, err)
 	}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -1953,7 +1962,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		defer cancel()
 		return srv.Shutdown(shut)
 	case err := <-errCh:
-		return err
+		return fmt.Errorf("serve http %s: %w", addr, err)
 	}
 }
 
@@ -2876,6 +2885,7 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if err := s.db.VerifyAPIToken(incomingHash, "paste", id); err != nil {
+		s.authLog(r, "owner", "fail", "invalid_owner_token")
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
 			"SiteTitle": s.liveCfg().Web.SiteTitle,
 			"Theme":     s.liveCfg().Web.Theme,
@@ -3576,6 +3586,13 @@ func (s *Server) handleSchedulerRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "BAD_REQUEST", "message": err.Error()})
 		return
 	}
+	// PART 11 audit event: task manually triggered (task name + actor IP).
+	s.auditLog(r, audit.Entry{
+		Event:    "scheduler.task_manual_run",
+		Severity: audit.SeverityInfo,
+		Result:   audit.ResultSuccess,
+		Target:   &audit.Target{Type: "scheduler_task", ID: id},
+	})
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"status": "triggered", "task": id}})
 }
 
@@ -3780,6 +3797,11 @@ func (s *Server) recoverer(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil && rec != http.ErrAbortHandler {
 				log.Printf("panic recovered: %v\n%s", rec, debug.Stack())
+				s.logManager.Error("panic recovered",
+					"panic", fmt.Sprintf("%v", rec),
+					"method", r.Method,
+					"path", r.URL.Path,
+					"ip", clientIP(r))
 				s.renderErrorPage(w, r, http.StatusInternalServerError, "An internal server error occurred.")
 			}
 		}()
@@ -4097,12 +4119,34 @@ var privateNets = func() []*net.IPNet {
 	return nets
 }()
 
+// peerAddrKey is the context key under which realIPMiddleware preserves the
+// immediate TCP peer address (the pre-rewrite r.RemoteAddr). The X-Forwarded-*
+// trust gate MUST evaluate the immediate peer, not the resolved client IP
+// (PART 12 "Used by X-Forwarded-* trust gate").
+type peerAddrKeyType struct{}
+
+var peerAddrKey peerAddrKeyType
+
+// peerAddr returns the immediate TCP peer address for the request: the value
+// preserved by realIPMiddleware before it rewrote r.RemoteAddr to the resolved
+// client IP, falling back to r.RemoteAddr when the middleware has not run.
+func peerAddr(r *http.Request) string {
+	if v, ok := r.Context().Value(peerAddrKey).(string); ok && v != "" {
+		return v
+	}
+	return r.RemoteAddr
+}
+
 // isTrustedPeer returns true when the immediate peer's IP is a loopback,
 // private-range address, or in server.trusted_proxies.additional (PART 12).
+// It checks the connection's original peer address (preserved by
+// realIPMiddleware) — never the client IP resolved from proxy headers, which
+// would make every proxied request look untrusted and break {proto}/{fqdn}
+// detection for TLS-terminating reverse proxies.
 func (s *Server) isTrustedPeer(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(peerAddr(r))
 	if err != nil {
-		host = r.RemoteAddr
+		host = peerAddr(r)
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
@@ -4186,6 +4230,11 @@ func (s *Server) refreshDNSTrustedProxies(ctx context.Context) {
 // X-Forwarded-For (leftmost) → X-Client-IP.
 func (s *Server) realIPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Preserve the immediate TCP peer before any rewrite: the trust gate
+		// for every downstream X-Forwarded-* consumer (baseURL {proto}/{fqdn},
+		// X-Forwarded-Prefix, domain learning) must judge the connection's
+		// peer, not the client IP substituted below (PART 12).
+		r = r.WithContext(context.WithValue(r.Context(), peerAddrKey, r.RemoteAddr))
 		if s.isTrustedPeer(r) {
 			// Preserve original port if present so RemoteAddr stays host:port.
 			_, port, err := net.SplitHostPort(r.RemoteAddr)

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -258,17 +257,18 @@ func TestPurgeData_ExpectedPaths(t *testing.T) {
 		t.Skip("Unix path test")
 	}
 
-	// Verify purgeData targets the correct paths based on the spec.
-	expectedPaths := []string{
-		fmt.Sprintf("/etc/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
+	// Verify purgeData targets the correct paths based on the spec: config,
+	// data, cache, log, and backup directories (PART 23 step 4).
+	expectedPaths := purgeDirs()
+
+	if len(expectedPaths) != 5 {
+		t.Errorf("purgeDirs() returned %d dirs; want 5 (config, data, cache, log, backup)", len(expectedPaths))
 	}
 
 	for _, path := range expectedPaths {
-		// Just verify the path format matches the spec.
-		if !strings.Contains(path, "apimgr") || !strings.Contains(path, "pastebin") {
+		// Paths honor env overrides (CONFIG_DIR, BACKUP_DIR, ...), so only
+		// verify each target is a usable absolute path.
+		if path == "" || !filepath.IsAbs(path) {
 			t.Errorf("unexpected path format: %s", path)
 		}
 	}

@@ -597,11 +597,18 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 		return err
 	}
 
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode)&0o777)
+	// PART 21: restored files always get mode 0600 — never trust the archive
+	// header mode, which a crafted backup could set world-writable.
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+
+	// O_CREATE mode only applies to new files — tighten pre-existing ones too.
+	if err := f.Chmod(0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", dest, err)
+	}
 
 	// 256 MiB cap per entry
 	lr := io.LimitReader(tr, 256<<20)

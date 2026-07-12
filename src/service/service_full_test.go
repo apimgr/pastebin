@@ -239,13 +239,8 @@ func TestPurgeData_AllBranches(t *testing.T) {
 		t.Skip("Windows test not applicable on Linux")
 	}
 
-	// Create directories
-	dirs := []string{
-		"/etc/" + orgName + "/" + appName,
-		"/var/lib/" + orgName + "/" + appName,
-		"/var/cache/" + orgName + "/" + appName,
-		"/var/log/" + orgName + "/" + appName,
-	}
+	// Create the same paths-derived directories purgeData removes
+	dirs := purgeDirs()
 
 	for _, dir := range dirs {
 		os.MkdirAll(dir, 0o755)

@@ -136,9 +136,9 @@ func (c *cronExpr) Next(t time.Time) time.Time {
 			next = advanceToMonth(next, &c.month)
 			continue
 		}
-		if !c.dom.contains(next.Day()) && !c.dow.contains(int(next.Weekday())) {
-			next = next.Add(24 * time.Hour)
-			next = next.Truncate(24 * time.Hour)
+		if !c.dayMatches(next) {
+			// Advance to local midnight of the next day.
+			next = time.Date(next.Year(), next.Month(), next.Day()+1, 0, 0, 0, 0, next.Location())
 			continue
 		}
 		if !c.hour.contains(next.Hour()) {
@@ -153,6 +153,25 @@ func (c *cronExpr) Next(t time.Time) time.Time {
 	}
 	// should never happen for valid expressions
 	return time.Time{}
+}
+
+// dayMatches applies standard (vixie) cron day semantics: when both the
+// day-of-month and day-of-week fields are restricted (non-star), the day
+// matches if EITHER field matches; when only one is restricted, that field
+// alone decides; when both are stars, every day matches.
+func (c *cronExpr) dayMatches(t time.Time) bool {
+	domOK := c.dom.contains(t.Day())
+	dowOK := c.dow.contains(int(t.Weekday()))
+	switch {
+	case c.dom.star && c.dow.star:
+		return true
+	case c.dom.star:
+		return dowOK
+	case c.dow.star:
+		return domOK
+	default:
+		return domOK || dowOK
+	}
 }
 
 func advanceToMonth(t time.Time, f *fieldSet) time.Time {

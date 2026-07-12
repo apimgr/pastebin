@@ -7,9 +7,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,93 +66,47 @@ func TestCVEUpdate_CreatesDir(t *testing.T) {
 
 // ─── LogRotation ─────────────────────────────────────────────────────────────
 
-func TestLogRotation_CompressesOldLogs(t *testing.T) {
-	dir := t.TempDir()
+// stubRotator records RotateCheck calls and returns a canned error.
+type stubRotator struct {
+	calls int
+	err   error
+}
 
-	// Create a .log file with a very old mtime.
-	logPath := filepath.Join(dir, "app.log")
-	if err := os.WriteFile(logPath, []byte("log content\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Set mtime to 60 days ago.
-	old := time.Now().Add(-60 * 24 * time.Hour)
-	if err := os.Chtimes(logPath, old, old); err != nil {
-		t.Fatal(err)
-	}
+func (s *stubRotator) RotateCheck() error {
+	s.calls++
+	return s.err
+}
 
-	fn := task.LogRotation(dir, 30*24*time.Hour)
+func TestLogRotation_CallsRotateCheck(t *testing.T) {
+	rot := &stubRotator{}
+	fn := task.LogRotation(rot)
 	if err := fn(); err != nil {
 		t.Fatalf("LogRotation error: %v", err)
 	}
-
-	// Source .log should be gone, .log.gz should exist.
-	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
-		t.Errorf("original .log file should have been compressed and removed")
-	}
-	if _, err := os.Stat(logPath + ".gz"); err != nil {
-		t.Errorf("compressed .log.gz should exist: %v", err)
+	if rot.calls != 1 {
+		t.Errorf("RotateCheck calls = %d, want 1", rot.calls)
 	}
 }
 
-func TestLogRotation_DeletesOldGzFiles(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create a .log.gz that is > 3×maxAge old.
-	gzPath := filepath.Join(dir, "old.log.gz")
-	if err := os.WriteFile(gzPath, []byte("gz"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// 100 days, 3×30 = 90
-	old := time.Now().Add(-100 * 24 * time.Hour)
-	if err := os.Chtimes(gzPath, old, old); err != nil {
-		t.Fatal(err)
-	}
-
-	fn := task.LogRotation(dir, 30*24*time.Hour)
-	if err := fn(); err != nil {
-		t.Fatalf("LogRotation error: %v", err)
-	}
-
-	if _, err := os.Stat(gzPath); !os.IsNotExist(err) {
-		t.Errorf("old .log.gz should have been deleted")
-	}
-}
-
-func TestLogRotation_SkipsRecentLogs(t *testing.T) {
-	dir := t.TempDir()
-
-	// A recent .log file should be left alone.
-	logPath := filepath.Join(dir, "recent.log")
-	if err := os.WriteFile(logPath, []byte("recent\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	fn := task.LogRotation(dir, 30*24*time.Hour)
-	if err := fn(); err != nil {
-		t.Fatalf("LogRotation error: %v", err)
-	}
-
-	if _, err := os.Stat(logPath); err != nil {
-		t.Errorf("recent .log file should still exist: %v", err)
-	}
-}
-
-func TestLogRotation_DefaultMaxAge(t *testing.T) {
-	dir := t.TempDir()
-	// 0 = use default (30 days)
-	fn := task.LogRotation(dir, 0)
-	if err := fn(); err != nil {
-		t.Fatalf("LogRotation with default maxAge error: %v", err)
-	}
-}
-
-func TestLogRotation_NonexistentDir(t *testing.T) {
-	fn := task.LogRotation("/nonexistent/logs", 24*time.Hour)
-	// WalkDir on nonexistent dir should return an error.
+func TestLogRotation_WrapsError(t *testing.T) {
+	rot := &stubRotator{err: errors.New("disk full")}
+	fn := task.LogRotation(rot)
 	err := fn()
-	// LogRotation wraps the walk error; it should be non-nil.
 	if err == nil {
-		t.Error("expected error for nonexistent logs dir, got nil")
+		t.Fatal("expected error from LogRotation, got nil")
+	}
+	if !errors.Is(err, rot.err) {
+		t.Errorf("error %v should wrap %v", err, rot.err)
+	}
+	if !strings.Contains(err.Error(), "log_rotation:") {
+		t.Errorf("error %q should be prefixed with log_rotation:", err)
+	}
+}
+
+func TestLogRotation_NilRotator(t *testing.T) {
+	fn := task.LogRotation(nil)
+	if err := fn(); err != nil {
+		t.Errorf("LogRotation(nil) should be a no-op, got %v", err)
 	}
 }
 

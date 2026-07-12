@@ -366,16 +366,13 @@ func TestPurgeData_PathConstruction(t *testing.T) {
 		return
 	}
 
-	// Unix paths
-	expectedDirs := []string{
-		fmt.Sprintf("/etc/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
-	}
+	// Unix paths — derived from the paths package (PART 4 platform layouts)
+	expectedDirs := purgeDirs()
 
 	for _, dir := range expectedDirs {
-		if !strings.Contains(dir, orgName) || !strings.Contains(dir, appName) {
+		// Paths honor env overrides (CONFIG_DIR, BACKUP_DIR, ...), so only
+		// verify each target is a usable absolute path.
+		if dir == "" || !filepath.IsAbs(dir) {
 			t.Errorf("unexpected purge path: %s", dir)
 		}
 	}

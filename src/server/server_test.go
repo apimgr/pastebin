@@ -1917,6 +1917,40 @@ func TestBaseURL(t *testing.T) {
 	}
 }
 
+// Regression: an HTTPS request TLS-terminated at a trusted reverse proxy must
+// resolve https:// even after realIPMiddleware rewrites RemoteAddr to the end
+// client's public IP. The X-Forwarded-* trust gate judges the immediate TCP
+// peer (preserved in the request context), never the resolved client IP
+// (PART 12 "Used by X-Forwarded-* trust gate").
+func TestBaseURLHTTPSBehindProxyAfterRealIPRewrite(t *testing.T) {
+	cfg := &config.Config{}
+	s := newMinimalServer(cfg)
+
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)
+	// Immediate peer: the reverse proxy on loopback (trusted).
+	r.RemoteAddr = "127.0.0.1:52144"
+	r.Host = "paste.example.com"
+	// End client on the public internet, TLS terminated at the proxy.
+	r.Header.Set("X-Forwarded-For", "203.0.113.50")
+	r.Header.Set("X-Forwarded-Proto", "https")
+
+	var got string
+	h := s.realIPMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+		if !strings.Contains(req.RemoteAddr, "203.0.113.50") {
+			t.Fatalf("RemoteAddr = %q, want rewritten to client IP", req.RemoteAddr)
+		}
+		if !s.isTrustedPeer(req) {
+			t.Fatal("isTrustedPeer = false after RemoteAddr rewrite, want true (immediate peer is loopback)")
+		}
+		got = s.baseURL(req)
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), r)
+
+	if got != "https://paste.example.com" {
+		t.Errorf("baseURL() = %q, want %q", got, "https://paste.example.com")
+	}
+}
+
 // ─── Server.renderTemplate (nil templates path) ───────────────────────────────
 
 func TestRenderTemplateNilTemplates(t *testing.T) {
