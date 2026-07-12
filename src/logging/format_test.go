@@ -49,7 +49,7 @@ func TestSanitize(t *testing.T) {
 		{"emoji dropped", "ok \U0001F600 done", "ok  done"},
 		{"arrows dropped", "a→b", "ab"},
 		{"variation selector dropped", "x️y", "xy"},
-		{"zwj dropped", "a‍b", "ab"},
+		{"zwj dropped", "a\u200db", "ab"},
 		{"non-english kept", "héllo wörld 日本語", "héllo wörld 日本語"},
 		{"empty", "", ""},
 	}

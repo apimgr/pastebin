@@ -121,8 +121,7 @@ func (a *authorizer) authorizeRestore() error {
 	if a.isServiceUser() {
 		return a.requireOperatorToken("This will OVERWRITE all data. Enter operator password to confirm.")
 	}
-	return errors.New("restore requires administrator authorization.\n" +
-		"Run as root or provide operator password.")
+	return errors.New("restore requires administrator authorization: run as root or provide operator password")
 }
 
 func (a *authorizer) authorizeMode() error {
@@ -133,8 +132,7 @@ func (a *authorizer) authorizeMode() error {
 	if a.isServiceUser() {
 		return a.requireOperatorToken("Changing the server mode requires operator authorization.")
 	}
-	return errors.New("mode change requires administrator authorization.\n" +
-		"Run as root or provide operator password.")
+	return errors.New("mode change requires administrator authorization: run as root or provide operator password")
 }
 
 // dbPath resolves the database path: database.path from server.yml wins,
