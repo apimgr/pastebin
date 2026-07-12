@@ -29,6 +29,15 @@ func CheckPIDFile(pidPath string) (bool, int, error) {
 		return false, 0, nil
 	}
 
+	// A recorded PID equal to our own PID is always stale: the file survived
+	// a previous run (e.g. a pid file persisted on a container volume) and the
+	// PID was recycled to this very process. It cannot be another instance —
+	// without this check startup would falsely report "already running".
+	if pid == os.Getpid() {
+		os.Remove(pidPath) //nolint:errcheck
+		return false, 0, nil
+	}
+
 	if !isProcessRunning(pid) {
 		os.Remove(pidPath) //nolint:errcheck
 		return false, 0, nil

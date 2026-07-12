@@ -6,7 +6,11 @@ package pid
 // isOurProcessDarwin which are unexported and platform-specific (Unix only).
 
 import (
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -40,6 +44,76 @@ func TestIsOurProcessDarwin_CurrentProcess(t *testing.T) {
 func TestIsOurProcessDarwin_InvalidPID(t *testing.T) {
 	if isOurProcessDarwin(99999999) {
 		t.Error("isOurProcessDarwin(99999999): expected false for non-existent PID")
+	}
+}
+
+// TestSelfPIDHelper is not a real test: it is re-executed as a subprocess by
+// TestCheckPIDFile_SelfPID_PastebinNamedBinary from a binary whose name
+// contains "pastebin", so isOurProcess(self) returns true. It writes its own
+// PID to the pid file, then verifies CheckPIDFile treats it as stale.
+// Exit codes: 0 = stale (correct), 3 = falsely "already running", 4 = error.
+func TestSelfPIDHelper(t *testing.T) {
+	if os.Getenv("PID_SELF_HELPER") != "1" {
+		t.Skip("helper process only")
+	}
+	path := os.Getenv("PID_SELF_PATH")
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		os.Exit(4)
+	}
+	running, _, err := CheckPIDFile(path)
+	if err != nil {
+		os.Exit(4)
+	}
+	if running {
+		// Regression: our own PID reported as another running instance.
+		os.Exit(3)
+	}
+	os.Exit(0)
+}
+
+// TestCheckPIDFile_SelfPID_PastebinNamedBinary reproduces the container
+// restart bug end-to-end: the running binary IS named "pastebin*" and the pid
+// file contains that process's own PID. Before the self-PID check this
+// falsely reported "already running (pid N)"; it must be treated as stale.
+func TestCheckPIDFile_SelfPID_PastebinNamedBinary(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+
+	// Copy the test binary under a name containing "pastebin" so that
+	// isOurProcess matches, exactly like the production binary.
+	dir := t.TempDir()
+	copied := filepath.Join(dir, "pastebin-selftest")
+	src, err := os.Open(exe)
+	if err != nil {
+		t.Fatalf("open test binary: %v", err)
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(copied, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	if err != nil {
+		t.Fatalf("create binary copy: %v", err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		t.Fatalf("copy test binary: %v", err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatalf("close binary copy: %v", err)
+	}
+
+	pidPath := filepath.Join(dir, "pastebin.pid")
+	cmd := exec.Command(copied, "-test.run", "TestSelfPIDHelper")
+	cmd.Env = append(os.Environ(),
+		"PID_SELF_HELPER=1",
+		"PID_SELF_PATH="+pidPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 3 {
+			t.Fatalf("regression: own PID reported as already running\n%s", out)
+		}
+		t.Fatalf("helper process failed: %v\n%s", err, out)
 	}
 }
 

@@ -120,6 +120,39 @@ func TestWritePIDFile_StalePIDIsSilentlyCleared(t *testing.T) {
 
 // ─── CheckPIDFile ─────────────────────────────────────────────────────────────
 
+// TestCheckPIDFile_SelfPID verifies that a PID file containing the current
+// process's own PID is treated as stale (removed, not "already running").
+// This is the container-restart scenario: the pid file persists on a volume
+// and the recycled low PID (e.g. 7) is the starting process itself.
+func TestCheckPIDFile_SelfPID(t *testing.T) {
+	path := tempPIDPath(t)
+	self := os.Getpid()
+	if err := os.WriteFile(path, []byte(strconv.Itoa(self)), 0o600); err != nil {
+		t.Fatalf("setup: write self PID file: %v", err)
+	}
+
+	running, retPID, err := pid.CheckPIDFile(path)
+	if err != nil {
+		t.Fatalf("CheckPIDFile on self PID: unexpected error: %v", err)
+	}
+	if running {
+		t.Error("running: got true, want false for our own PID")
+	}
+	if retPID != 0 {
+		t.Errorf("pid: got %d, want 0 for our own PID", retPID)
+	}
+
+	// Self-referencing file must be removed so WritePIDFile can proceed.
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("self-PID file was not removed by CheckPIDFile")
+	}
+
+	// WritePIDFile must now succeed (this is the startup path that failed).
+	if err := pid.WritePIDFile(path); err != nil {
+		t.Fatalf("WritePIDFile after self-PID cleanup: %v", err)
+	}
+}
+
 // TestCheckPIDFile_AbsentFile verifies that a missing PID file returns
 // (false, 0, nil) without error.
 func TestCheckPIDFile_AbsentFile(t *testing.T) {
