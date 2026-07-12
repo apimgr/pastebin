@@ -67,6 +67,70 @@ web:
     embed_frame_ancestors: "*"
 ```
 
+### Logging (`server.logs`)
+
+Each log file accepts `filename`, `format`, `custom` (only when
+`format: custom`), `rotate`, and `keep`.
+
+| Key | Default | Formats |
+|-----|---------|---------|
+| `logs.level` | `info` | `debug`/`info`/`warn`/`error` (server.log, app.log gate) |
+| `logs.access` | `access.log`, `apache`, rotate `monthly`, keep `none` | `apache`, `nginx`, `json`, `custom` |
+| `logs.server` | `server.log`, `text`, rotate `weekly,50MB`, keep `none` | `text`, `json` |
+| `logs.error` | `error.log`, `text`, rotate `weekly,50MB`, keep `none` | `text`, `json` |
+| `logs.app` | `app.log`, `logfmt`, rotate `weekly,50MB`, keep `none` | `logfmt`, `json` |
+| `logs.auth` | `auth.log`, `syslog`, rotate `weekly,50MB`, keep `none` | `syslog` (RFC 3164), `json` |
+| `logs.audit` | `audit.log`, `json`, rotate `daily`, keep `none`, `compress: true` | `json` only |
+| `logs.security` | `security.log`, `fail2ban`, rotate `weekly,50MB`, keep `none` | `fail2ban`, `syslog`, `cef`, `json`, `text` |
+| `logs.debug` | `enabled: true`, `debug.log`, `text`, rotate `weekly,50MB`, keep `none` | `text`, `json`; only written when debug mode is active |
+
+**`rotate` values:** `never`, `daily`, `weekly`, `monthly`, `yearly`,
+`{N}MB`, `{N}GB`, or a time+size combo like `weekly,50MB` (whichever
+hits first). Rotation renames the file to `{name}.YYYY-MM-DD` and
+reopens a fresh file.
+
+**`keep` values:** `none` (delete rotated files immediately), `{N}`
+(keep newest N rotated files), `{N}d`/`{N}w`/`{N}m` (age-based), or
+`forever`.
+
+**`format: custom`** (access log) substitutes these variables in
+`custom`: `{time}` `{date}` `{datetime}` `{remote_ip}` `{method}`
+`{path}` `{query}` `{status}` `{bytes}` `{latency}` `{latency_ms}`
+`{user_agent}` `{referer}` `{request_id}` `{fqdn}` `{protocol}`
+`{tls_version}` `{country}` `{asn}`.
+
+All log lines are strict raw text: ANSI escape sequences, control
+characters, and emoji are stripped before writing. Invalid `rotate`,
+`keep`, or `format` values warn and fall back to defaults — startup
+never fails. Rotation is checked on every write (size) and by the
+`log_rotation` scheduler task (time + retention pruning).
+
+### Backups (`server.backup`)
+
+Retention keys under `backup.retention`:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `max_backups` | `30` | Newest N dated backups kept |
+| `keep_weekly` | `4` | Sunday backups kept |
+| `keep_monthly` | `12` | First-of-month backups kept |
+| `keep_yearly` | `3` | Jan 1st backups kept |
+| `max_total_size` | `10%` | Hard size cap on retained backups |
+
+`max_total_size` accepts a percent of the backup volume (`10%`) or an
+absolute size (`50G`, `500MB`); falsey values (`0`, `off`, `none`)
+disable the cap. When over the cap, oldest dated backups are pruned
+first — the newest backup is never deleted.
+
+Before each daily backup the server checks free disk space: the backup
+is skipped (with a `backup.skipped_disk_full` audit event) when free
+space is less than 2x the last backup size or disk usage exceeds
+`maintenance.cleanup.disk_threshold` (default 90%).
+
+The `--maintenance setup`, `restore`, and `mode` subcommands require
+authorization: allowed on first run (empty database), as root (with
+confirmation), or as the service user with the operator password.
+
 ## Environment Variables
 
 | Variable | Description |
