@@ -30,6 +30,9 @@ type Config struct {
 	Paste     PasteConfig     `yaml:"paste"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
 	Web       WebConfig       `yaml:"web"`
+	// FirstRun is true when Load() created server.yml because none existed.
+	// Runtime-only — never persisted (startup step 20, AI.md:10631).
+	FirstRun bool `yaml:"-"`
 }
 
 // ServerConfig holds listener and runtime settings.
@@ -540,8 +543,14 @@ type TorConfig struct {
 
 // GeoIPConfig configures GeoIP detection and country blocking.
 type GeoIPConfig struct {
-	Enabled        bool                 `yaml:"enabled"`
-	Dir            string               `yaml:"dir"` // path to MMDB database directory
+	Enabled bool `yaml:"enabled"`
+	// Dir is the path to the MMDB database directory.
+	Dir string `yaml:"dir"`
+	// CountryMode selects the country-blocking policy (AI.md:27343):
+	// "none" disables country blocking, "deny" blocks listed countries,
+	// "allow" allows ONLY listed countries. Empty = infer from which list is
+	// non-empty (allow_countries takes precedence when both are set).
+	CountryMode    string               `yaml:"country_mode"`
 	DenyCountries  []string             `yaml:"deny_countries"`
 	AllowCountries []string             `yaml:"allow_countries"`
 	Databases      GeoIPDatabasesConfig `yaml:"databases"`
@@ -1117,7 +1126,9 @@ func DefaultConfig() *Config {
 			GeoIP: GeoIPConfig{
 				Enabled: true,
 				// resolved at startup to {data_dir}/security/geoip
-				Dir:            "",
+				Dir: "",
+				// empty = infer mode from deny/allow list contents
+				CountryMode:    "",
 				DenyCountries:  []string{},
 				AllowCountries: []string{},
 				Databases: GeoIPDatabasesConfig{
@@ -1491,6 +1502,7 @@ func Load(path string) (*Config, error) {
 			saveCfg.Web.Security.EncryptionKey = cfg.Web.Security.EncryptionKey
 			saveCfg.Server.Token = cfg.Server.Token
 			_ = Save(path, saveCfg)
+			cfg.FirstRun = true
 			return cfg, nil
 		}
 		return cfg, err
@@ -1611,10 +1623,46 @@ func (c *Config) fqdn() string {
 	if h := strings.TrimSpace(os.Getenv("HOSTNAME")); h != "" && !strings.EqualFold(h, "localhost") {
 		return h
 	}
-	if ip := firstPublicIP(); ip != "" {
+	if ip := PublicIP(); ip != "" {
 		return ip
 	}
 	return "localhost"
+}
+
+// publicIPMu guards the cached public IP refreshed by the public_ip_refresh
+// scheduler task (startup step 16, AI.md:10593).
+var publicIPMu sync.RWMutex
+
+// cachedPublicIP holds the last detected public IP; refreshed at startup and
+// every 12h by the public_ip_refresh task.
+var cachedPublicIP string
+
+// publicIPCached is true once RefreshPublicIP has run at least once.
+var publicIPCached bool
+
+// PublicIP returns the cached first public interface address, detecting it on
+// first use when the public_ip_refresh task has not populated the cache yet.
+func PublicIP() string {
+	publicIPMu.RLock()
+	if publicIPCached {
+		ip := cachedPublicIP
+		publicIPMu.RUnlock()
+		return ip
+	}
+	publicIPMu.RUnlock()
+	return RefreshPublicIP()
+}
+
+// RefreshPublicIP re-scans local interfaces for the first public address and
+// updates the cache. Called at startup and every 12h by the hardcoded
+// public_ip_refresh scheduler task (AI.md:10593).
+func RefreshPublicIP() string {
+	ip := firstPublicIP()
+	publicIPMu.Lock()
+	cachedPublicIP = ip
+	publicIPCached = true
+	publicIPMu.Unlock()
+	return ip
 }
 
 // ResolveFQDN exposes the configuration-scoped {fqdn} resolution chain (PART 12
@@ -2100,6 +2148,17 @@ func Validate(cfg *Config) {
 	}
 	if cfg.Server.Pages.Contact.SuccessMessage == "" {
 		cfg.Server.Pages.Contact.SuccessMessage = d.Server.Pages.Contact.SuccessMessage
+	}
+
+	// GeoIP country mode must be one of the valid values (AI.md:27343).
+	// Empty means "infer from deny/allow list contents" and is valid.
+	switch strings.ToLower(strings.TrimSpace(cfg.Server.GeoIP.CountryMode)) {
+	case "", "none", "deny", "allow":
+		cfg.Server.GeoIP.CountryMode = strings.ToLower(strings.TrimSpace(cfg.Server.GeoIP.CountryMode))
+	default:
+		log.Printf("[config] WARNING: invalid geoip.country_mode %q, using inferred mode",
+			cfg.Server.GeoIP.CountryMode)
+		cfg.Server.GeoIP.CountryMode = ""
 	}
 
 	// Web theme must be one of the valid values.

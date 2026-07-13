@@ -1242,6 +1242,13 @@ Examples:
 		task.BackupDaily(backupCfg)))
 	logSchedErr(sched.Register("backup_hourly", "Backup Hourly", "@hourly", false,
 		task.BackupHourly(backupCfg)))
+	// Public IP refresh (startup step 16, AI.md:10593): runs at startup and
+	// every 12h; the schedule is hardcoded per spec, not operator-configurable.
+	config.RefreshPublicIP()
+	logSchedErr(sched.Register("public_ip_refresh", "Public IP Refresh", "@every 12h", true, func() error {
+		config.RefreshPublicIP()
+		return nil
+	}))
 	logSchedErr(sched.Register("healthcheck_self", "Health Check", "@every 5m", true, func() error {
 		if err := db.Ping(); err != nil {
 			return fmt.Errorf("healthcheck_self: database ping failed: %w", err)
@@ -1303,6 +1310,13 @@ Examples:
 	// Failure notification + audit logging (PART 18 task execution flow): every
 	// run is audited; failures also send a scheduler_error email to the operator.
 	sched.SetNotifier(schedulerNotifier(cfg, auditW))
+
+	// One full retention sweep of the backup dir before the scheduler starts
+	// (startup step 16, AI.md:10595–10596) — clears accumulation from crashed
+	// or failed prior runs.
+	if err := task.RetentionSweep(backupCfg); err != nil {
+		log.Printf("backup: startup retention sweep: %v", err)
+	}
 
 	sched.Start()
 	defer sched.Stop()
@@ -1369,6 +1383,11 @@ Examples:
 			URLs:    []string{publicURL, "listening on " + listenURL},
 		})
 		log.Printf("listening on %s", listenURL)
+		// First run: point the operator at the generated config file
+		// (startup step 20, AI.md:10631).
+		if cfg.FirstRun {
+			log.Printf("first run: generated config at %s", cfgFile)
+		}
 		logMgr.Server("info", "server started",
 			"address", listenURL,
 			"version", Version,

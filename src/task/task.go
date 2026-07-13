@@ -538,6 +538,19 @@ func backupSendFailed(cfg BackupConfig, filename, errMsg string) {
 	}
 }
 
+// RetentionSweep runs one full retention pass over the backup directory.
+// Called once before the scheduler starts (startup step 16, AI.md:10595) to
+// clear accumulation left behind by crashed or failed prior runs.
+func RetentionSweep(cfg BackupConfig) error {
+	if _, err := os.Stat(cfg.BackupDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return applyRetention(cfg.BackupDir, cfg.ProjectName, cfg.Retention)
+}
+
 // backupFileRE matches dated backup filenames like project_backup_2025-01-15.tar.gz[.enc].
 var backupFileRE = regexp.MustCompile(`_backup_(\d{4}-\d{2}-\d{2})\.tar\.gz(\.enc)?$`)
 

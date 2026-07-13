@@ -446,6 +446,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 			EnableCountry:  cfg.Server.GeoIP.Databases.Country,
 			EnableCity:     cfg.Server.GeoIP.Databases.City,
 			EnableWHOIS:    cfg.Server.GeoIP.Databases.WHOIS,
+			CountryMode:    cfg.Server.GeoIP.CountryMode,
 			DenyCountries:  cfg.Server.GeoIP.DenyCountries,
 			AllowCountries: cfg.Server.GeoIP.AllowCountries,
 			// Wire server-wide security allowlist into geoip so GeoIP also

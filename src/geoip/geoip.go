@@ -73,11 +73,15 @@ type Info struct {
 
 // Config is consumed by Open; mirrors config.GeoIPConfig.
 type Config struct {
-	Dir            string
-	EnableASN      bool
-	EnableCountry  bool
-	EnableCity     bool
-	EnableWHOIS    bool
+	Dir           string
+	EnableASN     bool
+	EnableCountry bool
+	EnableCity    bool
+	EnableWHOIS   bool
+	// CountryMode selects the blocking policy (AI.md:27343): "none" disables
+	// country blocking, "deny" uses DenyCountries, "allow" uses AllowCountries.
+	// Empty = infer from which list is non-empty (allow takes precedence).
+	CountryMode    string
 	DenyCountries  []string
 	AllowCountries []string
 	// IPs that always bypass country blocking
@@ -317,15 +321,37 @@ func (d *DB) Lookup(ip net.IP) *Info {
 	return info
 }
 
+// countryMode resolves the effective country-blocking mode (AI.md:27343).
+// An explicit CountryMode ("none", "deny", "allow") wins; when empty, the mode
+// is inferred from list contents for backward compatibility — allow_countries
+// takes precedence when both lists are set (AI.md:27298).
+func (d *DB) countryMode() string {
+	switch strings.ToLower(strings.TrimSpace(d.cfg.CountryMode)) {
+	case "none":
+		return "none"
+	case "deny":
+		return "deny"
+	case "allow":
+		return "allow"
+	}
+	if len(d.cfg.AllowCountries) > 0 {
+		return "allow"
+	}
+	if len(d.cfg.DenyCountries) > 0 {
+		return "deny"
+	}
+	return "none"
+}
+
 // IsBlocked returns true if the IP should be blocked based on country policy.
 //
 // Blocking logic (from spec PART 19):
 //   - RFC 1918 / loopback / link-local IPs are never blocked
 //   - IPs in the allowlist always pass
-//   - If AllowCountries is non-empty: block unless country is in the list,
-//     but fail-open (never block) when the country cannot be determined
-//   - Else if DenyCountries is non-empty: block if country is in the list
-//   - Both empty: never block
+//   - Mode "allow": block unless country is in AllowCountries, but fail-open
+//     (never block) when the country cannot be determined
+//   - Mode "deny": block if country is in DenyCountries
+//   - Mode "none": never block
 func (d *DB) IsBlocked(ip net.IP) bool {
 	if d == nil || ip == nil {
 		return false
@@ -347,16 +373,21 @@ func (d *DB) IsBlocked(ip net.IP) bool {
 		}
 	}
 
+	mode := d.countryMode()
+	if mode == "none" {
+		return false
+	}
+
 	info := d.Lookup(ip)
 	cc := ""
 	if info != nil {
 		cc = strings.ToUpper(info.CountryCode)
 	}
 
-	if len(d.cfg.AllowCountries) > 0 {
+	if mode == "allow" {
 		// Fail-open: if the country cannot be determined (DB missing, stale, or
 		// lookup failed) never block — GeoIP is a risk signal, not an auth gate
-		// (PART 19, AI.md:26584).
+		// (PART 19, AI.md:27279).
 		if cc == "" {
 			return false
 		}
@@ -368,11 +399,9 @@ func (d *DB) IsBlocked(ip net.IP) bool {
 		return true
 	}
 
-	if len(d.cfg.DenyCountries) > 0 {
-		for _, c := range d.cfg.DenyCountries {
-			if strings.ToUpper(c) == cc {
-				return true
-			}
+	for _, c := range d.cfg.DenyCountries {
+		if strings.ToUpper(c) == cc {
+			return true
 		}
 	}
 
