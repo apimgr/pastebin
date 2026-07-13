@@ -2378,6 +2378,25 @@ func SetUpdateBranch(path, branch string) error {
 	return Save(path, cfg)
 }
 
+// SetOnionAddress loads the config at path, sets server.tor.onion_address to
+// the given value, and saves the file back (PART 12: tor.onion_address is
+// "Set automatically on first successful Tor bootstrap"). Creates the file
+// and parent dirs if absent.
+func SetOnionAddress(path, addr string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	cfg, err := Load(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+	cfg.Server.Tor.OnionAddress = addr
+	return Save(path, cfg)
+}
+
 // ResolvePort finalises cfg.Server.Port according to the PART 5 / PART 8 rules.
 // Precedence (highest first):
 //

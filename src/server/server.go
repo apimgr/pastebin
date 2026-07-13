@@ -1167,6 +1167,12 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 // it matches (exact hostname or subdomain) so no wildcard with a scheme+host
 // is ever emitted from untrusted input (PART 12 url_detection).
 func (s *Server) resolveCORSOrigin(r *http.Request) string {
+	// Tor requests always answer with the onion origin — the onion address is
+	// auto-added to the CORS allow-list and the clearnet/operator-configured
+	// origin must NOT appear in Tor response headers (PART 12 Tor privacy).
+	if onion := s.torRequestOnion(r); onion != "" {
+		return "http://" + onion
+	}
 	if cfg := s.liveCfg().Web.Security.CORS; cfg != "" {
 		return cfg
 	}
@@ -1822,6 +1828,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			log.Printf("tor: start failed: %v", err)
 		} else if s.torManager.Running() {
 			go s.torManager.Monitor()
+			s.persistOnionAddress()
 		}
 		defer s.torManager.Close()
 	}
@@ -3033,8 +3040,8 @@ func (s *Server) contactData(r *http.Request) map[string]interface{} {
 	data := map[string]interface{}{
 		"SiteTitle":   cfg.Web.SiteTitle,
 		"Theme":       cfg.Web.Theme,
-		"Contact":     cfg.GeneralEmailPublic(),
-		"Abuse":       cfg.AbuseEmailPublic(),
+		"Contact":     s.publicContactEmail(r),
+		"Abuse":       s.publicAbuseEmail(r),
 		"BaseURL":     s.baseURL(r),
 		"FormEnabled": pc.Enabled,
 		"CaptchaType": pc.Captcha,
@@ -3064,7 +3071,9 @@ func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		html, err := s.renderTemplateToString(r, "contact.html", data)
 		if err != nil {
-			fmt.Fprintf(w, "Contact: %s\n", s.liveCfg().GeneralEmailPublic())
+			if email := s.publicContactEmail(r); email != "" {
+				fmt.Fprintf(w, "Contact: %s\n", email)
+			}
 			return
 		}
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
@@ -3514,6 +3523,26 @@ func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	if expires == "" {
 		expires = time.Now().AddDate(1, 0, 0).UTC().Format(time.RFC3339)
 	}
+	// Tor variant (PART 12, AI.md 15836-15848): every absolute URL uses
+	// http://{onion}; the mailto line is tor.contact_email only and is omitted
+	// entirely when unset (the clearnet email is NEVER disclosed on Tor);
+	// Preferred-Languages is omitted to reduce fingerprinting. Built
+	// per-request via Tor detection — never cached.
+	if onion := s.torRequestOnion(r); onion != "" {
+		var b strings.Builder
+		fmt.Fprintf(&b, "Contact: %s\n", cfg.SecurityReportURL())
+		if id := s.currentSecurityID(); id != "" {
+			fmt.Fprintf(&b, "Contact: http://%s/server/contact?security_id=%s\n", onion, id)
+		}
+		if email := strings.TrimSpace(cfg.Server.Tor.ContactEmail); email != "" {
+			fmt.Fprintf(&b, "Contact: mailto:%s\n", email)
+		}
+		fmt.Fprintf(&b, "Policy: http://%s/server/security\n", onion)
+		fmt.Fprintf(&b, "Expires: %s\n", expires)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write([]byte(b.String()))
+		return
+	}
 	var b strings.Builder
 	// Contact lines in RFC 9116 preference order (PART 11 → security.txt):
 	// (1) GitHub private vulnerability reporting, (2) instance security-report
@@ -3879,6 +3908,79 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	}
 }
 
+// persistOnionAddress records the generated .onion hostname under
+// server.tor.onion_address on the first successful Tor bootstrap (PART 12:
+// "Set automatically on first successful Tor bootstrap"). The stored address
+// is what enables Tor request detection (baseURL priority 0, the Tor
+// security.txt variant, and Tor CORS). Runs in Run() before HTTP serving
+// starts, so writing s.cfg here is race-free. Already-set addresses are
+// never overwritten.
+func (s *Server) persistOnionAddress() {
+	onion := strings.TrimSpace(s.TorOnionAddress())
+	if onion == "" || strings.TrimSpace(s.cfg.Server.Tor.OnionAddress) != "" {
+		return
+	}
+	s.cfg.Server.Tor.OnionAddress = onion
+	if live := s.liveCfg(); live != s.cfg {
+		live.Server.Tor.OnionAddress = onion
+	}
+	cfgPath := filepath.Join(s.configDir, "server.yml")
+	if err := config.SetOnionAddress(cfgPath, onion); err != nil {
+		log.Printf("tor: persisting onion address to %s failed: %v", cfgPath, err)
+	}
+}
+
+// torRequestOnion returns the configured onion address when the request
+// arrived via the Tor hidden service — the request Host (after port
+// stripping) matches tor.onion_address (PART 12 priority-0 Tor detection).
+// Returns "" for clearnet requests or when no onion address is configured.
+func (s *Server) torRequestOnion(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	onion := strings.TrimSpace(s.cfg.Server.Tor.OnionAddress)
+	if onion == "" {
+		return ""
+	}
+	reqHost := r.Host
+	if h, _, err := net.SplitHostPort(reqHost); err == nil {
+		reqHost = h
+	}
+	if strings.EqualFold(reqHost, onion) {
+		return onion
+	}
+	return ""
+}
+
+// publicContactEmail returns the general contact address safe to disclose for
+// this request. Tor responses show tor.contact_email only — when it is unset
+// no email is shown; the clearnet email is NEVER a fallback (PART 12 Tor
+// privacy rules).
+func (s *Server) publicContactEmail(r *http.Request) string {
+	if s.torRequestOnion(r) != "" {
+		return strings.TrimSpace(s.liveCfg().Server.Tor.ContactEmail)
+	}
+	return s.liveCfg().GeneralEmailPublic()
+}
+
+// publicAbuseEmail returns the abuse contact address safe to disclose for
+// this request — same Tor privacy rule as publicContactEmail.
+func (s *Server) publicAbuseEmail(r *http.Request) string {
+	if s.torRequestOnion(r) != "" {
+		return strings.TrimSpace(s.liveCfg().Server.Tor.ContactEmail)
+	}
+	return s.liveCfg().AbuseEmailPublic()
+}
+
+// publicSecurityEmail returns the security contact address safe to disclose
+// for this request — same Tor privacy rule as publicContactEmail.
+func (s *Server) publicSecurityEmail(r *http.Request) string {
+	if s.torRequestOnion(r) != "" {
+		return strings.TrimSpace(s.liveCfg().Server.Tor.ContactEmail)
+	}
+	return s.liveCfg().SecurityEmail()
+}
+
 // baseURL constructs the base URL for the current request (PART 12).
 // Resolution order (highest priority first):
 //  0. Tor: when Host matches tor.onion_address → http://{onion_address} (no port, always http)
@@ -3894,14 +3996,8 @@ func (s *Server) baseURL(r *http.Request) string {
 	// Priority 0: Tor hidden service — when the request Host matches the configured
 	// onion address, resolve unconditionally as http://{onion_address}. No port, always
 	// http, no proxy header inspection, no IP check (PART 12 priority-0 rule).
-	if onion := strings.TrimSpace(s.cfg.Server.Tor.OnionAddress); onion != "" {
-		reqHost := r.Host
-		if h, _, err := net.SplitHostPort(reqHost); err == nil {
-			reqHost = h
-		}
-		if strings.EqualFold(reqHost, onion) {
-			return "http://" + onion
-		}
+	if onion := s.torRequestOnion(r); onion != "" {
+		return "http://" + onion
 	}
 
 	if s.cfg.Server.BaseURL != "" {

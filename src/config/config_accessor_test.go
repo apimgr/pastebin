@@ -242,6 +242,43 @@ func TestSetUpdateBranch_UpdatesExisting(t *testing.T) {
 	}
 }
 
+// ─── SetOnionAddress ──────────────────────────────────────────────────────────
+
+func TestSetOnionAddress_CreatesFile(t *testing.T) {
+	path := tempConfigPath(t)
+	addr := "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion"
+	if err := config.SetOnionAddress(path, addr); err != nil {
+		t.Fatalf("SetOnionAddress: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load after SetOnionAddress: %v", err)
+	}
+	if cfg.Server.Tor.OnionAddress != addr {
+		t.Errorf("Tor.OnionAddress = %q, want %q", cfg.Server.Tor.OnionAddress, addr)
+	}
+}
+
+func TestSetOnionAddress_UpdatesExistingWithoutLosingSettings(t *testing.T) {
+	path := tempConfigPath(t)
+	if err := config.SetUpdateBranch(path, "beta"); err != nil {
+		t.Fatalf("SetUpdateBranch: %v", err)
+	}
+	if err := config.SetOnionAddress(path, "example234567abcdefghijklmnopqrstuvwxyz234567abcdefghijk.onion"); err != nil {
+		t.Fatalf("SetOnionAddress: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Server.Tor.OnionAddress == "" {
+		t.Error("Tor.OnionAddress not persisted")
+	}
+	if cfg.Server.Update.Branch != "beta" {
+		t.Errorf("Update.Branch = %q, want %q (existing settings must survive)", cfg.Server.Update.Branch, "beta")
+	}
+}
+
 // ─── SanitizeFooterHTML / FooterCustomHTML ─────────────────────────────────────
 
 func TestSanitizeFooterHTML_Empty(t *testing.T) {

@@ -82,7 +82,7 @@ func (s *Server) handleSecurityOverview(w http.ResponseWriter, r *http.Request) 
 		"BaseURL":            s.baseURL(r),
 		"ReportURL":          cfg.SecurityReportURL(),
 		"ReportFormURL":      reportFormURL,
-		"SecurityEmail":      cfg.SecurityEmail(),
+		"SecurityEmail":      s.publicSecurityEmail(r),
 		"HasPGPKey":          s.hasPGPKey(),
 		"Expires":            expires,
 		"PreferredLanguages": cfg.SecurityPreferredLanguages(),
@@ -110,7 +110,7 @@ func (s *Server) handleSecurityPolicy(w http.ResponseWriter, r *http.Request) {
 		"Theme":          cfg.Web.Theme,
 		"BaseURL":        s.baseURL(r),
 		"DisclosureDays": defaultDisclosureDays,
-		"SecurityEmail":  cfg.SecurityEmail(),
+		"SecurityEmail":  s.publicSecurityEmail(r),
 		"HasPGPKey":      s.hasPGPKey(),
 	}
 	if detectClientType(r) == "text" {
@@ -285,7 +285,7 @@ func (s *Server) reportStatusPageData(r *http.Request, cfg *config.Config, rep *
 		"ExpectedDate":  expected.Local().Format("January 2, 2006"),
 		"Stages":        securityStatusStages,
 		"CurrentStage":  rep.Status,
-		"SecurityEmail": cfg.SecurityEmail(),
+		"SecurityEmail": s.publicSecurityEmail(r),
 	}
 	if rep.DisclosedAt != nil {
 		data["DisclosedAt"] = rep.DisclosedAt.UTC().Format("2006-01-02")

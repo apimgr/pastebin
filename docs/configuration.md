@@ -71,6 +71,16 @@ web:
     embed_frame_ancestors: "*"
 ```
 
+### Tor (`server.tor`)
+
+Tor hidden-service support is auto-enabled when a Tor binary is found —
+there is no on/off toggle. Two keys matter for privacy:
+
+| Key | Behavior |
+|-----|----------|
+| `tor.onion_address` | v3 `.onion` hostname (no `http://` prefix). Set automatically on the first successful Tor bootstrap and persisted to `server.yml`; enables Tor request detection (onion base URLs, Tor `security.txt`, Tor CORS). Never overwritten once set. |
+| `tor.contact_email` | Contact address shown on Tor responses. When unset, no email is shown on Tor — the clearnet contact/security/abuse emails are never disclosed to Tor visitors. |
+
 ### Logging (`server.logs`)
 
 Each log file accepts `filename`, `format`, `custom` (only when

@@ -42,6 +42,22 @@
 - Configurable via `rate_limit.create_per_minute` in `server.yml`
 - Rate limiting protects the server against abuse — it is not a usage cap
 
+## Tor Privacy
+
+Requests whose `Host` matches the configured `tor.onion_address` are
+treated as Tor hidden-service traffic:
+
+- All absolute URLs (base URL, `security.txt` links, pagination, API
+  docs) use `http://{onion}` — the clearnet FQDN never appears
+- `/.well-known/security.txt` serves a Tor variant: onion URLs only,
+  `Contact: mailto:` uses `tor.contact_email` (omitted entirely when
+  unset — never the clearnet email), and `Preferred-Languages` is
+  omitted to reduce fingerprinting
+- CORS headers answer with the onion origin; the clearnet or
+  operator-configured origin is never emitted on Tor responses
+- Contact, abuse, and security emails shown on Tor pages come from
+  `tor.contact_email` only; when unset, no email is disclosed
+
 ## Reporting Vulnerabilities
 
 See [SECURITY.md](https://github.com/apimgr/pastebin/blob/main/.github/SECURITY.md) for the responsible disclosure process.
