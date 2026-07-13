@@ -1375,12 +1375,26 @@ Examples:
 		if addr != "" && addr[0] == ':' {
 			listenURL = proto + "://0.0.0.0" + addr
 		}
+		// Tor URL: http:// on overlays unless clearnet is HTTPS-only (single
+		// port 443) — overlay networks inherit HTTPS-only mode (AI.md:19916-19942).
+		torURL := ""
+		if onion := cfg.Server.Tor.OnionAddress; onion != "" {
+			torProto := "http"
+			if strings.TrimSpace(cfg.Server.Port) == "443" {
+				torProto = "https"
+			}
+			torURL = torProto + "://" + onion
+		}
 		banner.PrintStartupBanner(banner.BannerConfig{
-			AppName: appName,
-			Version: Version,
-			AppMode: string(mode.Get()),
-			Debug:   mode.IsDebugEnabled(),
-			URLs:    []string{publicURL, "listening on " + listenURL},
+			AppName:   appName,
+			Version:   Version,
+			AppMode:   string(mode.Get()),
+			Debug:     mode.IsDebugEnabled(),
+			Lang:      i18n.GetLanguage(""),
+			PublicURL: publicURL,
+			ListenURL: listenURL,
+			TorURL:    torURL,
+			FirstRun:  cfg.FirstRun,
 		})
 		log.Printf("listening on %s", listenURL)
 		// First run: point the operator at the generated config file

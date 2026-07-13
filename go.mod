@@ -11,6 +11,7 @@ require (
 	github.com/cretz/bine v0.2.0
 	github.com/go-chi/chi/v5 v5.0.11
 	github.com/google/uuid v1.3.0
+	github.com/mattn/go-runewidth v0.0.19
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/prometheus/client_golang v1.23.2
@@ -50,7 +51,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
