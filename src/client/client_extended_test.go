@@ -43,7 +43,7 @@ func TestSaveCLIConfigURL_UpdatesServerField(t *testing.T) {
 	t.Setenv("CLI_CONFIG", cfgFile)
 
 	// Start with an empty config file
-	if err := os.WriteFile(cfgFile, []byte("server: http://old.example.com\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfgFile, []byte("server:\n  primary: http://old.example.com\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,8 +57,8 @@ func TestSaveCLIConfigURL_UpdatesServerField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCLIConfig: %v", err)
 	}
-	if cfg.Server != "https://new.example.com" {
-		t.Errorf("Server = %q; want https://new.example.com", cfg.Server)
+	if cfg.Server.Primary != "https://new.example.com" {
+		t.Errorf("Server = %q; want https://new.example.com", cfg.Server.Primary)
 	}
 }
 
@@ -75,8 +75,8 @@ func TestSaveCLIConfigURL_CreatesNewFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCLIConfig: %v", err)
 	}
-	if cfg.Server != "https://fresh.example.com" {
-		t.Errorf("Server = %q; want https://fresh.example.com", cfg.Server)
+	if cfg.Server.Primary != "https://fresh.example.com" {
+		t.Errorf("Server = %q; want https://fresh.example.com", cfg.Server.Primary)
 	}
 }
 
@@ -471,9 +471,9 @@ func TestSaveCLIConfig_FullRoundTrip(t *testing.T) {
 	t.Setenv("CLI_CONFIG", cfgFile)
 
 	original := cliConfig{
-		Server: "https://test.example.com",
-		Debug:  true,
+		Debug: true,
 	}
+	original.Server.Primary = "https://test.example.com"
 	original.Update.Auto = true
 	original.Update.Channel = "daily"
 	original.TUI.Enabled = true
@@ -490,8 +490,8 @@ func TestSaveCLIConfig_FullRoundTrip(t *testing.T) {
 		t.Fatalf("loadCLIConfig: %v", err)
 	}
 
-	if loaded.Server != original.Server {
-		t.Errorf("Server = %q; want %q", loaded.Server, original.Server)
+	if loaded.Server.Primary != original.Server.Primary {
+		t.Errorf("Server = %q; want %q", loaded.Server.Primary, original.Server.Primary)
 	}
 	if loaded.Debug != original.Debug {
 		t.Errorf("Debug = %v; want %v", loaded.Debug, original.Debug)

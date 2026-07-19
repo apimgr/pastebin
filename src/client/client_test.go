@@ -182,11 +182,11 @@ func TestEnvOrDefault_Set(t *testing.T) {
 	}
 }
 
-// ─── saveIfEmptyOrInvalid ─────────────────────────────────────────────────────
+// ─── saveIfUnset ─────────────────────────────────────────────────────
 
 func TestSaveIfEmptyOrInvalid_FlagEmpty(t *testing.T) {
 	valid := func(s string) bool { return s != "" }
-	resolved, persist := saveIfEmptyOrInvalid("current", "", valid)
+	resolved, persist := saveIfUnset("current", "", valid)
 	if resolved != "current" {
 		t.Errorf("resolved = %q; want current", resolved)
 	}
@@ -197,7 +197,7 @@ func TestSaveIfEmptyOrInvalid_FlagEmpty(t *testing.T) {
 
 func TestSaveIfEmptyOrInvalid_FlagInvalid(t *testing.T) {
 	neverValid := func(s string) bool { return false }
-	resolved, persist := saveIfEmptyOrInvalid("current", "invalid-value", neverValid)
+	resolved, persist := saveIfUnset("current", "invalid-value", neverValid)
 	if resolved != "current" {
 		t.Errorf("resolved = %q; want current", resolved)
 	}
@@ -208,7 +208,7 @@ func TestSaveIfEmptyOrInvalid_FlagInvalid(t *testing.T) {
 
 func TestSaveIfEmptyOrInvalid_CurrentEmptyFlagValid(t *testing.T) {
 	valid := func(s string) bool { return s != "" }
-	resolved, persist := saveIfEmptyOrInvalid("", "https://new.example.com", valid)
+	resolved, persist := saveIfUnset("", "https://new.example.com", valid)
 	if resolved != "https://new.example.com" {
 		t.Errorf("resolved = %q; want https://new.example.com", resolved)
 	}
@@ -219,7 +219,7 @@ func TestSaveIfEmptyOrInvalid_CurrentEmptyFlagValid(t *testing.T) {
 
 func TestSaveIfEmptyOrInvalid_BothValid_NoAutoSave(t *testing.T) {
 	valid := func(s string) bool { return s != "" }
-	resolved, persist := saveIfEmptyOrInvalid("https://old.example.com", "https://new.example.com", valid)
+	resolved, persist := saveIfUnset("https://old.example.com", "https://new.example.com", valid)
 	if resolved != "https://new.example.com" {
 		t.Errorf("resolved = %q; want https://new.example.com", resolved)
 	}
@@ -230,7 +230,7 @@ func TestSaveIfEmptyOrInvalid_BothValid_NoAutoSave(t *testing.T) {
 
 func TestSaveIfEmptyOrInvalid_CurrentInvalidFlagValid(t *testing.T) {
 	onlyNew := func(s string) bool { return s == "https://new.example.com" }
-	resolved, persist := saveIfEmptyOrInvalid("invalid-old", "https://new.example.com", onlyNew)
+	resolved, persist := saveIfUnset("invalid-old", "https://new.example.com", onlyNew)
 	if resolved != "https://new.example.com" {
 		t.Errorf("resolved = %q; want https://new.example.com", resolved)
 	}
@@ -337,7 +337,7 @@ func TestLoadCLIConfig_MissingFile_ReturnsDefaults(t *testing.T) {
 func TestLoadCLIConfig_ValidYAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "cli.yml")
-	content := "server: https://paste.example.com\n"
+	content := "server:\n  primary: https://paste.example.com\n"
 	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -347,8 +347,8 @@ func TestLoadCLIConfig_ValidYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCLIConfig: %v", err)
 	}
-	if cfg.Server != "https://paste.example.com" {
-		t.Errorf("server = %q; want https://paste.example.com", cfg.Server)
+	if cfg.Server.Primary != "https://paste.example.com" {
+		t.Errorf("server = %q; want https://paste.example.com", cfg.Server.Primary)
 	}
 }
 
@@ -374,7 +374,7 @@ func TestSaveCLIConfig_CreatesFile(t *testing.T) {
 	t.Setenv("CLI_CONFIG", cfgFile)
 
 	cfg := cliConfig{}
-	cfg.Server = "https://paste.example.com"
+	cfg.Server.Primary = "https://paste.example.com"
 	if err := saveCLIConfig(cfg); err != nil {
 		t.Fatalf("saveCLIConfig: %v", err)
 	}

@@ -67,7 +67,9 @@ const (
 
 // cliConfig mirrors the complete structure of cli.yml (PART 32).
 type cliConfig struct {
-	Server string `yaml:"server"`
+	Server struct {
+		Primary string `yaml:"primary"`
+	} `yaml:"server"`
 	Update struct {
 		Auto          bool   `yaml:"auto"`
 		CheckInterval string `yaml:"check_interval"`
@@ -176,13 +178,15 @@ func saveCLIConfig(cfg cliConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, data, 0o644)
+	// cli.yml holds the API token as well as server connection config —
+	// create it with user-only permissions (PART 32).
+	return os.WriteFile(p, data, 0o600)
 }
 
-// saveIfEmptyOrInvalid updates dst with src when dst is empty or invalid, and
+// saveIfUnset updates dst with src when dst is empty or invalid, and
 // returns both the resolved value and whether it should be persisted.
 // Implements PART 32 Flag-to-Config Save Rules.
-func saveIfEmptyOrInvalid(current, flagValue string, validate func(string) bool) (resolved string, persist bool) {
+func saveIfUnset(current, flagValue string, validate func(string) bool) (resolved string, persist bool) {
 	if flagValue == "" {
 		return current, false
 	}
@@ -222,19 +226,27 @@ func detectMode(args []string) string {
 		return "plain"
 	}
 
-	// Config-only flags that still allow TUI launch.
+	// Config-only flags that still allow TUI launch (value: flag consumes the next arg).
 	configFlags := map[string]bool{
 		"--config": true, "--server": true, "--token": true, "--debug": true,
 		"--color": true, "--json": true, "--lang": true,
 	}
+	valueFlags := map[string]bool{
+		"--config": true, "--server": true, "--token": true,
+	}
 
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if !strings.HasPrefix(arg, "-") {
 			return "cli"
 		}
 		parts := strings.SplitN(arg, "=", 2)
 		if !configFlags[parts[0]] {
 			return "cli"
+		}
+		// Space syntax: skip the flag's value (--flag value).
+		if valueFlags[parts[0]] && !strings.Contains(arg, "=") && i+1 < len(args) {
+			i++
 		}
 	}
 
@@ -370,7 +382,7 @@ func main() {
 		log.Printf("warning: could not load cli.yml: %v", err)
 	}
 
-	server := flag.String("server", envOrDefault("PASTEBIN_SERVER", fileCfg.Server), "server base URL")
+	server := flag.String("server", envOrDefault("PASTEBIN_SERVER_PRIMARY", fileCfg.Server.Primary), "server base URL")
 	asJSON := flag.Bool("json", false, "machine-readable JSON output")
 	colorFlag := flag.String("color", "auto", "color output: auto, yes, no")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -379,8 +391,8 @@ func main() {
 	doUpdate := flag.String("update", "", "check for CLI updates: 'check' or 'yes'")
 	// PART 32: --lang sets the output/UI language; default auto-detects from the LANG env var.
 	langFlag := flag.String("lang", "auto", "output language code (default: auto-detect from LANG)")
-	// PART 32: operator/owner API token. Priority: --token flag → PASTEBIN_CLI_TOKEN env → cli.yml auth.token.
-	tokenFlag := flag.String("token", "", "operator/owner API token (or set PASTEBIN_CLI_TOKEN)")
+	// PART 32: operator/owner API token. Priority: --token flag → PASTEBIN_TOKEN env → cli.yml auth.token.
+	tokenFlag := flag.String("token", "", "operator/owner API token (or set PASTEBIN_TOKEN)")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -451,11 +463,11 @@ func main() {
 		return
 	}
 
-	// Apply SaveIfEmptyOrInvalid: persist server to cli.yml when config was empty.
+	// Apply saveIfUnset: persist server to cli.yml when config was empty or invalid.
 	// Use the current parsed value of --server as the flagValue.
-	resolved, shouldPersist := saveIfEmptyOrInvalid(fileCfg.Server, *server, isValidURL)
+	resolved, shouldPersist := saveIfUnset(fileCfg.Server.Primary, *server, isValidURL)
 	if shouldPersist && resolved != "" {
-		fileCfg.Server = resolved
+		fileCfg.Server.Primary = resolved
 		if err := saveCLIConfig(fileCfg); err != nil {
 			log.Printf("warning: could not save cli.yml: %v", err)
 		}
@@ -466,17 +478,17 @@ func main() {
 
 	*server = defaultServerURL(*server, OfficialSite)
 
-	// Resolve the API token (PART 32 priority): --token flag → PASTEBIN_CLI_TOKEN env → cli.yml auth.token.
+	// Resolve the API token (PART 32 priority): --token flag → PASTEBIN_TOKEN env → cli.yml auth.token.
 	// The env var never persists; the --token flag saves to cli.yml only when the stored token is empty/invalid.
 	token := *tokenFlag
 	if token == "" {
-		token = os.Getenv("PASTEBIN_CLI_TOKEN")
+		token = os.Getenv("PASTEBIN_TOKEN")
 	}
 	if token == "" {
 		token = fileCfg.Auth.Token
 	}
 	if *tokenFlag != "" {
-		if resolvedTok, persist := saveIfEmptyOrInvalid(fileCfg.Auth.Token, *tokenFlag, func(s string) bool { return s != "" }); persist && resolvedTok != "" {
+		if resolvedTok, persist := saveIfUnset(fileCfg.Auth.Token, *tokenFlag, func(s string) bool { return s != "" }); persist && resolvedTok != "" {
 			fileCfg.Auth.Token = resolvedTok
 			if err := saveCLIConfig(fileCfg); err != nil {
 				log.Printf("warning: could not save cli.yml: %v", err)
@@ -506,7 +518,7 @@ func main() {
 	}
 
 	if *server == "" {
-		fmt.Fprintf(os.Stderr, "%s: no server URL set — use --server <url> or set $PASTEBIN_SERVER\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "%s: no server URL set — use --server <url> or set $PASTEBIN_SERVER_PRIMARY\n", filepath.Base(os.Args[0]))
 		os.Exit(exitConnection)
 	}
 
@@ -547,7 +559,7 @@ func main() {
 // saveCLIConfigURL updates the server URL field in cli.yml.
 func saveCLIConfigURL(serverURL string) error {
 	cfg, _ := loadCLIConfig()
-	cfg.Server = serverURL
+	cfg.Server.Primary = serverURL
 	return saveCLIConfig(cfg)
 }
 
@@ -882,7 +894,7 @@ func (c *client) cmdList(args []string) {
 }
 
 // defaultServerURL falls back to the embedded OfficialSite (site.txt at build time)
-// when --server, $PASTEBIN_SERVER, and cli.yml are all unset. Never persisted to cli.yml.
+// when --server, $PASTEBIN_SERVER_PRIMARY, and cli.yml are all unset. Never persisted to cli.yml.
 func defaultServerURL(resolved, official string) string {
 	if resolved == "" {
 		return official
@@ -893,7 +905,7 @@ func defaultServerURL(resolved, official string) string {
 // cmdUpdate handles 'pastebin-cli --update check|yes'.
 func (c *client) cmdUpdate(action string) {
 	if c.server == "" {
-		fmt.Fprintf(os.Stderr, "%s: no server URL set — use --server <url> or set $PASTEBIN_SERVER\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "%s: no server URL set — use --server <url> or set $PASTEBIN_SERVER_PRIMARY\n", filepath.Base(os.Args[0]))
 		os.Exit(exitConnection)
 	}
 
@@ -1159,7 +1171,7 @@ LIST FLAGS
     --page <n>           Page number (default: 1)
 
 GLOBAL FLAGS
-    --server <url>       Server base URL (required; or set $PASTEBIN_SERVER)
+    --server <url>       Server base URL (required; or set $PASTEBIN_SERVER_PRIMARY)
     --json               Output machine-readable JSON
     --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
     --lang <code>        Output language (default: auto-detect from LANG)
@@ -1171,7 +1183,7 @@ GLOBAL FLAGS
     --shell --help               Show shell integration help
 
 EXAMPLES
-    PASTEBIN_SERVER=https://paste.example.com %s create --lang text < file.txt
+    PASTEBIN_SERVER_PRIMARY=https://paste.example.com %s create --lang text < file.txt
     %s --server https://paste.example.com create --lang go myfile.go
     %s --server https://paste.example.com get abc12345
     %s --server https://paste.example.com delete abc12345 <delete-token>

@@ -113,7 +113,7 @@ func TestSaveCLIConfig_RoundTrip(t *testing.T) {
 	t.Setenv("CLI_CONFIG", cfgFile)
 
 	original := cliConfig{}
-	original.Server = "https://paste.example.com"
+	original.Server.Primary = "https://paste.example.com"
 	original.Update.Channel = "beta"
 	original.Update.CheckInterval = "daily"
 	original.Display.Mode = "cli"
@@ -126,8 +126,8 @@ func TestSaveCLIConfig_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCLIConfig after save: %v", err)
 	}
-	if loaded.Server != original.Server {
-		t.Errorf("Server = %q; want %q", loaded.Server, original.Server)
+	if loaded.Server.Primary != original.Server.Primary {
+		t.Errorf("Server = %q; want %q", loaded.Server.Primary, original.Server.Primary)
 	}
 	if loaded.Update.Channel != original.Update.Channel {
 		t.Errorf("Channel = %q; want %q", loaded.Update.Channel, original.Update.Channel)

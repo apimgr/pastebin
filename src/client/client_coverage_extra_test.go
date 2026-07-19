@@ -466,11 +466,11 @@ func TestCLIConfigPath_LinuxWithoutXDG(t *testing.T) {
 	}
 }
 
-// ─── saveIfEmptyOrInvalid — additional edge cases ────────────────────────────
+// ─── saveIfUnset — additional edge cases ────────────────────────────
 
 func TestSaveIfEmptyOrInvalid_CurrentEmptyFlagEmpty(t *testing.T) {
 	valid := func(s string) bool { return s != "" }
-	resolved, persist := saveIfEmptyOrInvalid("", "", valid)
+	resolved, persist := saveIfUnset("", "", valid)
 	if resolved != "" {
 		t.Errorf("resolved = %q; want empty", resolved)
 	}

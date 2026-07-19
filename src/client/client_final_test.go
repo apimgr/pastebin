@@ -195,7 +195,7 @@ func TestCLIConfig_AllFieldsSerialized(t *testing.T) {
 	t.Setenv("CLI_CONFIG", cfgFile)
 
 	cfg := cliConfig{}
-	cfg.Server = "https://test.example.com"
+	cfg.Server.Primary = "https://test.example.com"
 	cfg.Update.Auto = true
 	cfg.Update.CheckInterval = "daily"
 	cfg.Update.Channel = "beta"
@@ -236,7 +236,7 @@ func TestCLIConfig_AllFieldsSerialized(t *testing.T) {
 	}
 
 	// Verify all fields
-	if loaded.Server != cfg.Server {
+	if loaded.Server.Primary != cfg.Server.Primary {
 		t.Errorf("Server mismatch")
 	}
 	if loaded.Update.Auto != cfg.Update.Auto {
@@ -431,7 +431,7 @@ func TestIsValidURL_Table(t *testing.T) {
 	}
 }
 
-// ─── saveIfEmptyOrInvalid — comprehensive coverage ───────────────────────────
+// ─── saveIfUnset — comprehensive coverage ───────────────────────────
 
 func TestSaveIfEmptyOrInvalid_Table(t *testing.T) {
 	valid := func(s string) bool { return strings.HasPrefix(s, "http") }
@@ -453,7 +453,7 @@ func TestSaveIfEmptyOrInvalid_Table(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolved, persist := saveIfEmptyOrInvalid(tc.current, tc.flagValue, valid)
+			resolved, persist := saveIfUnset(tc.current, tc.flagValue, valid)
 			if resolved != tc.wantResolved {
 				t.Errorf("resolved = %q; want %q", resolved, tc.wantResolved)
 			}
