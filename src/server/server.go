@@ -686,7 +686,11 @@ func (s *Server) OnConfigChange(next *config.Config) {
 		s.healthLimiter.UpdateLimit(next.RateLimit.Health.Requests)
 	}
 
-	// Detect restart-required changes and record them for healthz.
+	// Detect restart-required changes and record them for healthz. Settings
+	// are prefix-matched per AI.md restartRequiredSettings: "server.port",
+	// "server.address", "server.daemonize" are exact-match; "ssl.", "database.",
+	// "tor." cover their whole section. logging.* file/format and
+	// server.baseurl / server.timeouts.* are also restart-required.
 	prev := s.liveCfg()
 	if prev.Server.Port != next.Server.Port {
 		s.MarkPendingRestart("server.port")
@@ -694,17 +698,79 @@ func (s *Server) OnConfigChange(next *config.Config) {
 	if prev.Server.Address != next.Server.Address {
 		s.MarkPendingRestart("server.address")
 	}
+	if prev.Server.Daemonize != next.Server.Daemonize {
+		s.MarkPendingRestart("server.daemonize")
+	}
 	if prev.Database.Type != next.Database.Type || prev.Database.Path != next.Database.Path {
 		s.MarkPendingRestart("database")
 	}
 	if prev.Server.Tor.Binary != next.Server.Tor.Binary ||
-		prev.Server.Tor.VirtualPort != next.Server.Tor.VirtualPort {
-		s.MarkPendingRestart("server.tor")
+		prev.Server.Tor.VirtualPort != next.Server.Tor.VirtualPort ||
+		prev.Server.Tor.CircuitTimeout != next.Server.Tor.CircuitTimeout ||
+		prev.Server.Tor.BootstrapTimeout != next.Server.Tor.BootstrapTimeout {
+		s.MarkPendingRestart("tor")
 	}
 	if prev.Server.TLS.Enabled != next.Server.TLS.Enabled ||
-		prev.Server.TLS.LetsEncrypt.Email != next.Server.TLS.LetsEncrypt.Email {
-		s.MarkPendingRestart("server.ssl")
+		prev.Server.TLS.Cert != next.Server.TLS.Cert ||
+		prev.Server.TLS.Key != next.Server.TLS.Key ||
+		prev.Server.TLS.MinVersion != next.Server.TLS.MinVersion ||
+		prev.Server.TLS.LetsEncrypt.Email != next.Server.TLS.LetsEncrypt.Email ||
+		prev.Server.TLS.LetsEncrypt.Enabled != next.Server.TLS.LetsEncrypt.Enabled ||
+		prev.Server.TLS.LetsEncrypt.Challenge != next.Server.TLS.LetsEncrypt.Challenge ||
+		prev.Server.TLS.LetsEncrypt.Staging != next.Server.TLS.LetsEncrypt.Staging ||
+		prev.Server.TLS.DNSProvider != next.Server.TLS.DNSProvider ||
+		prev.Server.TLS.DNSCredentialsEncrypted != next.Server.TLS.DNSCredentialsEncrypted {
+		s.MarkPendingRestart("ssl")
 	}
+	if prev.Server.BaseURL != next.Server.BaseURL {
+		s.MarkPendingRestart("server.baseurl")
+	}
+	if prev.Server.Limits.ReadTimeout != next.Server.Limits.ReadTimeout ||
+		prev.Server.Limits.WriteTimeout != next.Server.Limits.WriteTimeout ||
+		prev.Server.Limits.IdleTimeout != next.Server.Limits.IdleTimeout {
+		s.MarkPendingRestart("server.timeouts")
+	}
+	if loggingFileOrFormatChanged(prev.Server.Logging, next.Server.Logging) {
+		s.MarkPendingRestart("logging")
+	}
+}
+
+// loggingFileOrFormatChanged reports whether any server.logs.* file path,
+// format, or rotation setting changed. server.logs.level is intentionally
+// excluded — it is hot-reloadable (AI.md "Requires Restart": logging.* file
+// paths/format require the log files to be closed and reopened, but the
+// level does not).
+func loggingFileOrFormatChanged(prev, next config.LoggingConfig) bool {
+	if prev.Access != next.Access {
+		return true
+	}
+	if prev.Server != next.Server {
+		return true
+	}
+	if prev.Error != next.Error {
+		return true
+	}
+	if prev.App != next.App {
+		return true
+	}
+	if prev.Auth != next.Auth {
+		return true
+	}
+	if prev.Security != next.Security {
+		return true
+	}
+	if prev.Debug != next.Debug {
+		return true
+	}
+	if prev.Audit.Enabled != next.Audit.Enabled ||
+		prev.Audit.Filename != next.Audit.Filename ||
+		prev.Audit.Format != next.Audit.Format ||
+		prev.Audit.Rotate != next.Audit.Rotate ||
+		prev.Audit.Keep != next.Audit.Keep ||
+		prev.Audit.Compress != next.Audit.Compress {
+		return true
+	}
+	return false
 }
 
 // GeoIPEnabled returns true when the GeoIP database was successfully opened.

@@ -3547,6 +3547,94 @@ func TestOnConfigChangeTLSRestart(t *testing.T) {
 	}
 }
 
+// TestOnConfigChangeRestartPrefixMatch exercises the remaining restart-required
+// categories added per AI.md's restartRequiredSettings prefix table:
+// server.daemonize, server.baseurl, server.timeouts.* (Limits), and
+// logging.* (file/format), plus that logging.level alone stays hot-reloadable.
+func TestOnConfigChangeRestartPrefixMatch(t *testing.T) {
+	markedContains := func(t *testing.T, s *Server, want string) bool {
+		t.Helper()
+		s.pendingRestartMu.Lock()
+		keys := s.pendingRestartKeys
+		s.pendingRestartMu.Unlock()
+		for _, k := range keys {
+			if strings.Contains(k, want) {
+				return true
+			}
+		}
+		t.Errorf("expected a pending-restart key containing %q, got %v", want, keys)
+		return false
+	}
+
+	t.Run("daemonize change marks restart", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Server.Daemonize = false
+		s := newMinimalServer(cfg)
+		next := config.DefaultConfig()
+		next.Server.Daemonize = true
+		s.OnConfigChange(next)
+		markedContains(t, s, "daemonize")
+	})
+
+	t.Run("baseurl change marks restart", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Server.BaseURL = ""
+		s := newMinimalServer(cfg)
+		next := config.DefaultConfig()
+		next.Server.BaseURL = "/paste"
+		s.OnConfigChange(next)
+		markedContains(t, s, "baseurl")
+	})
+
+	t.Run("timeout change marks restart", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Server.Limits.ReadTimeout = "30s"
+		s := newMinimalServer(cfg)
+		next := config.DefaultConfig()
+		next.Server.Limits.ReadTimeout = "60s"
+		s.OnConfigChange(next)
+		markedContains(t, s, "timeouts")
+	})
+
+	t.Run("logging filename change marks restart", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Server.Logging.Access.Filename = "access.log"
+		s := newMinimalServer(cfg)
+		next := config.DefaultConfig()
+		next.Server.Logging.Access.Filename = "access2.log"
+		s.OnConfigChange(next)
+		markedContains(t, s, "logging")
+	})
+
+	t.Run("logging level change alone stays hot-reload", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Server.Logging.Level = "info"
+		s := newMinimalServer(cfg)
+		next := config.DefaultConfig()
+		next.Server.Logging.Level = "debug"
+		s.OnConfigChange(next)
+
+		s.pendingRestartMu.Lock()
+		keys := s.pendingRestartKeys
+		s.pendingRestartMu.Unlock()
+		for _, k := range keys {
+			if strings.Contains(k, "logging") {
+				t.Errorf("logging.level alone should not mark restart, got keys: %v", keys)
+			}
+		}
+	})
+
+	t.Run("tor circuit timeout change marks restart", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Server.Tor.CircuitTimeout = 30
+		s := newMinimalServer(cfg)
+		next := config.DefaultConfig()
+		next.Server.Tor.CircuitTimeout = 60
+		s.OnConfigChange(next)
+		markedContains(t, s, "tor")
+	})
+}
+
 // TestHandleWebCreate exercises the no-JS web create flow: a urlencoded POST
 // renders the result (including the one-time owner token) server-side, an empty
 // body renders the error, and a JSON request is delegated to the API handler.
