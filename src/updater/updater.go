@@ -4,6 +4,7 @@ package updater
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -150,14 +151,22 @@ func DoUpdate(ctx context.Context, release *Release) error {
 	}
 	defer resp.Body.Close()
 
-	h := sha256.New()
 	// 256 MiB cap
 	lr := io.LimitReader(resp.Body, 256<<20)
-	if _, err := io.Copy(io.MultiWriter(tmpFile, h), lr); err != nil {
+	if _, err := io.Copy(tmpFile, lr); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("writing download: %w", err)
 	}
 	tmpFile.Close()
+
+	// Verify SHA256 checksum against the release's checksums.txt (MANDATORY)
+	expectedHash, err := fetchExpectedChecksum(ctx, client, release, assetName)
+	if err != nil {
+		return fmt.Errorf("failed to fetch checksum: %w", err)
+	}
+	if err := verifyChecksum(tmpPath, expectedHash); err != nil {
+		return err
+	}
 
 	// Set executable bit (Unix).
 	if runtime.GOOS != "windows" {
@@ -166,36 +175,26 @@ func DoUpdate(ctx context.Context, release *Release) error {
 		}
 	}
 
-	// Look for a matching checksum asset (e.g. pastebin-linux-amd64.sha256).
-	checksumAsset := assetName + ".sha256"
-	var expectedHash string
-	for _, a := range release.Assets {
-		if a.Name == checksumAsset {
-			expectedHash, err = fetchChecksum(ctx, client, a.BrowserDownloadURL, assetName)
-			if err != nil {
-				return fmt.Errorf("fetching checksum: %w", err)
-			}
-			break
-		}
-	}
-	// Fail closed: every published release MUST ship a SHA-256 checksum.
-	// Refusing an unverified binary prevents installing a tampered or
-	// MITM-substituted download.
-	if expectedHash == "" {
-		return fmt.Errorf("no SHA-256 checksum published for %s; refusing to install unverified update", assetName)
-	}
-	actualHash := hex.EncodeToString(h.Sum(nil))
-	if actualHash != expectedHash {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
-	}
-
 	return replaceBinary(currentPath, tmpPath)
 }
 
-// fetchChecksum retrieves the checksum file and extracts the hash for
-// the named asset.  Checksum files may be in "hash  filename" format.
-func fetchChecksum(ctx context.Context, client *http.Client, url, assetName string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// fetchExpectedChecksum downloads the release's checksums.txt asset and
+// returns the SHA256 hash recorded for assetName. Every published release
+// MUST ship a checksums.txt — refusing an unverified binary prevents
+// installing a tampered or MITM-substituted download (fail closed).
+func fetchExpectedChecksum(ctx context.Context, client *http.Client, release *Release, assetName string) (string, error) {
+	var checksumsURL string
+	for _, a := range release.Assets {
+		if a.Name == "checksums.txt" {
+			checksumsURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if checksumsURL == "" {
+		return "", fmt.Errorf("release has no checksums.txt asset; refusing to install unverified update")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumsURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -204,23 +203,43 @@ func fetchChecksum(ctx context.Context, client *http.Client, url, assetName stri
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksum download failed: %d", resp.StatusCode)
+	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return "", err
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		parts := strings.Fields(line)
-		if len(parts) == 2 && parts[1] == assetName {
-			return parts[0], nil
+	// Each line is "{sha256}  {filename}" (sha256sum output format).
+	for _, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[1] == assetName {
+			return fields[0], nil
 		}
 	}
-	// Single-hash file.
-	trimmed := strings.TrimSpace(string(data))
-	if len(trimmed) == 64 {
-		return trimmed, nil
+	return "", fmt.Errorf("no checksum entry for %s in checksums.txt; refusing to install unverified update", assetName)
+}
+
+// verifyChecksum computes the SHA256 of the file at path and compares it
+// (constant-time) to expectedHash (hex-encoded).
+func verifyChecksum(path, expectedHash string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
 	}
-	return "", nil
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+
+	actualHash := hex.EncodeToString(h.Sum(nil))
+	if subtle.ConstantTimeCompare([]byte(actualHash), []byte(expectedHash)) != 1 {
+		return fmt.Errorf("checksum mismatch: downloaded binary failed verification")
+	}
+	return nil
 }
 
 // binaryAssetName returns the expected GitHub release asset name for the

@@ -212,7 +212,7 @@ func printStartupBannerFull(cfg BannerConfig, size terminal.TerminalSize) {
 	fmt.Println(colorize("╭"+line+"╮", "36"))
 	row(fmt.Sprintf("  🚀 %s · 📦 %s", cfg.AppName, cfg.Version))
 	sep()
-	row(fmt.Sprintf("  %s Running in mode: %s%s", modeIcon(cfg.AppMode), cfg.AppMode, modeSuffix(cfg.Debug)))
+	row(fmt.Sprintf("  %s %s: %s%s", modeIcon(cfg.AppMode), modeLabel(cfg.Lang), cfg.AppMode, modeSuffix(cfg.Debug)))
 
 	if urls := bannerURLs(cfg); len(urls) > 0 {
 		sep()

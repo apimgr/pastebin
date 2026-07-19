@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,6 +103,12 @@ type ServerConfig struct {
 	// by default; when set it drives the tracking script and third-party
 	// auto-population on the privacy page.
 	Tracking TrackingConfig `yaml:"tracking"`
+	// Cors controls cross-origin resource sharing (PART 16). Moved from the
+	// legacy web.cors / web.security.cors single-string field.
+	Cors CORSConfig `yaml:"cors"`
+	// Healthz controls the optional root-level /healthz alias (PART 13). Moved
+	// from the legacy web.healthz location.
+	Healthz HealthzConfig `yaml:"healthz"`
 }
 
 // ContactConfig is the unified notification-recipient tree (PART 12). Each role
@@ -589,15 +596,29 @@ type MetricsConfig struct {
 // server/error/debug: text/json, app: logfmt/json, auth: syslog/json,
 // security: fail2ban/syslog/cef/json/text, audit: json only).
 type LoggingConfig struct {
-	Level    string         `yaml:"level"`
-	Access   LogFileConfig  `yaml:"access"`
-	Server   LogFileConfig  `yaml:"server"`
-	Error    LogFileConfig  `yaml:"error"`
-	App      LogFileConfig  `yaml:"app"`
-	Auth     LogFileConfig  `yaml:"auth"`
-	Audit    AuditConfig    `yaml:"audit"`
-	Security LogFileConfig  `yaml:"security"`
-	Debug    DebugLogConfig `yaml:"debug"`
+	Level    string          `yaml:"level"`
+	Access   AccessLogConfig `yaml:"access"`
+	Server   LogFileConfig   `yaml:"server"`
+	Error    LogFileConfig   `yaml:"error"`
+	App      LogFileConfig   `yaml:"app"`
+	Auth     LogFileConfig   `yaml:"auth"`
+	Audit    AuditConfig     `yaml:"audit"`
+	Security LogFileConfig   `yaml:"security"`
+	Debug    DebugLogConfig  `yaml:"debug"`
+}
+
+// AccessLogConfig configures access.log (server.logs.access). LogHealthChecks
+// controls whether successful (2xx) health-check requests are written to
+// access.log; failures are always logged regardless of this setting, and all
+// health-check requests are logged when debug mode is enabled (AI.md
+// "Health-Check Log Suppression").
+type AccessLogConfig struct {
+	Filename        string `yaml:"filename"`
+	Format          string `yaml:"format"`
+	Custom          string `yaml:"custom"`
+	Rotate          string `yaml:"rotate"`
+	Keep            string `yaml:"keep"`
+	LogHealthChecks bool   `yaml:"log_health_checks"`
 }
 
 // LogFileConfig configures one server-owned log file (server.logs.*).
@@ -692,8 +713,6 @@ type WebConfig struct {
 	Headers HeadersConfig `yaml:"headers"`
 	// CSRF controls double-submit cookie CSRF protection (PART 16).
 	CSRF CSRFConfig `yaml:"csrf"`
-	// Healthz controls the optional root-level /healthz alias.
-	Healthz HealthzConfig `yaml:"healthz"`
 	// Footer controls operator footer branding (PART 16).
 	Footer FooterConfig `yaml:"footer"`
 }
@@ -716,6 +735,20 @@ type HealthzConfig struct {
 	Root struct {
 		Enabled bool `yaml:"enabled"`
 	} `yaml:"root"`
+}
+
+// CORSConfig controls cross-origin resource sharing (PART 16 → CORS).
+// Lives at server.cors (moved from the legacy web.cors / web.security.cors
+// single-string field).
+type CORSConfig struct {
+	// AllowedOrigins lists allowed origins. ["*"] allows all (credentials NOT
+	// allowed); [""] disables CORS headers entirely (same-origin only).
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	// AllowCredentials sets Access-Control-Allow-Credentials. Only honored
+	// when AllowedOrigins is not a bare "*" wildcard.
+	AllowCredentials bool `yaml:"allow_credentials"`
+	// MaxAge is the Access-Control-Max-Age preflight cache duration in seconds.
+	MaxAge int `yaml:"max_age"`
 }
 
 // HeadersConfig controls which advanced security headers the server emits (PART 11).
@@ -802,7 +835,6 @@ type RobotsConfig struct {
 // The security contact recipient is NOT stored here — it is the canonical
 // server.contact.security.email (PART 12 → "Canonical Contact Keys Only").
 type SecurityConfig struct {
-	CORS string `yaml:"cors"`
 	// ReportURL is the primary security.txt Contact line — the repository's
 	// GitHub private vulnerability reporting URL, listed FIRST per RFC 9116
 	// preference order (PART 11). Empty → derived from the repo owner/name as
@@ -899,6 +931,8 @@ type BrandingConfig struct {
 	Title       string         `yaml:"title"`
 	Tagline     string         `yaml:"tagline"`
 	Description string         `yaml:"description"`
+	Favicon     string         `yaml:"favicon"`
+	Logo        string         `yaml:"logo"`
 	Features    []string       `yaml:"features"`
 	Links       []BrandingLink `yaml:"links"`
 }
@@ -979,7 +1013,34 @@ func (b BrandingConfig) EffectiveLinks() []BrandingLink {
 
 // SEOConfig holds search-engine metadata (PART 12/16).
 type SEOConfig struct {
-	Keywords []string `yaml:"keywords"`
+	Keywords      []string              `yaml:"keywords"`
+	Author        string                `yaml:"author"`
+	OGImage       string                `yaml:"og_image"`
+	TwitterHandle string                `yaml:"twitter_handle"`
+	Verification  SEOVerificationConfig `yaml:"verification"`
+}
+
+// SEOVerificationConfig holds search-engine and social-platform site-verification
+// codes rendered as <meta> tags on the homepage (PART 16 "Site Verification").
+// Each provider field is optional; a tag is rendered only when its value is
+// non-empty and passes the provider's format/length validation.
+type SEOVerificationConfig struct {
+	Google    string                     `yaml:"google"`
+	Bing      string                     `yaml:"bing"`
+	Yandex    string                     `yaml:"yandex"`
+	Baidu     string                     `yaml:"baidu"`
+	Pinterest string                     `yaml:"pinterest"`
+	Facebook  string                     `yaml:"facebook"`
+	Custom    []SEOCustomVerificationTag `yaml:"custom"`
+}
+
+// SEOCustomVerificationTag is an operator-supplied <meta> verification tag not
+// covered by a named provider. Exactly one of Name/Property must be set; both
+// map directly to the corresponding HTML attribute on the rendered <meta> tag.
+type SEOCustomVerificationTag struct {
+	Name     string `yaml:"name,omitempty"`
+	Property string `yaml:"property,omitempty"`
+	Content  string `yaml:"content"`
 }
 
 // BackupConfig holds backup, encryption, compliance, and retention settings (PART 21).
@@ -1123,6 +1184,12 @@ func DefaultConfig() *Config {
 				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 				AllowedIPs:      []string{},
 			},
+			Cors: CORSConfig{
+				AllowedOrigins:   []string{"*"},
+				AllowCredentials: true,
+				MaxAge:           86400,
+			},
+			Healthz: HealthzConfig{},
 			GeoIP: GeoIPConfig{
 				Enabled: true,
 				// resolved at startup to {data_dir}/security/geoip
@@ -1156,12 +1223,13 @@ func DefaultConfig() *Config {
 			},
 			Logging: LoggingConfig{
 				Level: "info",
-				Access: LogFileConfig{
-					Filename: "access.log",
-					Format:   "apache",
-					Custom:   "",
-					Rotate:   "monthly",
-					Keep:     "none",
+				Access: AccessLogConfig{
+					Filename:        "access.log",
+					Format:          "apache",
+					Custom:          "",
+					Rotate:          "monthly",
+					Keep:            "none",
+					LogHealthChecks: false,
 				},
 				Server: LogFileConfig{
 					Filename: "server.log",
@@ -1427,7 +1495,6 @@ func DefaultConfig() *Config {
 				Deny:  []string{},
 			},
 			Security: SecurityConfig{
-				CORS: "*",
 				// auto-generated on first run
 				EncryptionKey: "",
 				Blocklists: BlocklistsConfig{
@@ -2224,8 +2291,25 @@ func Validate(cfg *Config) {
 
 	// Per-file log settings: blank filename/format/rotate/keep fall back to
 	// the defaults; unknown formats warn and default (never fail startup).
-	validateLogFile("logs.access", &cfg.Server.Logging.Access, d.Server.Logging.Access,
-		"apache", "nginx", "json", "custom")
+	accessAsFile := LogFileConfig{
+		Filename: cfg.Server.Logging.Access.Filename,
+		Format:   cfg.Server.Logging.Access.Format,
+		Custom:   cfg.Server.Logging.Access.Custom,
+		Rotate:   cfg.Server.Logging.Access.Rotate,
+		Keep:     cfg.Server.Logging.Access.Keep,
+	}
+	validateLogFile("logs.access", &accessAsFile, LogFileConfig{
+		Filename: d.Server.Logging.Access.Filename,
+		Format:   d.Server.Logging.Access.Format,
+		Custom:   d.Server.Logging.Access.Custom,
+		Rotate:   d.Server.Logging.Access.Rotate,
+		Keep:     d.Server.Logging.Access.Keep,
+	}, "apache", "nginx", "json", "custom")
+	cfg.Server.Logging.Access.Filename = accessAsFile.Filename
+	cfg.Server.Logging.Access.Format = accessAsFile.Format
+	cfg.Server.Logging.Access.Custom = accessAsFile.Custom
+	cfg.Server.Logging.Access.Rotate = accessAsFile.Rotate
+	cfg.Server.Logging.Access.Keep = accessAsFile.Keep
 	validateLogFile("logs.server", &cfg.Server.Logging.Server, d.Server.Logging.Server,
 		"text", "json")
 	validateLogFile("logs.error", &cfg.Server.Logging.Error, d.Server.Logging.Error,
@@ -2593,7 +2677,9 @@ func (m *ConfigManager) applyHotSettings(prev, next *Config) {
 		prev.RateLimit.GlobalBurst != next.RateLimit.GlobalBurst {
 		log.Printf("[config] hot-reload: rate_limit settings updated")
 	}
-	if prev.Web.Security.CORS != next.Web.Security.CORS {
+	if !slices.Equal(prev.Server.Cors.AllowedOrigins, next.Server.Cors.AllowedOrigins) ||
+		prev.Server.Cors.AllowCredentials != next.Server.Cors.AllowCredentials ||
+		prev.Server.Cors.MaxAge != next.Server.Cors.MaxAge {
 		log.Printf("[config] hot-reload: cors policy updated")
 	}
 	if prev.Web.SiteTitle != next.Web.SiteTitle || prev.Web.Theme != next.Web.Theme {

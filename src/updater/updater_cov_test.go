@@ -1,5 +1,5 @@
 // Package updater — additional coverage tests targeting uncovered branches in
-// CheckForUpdate, CheckForUpdateURL, binaryAssetName, fetchChecksum, and DoUpdate.
+// CheckForUpdate, CheckForUpdateURL, binaryAssetName, fetchExpectedChecksum, and DoUpdate.
 package updater
 
 import (
@@ -155,11 +155,11 @@ func TestBinaryAssetName_Format(t *testing.T) {
 	}
 }
 
-// ─── fetchChecksum error paths ────────────────────────────────────────────────
+// ─── fetchExpectedChecksum error paths ─────────────────────────────────────────
 
-// TestFetchChecksum_HTTPError covers the client.Do error branch by pointing at
-// a server that immediately closes the connection.
-func TestFetchChecksum_HTTPError(t *testing.T) {
+// TestFetchExpectedChecksum_HTTPError covers the client.Do error branch by
+// pointing at a server that immediately closes the connection.
+func TestFetchExpectedChecksum_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
@@ -172,15 +172,16 @@ func TestFetchChecksum_HTTPError(t *testing.T) {
 	defer srv.Close()
 
 	client := &http.Client{}
-	_, err := fetchChecksum(context.Background(), client, srv.URL, "pastebin-linux-amd64")
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: srv.URL}}}
+	_, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
 	if err == nil {
 		t.Fatal("expected error when connection is forcibly closed, got nil")
 	}
 }
 
-// TestFetchChecksum_CancelledContext covers the request-build-then-fail path
-// when the context is already cancelled.
-func TestFetchChecksum_CancelledContext(t *testing.T) {
+// TestFetchExpectedChecksum_CancelledContext covers the request-build-then-fail
+// path when the context is already cancelled.
+func TestFetchExpectedChecksum_CancelledContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -190,26 +191,28 @@ func TestFetchChecksum_CancelledContext(t *testing.T) {
 	cancel()
 
 	client := &http.Client{}
-	_, err := fetchChecksum(ctx, client, srv.URL, "pastebin-linux-amd64")
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: srv.URL}}}
+	_, err := fetchExpectedChecksum(ctx, client, rel, "pastebin-linux-amd64")
 	if err == nil {
 		t.Fatal("expected error with cancelled context, got nil")
 	}
 }
 
-// TestFetchChecksum_BadURL covers the http.NewRequestWithContext error branch
-// by passing an unparseable URL.
-func TestFetchChecksum_BadURL(t *testing.T) {
+// TestFetchExpectedChecksum_BadURL covers the http.NewRequestWithContext error
+// branch by passing an unparseable checksums.txt URL.
+func TestFetchExpectedChecksum_BadURL(t *testing.T) {
 	client := &http.Client{}
-	_, err := fetchChecksum(context.Background(), client, "://bad", "pastebin-linux-amd64")
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: "://bad"}}}
+	_, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
 	if err == nil {
 		t.Fatal("expected error for malformed URL, got nil")
 	}
 }
 
-// TestFetchChecksum_MultipleEntriesMatchFirst verifies that when a checksum
-// file has multiple entries the one matching assetName is returned, not the
-// others.
-func TestFetchChecksum_MultipleEntriesMatchFirst(t *testing.T) {
+// TestFetchExpectedChecksum_MultipleEntriesMatchFirst verifies that when a
+// checksums.txt file has multiple entries the one matching assetName is
+// returned, not the others.
+func TestFetchExpectedChecksum_MultipleEntriesMatchFirst(t *testing.T) {
 	const want = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 	body := "other000000000000000000000000000000000000000000000000000  other-bin\n" +
 		want + "  pastebin-linux-amd64\n"
@@ -219,30 +222,29 @@ func TestFetchChecksum_MultipleEntriesMatchFirst(t *testing.T) {
 	defer srv.Close()
 
 	client := &http.Client{}
-	got, err := fetchChecksum(context.Background(), client, srv.URL, "pastebin-linux-amd64")
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: srv.URL}}}
+	got, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != want {
-		t.Errorf("fetchChecksum = %q; want %q", got, want)
+		t.Errorf("fetchExpectedChecksum = %q; want %q", got, want)
 	}
 }
 
-// TestFetchChecksum_ShortHash covers the branch where the trimmed content is
-// not exactly 64 chars (too short), returning empty string without error.
-func TestFetchChecksum_ShortHash(t *testing.T) {
+// TestFetchExpectedChecksum_UnexpectedStatusCode covers the non-200 status
+// branch when fetching checksums.txt.
+func TestFetchExpectedChecksum_UnexpectedStatusCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("tooshort"))
+		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
 	client := &http.Client{}
-	got, err := fetchChecksum(context.Background(), client, srv.URL, "pastebin-linux-amd64")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "" {
-		t.Errorf("expected empty hash for short content, got %q", got)
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: srv.URL}}}
+	_, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
+	if err == nil {
+		t.Fatal("expected error for 503, got nil")
 	}
 }
 

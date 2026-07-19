@@ -407,6 +407,11 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	}
 	s.stats.lastHour = time.Now().Hour()
 
+	// Validate configured SEO site-verification codes/custom tags at startup and
+	// log (never abort) on invalid format — invalid entries are simply never
+	// rendered (PART 16 "Server validates codes on startup and logs errors").
+	logSEOVerificationErrors(cfg.Server.SEO.Verification)
+
 	// Webhook dispatcher for outbound role notifications (PART 17).
 	s.notifier = notify.New(notify.Meta{
 		ProjectName:    "pastebin",
@@ -889,7 +894,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/server/security/report/{tracking_id}", s.handleSecurityReportStatus)
 	r.Get("/server/healthz", s.maybeHealthRateLimit(s.handleHealthz))
 	// /healthz root alias — only when server.healthz.root.enabled: true (PART 13).
-	if s.liveCfg().Web.Healthz.Root.Enabled {
+	if s.liveCfg().Server.Healthz.Root.Enabled {
 		r.Get("/healthz", s.maybeHealthRateLimit(s.handleHealthz))
 	}
 	// PWA offline fallback page — referenced by service worker cache
@@ -1147,51 +1152,127 @@ func (s *Server) txtExtensionMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// corsAllowedHeaders is the full set of headers PART 16 requires the
+// Access-Control-Allow-Headers response to name explicitly.  A wildcard is
+// never used here: it does not cover Authorization and is invalid whenever
+// credentials are allowed, so every supported auth header must be listed by
+// name (PART 8 "Auth Token Headers (All Headers Supported)").
+const corsAllowedHeaders = "Content-Type, Accept, X-Requested-With, Authorization, X-API-Key, X-Api-Key, API-Key, ApiKey, X-Auth-Token, X-Access-Token, X-Token, Token, X-CSRF-Token, X-XSRF-Token, X-Session-ID, X-Service-Token, X-Internal-Token"
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		corsOrigin := s.resolveCORSOrigin(r)
-		w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Delete-Token, X-Title, X-Language, X-Expires-In")
+		origin, allowCredentials, disabled := s.resolveCORSOrigin(r)
+		if !disabled {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", corsAllowedHeaders)
+			// Credentials are only ever advertised for a specific resolved
+			// origin — never alongside "*" (PART 16 CORS behavior table).
+			if allowCredentials && origin != "*" {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+			w.Header().Set("Access-Control-Max-Age", strconv.Itoa(s.liveCfg().Server.Cors.MaxAge))
+		}
 		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
+// resolveCORSAllowList resolves the effective CORS allow-list per PART 16's
+// resolution order:
+//  1. Explicit config (server.cors.allowed_origins). A single "" entry
+//     disables CORS headers entirely and stops resolution.
+//  2. DOMAIN env entries (comma-separated; first is primary for FQDN
+//     purposes, but every hostname becomes an allowed https:// origin here).
+//  3. Reverse-proxy-learned hosts (X-Forwarded-Host observed from trusted
+//     proxies only — see domainLearner, gated by isTrustedPeer).
+//  4. Default: ["*"] (credentials never allowed with this fallback).
+func (s *Server) resolveCORSAllowList() (list []string, disabled bool) {
+	cfg := s.liveCfg().Server.Cors
+	if len(cfg.AllowedOrigins) == 1 && cfg.AllowedOrigins[0] == "" {
+		return nil, true
+	}
+	if len(cfg.AllowedOrigins) > 0 {
+		return cfg.AllowedOrigins, false
+	}
+
+	var resolved []string
+	if v := os.Getenv("DOMAIN"); v != "" {
+		for _, h := range strings.Split(v, ",") {
+			h = strings.TrimSpace(h)
+			if h != "" {
+				resolved = append(resolved, "https://"+h)
+			}
+		}
+	}
+	if s.domainLearner != nil {
+		resolved = append(resolved, s.domainLearner.CORSOrigins()...)
+	}
+	if len(resolved) == 0 {
+		return []string{"*"}, false
+	}
+	return resolved, false
+}
+
+// corsOriginMatches reports whether a resolved allow-list entry matches an
+// actual request Origin. Entries in the scheme://*.base form (as produced by
+// domainLearner.CORSOrigins) match the base host and any subdomain of it;
+// all other entries must match exactly.
+func corsOriginMatches(allowed, origin string) bool {
+	if allowed == origin {
+		return true
+	}
+	scheme, wildcardHost, ok := strings.Cut(allowed, "://*.")
+	if !ok {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == scheme && (u.Hostname() == wildcardHost || strings.HasSuffix(u.Hostname(), "."+wildcardHost))
+}
+
 // resolveCORSOrigin returns the Access-Control-Allow-Origin value for the
-// request.  When the operator has set a value it is used unchanged.  When the
-// domain learner has a base domain the request Origin is reflected only when
-// it matches (exact hostname or subdomain) so no wildcard with a scheme+host
-// is ever emitted from untrusted input (PART 12 url_detection).
-func (s *Server) resolveCORSOrigin(r *http.Request) string {
+// request, whether Access-Control-Allow-Credentials should be sent, and
+// whether CORS headers should be suppressed entirely (operator disabled CORS
+// via a single "" allowed_origins entry).
+func (s *Server) resolveCORSOrigin(r *http.Request) (origin string, allowCredentials bool, disabled bool) {
 	// Tor requests always answer with the onion origin — the onion address is
 	// auto-added to the CORS allow-list and the clearnet/operator-configured
 	// origin must NOT appear in Tor response headers (PART 12 Tor privacy).
 	if onion := s.torRequestOnion(r); onion != "" {
-		return "http://" + onion
+		return "http://" + onion, false, false
 	}
-	if cfg := s.liveCfg().Web.Security.CORS; cfg != "" {
-		return cfg
+
+	list, disabled := s.resolveCORSAllowList()
+	if disabled {
+		return "", false, true
 	}
-	// No operator-configured value: try to reflect a matching Origin.
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return "*"
-	}
-	if s.domainLearner != nil {
-		if base := s.domainLearner.BaseDomain(); base != "" {
-			if u, err := url.Parse(origin); err == nil {
-				h := u.Hostname()
-				if h == base || strings.HasSuffix(h, "."+base) {
-					return origin
-				}
-			}
+	for _, allowed := range list {
+		if allowed == "*" {
+			return "*", false, false
 		}
 	}
-	return "*"
+
+	reqOrigin := r.Header.Get("Origin")
+	if reqOrigin == "" {
+		// Non-browser / same-origin request: expose the first configured
+		// origin as a stable value.
+		return list[0], false, false
+	}
+	for _, allowed := range list {
+		if corsOriginMatches(allowed, reqOrigin) {
+			return reqOrigin, s.liveCfg().Server.Cors.AllowCredentials, false
+		}
+	}
+	// Origin header present but it matched nothing in the allow-list: fall
+	// back to the wildcard rather than reflecting a mismatched origin, and
+	// never with credentials.
+	return "*", false, false
 }
 
 // permissionsPolicy is the default Permissions-Policy header value built from
@@ -3707,6 +3788,11 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// stay root-relative and avoid mixed-content blocking behind a TLS proxy
 	if _, ok := data["AssetPrefix"]; !ok {
 		data["AssetPrefix"] = s.assetPrefix(r)
+	}
+	// Inject the generated SEO/OpenGraph/Twitter/site-verification <meta> tag
+	// block so templates render it as {{.SEOMeta}} inside <head> (PART 16)
+	if _, ok := data["SEOMeta"]; !ok {
+		data["SEOMeta"] = s.seoMetaTags(r)
 	}
 	// Inject sanitized operator footer branding rendered above the default footer (PART 16)
 	s.injectFooterData(data)

@@ -152,7 +152,7 @@ func TestApplyHotSettings_AllChanges(t *testing.T) {
 	prev.Server.Tor.Binary = ""
 	prev.Server.Logging.Level = "info"
 	prev.RateLimit.Enabled = true
-	prev.Web.Security.CORS = "*"
+	prev.Server.Cors.AllowedOrigins = []string{"*"}
 	prev.Web.SiteTitle = "Before"
 
 	next := DefaultConfig()
@@ -163,7 +163,7 @@ func TestApplyHotSettings_AllChanges(t *testing.T) {
 	next.Server.Tor.Binary = "/usr/bin/tor"
 	next.Server.Logging.Level = "debug"
 	next.RateLimit.Enabled = false
-	next.Web.Security.CORS = "https://example.com"
+	next.Server.Cors.AllowedOrigins = []string{"https://example.com"}
 	next.Web.SiteTitle = "After"
 
 	m := &ConfigManager{

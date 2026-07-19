@@ -54,55 +54,45 @@ func TestMatchesBranch(t *testing.T) {
 	}
 }
 
-// ─── fetchChecksum ────────────────────────────────────────────────────────────
+// ─── fetchExpectedChecksum ────────────────────────────────────────────────────
 
-func TestFetchChecksum_HashAndFilenameFormat(t *testing.T) {
+func TestFetchExpectedChecksum_HashAndFilenameFormat(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("abc123def456abc1  pastebin-linux-amd64\n"))
 	}))
 	defer srv.Close()
 
 	client := &http.Client{}
-	hash, err := fetchChecksum(context.Background(), client, srv.URL, "pastebin-linux-amd64")
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: srv.URL}}}
+	hash, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
 	if err != nil {
-		t.Fatalf("fetchChecksum error: %v", err)
+		t.Fatalf("fetchExpectedChecksum error: %v", err)
 	}
 	if hash != "abc123def456abc1" {
 		t.Errorf("got %q; want abc123def456abc1", hash)
 	}
 }
 
-func TestFetchChecksum_SingleHash(t *testing.T) {
-	// Some checksum files contain only the hash with no filename column.
-	const h64 = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(h64))
-	}))
-	defer srv.Close()
-
-	client := &http.Client{}
-	hash, err := fetchChecksum(context.Background(), client, srv.URL, "pastebin-linux-amd64")
-	if err != nil {
-		t.Fatalf("fetchChecksum error: %v", err)
-	}
-	if hash != h64 {
-		t.Errorf("got %q; want %q", hash, h64)
-	}
-}
-
-func TestFetchChecksum_NoMatch_ReturnsEmpty(t *testing.T) {
+func TestFetchExpectedChecksum_NoMatch_Errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("abc  other-binary\n"))
 	}))
 	defer srv.Close()
 
 	client := &http.Client{}
-	hash, err := fetchChecksum(context.Background(), client, srv.URL, "pastebin-linux-amd64")
-	if err != nil {
-		t.Fatalf("fetchChecksum error: %v", err)
+	rel := &Release{Assets: []Asset{{Name: "checksums.txt", BrowserDownloadURL: srv.URL}}}
+	_, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
+	if err == nil {
+		t.Fatal("expected error when no matching entry is found, got nil")
 	}
-	if hash != "" {
-		t.Errorf("expected empty hash for no-match, got %q", hash)
+}
+
+func TestFetchExpectedChecksum_NoChecksumsAsset_Errors(t *testing.T) {
+	client := &http.Client{}
+	rel := &Release{Assets: []Asset{{Name: "pastebin-linux-amd64", BrowserDownloadURL: "http://example.com/bin"}}}
+	_, err := fetchExpectedChecksum(context.Background(), client, rel, "pastebin-linux-amd64")
+	if err == nil {
+		t.Fatal("expected error when release has no checksums.txt asset, got nil")
 	}
 }
 
@@ -287,7 +277,6 @@ func TestDoUpdate_WithChecksumAsset(t *testing.T) {
 	}
 
 	assetName := binaryAssetName()
-	checksumName := assetName + ".sha256"
 	fakeContent := []byte("hello from fake binary")
 
 	// We'll compute the expected sha256.
@@ -296,7 +285,7 @@ func TestDoUpdate_WithChecksumAsset(t *testing.T) {
 	expectedHash := hex.EncodeToString(h.Sum(nil))
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, ".sha256") {
+		if strings.HasSuffix(r.URL.Path, "checksums.txt") {
 			w.Write([]byte(expectedHash + "  " + assetName + "\n"))
 		} else {
 			w.Write(fakeContent)
@@ -308,7 +297,7 @@ func TestDoUpdate_WithChecksumAsset(t *testing.T) {
 		TagName: "v9.9.9",
 		Assets: []Asset{
 			{Name: assetName, BrowserDownloadURL: srv.URL + "/bin"},
-			{Name: checksumName, BrowserDownloadURL: srv.URL + "/bin.sha256"},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
 		},
 	}
 
@@ -328,12 +317,11 @@ func TestDoUpdate_ChecksumMismatch(t *testing.T) {
 	}
 
 	assetName := binaryAssetName()
-	checksumName := assetName + ".sha256"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, ".sha256") {
-			// Return a 64-char wrong hash.
-			w.Write([]byte("0000000000000000000000000000000000000000000000000000000000000000"))
+		if strings.HasSuffix(r.URL.Path, "checksums.txt") {
+			// Return a wrong hash for the asset.
+			w.Write([]byte("0000000000000000000000000000000000000000000000000000000000000000  " + assetName + "\n"))
 		} else {
 			w.Write([]byte("some binary content"))
 		}
@@ -344,7 +332,7 @@ func TestDoUpdate_ChecksumMismatch(t *testing.T) {
 		TagName: "v9.9.9",
 		Assets: []Asset{
 			{Name: assetName, BrowserDownloadURL: srv.URL + "/bin"},
-			{Name: checksumName, BrowserDownloadURL: srv.URL + "/bin.sha256"},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
 		},
 	}
 
@@ -357,8 +345,8 @@ func TestDoUpdate_ChecksumMismatch(t *testing.T) {
 }
 
 // TestDoUpdate_NoChecksumRefuses verifies the fail-closed policy: a release
-// that ships the binary but no matching .sha256 sidecar must be refused
-// rather than installed unverified.
+// that ships the binary but no checksums.txt asset must be refused rather
+// than installed unverified.
 func TestDoUpdate_NoChecksumRefuses(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("replaceBinary Windows path differs")
@@ -382,7 +370,7 @@ func TestDoUpdate_NoChecksumRefuses(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected refusal when no checksum is published, got nil")
 	}
-	if !strings.Contains(err.Error(), "no SHA-256 checksum") {
+	if !strings.Contains(err.Error(), "checksums.txt") {
 		t.Errorf("expected unverified-update refusal, got: %v", err)
 	}
 }

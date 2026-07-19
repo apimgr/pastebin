@@ -9,11 +9,13 @@ import (
 	"crypto/tls"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/apimgr/pastebin/src/logging"
+	"github.com/apimgr/pastebin/src/mode"
 )
 
 // SetLogManager registers the logging manager that owns access/server/error/
@@ -38,16 +40,37 @@ func tlsVersionName(v uint16) string {
 	return ""
 }
 
+// isHealthzPath reports whether p is one of the health-check endpoints
+// eligible for access-log suppression (AI.md "Health-Check Log Suppression"):
+// /server/healthz, /api/{version}/server/healthz, /api/healthz, and the
+// optional root alias /healthz.
+func isHealthzPath(p string) bool {
+	if p == "/healthz" || p == "/server/healthz" || p == "/api/healthz" {
+		return true
+	}
+	return strings.HasPrefix(p, "/api/") && strings.HasSuffix(p, "/server/healthz")
+}
+
 // accessLogMiddleware records every request to access.log via the logging
 // manager and mirrors 5xx responses to error.log. It must run after
 // realIPMiddleware (RemoteAddr rewritten) and securityHeadersMiddleware
 // (X-Request-ID assigned).
+//
+// Successful (2xx) health-check requests are excluded from access.log by
+// default to avoid ~8,640 identical lines/day from a 10s Docker healthcheck;
+// failures and all requests under debug mode are always logged (AI.md
+// "Health-Check Log Suppression").
 func (s *Server) accessLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
 		latency := time.Since(start)
+
+		if ww.Status() >= 200 && ww.Status() < 300 && !mode.IsDebugEnabled() &&
+			!s.liveCfg().Server.Logging.Access.LogHealthChecks && isHealthzPath(r.URL.Path) {
+			return
+		}
 
 		e := logging.AccessEntry{
 			RemoteIP:  clientIP(r),

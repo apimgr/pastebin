@@ -789,7 +789,7 @@ func mapAPIErrorCodeToHTTPStatus(code string) int {
 		return http.StatusBadRequest
 	case "UNAUTHORIZED", "TOKEN_EXPIRED", "TOKEN_INVALID":
 		return http.StatusUnauthorized
-	case "FORBIDDEN", "ACCOUNT_LOCKED":
+	case "FORBIDDEN", "ACCOUNT_LOCKED", "CSRF_FAILED":
 		return http.StatusForbidden
 	case "NOT_FOUND":
 		return http.StatusNotFound

@@ -177,6 +177,7 @@ func TestMapAPIErrorCodeToHTTPStatus(t *testing.T) {
 		{"TOKEN_INVALID", http.StatusUnauthorized},
 		{"FORBIDDEN", http.StatusForbidden},
 		{"ACCOUNT_LOCKED", http.StatusForbidden},
+		{"CSRF_FAILED", http.StatusForbidden},
 		{"NOT_FOUND", http.StatusNotFound},
 		{"METHOD_NOT_ALLOWED", http.StatusMethodNotAllowed},
 		{"CONFLICT", http.StatusConflict},

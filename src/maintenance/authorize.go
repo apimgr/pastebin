@@ -79,14 +79,14 @@ func AuthorizeSetup(opts AuthOptions) error {
 
 // AuthorizeRestore enforces the restore gate (AI.md sensitive-operation flow):
 // allowed on first-run (empty database), as root (with confirmation), or as
-// the service user with the operator password; everyone else is rejected.
+// the service user with the operator token; everyone else is rejected.
 func AuthorizeRestore(opts AuthOptions) error {
 	return newAuthorizer(opts).authorizeRestore()
 }
 
 // AuthorizeMode enforces the mode-change gate (AI.md sensitive-operation
 // flow): allowed as root (with a security warning) or as the service user
-// with the operator password; everyone else is rejected.
+// with the operator token; everyone else is rejected.
 func AuthorizeMode(opts AuthOptions) error {
 	return newAuthorizer(opts).authorizeMode()
 }
@@ -119,9 +119,9 @@ func (a *authorizer) authorizeRestore() error {
 		return errors.New("restore cancelled")
 	}
 	if a.isServiceUser() {
-		return a.requireOperatorToken("This will OVERWRITE all data. Enter operator password to confirm.")
+		return a.requireOperatorToken("This will OVERWRITE all data. Enter operator token to confirm.")
 	}
-	return errors.New("restore requires administrator authorization: run as root or provide operator password")
+	return errors.New("restore requires administrator authorization: run as root or provide the operator token")
 }
 
 func (a *authorizer) authorizeMode() error {
@@ -132,7 +132,7 @@ func (a *authorizer) authorizeMode() error {
 	if a.isServiceUser() {
 		return a.requireOperatorToken("Changing the server mode requires operator authorization.")
 	}
-	return errors.New("mode change requires administrator authorization: run as root or provide operator password")
+	return errors.New("mode change requires administrator authorization: run as root or provide the operator token")
 }
 
 // dbPath resolves the database path: database.path from server.yml wins,
@@ -157,7 +157,7 @@ func (a *authorizer) isServiceUser() bool {
 	return name == a.opts.ServiceUser
 }
 
-// requireOperatorToken prompts for the operator password and validates it
+// requireOperatorToken prompts for the operator token and validates it
 // against server.token by comparing SHA-256 digests with a constant-time
 // compare (PART 11), matching the server's requireOperatorToken middleware.
 func (a *authorizer) requireOperatorToken(prompt string) error {
@@ -165,20 +165,20 @@ func (a *authorizer) requireOperatorToken(prompt string) error {
 	if token == "" {
 		return errors.New("operator token not configured — run as root instead")
 	}
-	fmt.Fprintf(a.stderr, "%s\nOperator password: ", prompt)
+	fmt.Fprintf(a.stderr, "%s\nOperator token: ", prompt)
 	entered, err := a.readSecret()
 	if err != nil {
-		return fmt.Errorf("read operator password: %w", err)
+		return fmt.Errorf("read operator token: %w", err)
 	}
 	want := sha256.Sum256([]byte(token))
 	got := sha256.Sum256([]byte(strings.TrimSpace(entered)))
 	if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
-		return errors.New("operator password mismatch — authorization rejected")
+		return errors.New("operator token mismatch — authorization rejected")
 	}
 	return nil
 }
 
-// readSecret reads the operator password: without echo on a real terminal,
+// readSecret reads the operator token: without echo on a real terminal,
 // as a plain line otherwise (pipes, tests).
 func (a *authorizer) readSecret() (string, error) {
 	if f, ok := a.stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {

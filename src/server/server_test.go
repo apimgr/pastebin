@@ -1147,19 +1147,19 @@ func TestHandleAutodiscover(t *testing.T) {
 func TestCORSMiddleware(t *testing.T) {
 	cases := []struct {
 		name       string
-		cors       string
+		cors       []string
 		method     string
 		wantStatus int
 		wantOrigin string
 	}{
-		{"default cors star", "", http.MethodGet, http.StatusOK, "*"},
-		{"configured cors", "https://example.com", http.MethodGet, http.StatusOK, "https://example.com"},
-		{"options preflight", "", http.MethodOptions, http.StatusOK, "*"},
+		{"default cors star", nil, http.MethodGet, http.StatusOK, "*"},
+		{"configured cors", []string{"https://example.com"}, http.MethodGet, http.StatusOK, "https://example.com"},
+		{"options preflight", nil, http.MethodOptions, http.StatusNoContent, "*"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{}
-			cfg.Web.Security.CORS = tc.cors
+			cfg.Server.Cors.AllowedOrigins = tc.cors
 			s := newMinimalServer(cfg)
 
 			inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

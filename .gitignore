@@ -146,3 +146,7 @@ coverage.out
 *.out
 coverage.html
 *_coverage.html
+
+# Docker build cache mounts
+.gocache/
+.gomodcache/

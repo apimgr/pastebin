@@ -81,14 +81,14 @@ func TestBaseURLTorPriorityZero(t *testing.T) {
 func TestResolveCORSOriginTor(t *testing.T) {
 	s := newTorTestServer("")
 	// Operator-configured clearnet origin must NOT leak into Tor responses.
-	s.cfg.Web.Security.CORS = "https://paste.example.com"
-	if got, want := s.resolveCORSOrigin(torRequest("/")), "http://"+testOnion; got != want {
-		t.Errorf("resolveCORSOrigin(tor) = %q, want %q", got, want)
+	s.cfg.Server.Cors.AllowedOrigins = []string{"https://paste.example.com"}
+	if got, _, _ := s.resolveCORSOrigin(torRequest("/")); got != "http://"+testOnion {
+		t.Errorf("resolveCORSOrigin(tor) = %q, want %q", got, "http://"+testOnion)
 	}
 	// Clearnet requests keep the operator-configured value.
 	clearnet := httptest.NewRequest(http.MethodGet, "/", nil)
 	clearnet.Host = "paste.example.com"
-	if got := s.resolveCORSOrigin(clearnet); got != "https://paste.example.com" {
+	if got, _, _ := s.resolveCORSOrigin(clearnet); got != "https://paste.example.com" {
 		t.Errorf("resolveCORSOrigin(clearnet) = %q, want configured origin", got)
 	}
 }

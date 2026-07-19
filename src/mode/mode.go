@@ -37,7 +37,9 @@ func Get() Mode {
 }
 
 // Set sets the application mode
-// Valid values: "production", "prod", "development", "dev"
+// Valid values: "production", "prod", "development", "dev", "devel", "debug"
+// "debug" is an alias for development mode + debug on; an explicit
+// --debug flag or DEBUG env var applied after this call still wins.
 func Set(mode string) error {
 	parsed, err := ParseMode(mode)
 	if err != nil {
@@ -45,8 +47,12 @@ func Set(mode string) error {
 	}
 
 	mu.Lock()
-	defer mu.Unlock()
 	currentMode = parsed
+	mu.Unlock()
+
+	if strings.EqualFold(strings.TrimSpace(mode), "debug") {
+		SetDebugEnabled(true)
+	}
 	return nil
 }
 
@@ -64,10 +70,14 @@ func ParseMode(s string) (Mode, error) {
 	switch normalized {
 	case "development", "dev", "devel":
 		return Development, nil
+	case "debug":
+		// Alias: development mode + debug on (an explicit --debug flag or
+		// DEBUG env var applied after this still wins).
+		return Development, nil
 	case "production", "prod":
 		return Production, nil
 	default:
-		return "", fmt.Errorf("invalid mode: %q (expected: production, prod, development, dev, or devel)", s)
+		return "", fmt.Errorf("invalid mode: %q (expected: production, prod, development, dev, devel, debug, or production)", s)
 	}
 }
 
@@ -102,13 +112,18 @@ func Initialize(cliMode string) error {
 
 // FromEnv reads MODE and DEBUG environment variables and applies them (PART 6, AI.md line 9068).
 // Priority: CLI flag overrides already applied before this call take precedence.
-// Reads MODE env var via Set() and DEBUG env var via config.IsTruthy().
+// MODE=debug is an alias for development mode + debug on, but an explicitly
+// set DEBUG env var (truthy OR falsy) always wins over the alias —
+// MODE=debug DEBUG=false runs development mode with debug off. The --debug
+// CLI flag (applied after this) wins over both.
 func FromEnv() {
 	if envMode := os.Getenv("MODE"); envMode != "" {
-		_ = Set(envMode)
+		SetAppMode(envMode)
 	}
-	if config.IsTruthy(os.Getenv("DEBUG")) {
-		SetDebugEnabled(true)
+	// LookupEnv distinguishes "explicitly set" from "unset": an unset DEBUG
+	// leaves the MODE=debug alias result alone; a set DEBUG overrides it.
+	if v, set := os.LookupEnv("DEBUG"); set {
+		SetDebugEnabled(config.IsTruthy(v))
 	}
 }
 

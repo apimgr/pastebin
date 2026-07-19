@@ -129,15 +129,40 @@ func TestHandleThemeSet_CrossOriginReferer_RedirectsToRoot(t *testing.T) {
 
 // ─── resolveCORSOrigin ────────────────────────────────────────────────────────
 
-func TestResolveCORSOrigin_OperatorConfig(t *testing.T) {
+func TestResolveCORSOrigin_OperatorConfig_Matches(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cfg.Web.Security.CORS = "https://trusted.example.com"
+	cfg.Server.Cors.AllowedOrigins = []string{"https://trusted.example.com"}
+	cfg.Server.Cors.AllowCredentials = true
+	s := newMinimalServer(cfg)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Origin", "https://trusted.example.com")
+	got, creds, disabled := s.resolveCORSOrigin(r)
+	if got != "https://trusted.example.com" || !creds || disabled {
+		t.Errorf("resolveCORSOrigin = (%q, %v, %v), want matched origin with credentials", got, creds, disabled)
+	}
+}
+
+func TestResolveCORSOrigin_OperatorConfig_Unmatched(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Cors.AllowedOrigins = []string{"https://trusted.example.com"}
 	s := newMinimalServer(cfg)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("Origin", "https://other.com")
-	got := s.resolveCORSOrigin(r)
-	if got != "https://trusted.example.com" {
-		t.Errorf("resolveCORSOrigin = %q, want operator config value", got)
+	got, _, _ := s.resolveCORSOrigin(r)
+	if got != "*" {
+		t.Errorf("resolveCORSOrigin = %q, want wildcard fallback for unmatched origin", got)
+	}
+}
+
+func TestResolveCORSOrigin_Disabled(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Server.Cors.AllowedOrigins = []string{""}
+	s := newMinimalServer(cfg)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Origin", "https://other.com")
+	got, creds, disabled := s.resolveCORSOrigin(r)
+	if !disabled || got != "" || creds {
+		t.Errorf("resolveCORSOrigin = (%q, %v, %v), want disabled", got, creds, disabled)
 	}
 }
 
@@ -145,7 +170,7 @@ func TestResolveCORSOrigin_NoOriginHeader(t *testing.T) {
 	cfg := config.DefaultConfig()
 	s := newMinimalServer(cfg)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	got := s.resolveCORSOrigin(r)
+	got, _, _ := s.resolveCORSOrigin(r)
 	if got != "*" {
 		t.Errorf("resolveCORSOrigin (no Origin) = %q, want *", got)
 	}
@@ -154,11 +179,11 @@ func TestResolveCORSOrigin_NoOriginHeader(t *testing.T) {
 func TestResolveCORSOrigin_NoDomainLearner_ReturnsWildcard(t *testing.T) {
 	cfg := config.DefaultConfig()
 	// Clear operator CORS to exercise the learner/fallback path.
-	cfg.Web.Security.CORS = ""
+	cfg.Server.Cors.AllowedOrigins = nil
 	s := newMinimalServer(cfg)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("Origin", "https://example.com")
-	got := s.resolveCORSOrigin(r)
+	got, _, _ := s.resolveCORSOrigin(r)
 	if got != "*" {
 		t.Errorf("resolveCORSOrigin (no learner) = %q, want *", got)
 	}
@@ -167,7 +192,7 @@ func TestResolveCORSOrigin_NoDomainLearner_ReturnsWildcard(t *testing.T) {
 func TestResolveCORSOrigin_MatchedLearnedDomain(t *testing.T) {
 	cfg := config.DefaultConfig()
 	// Clear operator CORS to exercise the learner path.
-	cfg.Web.Security.CORS = ""
+	cfg.Server.Cors.AllowedOrigins = nil
 	s := newMinimalServer(cfg)
 	dl := newDomainLearner(&config.URLDetectionConfig{
 		Learning: true, MinSamples: 1, SampleWindow: 5 * time.Minute,
@@ -177,7 +202,7 @@ func TestResolveCORSOrigin_MatchedLearnedDomain(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("Origin", "https://example.com")
-	got := s.resolveCORSOrigin(r)
+	got, _, _ := s.resolveCORSOrigin(r)
 	if got != "https://example.com" {
 		t.Errorf("resolveCORSOrigin (matched) = %q, want origin reflected", got)
 	}
@@ -185,7 +210,7 @@ func TestResolveCORSOrigin_MatchedLearnedDomain(t *testing.T) {
 
 func TestResolveCORSOrigin_SubdomainMatchedLearnedDomain(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cfg.Web.Security.CORS = ""
+	cfg.Server.Cors.AllowedOrigins = nil
 	s := newMinimalServer(cfg)
 	dl := newDomainLearner(&config.URLDetectionConfig{
 		Learning: true, MinSamples: 1, SampleWindow: 5 * time.Minute,
@@ -195,7 +220,7 @@ func TestResolveCORSOrigin_SubdomainMatchedLearnedDomain(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("Origin", "https://sub.example.com")
-	got := s.resolveCORSOrigin(r)
+	got, _, _ := s.resolveCORSOrigin(r)
 	if got != "https://sub.example.com" {
 		t.Errorf("resolveCORSOrigin (subdomain match) = %q, want subdomain origin", got)
 	}
@@ -203,7 +228,7 @@ func TestResolveCORSOrigin_SubdomainMatchedLearnedDomain(t *testing.T) {
 
 func TestResolveCORSOrigin_NoMatch_ReturnsWildcard(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cfg.Web.Security.CORS = ""
+	cfg.Server.Cors.AllowedOrigins = nil
 	s := newMinimalServer(cfg)
 	dl := newDomainLearner(&config.URLDetectionConfig{
 		Learning: true, MinSamples: 1, SampleWindow: 5 * time.Minute,
@@ -213,7 +238,7 @@ func TestResolveCORSOrigin_NoMatch_ReturnsWildcard(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("Origin", "https://attacker.com")
-	got := s.resolveCORSOrigin(r)
+	got, _, _ := s.resolveCORSOrigin(r)
 	if got != "*" {
 		t.Errorf("resolveCORSOrigin (no match) = %q, want *", got)
 	}
