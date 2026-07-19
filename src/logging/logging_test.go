@@ -134,7 +134,7 @@ func TestManager_AuthSyslog(t *testing.T) {
 	if !strings.Contains(got, "testhost pastebin[") {
 		t.Errorf("auth line missing syslog host/tag: %q", got)
 	}
-	if !strings.Contains(got, "auth: user=operator ip=1.2.3.4 result=fail reason=invalid_token") {
+	if !strings.Contains(got, "auth: token_id=operator ip=1.2.3.4 result=fail reason=invalid_token") {
 		t.Errorf("auth payload wrong: %q", got)
 	}
 	// Auth log is 0600.

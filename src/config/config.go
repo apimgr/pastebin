@@ -518,8 +518,7 @@ type TorConfig struct {
 	Binary string `yaml:"binary"`
 
 	// Outbound network settings.
-	UseNetwork          bool `yaml:"use_network"`
-	AllowUserPreference bool `yaml:"allow_user_preference"`
+	UseNetwork bool `yaml:"use_network"`
 
 	// Performance.
 	MaxCircuits      int `yaml:"max_circuits"`
@@ -1231,7 +1230,6 @@ func DefaultConfig() *Config {
 			Tor: TorConfig{
 				Binary:                    "",
 				UseNetwork:                false,
-				AllowUserPreference:       true,
 				MaxCircuits:               32,
 				CircuitTimeout:            60,
 				BootstrapTimeout:          180,

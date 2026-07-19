@@ -520,7 +520,6 @@ func TestConfig_AllFieldsUsed(t *testing.T) {
 	cfg := Config{
 		Binary:                    "/usr/bin/tor",
 		UseNetwork:                true,
-		AllowUserPreference:       true,
 		MaxCircuits:               10,
 		CircuitTimeout:            30,
 		BootstrapTimeout:          120,
@@ -623,11 +622,11 @@ func TestGetTorConfig_TableDriven(t *testing.T) {
 			excludes: []string{"AccountingMax", "AccountingStart"},
 		},
 		{
-			name: "allow user preference enables socks auto",
+			name: "use network enables socks auto",
 			cfg: &Config{
-				AllowUserPreference: true,
-				BandwidthRate:       "1 MB",
-				BandwidthBurst:      "2 MB",
+				UseNetwork:     true,
+				BandwidthRate:  "1 MB",
+				BandwidthBurst: "2 MB",
 			},
 			contains: []string{"SocksPort auto"},
 		},
@@ -875,21 +874,6 @@ func TestMonitor_ImmediateCancel(t *testing.T) {
 }
 
 // ─── getTorConfig edge cases ──────────────────────────────────────────────────
-
-func TestGetTorConfig_BothNetworkFlags(t *testing.T) {
-	cfg := &Config{
-		UseNetwork:          true,
-		AllowUserPreference: true,
-		BandwidthRate:       "1 MB",
-		BandwidthBurst:      "2 MB",
-	}
-	out := getTorConfig(cfg)
-
-	// Either flag enables SocksPort auto.
-	if !strings.Contains(out, "SocksPort auto") {
-		t.Errorf("expected SocksPort auto:\n%s", out)
-	}
-}
 
 func TestGetTorConfig_ZeroBandwidth(t *testing.T) {
 	cfg := &Config{

@@ -212,17 +212,17 @@ func TestWriteIfChanged_UnwritablePath(t *testing.T) {
 
 // ─── getTorConfig additional branches ────────────────────────────────────────
 
-// TestGetTorConfig_AllowUserPreference sets AllowUserPreference=true and
-// verifies SocksPort is set to auto.
-func TestGetTorConfig_AllowUserPreference(t *testing.T) {
+// TestGetTorConfig_UseNetwork sets UseNetwork=true and verifies SocksPort is
+// set to auto.
+func TestGetTorConfig_UseNetwork(t *testing.T) {
 	cfg := &Config{
-		AllowUserPreference: true,
-		BandwidthRate:       "1 MB",
-		BandwidthBurst:      "2 MB",
+		UseNetwork:     true,
+		BandwidthRate:  "1 MB",
+		BandwidthBurst: "2 MB",
 	}
 	out := getTorConfig(cfg)
 	if !strings.Contains(out, "SocksPort auto") {
-		t.Errorf("expected 'SocksPort auto' when AllowUserPreference=true, got:\n%s", out)
+		t.Errorf("expected 'SocksPort auto' when UseNetwork=true, got:\n%s", out)
 	}
 }
 

@@ -116,12 +116,12 @@ func (s *Server) accessLogMiddleware(next http.Handler) http.Handler {
 }
 
 // authLog records an authentication event to auth.log (AI.md auth.log:
-// RFC 3164 lines with stable machine reason codes). user identifies the
+// RFC 3164 lines with stable machine reason codes). tokenID identifies the
 // credential class ("operator", "owner") — raw tokens are never logged.
-func (s *Server) authLog(r *http.Request, user, result, reason string) {
+func (s *Server) authLog(r *http.Request, tokenID, result, reason string) {
 	ip := ""
 	if r != nil {
 		ip = clientIP(r)
 	}
-	s.logManager.Auth(user, ip, result, reason)
+	s.logManager.Auth(tokenID, ip, result, reason)
 }

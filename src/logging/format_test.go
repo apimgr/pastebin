@@ -200,8 +200,8 @@ func TestFormatJSONLine(t *testing.T) {
 
 func TestFormatSyslog(t *testing.T) {
 	ts := time.Date(2026, 5, 13, 10, 58, 0, 0, time.UTC)
-	got := FormatSyslog(ts, "hostname", "pastebin", 123, "auth: user=xxx ip=1.2.3.4 result=fail reason=invalid_credentials")
-	want := "May 13 10:58:00 hostname pastebin[123]: auth: user=xxx ip=1.2.3.4 result=fail reason=invalid_credentials"
+	got := FormatSyslog(ts, "hostname", "pastebin", 123, "auth: token_id=xxx ip=1.2.3.4 result=fail reason=invalid_token")
+	want := "May 13 10:58:00 hostname pastebin[123]: auth: token_id=xxx ip=1.2.3.4 result=fail reason=invalid_token"
 	if got != want {
 		t.Errorf("syslog:\n got %s\nwant %s", got, want)
 	}
@@ -218,16 +218,16 @@ func TestFormatSyslog_DayPadding(t *testing.T) {
 
 func TestAuthMessage(t *testing.T) {
 	tests := []struct {
-		user, ip, result, reason string
-		want                     string
+		tokenID, ip, result, reason string
+		want                        string
 	}{
-		{"operator", "1.2.3.4", "fail", "invalid_token", "auth: user=operator ip=1.2.3.4 result=fail reason=invalid_token"},
-		{"operator", "1.2.3.4", "success", "", "auth: user=operator ip=1.2.3.4 result=success"},
-		{"", "::1", "fail", "missing_bearer_token", "auth: user=- ip=::1 result=fail reason=missing_bearer_token"},
+		{"operator", "1.2.3.4", "fail", "invalid_token", "auth: token_id=operator ip=1.2.3.4 result=fail reason=invalid_token"},
+		{"operator", "1.2.3.4", "success", "", "auth: token_id=operator ip=1.2.3.4 result=success"},
+		{"", "::1", "fail", "missing_bearer_token", "auth: token_id=- ip=::1 result=fail reason=missing_bearer_token"},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s_%s", tt.result, tt.reason), func(t *testing.T) {
-			if got := AuthMessage(tt.user, tt.ip, tt.result, tt.reason); got != tt.want {
+			if got := AuthMessage(tt.tokenID, tt.ip, tt.result, tt.reason); got != tt.want {
 				t.Errorf("AuthMessage = %q, want %q", got, tt.want)
 			}
 		})

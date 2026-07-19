@@ -246,22 +246,23 @@ func (m *Manager) App(level, msg string, fields ...string) {
 }
 
 // Auth records an authentication event in auth.log as an RFC 3164 line (or
-// JSON when configured). result is "success" or "fail"; reason is a stable
-// machine code (empty for successes). Raw tokens must never be passed here.
-func (m *Manager) Auth(user, ip, result, reason string) {
+// JSON when configured). tokenID identifies the credential class
+// ("operator", "owner") — raw tokens must never be passed here. result is
+// "success" or "fail"; reason is a stable machine code (empty for successes).
+func (m *Manager) Auth(tokenID, ip, result, reason string) {
 	if m == nil || m.auth == nil {
 		return
 	}
 	now := time.Now()
 	if m.authJSON {
-		fields := []string{"user", user, "ip", ip, "result", result}
+		fields := []string{"token_id", tokenID, "ip", ip, "result", result}
 		if reason != "" {
 			fields = append(fields, "reason", reason)
 		}
 		m.write(m.auth, FormatJSONLine(now, "info", "auth", fields...))
 		return
 	}
-	m.write(m.auth, FormatSyslog(now, m.hostname, m.tag, m.pid, AuthMessage(user, ip, result, reason)))
+	m.write(m.auth, FormatSyslog(now, m.hostname, m.tag, m.pid, AuthMessage(tokenID, ip, result, reason)))
 }
 
 // Debug records a diagnostic line in debug.log. Lines are written only when

@@ -44,6 +44,12 @@ func IsValidHost(host string, devMode bool, projectName string) bool {
 		return devMode
 	}
 
+	// Bare project-specific TLD (e.g., "quotes", "jokes", "{project_name}")
+	// is valid in dev mode even with no dot.
+	if projectName != "" && lower == strings.ToLower(projectName) {
+		return devMode
+	}
+
 	// Must contain at least one dot
 	if !strings.Contains(lower, ".") {
 		return false

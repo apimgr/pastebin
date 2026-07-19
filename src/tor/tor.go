@@ -81,7 +81,6 @@ func findInPath(name string) (string, error) {
 type Config struct {
 	Binary                    string
 	UseNetwork                bool
-	AllowUserPreference       bool
 	MaxCircuits               int
 	CircuitTimeout            int
 	BootstrapTimeout          int
@@ -238,8 +237,8 @@ func (m *Manager) startLocked() error {
 		serverPort: m.serverPort,
 	}
 
-	// Outbound dialer for optional Tor-routed HTTP clients.
-	if m.cfg.UseNetwork || m.cfg.AllowUserPreference {
+	// Outbound dialer for optional Tor-routed HTTP clients (server-wide setting).
+	if m.cfg.UseNetwork {
 		if d, err := t.Dialer(m.ctx, nil); err != nil {
 			log.Printf("Tor: warning: outbound dialer failed: %v", err)
 		} else {
@@ -452,7 +451,7 @@ func saveKey(path string, key control.Key) error {
 // The hidden service is created via ADD_ONION, not torrc HiddenServiceDir.
 func getTorConfig(cfg *Config) string {
 	socksLine := "SocksPort 0"
-	if cfg.UseNetwork || cfg.AllowUserPreference {
+	if cfg.UseNetwork {
 		socksLine = "SocksPort auto"
 	}
 	safeLog := "1"

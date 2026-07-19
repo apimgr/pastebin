@@ -33,6 +33,8 @@ func TestIsValidHost(t *testing.T) {
 		{"project tld dev allowed", "app.pastebin", true, "pastebin", true},
 		{"nested project tld dev allowed", "my.app.pastebin", true, "pastebin", true},
 		{"nested project tld prod rejected", "my.app.pastebin", false, "pastebin", false},
+		{"bare project name dev allowed", "pastebin", true, "pastebin", true},
+		{"bare project name prod rejected", "pastebin", false, "pastebin", false},
 		{"onion always valid prod", "abc123.onion", false, "pastebin", true},
 		{"onion always valid dev", "abc123.onion", true, "pastebin", true},
 		{"i2p always valid", "abc123.i2p", false, "pastebin", true},

@@ -469,7 +469,6 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	torCfg := tor.Config{
 		Binary:                    cfg.Server.Tor.Binary,
 		UseNetwork:                cfg.Server.Tor.UseNetwork,
-		AllowUserPreference:       cfg.Server.Tor.AllowUserPreference,
 		MaxCircuits:               cfg.Server.Tor.MaxCircuits,
 		CircuitTimeout:            cfg.Server.Tor.CircuitTimeout,
 		BootstrapTimeout:          cfg.Server.Tor.BootstrapTimeout,
@@ -2420,12 +2419,13 @@ func formatUptime(d time.Duration) string {
 	}
 }
 
+// handleHealthz serves /server/healthz using the standard frontend content
+// negotiation rules (PART 13/16): HTML for browsers, plain text for
+// non-interactive HTTP tools. There is no special-case for an
+// "Accept: application/json" header here — the JSON response lives at the
+// versioned /api/{api_version}/server/healthz endpoint instead.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	switch detectClientType(r) {
-	case "json":
-		s.handleHealthzJSON(w, r)
-		return
-	case "text":
+	if detectClientType(r) == "text" {
 		hr := s.buildHealthResponse()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		writeHealthText(w, hr)

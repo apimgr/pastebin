@@ -2406,15 +2406,19 @@ func TestBuildHealthResponseScheduler(t *testing.T) {
 // ─── Server.handleHealthz (nil templates path) ────────────────────────────────
 
 func TestHandleHealthz(t *testing.T) {
-	t.Run("JSON accept returns JSON", func(t *testing.T) {
+	t.Run("JSON accept has no special case, renders HTML", func(t *testing.T) {
+		// PART 13/16: /server/healthz no longer special-cases
+		// "Accept: application/json" — that response lives exclusively at the
+		// versioned /api/{api_version}/server/healthz endpoint. A JSON-accept
+		// request here falls through to the HTML path like any browser client.
 		db := &stubDB{}
 		s := newServerWithDB(&config.Config{}, db)
 		r := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
 		r.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
 		s.handleHealthz(w, r)
-		if w.Code != http.StatusOK {
-			t.Errorf("healthz JSON status = %d, want 200", w.Code)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("healthz JSON-accept status = %d, want 500 (nil templates)", w.Code)
 		}
 	})
 

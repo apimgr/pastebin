@@ -133,12 +133,13 @@ func rateLimitMiddleware(rl *rateLimiter, endpointClass string) func(http.Handle
 				w.Header().Set("Retry-After", fmt.Sprint(retryAfter))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
-				// Canonical envelope per PART 14/15 (AI.md:15353).
+				// Canonical envelope per PART 14/15 (AI.md:15353). The wait time
+				// is conveyed via the Retry-After header only — never as a
+				// top-level body field.
 				json.NewEncoder(w).Encode(map[string]interface{}{
-					"ok":          false,
-					"error":       "RATE_LIMITED",
-					"message":     "Too many requests",
-					"retry_after": retryAfter,
+					"ok":      false,
+					"error":   "RATE_LIMITED",
+					"message": "Too many requests",
 				})
 				return
 			}

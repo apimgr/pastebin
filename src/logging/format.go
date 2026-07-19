@@ -252,21 +252,22 @@ func FormatJSONLine(t time.Time, level, msg string, fields ...string) string {
 }
 
 // FormatSyslog renders an RFC 3164 auth.log line:
-// May 13 10:58:00 hostname pastebin[123]: auth: user=xxx ip=1.2.3.4 result=fail reason=invalid_credentials
+// May 13 10:58:00 hostname pastebin[123]: auth: token_id=xxx ip=1.2.3.4 result=fail reason=invalid_token
 func FormatSyslog(t time.Time, hostname, tag string, pid int, msg string) string {
 	// RFC 3164 day-of-month is space-padded.
 	stamp := t.Format("Jan _2 15:04:05")
 	return fmt.Sprintf("%s %s %s[%d]: %s", stamp, Sanitize(hostname), Sanitize(tag), pid, Sanitize(msg))
 }
 
-// AuthMessage builds the structured payload of an auth.log line.
-// result is "success" or "fail"; reason is a stable machine code such as
-// "invalid_token" (empty for successes).
-func AuthMessage(user, ip, result, reason string) string {
-	if user == "" {
-		user = "-"
+// AuthMessage builds the structured payload of an auth.log line. tokenID
+// identifies the credential class ("operator", "owner") — raw tokens are
+// never logged. result is "success" or "fail"; reason is a stable machine
+// code such as "invalid_token" (empty for successes).
+func AuthMessage(tokenID, ip, result, reason string) string {
+	if tokenID == "" {
+		tokenID = "-"
 	}
-	msg := fmt.Sprintf("auth: user=%s ip=%s result=%s", Sanitize(user), Sanitize(ip), Sanitize(result))
+	msg := fmt.Sprintf("auth: token_id=%s ip=%s result=%s", Sanitize(tokenID), Sanitize(ip), Sanitize(result))
 	if reason != "" {
 		msg += " reason=" + Sanitize(reason)
 	}
