@@ -19,9 +19,36 @@ import (
 // suffix stripping, C/POSIX sentinel values, and the ultimate "en" default.
 
 func TestDetectLocale_ExplicitFlag(t *testing.T) {
-	got := detectLocale("fr")
+	got := detectLocale("fr", "")
 	if got != "fr" {
 		t.Errorf("detectLocale(fr) = %q; want fr", got)
+	}
+}
+
+func TestDetectLocale_ConfigFallback(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LANG", "de_DE.UTF-8")
+	t.Setenv("LANGUAGE", "")
+	got := detectLocale("", "pt")
+	if got != "pt" {
+		t.Errorf("detectLocale('', pt) with LANG=de_DE.UTF-8 = %q; want pt (config beats env)", got)
+	}
+}
+
+func TestDetectLocale_FlagBeatsConfig(t *testing.T) {
+	got := detectLocale("fr", "pt")
+	if got != "fr" {
+		t.Errorf("detectLocale(fr, pt) = %q; want fr (flag beats config)", got)
+	}
+}
+
+func TestDetectLocale_AutoConfigTreatedAsUnset(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LANG", "ja_JP.UTF-8")
+	t.Setenv("LANGUAGE", "")
+	got := detectLocale("auto", "auto")
+	if got != "ja" {
+		t.Errorf("detectLocale(auto, auto) with LANG=ja_JP.UTF-8 = %q; want ja (config=auto falls through to env)", got)
 	}
 }
 
@@ -29,7 +56,7 @@ func TestDetectLocale_AutoWithLANG(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "de_DE.UTF-8")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "de" {
 		t.Errorf("detectLocale(auto) with LANG=de_DE.UTF-8 = %q; want de", got)
 	}
@@ -39,7 +66,7 @@ func TestDetectLocale_EmptyStringActsAsAuto(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "ja_JP.UTF-8")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("")
+	got := detectLocale("", "")
 	if got != "ja" {
 		t.Errorf("detectLocale('') with LANG=ja_JP.UTF-8 = %q; want ja", got)
 	}
@@ -49,7 +76,7 @@ func TestDetectLocale_LCAllTakesPrecedenceOverLANG(t *testing.T) {
 	t.Setenv("LC_ALL", "es_ES.UTF-8")
 	t.Setenv("LANG", "de_DE.UTF-8")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "es" {
 		t.Errorf("detectLocale(auto) with LC_ALL=es = %q; want es", got)
 	}
@@ -59,7 +86,7 @@ func TestDetectLocale_CLocaleSkipped(t *testing.T) {
 	t.Setenv("LC_ALL", "C")
 	t.Setenv("LANG", "POSIX")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "en" {
 		t.Errorf("detectLocale(auto) with LC_ALL=C, LANG=POSIX = %q; want en", got)
 	}
@@ -69,7 +96,7 @@ func TestDetectLocale_AllEnvUnset_FallsBackToEn(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "en" {
 		t.Errorf("detectLocale(auto) with no env = %q; want en", got)
 	}
@@ -79,7 +106,7 @@ func TestDetectLocale_WithAtSuffix(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "ca@valencia")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "ca" {
 		t.Errorf("detectLocale(auto) with LANG=ca@valencia = %q; want ca", got)
 	}
@@ -660,7 +687,7 @@ func TestDetectLocale_LANGUAGEFallback(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "")
 	t.Setenv("LANGUAGE", "pt_BR.UTF-8")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "pt" {
 		t.Errorf("detectLocale(auto) with LANGUAGE=pt_BR.UTF-8 = %q; want pt", got)
 	}
@@ -670,7 +697,7 @@ func TestDetectLocale_PosixInLANG_FallsToLANGUAGE(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "POSIX")
 	t.Setenv("LANGUAGE", "nl.UTF-8")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "nl" {
 		t.Errorf("detectLocale with LANG=POSIX, LANGUAGE=nl.UTF-8 = %q; want nl", got)
 	}
@@ -680,7 +707,7 @@ func TestDetectLocale_LocaleWithoutCountryCode(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "ru.UTF-8")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "ru" {
 		t.Errorf("detectLocale(auto) with LANG=ru.UTF-8 = %q; want ru", got)
 	}

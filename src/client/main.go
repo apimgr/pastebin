@@ -497,7 +497,7 @@ func main() {
 	}
 
 	// Handle --update flag.
-	locale := detectLocale(*langFlag)
+	locale := detectLocale(*langFlag, fileCfg.Defaults.Lang)
 
 	if *doUpdate != "" {
 		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, lang: locale, token: token}
@@ -604,13 +604,17 @@ func (c *client) setAuth(req *http.Request) {
 	}
 }
 
-// detectLocale resolves the output locale from the --lang flag, falling back to the
-// LANG / LC_ALL environment variables, then to "en". A value of "auto" or "" triggers
-// environment detection. The server silently falls back to English for unsupported codes.
-func detectLocale(flagVal string) string {
+// detectLocale resolves the output locale from the --lang flag, falling back to
+// cli.yml's defaults.lang, then to the LANG / LC_ALL environment variables, then to
+// "en" (PART 30 priority order). A value of "auto" or "" triggers the next priority.
+// The server silently falls back to English for unsupported codes.
+func detectLocale(flagVal, configVal string) string {
 	v := strings.TrimSpace(flagVal)
 	if v != "" && v != "auto" {
 		return v
+	}
+	if cv := strings.TrimSpace(configVal); cv != "" && cv != "auto" {
+		return cv
 	}
 	for _, env := range []string{"LC_ALL", "LANG", "LANGUAGE"} {
 		if val := os.Getenv(env); val != "" {

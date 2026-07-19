@@ -456,7 +456,7 @@ func TestCheckCLIUpdate_SendsAcceptLanguage(t *testing.T) {
 // ─── detectLocale — edge cases ────────────────────────────────────────────────
 
 func TestDetectLocale_FlagWithWhitespace(t *testing.T) {
-	got := detectLocale("  de  ")
+	got := detectLocale("  de  ", "")
 	if got != "de" {
 		t.Errorf("detectLocale('  de  ') = %q; want de", got)
 	}

@@ -535,7 +535,7 @@ func TestDetectLocale_LocaleWithOnlyTerritory(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "en_US")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "en" {
 		t.Errorf("detectLocale(auto) with LANG=en_US = %q; want en", got)
 	}
@@ -545,7 +545,7 @@ func TestDetectLocale_EmptyLCALLUsesLANG(t *testing.T) {
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LANG", "it_IT.UTF-8")
 	t.Setenv("LANGUAGE", "")
-	got := detectLocale("auto")
+	got := detectLocale("auto", "")
 	if got != "it" {
 		t.Errorf("detectLocale(auto) with empty LC_ALL, LANG=it_IT.UTF-8 = %q; want it", got)
 	}
