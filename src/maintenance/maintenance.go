@@ -322,6 +322,9 @@ Commands:
   mode <mode>         Set the server mode (production|development)
   setup               Reset admin credentials / initial setup
   pgp <action>        Manage the project security keypair (see below)
+  token <action>      Manage API tokens (see below)
+  data <action> <prefix>  Data-subject export/delete (see below)
+  compliance report   Print the compliance status summary
   --help              Show this help
 
 PGP keypair actions (--maintenance pgp <action>):
@@ -333,6 +336,15 @@ PGP keypair actions (--maintenance pgp <action>):
   import <file>       Import a private key (operator auth, identity checked)
   delete              Delete the keypair and disable PGP publishing
 
+Token actions (--maintenance token <action> [prefix]):
+  list                List all API tokens (prefix, resource, expiry)
+  revoke <prefix>     Revoke the token matching prefix
+
+Data actions (--maintenance data <action> <prefix>) — requires root or the
+operator token; prefix identifies the owner token (see token list):
+  export <prefix>     Print the token and paste record as JSON (GDPR/CCPA export)
+  delete <prefix>     Delete the paste and revoke the token (right to erasure)
+
 Examples:
   %s --maintenance backup
   %s --maintenance backup mybackup.tar.gz
@@ -342,7 +354,12 @@ Examples:
   %s --maintenance update
   %s --maintenance pgp generate
   %s --maintenance pgp export public /tmp/pgp.pub.asc
-`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+  %s --maintenance token list
+  %s --maintenance token revoke tok_abc123
+  %s --maintenance data export tok_abc123
+  %s --maintenance data delete tok_abc123
+  %s --maintenance compliance report
+`, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 // VerifyBackup performs the post-creation checks required by PART 21:

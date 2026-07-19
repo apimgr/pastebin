@@ -109,6 +109,10 @@ type ServerConfig struct {
 	// Healthz controls the optional root-level /healthz alias (PART 13). Moved
 	// from the legacy web.healthz location.
 	Healthz HealthzConfig `yaml:"healthz"`
+	// Compliance toggles per-standard regulatory behavior (AI.md Compliance).
+	// All standards are disabled by default; enabled individually. When more
+	// than one is enabled, the strictest requirement wins on overlap.
+	Compliance ComplianceConfig `yaml:"compliance"`
 }
 
 // ContactConfig is the unified notification-recipient tree (PART 12). Each role
@@ -737,6 +741,24 @@ type HealthzConfig struct {
 	} `yaml:"root"`
 }
 
+// ComplianceConfig toggles the 11 regulatory standards documented in AI.md's
+// Compliance section (server.compliance.*). All default to false; operators
+// enable only the standards that apply to their deployment. Consent state is
+// stored client-side (cookies) — there is no server-side consent table.
+type ComplianceConfig struct {
+	GDPR     bool `yaml:"gdpr"`
+	CCPA     bool `yaml:"ccpa"`
+	HIPAA    bool `yaml:"hipaa"`
+	SOC2     bool `yaml:"soc2"`
+	PCIDSS   bool `yaml:"pci_dss"`
+	ISO27001 bool `yaml:"iso27001"`
+	FedRAMP  bool `yaml:"fedramp"`
+	LGPD     bool `yaml:"lgpd"`
+	PIPEDA   bool `yaml:"pipeda"`
+	APPI     bool `yaml:"appi"`
+	PDPA     bool `yaml:"pdpa"`
+}
+
 // CORSConfig controls cross-origin resource sharing (PART 16 → CORS).
 // Lives at server.cors (moved from the legacy web.cors / web.security.cors
 // single-string field).
@@ -1189,7 +1211,8 @@ func DefaultConfig() *Config {
 				AllowCredentials: true,
 				MaxAge:           86400,
 			},
-			Healthz: HealthzConfig{},
+			Healthz:    HealthzConfig{},
+			Compliance: ComplianceConfig{},
 			GeoIP: GeoIPConfig{
 				Enabled: true,
 				// resolved at startup to {data_dir}/security/geoip

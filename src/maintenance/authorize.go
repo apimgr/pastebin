@@ -91,6 +91,14 @@ func AuthorizeMode(opts AuthOptions) error {
 	return newAuthorizer(opts).authorizeMode()
 }
 
+// AuthorizeDataOp enforces the gate for --maintenance data export/delete
+// (AI.md Compliance): allowed as root or as the service user with the
+// operator token; everyone else is rejected. No first-run bypass — these
+// commands operate on existing resources, not initial setup.
+func AuthorizeDataOp(opts AuthOptions) error {
+	return newAuthorizer(opts).authorizeDataOp()
+}
+
 func (a *authorizer) authorizeSetup() error {
 	// First-run: an empty database means there is nothing to protect.
 	if empty, err := a.dbEmptyFn(a.dbPath()); err == nil && empty {
@@ -133,6 +141,16 @@ func (a *authorizer) authorizeMode() error {
 		return a.requireOperatorToken("Changing the server mode requires operator authorization.")
 	}
 	return errors.New("mode change requires administrator authorization: run as root or provide the operator token")
+}
+
+func (a *authorizer) authorizeDataOp() error {
+	if a.isRootFn() {
+		return nil
+	}
+	if a.isServiceUser() {
+		return a.requireOperatorToken("This will access/modify data-subject records. Enter operator token to confirm.")
+	}
+	return errors.New("data operations require administrator authorization: run as root or provide the operator token")
 }
 
 // dbPath resolves the database path: database.path from server.yml wins,

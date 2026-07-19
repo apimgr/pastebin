@@ -2118,9 +2118,12 @@ func (d *stubDB) VerifyAPIToken(hash [32]byte, rtype, rid string) error         
 func (d *stubDB) ValidateAPIToken(hash [32]byte, rtype string) error                   { return nil }
 func (d *stubDB) RevokeAPIToken(prefix, reason string) error                           { return nil }
 func (d *stubDB) ListAPITokens() ([]*database.APITokenRecord, error)                   { return nil, nil }
-func (d *stubDB) DeleteExpiredAPITokens() (int64, error)                               { return 0, nil }
-func (d *stubDB) EnsureAppSecret(key string) ([]byte, error)                           { return nil, nil }
-func (d *stubDB) CreateSecurityReport(r *database.SecurityReport) error                { return nil }
+func (d *stubDB) GetAPITokenByPrefix(prefix string) (*database.APITokenRecord, error) {
+	return nil, nil
+}
+func (d *stubDB) DeleteExpiredAPITokens() (int64, error)                { return 0, nil }
+func (d *stubDB) EnsureAppSecret(key string) ([]byte, error)            { return nil, nil }
+func (d *stubDB) CreateSecurityReport(r *database.SecurityReport) error { return nil }
 func (d *stubDB) GetSecurityReport(trackingID string) (*database.SecurityReport, error) {
 	return nil, nil
 }

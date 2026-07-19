@@ -717,50 +717,56 @@ func TestRunSchedulerUnknownSubcmd(t *testing.T) {
 }
 
 // ─── Token CLI ────────────────────────────────────────────────────────────────
+//
+// AI.md canonicalises token management under --maintenance token (bare
+// "token ..." was removed; see spec_diff lines 900-906), so these exercise
+// the "--maintenance token ..." form exclusively.
 
-// TestRunTokenList exercises the "token list" path through an empty DB.
+// TestRunTokenList exercises the "--maintenance token list" path through an
+// empty DB.
 func TestRunTokenList(t *testing.T) {
 	tempDBPath(t)
-	code, out, errOut := runCapture("token", "list")
+	code, out, errOut := runCapture("--maintenance", "token", "list")
 	if code != 0 {
-		t.Errorf("token list: exit %d, want 0; stderr=%q", code, errOut)
+		t.Errorf("maintenance token list: exit %d, want 0; stderr=%q", code, errOut)
 	}
 	if !strings.Contains(out, "No active tokens") {
-		t.Errorf("token list (empty DB): expected 'No active tokens'; got %q", out)
+		t.Errorf("maintenance token list (empty DB): expected 'No active tokens'; got %q", out)
 	}
 }
 
-// TestRunTokenRevokeNoArg verifies "token revoke" with no prefix exits 2.
+// TestRunTokenRevokeNoArg verifies "--maintenance token revoke" with no
+// prefix exits 2.
 func TestRunTokenRevokeNoArg(t *testing.T) {
 	tempDBPath(t)
-	code, _, errOut := runCapture("token", "revoke")
+	code, _, errOut := runCapture("--maintenance", "token", "revoke")
 	if code != 2 {
-		t.Errorf("token revoke (no prefix): exit %d, want 2", code)
+		t.Errorf("maintenance token revoke (no prefix): exit %d, want 2", code)
 	}
 	if !strings.Contains(errOut, "revoke") {
-		t.Errorf("token revoke (no prefix): stderr missing 'revoke'; got %q", errOut)
+		t.Errorf("maintenance token revoke (no prefix): stderr missing 'revoke'; got %q", errOut)
 	}
 }
 
-// TestRunTokenRevokeUnknown verifies "token revoke <prefix>" for a token that
-// does not exist returns exit 1.
+// TestRunTokenRevokeUnknown verifies "--maintenance token revoke <prefix>"
+// for a token that does not exist returns exit 1.
 func TestRunTokenRevokeUnknown(t *testing.T) {
 	tempDBPath(t)
-	code, _, _ := runCapture("token", "revoke", "nonexistent")
+	code, _, _ := runCapture("--maintenance", "token", "revoke", "nonexistent")
 	if code != 1 {
-		t.Errorf("token revoke <unknown>: exit %d, want 1", code)
+		t.Errorf("maintenance token revoke <unknown>: exit %d, want 1", code)
 	}
 }
 
 // TestRunTokenUnknownSubcmd exercises the default branch of the token switch.
 func TestRunTokenUnknownSubcmd(t *testing.T) {
 	tempDBPath(t)
-	code, _, errOut := runCapture("token", "badsubcmd")
+	code, _, errOut := runCapture("--maintenance", "token", "badsubcmd")
 	if code != 2 {
-		t.Errorf("token <unknown>: exit %d, want 2", code)
+		t.Errorf("maintenance token <unknown>: exit %d, want 2", code)
 	}
 	if !strings.Contains(errOut, "unknown") {
-		t.Errorf("token <unknown>: stderr missing 'unknown'; got %q", errOut)
+		t.Errorf("maintenance token <unknown>: stderr missing 'unknown'; got %q", errOut)
 	}
 }
 

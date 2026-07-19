@@ -731,6 +731,46 @@ func TestListAPITokens(t *testing.T) {
 	}
 }
 
+// TestGetAPITokenByPrefix creates a token and confirms it can be fetched by
+// prefix, that revoked tokens are not returned, and that an unknown prefix
+// errors (AI.md Compliance: data export/delete scope by owner-token prefix).
+func TestGetAPITokenByPrefix(t *testing.T) {
+	db := newTestDB(t)
+
+	_, _, hashHex, prefix := makeToken(t)
+	if err := db.CreateAPIToken(hashHex, prefix, "paste", "paste-001", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("found", func(t *testing.T) {
+		rec, err := db.GetAPITokenByPrefix(prefix)
+		if err != nil {
+			t.Fatalf("GetAPITokenByPrefix: %v", err)
+		}
+		if rec.TokenPrefix != prefix {
+			t.Errorf("TokenPrefix: got %q, want %q", rec.TokenPrefix, prefix)
+		}
+		if rec.ResourceType != "paste" || rec.ResourceID != "paste-001" {
+			t.Errorf("resource: got %q/%q, want paste/paste-001", rec.ResourceType, rec.ResourceID)
+		}
+	})
+
+	t.Run("unknown_prefix", func(t *testing.T) {
+		if _, err := db.GetAPITokenByPrefix("tok_doesnotexist"); err == nil {
+			t.Error("expected error for unknown prefix, got nil")
+		}
+	})
+
+	t.Run("revoked_not_returned", func(t *testing.T) {
+		if err := db.RevokeAPIToken(prefix, "test cleanup"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.GetAPITokenByPrefix(prefix); err == nil {
+			t.Error("expected error for revoked token, got nil")
+		}
+	})
+}
+
 // TestDeleteExpiredAPITokens creates a token with an expiry in the past and
 // verifies DeleteExpiredAPITokens removes it and returns a count of 1.
 func TestDeleteExpiredAPITokens(t *testing.T) {

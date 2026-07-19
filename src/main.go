@@ -91,7 +91,9 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		maintenanceCmd string
 		// second positional arg after --maintenance subcommand
 		maintenanceArg string
-		// remaining positionals for "--maintenance pgp <action> [args...]"
+		// remaining positionals for "--maintenance pgp <action> [args...]",
+		// "--maintenance token <list|revoke> [prefix]", and
+		// "--maintenance data <export|delete> <prefix>"
 		maintenancePGP []string
 		// --password flag for --maintenance backup/restore
 		maintenancePass string
@@ -104,10 +106,6 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		schedulerCmd string
 		// scheduler <subcommand> <id>
 		schedulerArg string
-		// token <subcommand>
-		tokenCmd string
-		// token <subcommand> <prefix>
-		tokenArg string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -170,9 +168,11 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			// Capture an optional second positional argument (e.g. filename for
 			// "restore" or mode name for "mode", or the action for "pgp").
 			maintenanceArg = val()
-			// "pgp" takes further positionals (e.g. "export private <path>");
+			// "pgp"/"token"/"data" take further positionals (e.g. "export
+			// private <path>", "revoke <prefix>", "delete <prefix>");
 			// greedily collect all remaining non-flag args.
-			if maintenanceCmd == "pgp" {
+			switch maintenanceCmd {
+			case "pgp", "token", "data":
 				for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 					i++
 					maintenancePGP = append(maintenancePGP, args[i])
@@ -212,16 +212,6 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 				i++
 				schedulerArg = args[i]
-			}
-		case "token":
-			// Positional: token <subcommand> [prefix]
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				i++
-				tokenCmd = args[i]
-			}
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				i++
-				tokenArg = args[i]
 			}
 		default:
 			if strings.HasPrefix(arg, "--") || (strings.HasPrefix(arg, "-") && len(arg) > 2) {
@@ -463,6 +453,106 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			}
 			if err := maintenance.RunPGP(maintenanceArg, maintenancePGP, pgpOpts); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance pgp: %v\n", binaryName, err)
+				return 1
+			}
+			return 0
+		case "token":
+			if maintenanceArg == "" {
+				fmt.Fprintf(stderr, "%s: --maintenance token requires a subcommand\n", binaryName)
+				fmt.Fprintf(stderr, "Usage: %s --maintenance token {list|revoke} [prefix]\n", binaryName)
+				return 2
+			}
+			tkCfgFile := filepath.Join(mcConfigDir, "server.yml")
+			tkCfg, _ := config.Load(tkCfgFile)
+			if tkCfg.Database.Path == "" {
+				tkCfg.Database.Path = paths.GetDBPath(appName)
+			}
+			tkDB, err := database.NewDatabase(tkCfg.Database.Type, tkCfg.Database.Path)
+			if err != nil {
+				fmt.Fprintf(stderr, "%s: token: database: %v\n", binaryName, err)
+				return 1
+			}
+			defer tkDB.Close()
+
+			var tokenPrefix string
+			if len(maintenancePGP) > 0 {
+				tokenPrefix = maintenancePGP[0]
+			}
+			switch maintenanceArg {
+			case "list":
+				tokens, err := tkDB.ListAPITokens()
+				if err != nil {
+					fmt.Fprintf(stderr, "%s: token list: %v\n", binaryName, err)
+					return 1
+				}
+				if len(tokens) == 0 {
+					fmt.Fprintln(stdout, "No active tokens.")
+				} else {
+					fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
+						"PREFIX", "TYPE", "RESOURCE", "CREATED", "EXPIRES")
+					fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
+						"--------------", "--------", "--------------",
+						"------------------------", "------------------------")
+					for _, t := range tokens {
+						expires := "never"
+						if t.ExpiresAt != nil {
+							expires = t.ExpiresAt.Format("2006-01-02 15:04:05")
+						}
+						fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
+							t.TokenPrefix, t.ResourceType, t.ResourceID,
+							t.CreatedAt.Format("2006-01-02 15:04:05"), expires)
+					}
+				}
+			case "revoke":
+				if tokenPrefix == "" {
+					fmt.Fprintf(stderr, "Usage: %s --maintenance token revoke <prefix>\n", binaryName)
+					return 2
+				}
+				if err := tkDB.RevokeAPIToken(tokenPrefix, "revoked via CLI"); err != nil {
+					fmt.Fprintf(stderr, "%s: token revoke: %v\n", binaryName, err)
+					return 1
+				}
+				fmt.Fprintf(stdout, "Token %s revoked.\n", tokenPrefix)
+			default:
+				fmt.Fprintf(stderr, "%s: unknown token subcommand: %s\n", binaryName, maintenanceArg)
+				fmt.Fprintf(stderr, "Usage: %s --maintenance token {list|revoke} [prefix]\n", binaryName)
+				return 2
+			}
+			return 0
+		case "data":
+			if maintenanceArg == "" {
+				fmt.Fprintf(stderr, "%s: --maintenance data requires an action\n", binaryName)
+				fmt.Fprintf(stderr, "Usage: %s --maintenance data {export|delete} <prefix>\n", binaryName)
+				return 2
+			}
+			var dataPrefix string
+			if len(maintenancePGP) > 0 {
+				dataPrefix = maintenancePGP[0]
+			}
+			dataOpts := maintenance.DataOptions{
+				ConfigDir: mcConfigDir,
+				DBPath:    paths.GetDBPath(appName),
+				LogDir:    paths.GetLogsDir(appName),
+			}
+			if err := maintenance.AuthorizeDataOp(mcAuthOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance data: %v\n", binaryName, err)
+				return 1
+			}
+			if err := maintenance.RunData(maintenanceArg, dataPrefix, dataOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance data: %v\n", binaryName, err)
+				return 1
+			}
+			return 0
+		case "compliance":
+			if maintenanceArg == "" {
+				maintenanceArg = "report"
+			}
+			complianceOpts := maintenance.ComplianceOptions{
+				ConfigDir: mcConfigDir,
+				LogDir:    paths.GetLogsDir(appName),
+			}
+			if err := maintenance.RunCompliance(maintenanceArg, complianceOpts); err != nil {
+				fmt.Fprintf(stderr, "%s: maintenance compliance: %v\n", binaryName, err)
 				return 1
 			}
 			return 0
@@ -784,66 +874,6 @@ Examples:
 		default:
 			fmt.Fprintf(stderr, "%s: unknown scheduler subcommand: %s\n", binaryName, schedulerCmd)
 			fmt.Fprintf(stderr, "Usage: %s scheduler {list|show|run|enable|disable|history} [id]\n", binaryName)
-			return 2
-		}
-		return 0
-	}
-
-	// ── Token management CLI ──────────────────────────────────────────────────
-
-	if tokenCmd != "" {
-		tkCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
-		tkCfg, _ := config.Load(tkCfgFile)
-		if tkCfg.Database.Path == "" {
-			tkCfg.Database.Path = paths.GetDBPath(appName)
-		}
-		tkDB, err := database.NewDatabase(tkCfg.Database.Type, tkCfg.Database.Path)
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: token: database: %v\n", binaryName, err)
-			return 1
-		}
-		defer tkDB.Close()
-
-		switch tokenCmd {
-		case "list":
-			tokens, err := tkDB.ListAPITokens()
-			if err != nil {
-				fmt.Fprintf(stderr, "%s: token list: %v\n", binaryName, err)
-				return 1
-			}
-			if len(tokens) == 0 {
-				fmt.Fprintln(stdout, "No active tokens.")
-			} else {
-				fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
-					"PREFIX", "TYPE", "RESOURCE", "CREATED", "EXPIRES")
-				fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
-					"--------------", "--------", "--------------",
-					"------------------------", "------------------------")
-				for _, t := range tokens {
-					expires := "never"
-					if t.ExpiresAt != nil {
-						expires = t.ExpiresAt.Format("2006-01-02 15:04:05")
-					}
-					fmt.Fprintf(stdout, "%-14s %-8s %-14s %-24s %-24s\n",
-						t.TokenPrefix, t.ResourceType, t.ResourceID,
-						t.CreatedAt.Format("2006-01-02 15:04:05"), expires)
-				}
-			}
-
-		case "revoke":
-			if tokenArg == "" {
-				fmt.Fprintf(stderr, "Usage: %s token revoke <prefix>\n", binaryName)
-				return 2
-			}
-			if err := tkDB.RevokeAPIToken(tokenArg, "revoked via CLI"); err != nil {
-				fmt.Fprintf(stderr, "%s: token revoke: %v\n", binaryName, err)
-				return 1
-			}
-			fmt.Fprintf(stdout, "Token %s revoked.\n", tokenArg)
-
-		default:
-			fmt.Fprintf(stderr, "%s: unknown token subcommand: %s\n", binaryName, tokenCmd)
-			fmt.Fprintf(stderr, "Usage: %s token {list|revoke} [prefix]\n", binaryName)
 			return 2
 		}
 		return 0

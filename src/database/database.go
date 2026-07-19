@@ -95,6 +95,9 @@ type DB interface {
 	RevokeAPIToken(prefix, reason string) error
 	// ListAPITokens returns all non-revoked token records (token_hash omitted).
 	ListAPITokens() ([]*APITokenRecord, error)
+	// GetAPITokenByPrefix returns the non-revoked token record matching prefix,
+	// used to resolve the resource a --maintenance data/token command targets.
+	GetAPITokenByPrefix(prefix string) (*APITokenRecord, error)
 	// DeleteExpiredAPITokens removes rows that are expired or revoked.
 	DeleteExpiredAPITokens() (int64, error)
 
@@ -959,6 +962,39 @@ func (s *SQLiteDB) ListAPITokens() ([]*APITokenRecord, error) {
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+// GetAPITokenByPrefix returns the non-revoked token record matching prefix.
+func (s *SQLiteDB) GetAPITokenByPrefix(prefix string) (*APITokenRecord, error) {
+	ctx, cancel := dbCtx(dbReadTimeout)
+	defer cancel()
+	rec := &APITokenRecord{}
+	var createdAt int64
+	var expiresAt, lastUsedAt sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, token_prefix, resource_type, resource_id,
+		        created_at, expires_at, last_used_at
+		 FROM api_tokens
+		 WHERE token_prefix = ? AND revoked_at IS NULL`,
+		prefix,
+	).Scan(&rec.ID, &rec.TokenPrefix, &rec.ResourceType, &rec.ResourceID,
+		&createdAt, &expiresAt, &lastUsedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("token not found or revoked")
+	}
+	if err != nil {
+		return nil, err
+	}
+	rec.CreatedAt = time.Unix(createdAt, 0)
+	if expiresAt.Valid {
+		t := time.Unix(expiresAt.Int64, 0)
+		rec.ExpiresAt = &t
+	}
+	if lastUsedAt.Valid {
+		t := time.Unix(lastUsedAt.Int64, 0)
+		rec.LastUsedAt = &t
+	}
+	return rec, nil
 }
 
 // DeleteExpiredAPITokens removes rows that are expired or revoked.
