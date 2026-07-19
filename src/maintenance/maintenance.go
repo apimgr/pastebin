@@ -205,7 +205,7 @@ func Restore(archivePath, configDir, dataDir, password string) error {
 	// Detect encryption by file extension.
 	if strings.HasSuffix(archivePath, ".enc") {
 		if password == "" {
-			return fmt.Errorf("backup is encrypted — provide a password with --password")
+			return fmt.Errorf("backup is encrypted — a password is required to restore it")
 		}
 		data, err = decrypt(data, password)
 		if err != nil {

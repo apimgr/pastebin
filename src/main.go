@@ -95,9 +95,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		// "--maintenance token <list|revoke> [prefix]", and
 		// "--maintenance data <export|delete> <prefix>"
 		maintenancePGP []string
-		// --password flag for --maintenance backup/restore
-		maintenancePass string
-		updateCmd       string
+		updateCmd      string
 		// --email <subcommand>
 		emailCmd string
 		// --email test <address>
@@ -161,8 +159,6 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			shellArg = val()
 		case "--service":
 			serviceCmd = val()
-		case "--password":
-			maintenancePass = val()
 		case "--maintenance":
 			maintenanceCmd = val()
 			// Capture an optional second positional argument (e.g. filename for
@@ -363,12 +359,28 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				}
 				return 0
 			}
+			// Passwords are never accepted via CLI flag (shell history / process
+			// list leakage) — prompt interactively when encryption is enabled
+			// (AI.md 29017).
+			var backupPass string
+			btCfgFile := filepath.Join(mcConfigDir, "server.yml")
+			btCfg, btCfgErr := config.Load(btCfgFile)
+			if btCfgErr == nil && btCfg.Server.Backup.Encryption.Enabled {
+				fmt.Fprint(stderr, "Backup password: ")
+				pw, pwErr := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Fprintln(stderr)
+				if pwErr != nil {
+					fmt.Fprintf(stderr, "%s: reading password: %v\n", binaryName, pwErr)
+					return 1
+				}
+				backupPass = string(pw)
+			}
 			opts := maintenance.BackupOptions{
 				ConfigDir:  mcConfigDir,
 				DataDir:    mcDataDir,
 				BackupDir:  mcBackupDir,
 				AppVersion: Version,
-				Password:   maintenancePass,
+				Password:   backupPass,
 				// optional custom filename
 				Filename: maintenanceArg,
 			}
@@ -386,9 +398,11 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "%s: maintenance restore: %v\n", binaryName, err)
 				return 1
 			}
-			restorePass := maintenancePass
-			// Prompt for password when restoring an encrypted backup and none was provided.
-			if strings.HasSuffix(maintenanceArg, ".enc") && restorePass == "" {
+			// Passwords are never accepted via CLI flag (shell history / process
+			// list leakage) — always prompt interactively for encrypted backups
+			// (AI.md 29017).
+			var restorePass string
+			if strings.HasSuffix(maintenanceArg, ".enc") {
 				fmt.Fprint(stderr, "Backup password: ")
 				pw, pwErr := term.ReadPassword(int(os.Stdin.Fd()))
 				fmt.Fprintln(stderr)
