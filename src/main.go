@@ -879,10 +879,13 @@ Examples:
 		return 0
 	}
 
+	// Resolve active language for CLI/startup-banner output (PART 30).
+	activeLang := i18n.GetLanguage(langFlag)
+
 	// ── Daemon ────────────────────────────────────────────────────────────────
 
 	if daemonFlag {
-		if err := daemon.Daemonize(); err != nil {
+		if err := daemon.Daemonize(activeLang); err != nil {
 			log.Printf("daemon: %v", err)
 			// EX_OSERR
 			os.Exit(71)
@@ -890,9 +893,6 @@ Examples:
 		// If Daemonize returned without exiting, we are the daemon child.
 		// Continue with normal server startup below.
 	}
-
-	// Resolve active language for CLI/startup-banner output (PART 30).
-	activeLang := i18n.GetLanguage(langFlag)
 
 	// ── Application mode ─────────────────────────────────────────────────────
 

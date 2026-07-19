@@ -8,12 +8,15 @@ package daemon
 import (
 	"fmt"
 	"os"
+
+	"github.com/apimgr/pastebin/src/common/i18n"
 )
 
 // Daemonize is a no-op on Windows. It prints a warning directing the user
-// to use Windows Service management instead.
-func Daemonize() error {
-	fmt.Fprintln(os.Stderr, "Warning: --daemon is not supported on Windows.")
-	fmt.Fprintln(os.Stderr, "Use '--service --install' and '--service start' to run as a Windows Service.")
+// to use Windows Service management instead. lang selects the message
+// locale (PART 30); an empty or unsupported value falls back to English.
+func Daemonize(lang string) error {
+	fmt.Fprintln(os.Stderr, i18n.Translate(lang, "cli.windows_daemon_warning"))
+	fmt.Fprintln(os.Stderr, i18n.Translate(lang, "cli.windows_service_hint"))
 	return nil
 }

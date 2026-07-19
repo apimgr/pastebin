@@ -127,7 +127,7 @@ func TestFilterDaemonFlag_Capacity(t *testing.T) {
 func TestDaemonize_ChildEnvSet(t *testing.T) {
 	t.Setenv("_DAEMON_CHILD", "1")
 
-	err := Daemonize()
+	err := Daemonize("en")
 	if err != nil {
 		t.Errorf("Daemonize (child mode): expected nil, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestDaemonize_ChildEnvAnyValue(t *testing.T) {
 	// Any non-empty value triggers child mode.
 	t.Setenv("_DAEMON_CHILD", "true")
 
-	err := Daemonize()
+	err := Daemonize("en")
 	if err != nil {
 		t.Errorf("Daemonize (child mode with 'true'): expected nil, got %v", err)
 	}
@@ -280,7 +280,7 @@ import (
 )
 
 func main() {
-	if err := daemon.Daemonize(); err != nil {
+	if err := daemon.Daemonize("en"); err != nil {
 		os.Exit(1)
 	}
 	os.Exit(0)

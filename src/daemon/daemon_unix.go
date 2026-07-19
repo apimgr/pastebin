@@ -13,8 +13,10 @@ import (
 // Daemonize forks the process and detaches from the terminal (Unix only).
 // If _DAEMON_CHILD=1 is already set, we are the child — return immediately
 // and let the caller continue with normal startup. The parent prints the
-// child PID and exits 0.
-func Daemonize() error {
+// child PID and exits 0. lang is accepted for signature parity with the
+// Windows build (PART 30) but is unused on Unix — Daemonize prints no
+// localizable text here.
+func Daemonize(lang string) error {
 	// Already the daemon child (or already detached from terminal).
 	if os.Getenv("_DAEMON_CHILD") != "" || os.Getppid() == 1 {
 		return nil

@@ -14,7 +14,7 @@ func TestDaemonize_AlreadyChild(t *testing.T) {
 	// When _DAEMON_CHILD=1 is set, Daemonize must return nil immediately
 	// without forking or exiting.
 	t.Setenv("_DAEMON_CHILD", "1")
-	if err := daemon.Daemonize(); err != nil {
+	if err := daemon.Daemonize("en"); err != nil {
 		t.Errorf("Daemonize (child mode): expected nil, got %v", err)
 	}
 }
