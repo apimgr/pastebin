@@ -182,19 +182,19 @@ jobs:
           fi
           echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
           echo "BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")" >> "$GITHUB_ENV"
-          # OFFICIALSITE (optional): site.txt wins; otherwise use repository secrets or leave empty
+          # OFFICIAL_SITE (optional): site.txt wins; otherwise use repository secrets or leave empty
           # Never guess or assume - must be explicitly defined by user
           if [ -f site.txt ]; then
-            echo "OFFICIALSITE=$(cat site.txt)" >> "$GITHUB_ENV"
+            echo "OFFICIAL_SITE=$(cat site.txt)" >> "$GITHUB_ENV"
           else
-            echo "OFFICIALSITE=${{ secrets.OFFICIALSITE }}" >> "$GITHUB_ENV"
+            echo "OFFICIAL_SITE=${{ secrets.OFFICIAL_SITE }}" >> "$GITHUB_ENV"
           fi
       - name: Build linux/amd64 server
         env:
           GOOS: linux
           GOARCH: amd64
         run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
           go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o pastebin-linux-amd64 ./src
       - name: Build linux/amd64 CLI
         if: hashFiles('src/client/') != ''
@@ -202,7 +202,7 @@ jobs:
           GOOS: linux
           GOARCH: amd64
         run: |
-          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIALSITE }}'"
+          LDFLAGS="-s -w -X 'main.Version=${{ env.VERSION }}' -X 'main.CommitID=${{ env.COMMIT_ID }}' -X 'main.BuildDate=${{ env.BUILD_DATE }}' -X 'main.OfficialSite=${{ env.OFFICIAL_SITE }}'"
           go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o pastebin-cli-linux-amd64 ./src/client
       - name: Upload CI binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

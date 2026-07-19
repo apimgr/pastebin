@@ -2,7 +2,7 @@
 # Variables
 # ============================================
 PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
-PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
+PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
 # Version precedence: release.txt > env/default fallback
 VERSION ?= $(shell cat release.txt 2>/dev/null || echo "devel")
@@ -14,16 +14,16 @@ BUILD_DATE := $(shell date +"%B %-d, %Y at %H:%M:%S")
 # Official site URL (OPTIONAL - never guess or assume)
 # Sources (in order of precedence):
 #   1. File: site.txt in project root (single line, URL only)
-#   2. Environment variable: OFFICIALSITE=https://example.com
+#   2. Environment variable: OFFICIAL_SITE=https://example.com
 #   3. Empty (self-hosted projects - users must use --server flag)
-OFFICIALSITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIALSITE:-}")
+OFFICIAL_SITE := $(shell [ -f site.txt ] && cat site.txt || echo "$${OFFICIAL_SITE:-}")
 
 # Linker flags to embed build info
 LDFLAGS := -s -w \
 	-X 'main.Version=$(VERSION)' \
 	-X 'main.CommitID=$(COMMIT_ID)' \
 	-X 'main.BuildDate=$(BUILD_DATE)' \
-	-X 'main.OfficialSite=$(OFFICIALSITE)'
+	-X 'main.OfficialSite=$(OFFICIAL_SITE)'
 
 # Directories
 BINDIR := binaries
@@ -37,7 +37,7 @@ GO_CACHE  ?= $(HOME)/go/pkg/mod
 GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECT_NAME)
 
 # Docker (PART 25)
-REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECT_NAME)
+REGISTRY  ?= ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME)
 GO_DOCKER := docker run --rm \
 	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 	-v $(PWD):/app \
@@ -180,8 +180,8 @@ test:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
-		mkdir -p \"/tmp/$(PROJECTORG)\" && \
-		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECTORG)/$(PROJECT_NAME)-XXXXXX\") && \
+		mkdir -p \"/tmp/$(PROJECT_ORG)\" && \
+		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX\") && \
 		go mod download && \
 		go test -v -cover -timeout 30m -coverprofile=\$$COVDIR/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
@@ -196,8 +196,8 @@ test:
 # =============================================================================
 dev:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
-	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)"
-	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECT_NAME)-XXXXXX") && \
+	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECT_ORG)"
+	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(PROJECT_NAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
 		docker run --rm \
 			--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \

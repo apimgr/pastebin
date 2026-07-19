@@ -124,9 +124,9 @@ build-binaries:
       COMMIT_ID=$(git rev-parse --short HEAD)
       BUILD_DATE=$(date +"%a %b %d, %Y at %H:%M:%S %Z")
       if [ -f site.txt ]; then
-        OFFICIALSITE=$(cat site.txt)
+        OFFICIAL_SITE=$(cat site.txt)
       else
-        OFFICIALSITE="${OFFICIALSITE:-}"
+        OFFICIAL_SITE="${OFFICIAL_SITE:-}"
       fi
     - |
       EXT=""
@@ -134,7 +134,7 @@ build-binaries:
         EXT=".exe"
       fi
     - |
-      LDFLAGS="-s -w -X 'main.Version=$VERSION' -X 'main.CommitID=$COMMIT_ID' -X 'main.BuildDate=$BUILD_DATE' -X 'main.OfficialSite=$OFFICIALSITE'"
+      LDFLAGS="-s -w -X 'main.Version=$VERSION' -X 'main.CommitID=$COMMIT_ID' -X 'main.BuildDate=$BUILD_DATE' -X 'main.OfficialSite=$OFFICIAL_SITE'"
       go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-${GOOS}-${GOARCH}${EXT} ./src
     - |
       if [ -d src/client ]; then

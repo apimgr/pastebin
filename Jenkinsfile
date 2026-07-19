@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         PROJECTNAME = 'pastebin'
-        PROJECTORG = 'apimgr'
+        PROJECT_ORG = 'apimgr'
         BINDIR = 'binaries'
         RELDIR = 'releases'
         // Go cache bind-mounted from host: GO_CACHE (mod) and GO_BUILD (build cache)
@@ -21,22 +21,22 @@ pipeline {
         // ----- GITHUB (default) -----
         GIT_FQDN = 'github.com'
         GIT_TOKEN = credentials('github-token')
-        REGISTRY = "ghcr.io/${PROJECTORG}/${PROJECTNAME}"
+        REGISTRY = "ghcr.io/${PROJECT_ORG}/${PROJECTNAME}"
 
         // ----- GITEA / FORGEJO (self-hosted) -----
         // GIT_FQDN = 'git.example.com'
         // GIT_TOKEN = credentials('gitea-token')
-        // REGISTRY = "${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}"
+        // REGISTRY = "${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}"
 
         // ----- GITLAB (gitlab.com or self-hosted) -----
         // GIT_FQDN = 'gitlab.com'
         // GIT_TOKEN = credentials('gitlab-token')
-        // REGISTRY = "registry.${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}"
+        // REGISTRY = "registry.${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}"
 
         // ----- DOCKER HUB -----
         // GIT_FQDN = 'github.com'
         // GIT_TOKEN = credentials('github-token')
-        // REGISTRY = "docker.io/${PROJECTORG}/${PROJECTNAME}"
+        // REGISTRY = "docker.io/${PROJECT_ORG}/${PROJECTNAME}"
 
         // =========================================================================
     }
@@ -66,10 +66,10 @@ pipeline {
                     }
                     env.COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                     env.BUILD_DATE = sh(script: 'date +"%a %b %d, %Y at %H:%M:%S %Z"', returnStdout: true).trim()
-                    // OFFICIALSITE (optional): site.txt wins; otherwise use Jenkins credentials or leave empty
+                    // OFFICIAL_SITE (optional): site.txt wins; otherwise use Jenkins credentials or leave empty
                     // Never guess or assume - must be explicitly defined by user
-                    env.OFFICIALSITE = sh(script: '[ -f site.txt ] && cat site.txt || echo "${OFFICIALSITE:-}"', returnStdout: true).trim()
-                    env.LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildDate=${env.BUILD_DATE}' -X 'main.OfficialSite=${env.OFFICIALSITE}'"
+                    env.OFFICIAL_SITE = sh(script: '[ -f site.txt ] && cat site.txt || echo "${OFFICIAL_SITE:-}"', returnStdout: true).trim()
+                    env.LDFLAGS = "-s -w -X 'main.Version=${env.VERSION}' -X 'main.CommitID=${env.COMMIT_ID}' -X 'main.BuildDate=${env.BUILD_DATE}' -X 'main.OfficialSite=${env.OFFICIAL_SITE}'"
                     env.HAS_CLI = sh(script: '[ -d src/client ] && echo true || echo false', returnStdout: true).trim()
                 }
                 sh 'mkdir -p ${BINDIR} ${RELDIR}'
@@ -486,7 +486,7 @@ pipeline {
                     // Login to container registry
                     // Works with: ghcr.io, registry.gitlab.com, gitea/forgejo, docker.io
                     sh """
-                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECTORG} --password-stdin
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECT_ORG} --password-stdin
                     """
 
                     // Build multi-arch with OCI labels and manifest annotations
@@ -498,8 +498,8 @@ pipeline {
                             --build-arg VERSION="${VERSION}" \
                             --build-arg COMMIT_ID="${COMMIT_ID}" \
                             --build-arg BUILD_DATE="${BUILD_DATE}" \
-                            --label "org.opencontainers.image.vendor=${PROJECTORG}" \
-                            --label "org.opencontainers.image.authors=${PROJECTORG}" \
+                            --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
                             --label "org.opencontainers.image.title=${PROJECTNAME}" \
                             --label "org.opencontainers.image.base.name=${PROJECTNAME}" \
                             --label "org.opencontainers.image.description=${PROJECTNAME} - standard image (alpine)" \
@@ -507,11 +507,11 @@ pipeline {
                             --label "org.opencontainers.image.version=${VERSION}" \
                             --label "org.opencontainers.image.created=${BUILD_DATE}" \
                             --label "org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECTORG}" \
-                            --annotation "manifest:org.opencontainers.image.authors=${PROJECTORG}" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
                             --annotation "manifest:org.opencontainers.image.title=${PROJECTNAME}" \
                             --annotation "manifest:org.opencontainers.image.base.name=${PROJECTNAME}" \
                             --annotation "manifest:org.opencontainers.image.description=${PROJECTNAME} - standard image (alpine)" \
@@ -519,9 +519,9 @@ pipeline {
                             --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
                             --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
                             --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
                             ${tags} \
                             --push \
                             .
@@ -555,7 +555,7 @@ pipeline {
 
                     // Login to container registry
                     sh """
-                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECTORG} --password-stdin
+                        echo "\${GIT_TOKEN}" | docker login ${REGISTRY.split('/')[0]} -u ${PROJECT_ORG} --password-stdin
                     """
 
                     // Build multi-arch all-in-one with OCI labels and manifest annotations
@@ -567,28 +567,28 @@ pipeline {
                             --build-arg VERSION="${VERSION}" \
                             --build-arg COMMIT_ID="${COMMIT_ID}" \
                             --build-arg BUILD_DATE="${BUILD_DATE}" \
-                            --label "org.opencontainers.image.vendor=${PROJECTORG}" \
-                            --label "org.opencontainers.image.authors=${PROJECTORG}" \
+                            --label "org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --label "org.opencontainers.image.authors=${PROJECT_ORG}" \
                             --label "org.opencontainers.image.title=${PROJECTNAME}-aio" \
                             --label "org.opencontainers.image.description=${PROJECTNAME} - all-in-one (debian + valkey + tor)" \
                             --label "org.opencontainers.image.licenses=MIT" \
                             --label "org.opencontainers.image.version=${VERSION}" \
                             --label "org.opencontainers.image.created=${BUILD_DATE}" \
                             --label "org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECTORG}" \
-                            --annotation "manifest:org.opencontainers.image.authors=${PROJECTORG}" \
+                            --label "org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --label "org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.vendor=${PROJECT_ORG}" \
+                            --annotation "manifest:org.opencontainers.image.authors=${PROJECT_ORG}" \
                             --annotation "manifest:org.opencontainers.image.title=${PROJECTNAME}-aio" \
                             --annotation "manifest:org.opencontainers.image.description=${PROJECTNAME} - all-in-one (debian + valkey + tor)" \
                             --annotation "manifest:org.opencontainers.image.licenses=MIT" \
                             --annotation "manifest:org.opencontainers.image.version=${VERSION}" \
                             --annotation "manifest:org.opencontainers.image.created=${BUILD_DATE}" \
                             --annotation "manifest:org.opencontainers.image.revision=${COMMIT_ID}" \
-                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
-                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECTORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.url=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.source=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
+                            --annotation "manifest:org.opencontainers.image.documentation=https://${GIT_FQDN}/${PROJECT_ORG}/${PROJECTNAME}" \
                             ${tags} \
                             --push \
                             .
