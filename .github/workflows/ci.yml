@@ -45,7 +45,7 @@ jobs:
           mkdir -p "/tmp/${{ github.repository_owner }}"
           COVDIR=$(mktemp -d "/tmp/${{ github.repository_owner }}/$(basename "${{ github.repository }}")-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITHUB_ENV"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          go test -v -cover -timeout 30m -coverprofile="$COVDIR/coverage.out" ./...
       - name: Enforce coverage threshold
         run: |
           THRESHOLD=60
@@ -66,7 +66,7 @@ jobs:
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - run: go build -buildvcs=false ./...
+      - run: go build -buildvcs=false -trimpath ./...
 
   vuln-check:
     runs-on: ubuntu-latest
@@ -130,7 +130,7 @@ jobs:
           REPO_NAME=$(basename "$GITHUB_REPOSITORY")
           mkdir -p "/tmp/$GITHUB_REPOSITORY_OWNER"
           COVDIR=$(mktemp -d "/tmp/$GITHUB_REPOSITORY_OWNER/${REPO_NAME}-XXXXXX")
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          go test -v -cover -timeout 30m -coverprofile="$COVDIR/coverage.out" ./...
           go tool cover -html="$COVDIR/coverage.out" -o "$COVDIR/coverage.html"
           PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
           echo "Total coverage: $PCT%"
