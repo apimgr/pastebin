@@ -891,10 +891,8 @@ Examples:
 		// Continue with normal server startup below.
 	}
 
-	// Resolve active language for CLI output.
+	// Resolve active language for CLI/startup-banner output (PART 30).
 	activeLang := i18n.GetLanguage(langFlag)
-	// used by CLI output helpers; stored for future message formatting
-	_ = activeLang
 
 	// ── Application mode ─────────────────────────────────────────────────────
 
@@ -1427,7 +1425,7 @@ Examples:
 			Version:   Version,
 			AppMode:   string(mode.Get()),
 			Debug:     mode.IsDebugEnabled(),
-			Lang:      i18n.GetLanguage(""),
+			Lang:      activeLang,
 			PublicURL: publicURL,
 			ListenURL: listenURL,
 			TorURL:    torURL,
