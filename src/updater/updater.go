@@ -252,14 +252,22 @@ func binaryAssetName() string {
 	return name
 }
 
+// matchesBranch implements cumulative channels: each channel also accepts
+// every release from all more-stable channels.
 func matchesBranch(r Release, branch string) bool {
+	// stable releases match every channel
+	if !r.Prerelease {
+		return true
+	}
+	isBeta := strings.HasSuffix(r.TagName, "-beta")
+	// Daily builds are timestamps: YYYYMMDDHHMMSS (14 chars, no dots).
+	isDaily := len(r.TagName) == 14 && !strings.Contains(r.TagName, ".")
 	switch branch {
 	case "beta":
-		return strings.HasSuffix(r.TagName, "-beta")
+		return isBeta
 	case "daily":
-		// Daily builds are timestamps: YYYYMMDDHHMMSS (14 chars, no dots).
-		return len(r.TagName) == 14 && !strings.Contains(r.TagName, ".")
+		return isBeta || isDaily
 	default:
-		return !r.Prerelease
+		return false
 	}
 }

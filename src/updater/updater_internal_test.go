@@ -29,20 +29,25 @@ func TestMatchesBranch(t *testing.T) {
 		{"", "v1.0.0", false, true},
 		{"", "v1.0.0-beta", true, false},
 		// beta branch — tag ends in "-beta"
-		{"beta", "v1.0.0-beta", false, true},
-		{"beta", "v1.0.0", false, false},
-		{"beta", "v1.0.0-rc1", false, false},
+		{"beta", "v1.0.0-beta", true, true},
+		{"beta", "v1.0.0", true, false},
+		{"beta", "v1.0.0-rc1", true, false},
 		// daily branch — 14-char tag with no dots
-		{"daily", "20250115120000", false, true},
+		{"daily", "20250115120000", true, true},
 		// too short (13)
-		{"daily", "2025011512000", false, false},
+		{"daily", "2025011512000", true, false},
 		// too long (15)
-		{"daily", "202501151200000", false, false},
+		{"daily", "202501151200000", true, false},
 		// contains dot
-		{"daily", "v1.0.20250115", false, false},
+		{"daily", "v1.0.20250115", true, false},
 		// unknown branch behaves like stable
 		{"unknown", "v2.0.0", false, true},
 		{"unknown", "v2.0.0", true, false},
+		// channels are cumulative — a stable release matches every channel
+		{"beta", "v1.0.0", false, true},
+		{"daily", "v1.0.0", false, true},
+		// a beta prerelease also matches the (less stable) daily channel
+		{"daily", "v1.0.0-beta", true, true},
 	}
 	for _, tc := range cases {
 		r := Release{TagName: tc.tag, Prerelease: tc.pre}
