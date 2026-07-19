@@ -15,6 +15,8 @@ import (
 
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
+
+	"github.com/apimgr/pastebin/src/config"
 )
 
 // LetsEncryptStagingURL is the ACME directory URL for the Let's Encrypt staging CA.
@@ -119,9 +121,26 @@ func (m *Manager) GetTLSConfig(domains []string) (*tls.Config, error) {
 		}
 	}
 
-	// No existing cert found — request via Let's Encrypt if enabled.
+	// No existing cert found — request via Let's Encrypt if enabled. Every
+	// domain MUST pass production-grade SSL host validation (PART 12,
+	// "SSL/Let's Encrypt FQDN Requirements"): dev-only TLDs, project TLDs,
+	// bare IPs, and .onion hosts can never receive a publicly trusted cert.
+	// Invalid domains are dropped with a warning rather than failing the
+	// whole request; if none remain, LE is skipped and SSL falls through to
+	// the overlay/self-signed or "no certificate" paths below.
 	if m.config.LetsEncrypt.Enabled {
-		return m.getLetsEncryptTLSConfig(domains)
+		validDomains := make([]string, 0, len(domains))
+		for _, d := range domains {
+			if config.IsValidSSLHost(d) {
+				validDomains = append(validDomains, d)
+			} else {
+				log.Printf("ssl: domain %q is not eligible for Let's Encrypt (dev-only TLD, IP, or overlay host); skipping", d)
+			}
+		}
+		if len(validDomains) > 0 {
+			return m.getLetsEncryptTLSConfig(validDomains)
+		}
+		log.Printf("ssl: no domains passed SSL host validation for %q; skipping Let's Encrypt request", fqdn)
 	}
 
 	// Overlay networks (.onion/.i2p/.exit) cannot use Let's Encrypt, so HTTPS on

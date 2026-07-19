@@ -1695,12 +1695,29 @@ func (c *Config) EncryptionKey() ([]byte, error) {
 	return b, nil
 }
 
+// projectName is the AI.md {project_name} placeholder (PART 12 dynamic
+// project TLD, e.g. "app.pastebin"). The config package cannot import
+// package main (which owns the appName constant) without an import cycle,
+// so the literal is duplicated here.
+const projectName = "pastebin"
+
+// devModeForValidation reports whether host validation should apply
+// development-mode relaxations (PART 12). It reflects config.Server.Mode as
+// resolved at the time loadEnv() runs (config file default, then MODE env
+// var); the final --mode CLI flag override happens later in main and is out
+// of reach of the config package.
+func (c *Config) devModeForValidation() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Server.Mode), "development")
+}
+
 // fqdn returns the server FQDN used to expand {fqdn} tokens in contact
 // addresses. It follows the AI.md {fqdn} resolution order (PART 12): the
 // configured/DOMAIN value first, then os.Hostname(), then $HOSTNAME, then the
 // first public IP, and only "localhost" as the last resort. Reverse-proxy
 // header detection (priority 1) is request-scoped and handled at the HTTP layer,
-// so it is out of scope here.
+// so it is out of scope here. The $HOSTNAME environment variable MUST pass
+// host validation for the current mode; an invalid value is skipped silently
+// and detection continues to the next source (PART 12).
 func (c *Config) fqdn() string {
 	if f := strings.TrimSpace(c.Server.FQDN); f != "" && !strings.EqualFold(f, "localhost") {
 		return f
@@ -1711,7 +1728,10 @@ func (c *Config) fqdn() string {
 		}
 	}
 	if h := strings.TrimSpace(os.Getenv("HOSTNAME")); h != "" && !strings.EqualFold(h, "localhost") {
-		return h
+		devMode := c.devModeForValidation()
+		if IsValidHost(h, devMode, projectName) {
+			return h
+		}
 	}
 	if ip := PublicIP(); ip != "" {
 		return ip
@@ -2027,6 +2047,12 @@ func (c *Config) ensureWebhookSecrets() (bool, error) {
 }
 
 func (c *Config) loadEnv() {
+	// MODE is a runtime variable — always overrides config file (AI.md PART 5).
+	// Never baked into the persisted config; only applies at runtime. Processed
+	// first so devModeForValidation() reflects it for the DOMAIN check below.
+	if v := os.Getenv("MODE"); v != "" {
+		c.Server.Mode = v
+	}
 	// PART 8: the canonical env override is {PROJECT_NAME}_PORT (PASTEBIN_PORT);
 	// PORT is the generic docker alias. PASTEBIN_PORT wins when both are set.
 	if v := os.Getenv("PORT"); v != "" {
@@ -2045,9 +2071,15 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("BASE_URL"); v != "" {
 		c.Server.BaseURL = v
 	}
-	// DOMAIN is the highest-priority FQDN override (AI.md 7548, 7561).
-	if v := os.Getenv("DOMAIN"); v != "" {
-		c.Server.FQDN = v
+	// DOMAIN is the highest-priority FQDN override (AI.md 7548, 7561). It MUST
+	// pass host validation for the current mode; an invalid value is skipped
+	// silently and detection continues to the next source (PART 12).
+	if v := strings.TrimSpace(os.Getenv("DOMAIN")); v != "" {
+		if IsValidHost(v, c.devModeForValidation(), projectName) {
+			c.Server.FQDN = v
+		} else {
+			log.Printf("config: DOMAIN=%q failed host validation for mode %q; ignoring", v, c.Server.Mode)
+		}
 	}
 	// DATABASE_DRIVER selects the storage backend (AI.md 7550).
 	if v := os.Getenv("DATABASE_DRIVER"); v != "" {
@@ -2132,11 +2164,6 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("TERMBIN_TIMEOUT"); v != "" {
 		c.Server.Termbin.Timeout = v
-	}
-	// MODE is a runtime variable — always overrides config file (AI.md PART 5).
-	// Never baked into the persisted config; only applies at runtime.
-	if v := os.Getenv("MODE"); v != "" {
-		c.Server.Mode = v
 	}
 }
 

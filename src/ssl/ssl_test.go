@@ -294,6 +294,47 @@ func TestGetTLSConfig_LetsEncrypt_Staging_ReturnsConfig(t *testing.T) {
 	}
 }
 
+func TestGetTLSConfig_LetsEncrypt_InvalidDomainFiltered_StillIssues(t *testing.T) {
+	// A dev-only-TLD domain mixed with a valid public domain: the invalid one
+	// is dropped and LE still proceeds with the remaining valid domain.
+	certDir := t.TempDir()
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    "example.com",
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: true,
+			Email:   "admin@example.com",
+		},
+	})
+	cfg, err := m.GetTLSConfig([]string{"dev.local", "example.com"})
+	if err != nil {
+		t.Fatalf("GetTLSConfig with one invalid + one valid domain: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil *tls.Config when at least one domain passes SSL validation")
+	}
+}
+
+func TestGetTLSConfig_LetsEncrypt_AllDomainsInvalid_FallsThroughToError(t *testing.T) {
+	// All candidate domains fail SSL host validation (dev-only TLD) and no
+	// local/overlay cert exists — LE must be skipped, not silently accepted.
+	certDir := t.TempDir()
+	m := ssl.NewManager(ssl.Config{
+		Enabled: true,
+		CertDir: certDir,
+		FQDN:    "dev.local",
+		LetsEncrypt: ssl.LetsEncryptConfig{
+			Enabled: true,
+			Email:   "admin@example.com",
+		},
+	})
+	_, err := m.GetTLSConfig([]string{"dev.local"})
+	if err == nil {
+		t.Fatal("expected error when no domain passes SSL host validation and LE is enabled")
+	}
+}
+
 func TestGetTLSConfig_FQDNFromDomains(t *testing.T) {
 	// When FQDN is empty, GetTLSConfig uses domains[0] as the FQDN.
 	certDir := t.TempDir()
