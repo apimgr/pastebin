@@ -1,4 +1,4 @@
-# nginx proxy address - http://172.17.0.1:64580
+# nginx proxy address - http://172.17.0.1:{random port, see `docker compose port pastebin 80`}
 # pastebin - fast, public pastebin service
 # FOR HUMAN USE ONLY - AI must never use this file directly.
 
@@ -32,7 +32,7 @@ services:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
     ports:
-      - '172.17.0.1:64580:80'
+      - '172.17.0.1::80'
       # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
       - '${TERMBIN_PORT:-9999}:9999'
     healthcheck:
