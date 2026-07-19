@@ -1,7 +1,7 @@
 # ============================================
 # Variables
 # ============================================
-PROJECTNAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
+PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECTORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
 # Version precedence: release.txt > env/default fallback
@@ -34,12 +34,12 @@ PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 
 # Go cache bind-mounted from host so modules are cached across builds (PART 25)
 GO_CACHE  ?= $(HOME)/go/pkg/mod
-GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECTNAME)
+GO_BUILD  ?= $(HOME)/.cache/go-build/$(PROJECT_NAME)
 
 # Docker (PART 25)
-REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECTNAME)
+REGISTRY  ?= ghcr.io/$(PROJECTORG)/$(PROJECT_NAME)
 GO_DOCKER := docker run --rm \
-	--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+	--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 	-v $(PWD):/app \
 	-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 	-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -56,18 +56,18 @@ GO_DOCKER := docker run --rm \
 # =============================================================================
 build: clean
 	@mkdir -p $(BINDIR) $(GO_CACHE) $(GO_BUILD)
-	@echo "Building $(PROJECTNAME) $(VERSION) for all platforms..."
+	@echo "Building $(PROJECT_NAME) $(VERSION) for all platforms..."
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
 
 	@echo "Building local binary..."
 	@$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
-		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME) ./src"
+		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME) ./src"
 
 	@for platform in $(PLATFORMS); do \
 		OS=$${platform%/*}; \
 		ARCH=$${platform#*/}; \
-		OUTPUT=$(BINDIR)/$(PROJECTNAME)-$$OS-$$ARCH; \
+		OUTPUT=$(BINDIR)/$(PROJECT_NAME)-$$OS-$$ARCH; \
 		[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
 		echo "  → server $$OS/$$ARCH"; \
 		$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
@@ -76,13 +76,13 @@ build: clean
 	done
 
 	@if [ -d "src/client" ]; then \
-		echo "Building $(PROJECTNAME)-cli..."; \
+		echo "Building $(PROJECT_NAME)-cli..."; \
 		$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
-			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
+			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client"; \
 		for platform in $(PLATFORMS); do \
 			OS=$${platform%/*}; \
 			ARCH=$${platform#*/}; \
-			OUTPUT=$(BINDIR)/$(PROJECTNAME)-cli-$$OS-$$ARCH; \
+			OUTPUT=$(BINDIR)/$(PROJECT_NAME)-cli-$$OS-$$ARCH; \
 			[ "$$OS" = "windows" ] && OUTPUT=$$OUTPUT.exe; \
 			echo "  → cli $$OS/$$ARCH"; \
 			$(GO_DOCKER) sh -c "GOOS=$$OS GOARCH=$$ARCH \
@@ -92,7 +92,7 @@ build: clean
 	fi
 
 	@echo ""
-	@echo "✓ Built $(PROJECTNAME) $(VERSION)"
+	@echo "✓ Built $(PROJECT_NAME) $(VERSION)"
 	@echo "  Binaries: $$(ls -1 $(BINDIR)/ | wc -l | tr -d ' ') files in $(BINDIR)/"
 
 # =============================================================================
@@ -104,14 +104,14 @@ local: clean
 	@$(GO_DOCKER) go mod tidy
 	@$(GO_DOCKER) go mod download
 
-	@echo "Building $(PROJECTNAME)..."
+	@echo "Building $(PROJECT_NAME)..."
 	@$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
-		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME) ./src"
+		go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME) ./src"
 
 	@if [ -d "src/client" ]; then \
-		echo "Building $(PROJECTNAME)-cli..."; \
+		echo "Building $(PROJECT_NAME)-cli..."; \
 		$(GO_DOCKER) sh -c "GOOS=\$$(go env GOOS) GOARCH=\$$(go env GOARCH) \
-			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECTNAME)-cli ./src/client"; \
+			go build -buildvcs=false -trimpath -ldflags \"$(LDFLAGS)\" -o $(BINDIR)/$(PROJECT_NAME)-cli ./src/client"; \
 	fi
 
 	@echo "✓ Local build complete: $(BINDIR)/"
@@ -125,7 +125,7 @@ release: build
 
 	@echo "$(VERSION)" > $(RELDIR)/version.txt
 
-	@for f in $(BINDIR)/$(PROJECTNAME)-*; do \
+	@for f in $(BINDIR)/$(PROJECT_NAME)-*; do \
 		[ -f "$$f" ] || continue; \
 		strip "$$f" 2>/dev/null || true; \
 		cp "$$f" $(RELDIR)/; \
@@ -133,14 +133,14 @@ release: build
 
 	@tar --exclude='.git' --exclude='.github' --exclude='.gitea' \
 		--exclude='$(BINDIR)' --exclude='$(RELDIR)' --exclude='*.tar.gz' \
-		-czf $(RELDIR)/$(PROJECTNAME)-$(VERSION)-source.tar.gz .
+		-czf $(RELDIR)/$(PROJECT_NAME)-$(VERSION)-source.tar.gz .
 
 	@gh release delete $(VERSION) --yes 2>/dev/null || true
 	@git tag -d $(VERSION) 2>/dev/null || true
 	@git push origin :refs/tags/$(VERSION) 2>/dev/null || true
 
 	@gh release create $(VERSION) $(RELDIR)/* \
-		--title "$(PROJECTNAME) $(VERSION)" \
+		--title "$(PROJECT_NAME) $(VERSION)" \
 		--notes "Release $(VERSION)" \
 		--latest
 
@@ -155,8 +155,8 @@ release: build
 docker:
 	@echo "Building Docker image $(VERSION)..."
 	@docker buildx version > /dev/null 2>&1 || (echo "docker buildx required" && exit 1)
-	@docker buildx create --name $(PROJECTNAME)-builder --use 2>/dev/null || \
-		docker buildx use $(PROJECTNAME)-builder
+	@docker buildx create --name $(PROJECT_NAME)-builder --use 2>/dev/null || \
+		docker buildx use $(PROJECT_NAME)-builder
 	@docker buildx build \
 		-f docker/Dockerfile \
 		--platform linux/amd64,linux/arm64 \
@@ -181,7 +181,7 @@ test:
 	@echo "Running tests with coverage..."
 	@$(GO_DOCKER) sh -c " \
 		mkdir -p \"/tmp/$(PROJECTORG)\" && \
-		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX\") && \
+		COVDIR=\$$(mktemp -d \"/tmp/$(PROJECTORG)/$(PROJECT_NAME)-XXXXXX\") && \
 		go mod download && \
 		go test -v -cover -timeout 30m -coverprofile=\$$COVDIR/coverage.out ./... && \
 		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
@@ -197,10 +197,10 @@ test:
 dev:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
 	@mkdir -p "$${TMPDIR:-/tmp}/$(PROJECTORG)"
-	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECTNAME)-XXXXXX") && \
+	@BUILD_DIR=$$(mktemp -d "$${TMPDIR:-/tmp}/$(PROJECTORG)/$(PROJECT_NAME)-XXXXXX") && \
 		echo "Quick dev build to $$BUILD_DIR..." && \
 		docker run --rm \
-			--name $(PROJECTNAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
+			--name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) \
 			-v $(PWD):/app \
 			-v $(GO_CACHE):/usr/local/share/go/pkg/mod \
 			-v $(GO_BUILD):/usr/local/share/go/cache \
@@ -209,13 +209,13 @@ dev:
 			-e CGO_ENABLED=0 \
 			-e GOFLAGS=-buildvcs=false \
 			casjaysdev/go:latest sh -c "go mod tidy && \
-			go build -buildvcs=false -o $$BUILD_DIR/$(PROJECTNAME) ./src && \
-			echo 'Built: $$BUILD_DIR/$(PROJECTNAME)' && \
+			go build -buildvcs=false -o $$BUILD_DIR/$(PROJECT_NAME) ./src && \
+			echo 'Built: $$BUILD_DIR/$(PROJECT_NAME)' && \
 			if [ -d 'src/client' ]; then \
-				go build -buildvcs=false -o $$BUILD_DIR/$(PROJECTNAME)-cli ./src/client && \
-				echo 'Built: $$BUILD_DIR/$(PROJECTNAME)-cli'; \
+				go build -buildvcs=false -o $$BUILD_DIR/$(PROJECT_NAME)-cli ./src/client && \
+				echo 'Built: $$BUILD_DIR/$(PROJECT_NAME)-cli'; \
 			fi" && \
-		echo "Test:  docker run --rm -it --name $(PROJECTNAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECTNAME) --help"
+		echo "Test:  docker run --rm -it --name $(PROJECT_NAME)-test -v $$BUILD_DIR:/app alpine:latest /app/$(PROJECT_NAME) --help"
 
 # =============================================================================
 # CLEAN - Remove build artifacts

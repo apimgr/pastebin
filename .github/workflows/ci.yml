@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PROJECTNAME: pastebin
+  PROJECT_NAME: pastebin
 
 jobs:
   lint:

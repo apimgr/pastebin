@@ -8,7 +8,7 @@ stages:
 variables:
   CGO_ENABLED: "0"
   GOFLAGS: "-buildvcs=false"
-  PROJECTNAME: pastebin
+  PROJECT_NAME: pastebin
 
 default:
   image: casjaysdev/go:latest
@@ -135,14 +135,14 @@ build-binaries:
       fi
     - |
       LDFLAGS="-s -w -X 'main.Version=$VERSION' -X 'main.CommitID=$COMMIT_ID' -X 'main.BuildDate=$BUILD_DATE' -X 'main.OfficialSite=$OFFICIALSITE'"
-      go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECTNAME}-${GOOS}-${GOARCH}${EXT} ./src
+      go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-${GOOS}-${GOARCH}${EXT} ./src
     - |
       if [ -d src/client ]; then
-        go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECTNAME}-cli-${GOOS}-${GOARCH}${EXT} ./src/client
+        go build -buildvcs=false -trimpath -ldflags "${LDFLAGS}" -o ${PROJECT_NAME}-cli-${GOOS}-${GOARCH}${EXT} ./src/client
       fi
   artifacts:
     paths:
-      - ${PROJECTNAME}-*
+      - ${PROJECT_NAME}-*
     expire_in: 7 days
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
@@ -185,7 +185,7 @@ image-scan:
     DOCKER_HOST: tcp://docker:2375
     DOCKER_TLS_CERTDIR: ""
   script:
-    - docker build -f docker/Dockerfile -t ${PROJECTNAME}:scan-${CI_COMMIT_SHA} .
+    - docker build -f docker/Dockerfile -t ${PROJECT_NAME}:scan-${CI_COMMIT_SHA} .
     - |
       docker run --rm \
         -v /var/run/docker.sock:/var/run/docker.sock \
@@ -193,7 +193,7 @@ image-scan:
         --exit-code 0 \
         --severity HIGH,CRITICAL \
         --no-progress \
-        ${PROJECTNAME}:scan-${CI_COMMIT_SHA}
+        ${PROJECT_NAME}:scan-${CI_COMMIT_SHA}
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
@@ -217,7 +217,7 @@ release:
     - |
       tar --exclude='.git' --exclude='.github' --exclude='.gitea' --exclude='.forgejo' \
         --exclude='.gitlab-ci.yml' --exclude='binaries' --exclude='releases' \
-        -czf binaries/${PROJECTNAME}-${VERSION}-source.tar.gz .
+        -czf binaries/${PROJECT_NAME}-${VERSION}-source.tar.gz .
   artifacts:
     paths:
       - binaries/
