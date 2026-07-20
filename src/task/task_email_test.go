@@ -266,8 +266,10 @@ func TestSSLRenewalWithEmail_ExpiringEmailSendError(t *testing.T) {
 	}
 }
 
-// TestSSLRenewalWithEmail_SendsExpiringAt14Days verifies the 14-day threshold.
-func TestSSLRenewalWithEmail_SendsExpiringAt14Days(t *testing.T) {
+// TestSSLRenewalWithEmail_NoEmailAt14Days verifies that the 30/14-day
+// warnings are log-only per AI.md PART 17 (only 7/3/1 days trigger an
+// operator email) — no ssl_expiring email is sent at the 14-day mark.
+func TestSSLRenewalWithEmail_NoEmailAt14Days(t *testing.T) {
 	dir := t.TempDir()
 	certRoot := filepath.Join(dir, "ssl", "letsencrypt", "example.com")
 	if err := os.MkdirAll(certRoot, 0o755); err != nil {
@@ -289,8 +291,8 @@ func TestSSLRenewalWithEmail_SendsExpiringAt14Days(t *testing.T) {
 	if err := SSLRenewalWithEmail(cfg)(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(m.calls) == 0 {
-		t.Error("expected ssl_expiring email at 14-day threshold")
+	if len(m.calls) != 0 {
+		t.Errorf("expected no ssl_expiring email at 14-day threshold (log-only per spec), got %d calls", len(m.calls))
 	}
 }
 

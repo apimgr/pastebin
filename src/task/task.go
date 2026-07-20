@@ -74,15 +74,17 @@ type BackupConfig struct {
 	Audit *audit.Writer
 }
 
-// sslWarnThresholds are the days-before-expiry at which ssl_expiring emails are sent
-// per AI.md:26206 ("Sent 30, 14, 7, 3, 1 days before expiry").
-var sslWarnThresholds = []int{30, 14, 7, 3, 1}
+// sslEmailThresholds are the days-before-expiry at which ssl_expiring emails
+// are actually sent — 30/14-day warnings are log-only per the Operator
+// Notifications matrix (AI.md:26824: "SSL expiring (30/14 days) | WARN | ✗").
+var sslEmailThresholds = []int{7, 3, 1}
 
 // SSLRenewalConfig carries optional email settings for the ssl_renewal task.
 type SSLRenewalConfig struct {
 	ConfigDir string
 	FQDN      string
-	// OperatorEmail is the admin recipient for ssl_expiring/ssl_renewed emails.
+	// OperatorEmail is the admin recipient for ssl_expiring/ssl_renewed/
+	// ssl_renewal_failed emails.
 	OperatorEmail string
 	// Mailer sends SSL-expiry emails; nil = no email.
 	Mailer Mailer
@@ -90,14 +92,18 @@ type SSLRenewalConfig struct {
 	SendExpiring bool
 	// SendRenewed controls whether ssl_renewed emails are sent (AI.md:26594).
 	SendRenewed bool
+	// SendRenewalFailed controls whether ssl_renewal_failed emails are sent
+	// (AI.md:26827).
+	SendRenewalFailed bool
 }
 
 // SSLRenewal returns a task that checks certificates in
 // {configDir}/ssl/letsencrypt/{fqdn}/ and logs a warning for any cert that
-// expires within 30 days. Emails are sent at the 30/14/7/3/1-day thresholds
-// per AI.md:26206 when a Mailer and OperatorEmail are provided.
-// Actual ACME renewal is delegated to autocert; this task provides visibility
-// and alerting only.
+// expires within 30 days. ssl_expiring emails are sent only at the urgent
+// 7/3/1-day thresholds (30/14-day warnings are log-only per the Operator
+// Notifications matrix, AI.md:26824-26827) when a Mailer and OperatorEmail
+// are provided. Actual ACME renewal is delegated to autocert; this task
+// provides visibility and alerting only.
 func SSLRenewal(configDir, fqdn string) func() error {
 	return SSLRenewalWithEmail(SSLRenewalConfig{ConfigDir: configDir, FQDN: fqdn})
 }
@@ -156,24 +162,43 @@ func SSLRenewalWithEmail(cfg SSLRenewalConfig) func() error {
 
 				stateFile := path + ".ssl_state.json"
 				prevExpiry := sslLoadExpiry(stateFile)
+				renewed := !prevExpiry.IsZero() && cert.NotAfter.Sub(prevExpiry) >= 24*time.Hour
 
 				// Detect renewal: NotAfter advanced by ≥24h vs the stored state.
-				if cfg.SendRenewed && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
-					if !prevExpiry.IsZero() && cert.NotAfter.Sub(prevExpiry) >= 24*time.Hour {
-						if mailErr := cfg.Mailer.Send(cfg.OperatorEmail, "ssl_renewed", map[string]string{
-							"fqdn":        cfg.FQDN,
-							"valid_until": cert.NotAfter.Format("2006-01-02"),
-						}); mailErr != nil {
-							log.Printf("ssl_renewal: failed to send ssl_renewed email: %v", mailErr)
-						}
+				if renewed && cfg.SendRenewed && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
+					if mailErr := cfg.Mailer.Send(cfg.OperatorEmail, "ssl_renewed", map[string]string{
+						"fqdn":        cfg.FQDN,
+						"valid_until": cert.NotAfter.Format("2006-01-02"),
+					}); mailErr != nil {
+						log.Printf("ssl_renewal: failed to send ssl_renewed email: %v", mailErr)
 					}
 				}
+
+				// A cert that is still within the urgent window and has not
+				// advanced since the last check has failed to auto-renew —
+				// this supersedes the ssl_expiring notice for this run
+				// (AI.md:26827 "SSL renewal failed | ERROR | ✓").
+				renewalFailed := !renewed && !prevExpiry.IsZero() && remainingDays <= 7
+				if renewalFailed && cfg.SendRenewalFailed && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
+					if mailErr := cfg.Mailer.Send(cfg.OperatorEmail, "ssl_renewal_failed", map[string]string{
+						"fqdn":       cfg.FQDN,
+						"error":      "certificate has not renewed automatically",
+						"expires_in": fmt.Sprintf("%d", remainingDays),
+						"next_retry": "next daily ssl_renewal check",
+					}); mailErr != nil {
+						log.Printf("ssl_renewal: failed to send ssl_renewal_failed email: %v", mailErr)
+					}
+				}
+
 				// Persist current expiry for next run's renewal detection.
 				sslSaveExpiry(stateFile, cert.NotAfter)
 
-				// Send ssl_expiring email at each of the spec-mandated thresholds.
-				if cfg.SendExpiring && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
-					for _, threshold := range sslWarnThresholds {
+				// Send ssl_expiring email only at the urgent 7/3/1-day
+				// thresholds; 30/14-day warnings are log-only
+				// (AI.md:26824-26827). Suppressed when this run already
+				// reported a renewal failure for the same certificate.
+				if !renewalFailed && cfg.SendExpiring && cfg.Mailer != nil && cfg.Mailer.Enabled() && cfg.OperatorEmail != "" {
+					for _, threshold := range sslEmailThresholds {
 						if remainingDays <= threshold {
 							if mailErr := cfg.Mailer.Send(cfg.OperatorEmail, "ssl_expiring", map[string]string{
 								"fqdn":        cfg.FQDN,

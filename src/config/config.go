@@ -815,16 +815,17 @@ type EmailConfig struct {
 // EmailEventsConfig controls which operator events trigger an email (AI.md:26587-26598).
 // All fields default to false except the high-signal events that are true by default.
 type EmailEventsConfig struct {
-	Startup         bool `yaml:"startup"`
-	Shutdown        bool `yaml:"shutdown"`
-	BackupComplete  bool `yaml:"backup_complete"`
-	BackupFailed    bool `yaml:"backup_failed"`
-	SSLExpiring     bool `yaml:"ssl_expiring"`
-	SSLRenewed      bool `yaml:"ssl_renewed"`
-	SecurityAlert   bool `yaml:"security_alert"`
-	SchedulerError  bool `yaml:"scheduler_error"`
-	UpdateAvailable bool `yaml:"update_available"`
-	UpdateInstalled bool `yaml:"update_installed"`
+	Startup          bool `yaml:"startup"`
+	Shutdown         bool `yaml:"shutdown"`
+	BackupComplete   bool `yaml:"backup_complete"`
+	BackupFailed     bool `yaml:"backup_failed"`
+	SSLExpiring      bool `yaml:"ssl_expiring"`
+	SSLRenewed       bool `yaml:"ssl_renewed"`
+	SSLRenewalFailed bool `yaml:"ssl_renewal_failed"`
+	SecurityAlert    bool `yaml:"security_alert"`
+	SchedulerError   bool `yaml:"scheduler_error"`
+	UpdateAvailable  bool `yaml:"update_available"`
+	UpdateInstalled  bool `yaml:"update_installed"`
 }
 
 // SMTPConfig holds connection settings for the outbound SMTP server.
@@ -1319,16 +1320,17 @@ func DefaultConfig() *Config {
 					},
 					// Per-event defaults from AI.md:26591-26597: high-signal events on, low-noise off.
 					Events: EmailEventsConfig{
-						Startup:         false,
-						Shutdown:        false,
-						BackupComplete:  false,
-						BackupFailed:    true,
-						SSLExpiring:     true,
-						SSLRenewed:      false,
-						SecurityAlert:   true,
-						SchedulerError:  true,
-						UpdateAvailable: false,
-						UpdateInstalled: true,
+						Startup:          false,
+						Shutdown:         false,
+						BackupComplete:   false,
+						BackupFailed:     true,
+						SSLExpiring:      true,
+						SSLRenewed:       false,
+						SSLRenewalFailed: true,
+						SecurityAlert:    true,
+						SchedulerError:   true,
+						UpdateAvailable:  false,
+						UpdateInstalled:  true,
 					},
 				},
 			},
