@@ -63,24 +63,23 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 
 	// Simple manual flag parser so we control order and aliases.
 	var (
-		portFlag     string
-		addressFlag  string
-		modeFlag     string
-		configFlag   string
-		dataFlag     string
-		logFlag      string
-		cacheFlag    string
-		backupFlag   string
-		pidFlag      string
-		baseurlFlag  string
-		colorFlag    string
-		langFlag     string
-		showVersion  bool
-		showStatus   bool
-		showHelp     bool
-		daemonFlag   bool
-		debugFlag    bool
-		cleanExpired bool
+		portFlag    string
+		addressFlag string
+		modeFlag    string
+		configFlag  string
+		dataFlag    string
+		logFlag     string
+		cacheFlag   string
+		backupFlag  string
+		pidFlag     string
+		baseurlFlag string
+		colorFlag   string
+		langFlag    string
+		showVersion bool
+		showStatus  bool
+		showHelp    bool
+		daemonFlag  bool
+		debugFlag   bool
 	)
 
 	// Subcommands that take optional secondary positional arguments.
@@ -96,14 +95,6 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		// "--maintenance data <export|delete> <prefix>"
 		maintenancePGP []string
 		updateCmd      string
-		// --email <subcommand>
-		emailCmd string
-		// --email test <address>
-		emailTo string
-		// scheduler <subcommand>
-		schedulerCmd string
-		// scheduler <subcommand> <id>
-		schedulerArg string
 	)
 
 	for i := 0; i < len(args); i++ {
@@ -127,8 +118,6 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			daemonFlag = true
 		case "--debug":
 			debugFlag = true
-		case "--clean-expired":
-			cleanExpired = true
 		case "--port":
 			portFlag = val()
 		case "--address":
@@ -188,26 +177,6 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				}
 			} else {
 				updateCmd = "yes"
-			}
-		case "--email":
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				i++
-				emailCmd = args[i]
-				// For "test <address>", consume optional recipient address.
-				if emailCmd == "test" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-					i++
-					emailTo = args[i]
-				}
-			}
-		case "scheduler":
-			// Positional: scheduler <subcommand> [id]
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				i++
-				schedulerCmd = args[i]
-			}
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				i++
-				schedulerArg = args[i]
 			}
 		default:
 			if strings.HasPrefix(arg, "--") || (strings.HasPrefix(arg, "-") && len(arg) > 2) {
@@ -677,222 +646,6 @@ Examples:
 		}
 	}
 
-	// ── Email command ─────────────────────────────────────────────────────────
-
-	if emailCmd != "" {
-		cfgFile2 := filepath.Join(paths.GetConfigDir(appName), "server.yml")
-		cfg2, _ := config.Load(cfgFile2)
-		m := email.New(&cfg2.Server.Notifications.Email, cfg2.Web.SiteTitle, startupBaseURL(cfg2), cfg2.Server.FQDN)
-		switch emailCmd {
-		case "test":
-			if emailTo == "" {
-				fmt.Fprintf(stderr, "Usage: %s --email test <address>\n", binaryName)
-				return 2
-			}
-			if err := m.TestSMTP(); err != nil {
-				fmt.Fprintf(stderr, "%s: SMTP test failed: %v\n", binaryName, err)
-				return 1
-			}
-			if err := m.Send(emailTo, "test", nil); err != nil {
-				fmt.Fprintf(stderr, "%s: send failed: %v\n", binaryName, err)
-				return 1
-			}
-			fmt.Fprintf(stdout, "Test email sent to %s\n", emailTo)
-		default:
-			fmt.Fprintf(stderr, "%s: unknown --email subcommand: %s\n", binaryName, emailCmd)
-			return 2
-		}
-		return 0
-	}
-
-	// ── Scheduler CLI ─────────────────────────────────────────────────────────
-
-	if schedulerCmd != "" {
-		scCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
-		scCfg, _ := config.Load(scCfgFile)
-		if scCfg.Database.Path == "" {
-			scCfg.Database.Path = paths.GetDBPath(appName)
-		}
-		scDB, err := database.NewDatabase(scCfg.Database.Type, scCfg.Database.Path)
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: scheduler: database: %v\n", binaryName, err)
-			return 1
-		}
-		defer scDB.Close()
-
-		switch schedulerCmd {
-		case "list":
-			tasks, err := scDB.ListSchedulerTasks()
-			if err != nil {
-				fmt.Fprintf(stderr, "%s: scheduler list: %v\n", binaryName, err)
-				return 1
-			}
-			fmt.Fprintf(stdout, "%-20s %-16s %-12s %-20s %-20s\n", "ID", "SCHEDULE", "STATUS", "LAST RUN", "NEXT RUN")
-			fmt.Fprintf(stdout, "%-20s %-16s %-12s %-20s %-20s\n",
-				"--------------------", "----------------", "------------",
-				"--------------------", "--------------------")
-			for _, t := range tasks {
-				enabled := "disabled"
-				if t.Enabled {
-					enabled = t.LastStatus
-					if enabled == "" {
-						enabled = "pending"
-					}
-				}
-				lastRun := "-"
-				if !t.LastRun.IsZero() {
-					lastRun = t.LastRun.Format("2006-01-02 15:04:05")
-				}
-				nextRun := "-"
-				if !t.NextRun.IsZero() && t.Enabled {
-					nextRun = t.NextRun.Format("2006-01-02 15:04:05")
-				}
-				fmt.Fprintf(stdout, "%-20s %-16s %-12s %-20s %-20s\n",
-					t.TaskID, t.Schedule, enabled, lastRun, nextRun)
-			}
-
-		case "show":
-			if schedulerArg == "" {
-				fmt.Fprintf(stderr, "Usage: %s scheduler show <id>\n", binaryName)
-				return 2
-			}
-			t, err := scDB.GetSchedulerTask(schedulerArg)
-			if err != nil {
-				fmt.Fprintf(stderr, "%s: scheduler show: %v\n", binaryName, err)
-				return 1
-			}
-			enabled := "no"
-			if t.Enabled {
-				enabled = "yes"
-			}
-			lastRun := "-"
-			if !t.LastRun.IsZero() {
-				lastRun = t.LastRun.Format(time.RFC3339)
-			}
-			nextRun := "-"
-			if !t.NextRun.IsZero() {
-				nextRun = t.NextRun.Format(time.RFC3339)
-			}
-			fmt.Fprintf(stdout, "ID:          %s\n", t.TaskID)
-			fmt.Fprintf(stdout, "Name:        %s\n", t.TaskName)
-			fmt.Fprintf(stdout, "Schedule:    %s\n", t.Schedule)
-			fmt.Fprintf(stdout, "Enabled:     %s\n", enabled)
-			fmt.Fprintf(stdout, "Status:      %s\n", t.LastStatus)
-			fmt.Fprintf(stdout, "Last Run:    %s\n", lastRun)
-			fmt.Fprintf(stdout, "Next Run:    %s\n", nextRun)
-			fmt.Fprintf(stdout, "Run Count:   %d\n", t.RunCount)
-			fmt.Fprintf(stdout, "Fail Count:  %d\n", t.FailCount)
-			if t.LastError != "" {
-				fmt.Fprintf(stdout, "Last Error:  %s\n", t.LastError)
-			}
-
-		case "run":
-			if schedulerArg == "" {
-				fmt.Fprintf(stderr, "Usage: %s scheduler run <id>\n", binaryName)
-				return 2
-			}
-			if scCfg.Server.Token == "" {
-				fmt.Fprintf(stderr, "%s: scheduler run: server.token not set in config; cannot authenticate\n", binaryName)
-				return 1
-			}
-			// Triggering a task requires the server to be running — send an
-			// authenticated POST to the scheduler API (PART 18).
-			scBaseURL := scCfg.Server.BaseURL
-			if scBaseURL == "" {
-				scAddr := scCfg.Server.Address
-				if scAddr == "" || scAddr == "0.0.0.0" {
-					scAddr = "127.0.0.1"
-				}
-				scPort := scCfg.Server.Port
-				if scPort == "" {
-					scPort = "80"
-				}
-				scBaseURL = startupScheme(scCfg) + "://" + scAddr + ":" + scPort
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			req, reqErr := newHTTPRequest(ctx, "POST",
-				scBaseURL+"/api/v1/scheduler/"+schedulerArg+"/run", nil)
-			if reqErr != nil {
-				fmt.Fprintf(stderr, "%s: scheduler run: %v\n", binaryName, reqErr)
-				return 1
-			}
-			req.Header.Set("Authorization", "Bearer "+scCfg.Server.Token)
-			resp, doErr := doHTTP(req)
-			if doErr != nil {
-				fmt.Fprintf(stderr, "%s: scheduler run: %v\n", binaryName, doErr)
-				return 1
-			}
-			resp.Body.Close()
-			if resp.StatusCode >= 400 {
-				fmt.Fprintf(stderr, "%s: scheduler run: server returned %s\n", binaryName, resp.Status)
-				return 1
-			}
-			fmt.Fprintf(stdout, "Task %s triggered.\n", schedulerArg)
-
-		case "enable":
-			if schedulerArg == "" {
-				fmt.Fprintf(stderr, "Usage: %s scheduler enable <id>\n", binaryName)
-				return 2
-			}
-			// enable/disable write to the DB directly — no running server needed.
-			if err := scDB.SetTaskEnabled(schedulerArg, true); err != nil {
-				fmt.Fprintf(stderr, "%s: scheduler enable: %v\n", binaryName, err)
-				return 1
-			}
-			fmt.Fprintf(stdout, "Task %s enabled.\n", schedulerArg)
-
-		case "disable":
-			if schedulerArg == "" {
-				fmt.Fprintf(stderr, "Usage: %s scheduler disable <id>\n", binaryName)
-				return 2
-			}
-			// enable/disable write to the DB directly — no running server needed.
-			if err := scDB.SetTaskEnabled(schedulerArg, false); err != nil {
-				fmt.Fprintf(stderr, "%s: scheduler disable: %v\n", binaryName, err)
-				return 1
-			}
-			fmt.Fprintf(stdout, "Task %s disabled.\n", schedulerArg)
-
-		case "history":
-			if schedulerArg == "" {
-				fmt.Fprintf(stderr, "Usage: %s scheduler history <id>\n", binaryName)
-				return 2
-			}
-			history, err := scDB.ListTaskHistory(schedulerArg, 20)
-			if err != nil {
-				fmt.Fprintf(stderr, "%s: scheduler history: %v\n", binaryName, err)
-				return 1
-			}
-			if len(history) == 0 {
-				fmt.Fprintf(stdout, "No history for task %q.\n", schedulerArg)
-			} else {
-				fmt.Fprintf(stdout, "%-24s %-24s %-10s %-10s %s\n",
-					"STARTED", "FINISHED", "STATUS", "DURATION", "ERROR")
-				fmt.Fprintf(stdout, "%-24s %-24s %-10s %-10s %s\n",
-					"------------------------", "------------------------",
-					"----------", "----------", "-----")
-				for _, h := range history {
-					dur := fmt.Sprintf("%dms", h.DurationMS)
-					errStr := h.ErrorMsg
-					if errStr == "" {
-						errStr = "-"
-					}
-					fmt.Fprintf(stdout, "%-24s %-24s %-10s %-10s %s\n",
-						h.StartedAt.Format("2006-01-02 15:04:05"),
-						h.FinishedAt.Format("2006-01-02 15:04:05"),
-						h.Status, dur, errStr)
-				}
-			}
-
-		default:
-			fmt.Fprintf(stderr, "%s: unknown scheduler subcommand: %s\n", binaryName, schedulerCmd)
-			fmt.Fprintf(stderr, "Usage: %s scheduler {list|show|run|enable|disable|history} [id]\n", binaryName)
-			return 2
-		}
-		return 0
-	}
-
 	// Resolve active language for CLI/startup-banner output (PART 30).
 	activeLang := i18n.GetLanguage(langFlag)
 
@@ -1121,20 +874,6 @@ Examples:
 
 	log.Printf("%s %s — database: %s (%s)", appName, Version, db.Type(), cfg.Database.Path)
 
-	// ── One-shot: clean expired pastes ────────────────────────────────────────
-
-	if cleanExpired {
-		n, err := db.DeleteExpiredPastes()
-		if err != nil {
-			log.Printf("clean expired: %v", err)
-			// EX_SOFTWARE
-			os.Exit(70)
-		}
-		b, _ := db.DeleteBurnedPastes()
-		log.Printf("deleted %d expired + %d burned pastes", n, b)
-		return 0
-	}
-
 	// ── Background scheduler ──────────────────────────────────────────────────
 
 	sched := scheduler.New(db)
@@ -1244,12 +983,13 @@ Examples:
 	// Required PART 18 tasks — full implementations in src/task/task.go.
 	logSchedErr(sched.Register("ssl_renewal", "SSL Renewal", "0 3 * * *", true,
 		task.SSLRenewalWithEmail(task.SSLRenewalConfig{
-			ConfigDir:     configDir,
-			FQDN:          cfg.Server.FQDN,
-			OperatorEmail: taskOperatorEmail,
-			Mailer:        taskMailer,
-			SendExpiring:  cfg.Server.Notifications.Email.Events.SSLExpiring,
-			SendRenewed:   cfg.Server.Notifications.Email.Events.SSLRenewed,
+			ConfigDir:         configDir,
+			FQDN:              cfg.Server.FQDN,
+			OperatorEmail:     taskOperatorEmail,
+			Mailer:            taskMailer,
+			SendExpiring:      cfg.Server.Notifications.Email.Events.SSLExpiring,
+			SendRenewed:       cfg.Server.Notifications.Email.Events.SSLRenewed,
+			SendRenewalFailed: cfg.Server.Notifications.Email.Events.SSLRenewalFailed,
 		})))
 	logSchedErr(sched.Register("blocklist_update", "Blocklist Update", "0 4 * * *", true,
 		task.BlocklistUpdate(dataDir, blocklistSources(cfg)...)))
@@ -1556,17 +1296,6 @@ Service Management:
       --maintenance CMD             Maintenance operations (--maintenance --help for details)
       --update [CMD]                Check/perform updates (--update --help for details)
 
-Scheduler:
-      scheduler list                List all scheduled tasks and their status
-      scheduler show <id>           Show details for a specific task
-      scheduler run <id>            Trigger a task to run immediately
-      scheduler enable <id>         Enable a disabled task
-      scheduler disable <id>        Disable a task
-      scheduler history <id>        Show recent execution history for a task
-
-Maintenance:
-      --clean-expired               Delete expired/burned pastes and exit
-
 Run '%s <command> --help' for detailed help on any command.
 `, name, Version, name, name)
 }
@@ -1717,19 +1446,4 @@ func cveSources(cfg *config.Config) []task.Source {
 		return nil
 	}
 	return []task.Source{{Name: c.File, URL: c.Source}}
-}
-
-// newHTTPRequest creates an HTTP request with no body and a User-Agent header.
-func newHTTPRequest(ctx context.Context, method, url string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "pastebin/"+Version)
-	return req, nil
-}
-
-// doHTTP executes an HTTP request using the default client.
-func doHTTP(req *http.Request) (*http.Response, error) {
-	return http.DefaultClient.Do(req)
 }

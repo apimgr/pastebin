@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -39,8 +37,8 @@ func TestNormalizeArgs(t *testing.T) {
 		},
 		{
 			name: "positional argument is untouched",
-			in:   []string{"scheduler", "list"},
-			want: []string{"scheduler", "list"},
+			in:   []string{"pastebin-id", "list"},
+			want: []string{"pastebin-id", "list"},
 		},
 		{
 			name: "empty input",
@@ -132,8 +130,6 @@ func TestPrintHelp(t *testing.T) {
 		"--port",
 		"--daemon",
 		"--color",
-		"scheduler list",
-		"--clean-expired",
 	}
 	for _, s := range wantSubstrings {
 		if !strings.Contains(got, s) {
@@ -147,49 +143,4 @@ func TestPrintHelp(t *testing.T) {
 func TestLogSchedErr(t *testing.T) {
 	logSchedErr(nil)
 	logSchedErr(context.DeadlineExceeded)
-}
-
-// TestNewHTTPRequest verifies the User-Agent header is set and bad methods error.
-func TestNewHTTPRequest(t *testing.T) {
-	t.Run("sets user agent", func(t *testing.T) {
-		req, err := newHTTPRequest(context.Background(), http.MethodGet, "http://example.com/", nil)
-		if err != nil {
-			t.Fatalf("newHTTPRequest: %v", err)
-		}
-		ua := req.Header.Get("User-Agent")
-		if !strings.HasPrefix(ua, "pastebin/") {
-			t.Fatalf("User-Agent = %q, want pastebin/ prefix", ua)
-		}
-	})
-
-	t.Run("invalid method errors", func(t *testing.T) {
-		_, err := newHTTPRequest(context.Background(), "BAD METHOD", "http://example.com/", nil)
-		if err == nil {
-			t.Fatal("newHTTPRequest with invalid method: want error, got nil")
-		}
-	})
-}
-
-// TestDoHTTP verifies the helper executes a request against a live test server.
-func TestDoHTTP(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "pastebin/") {
-			t.Errorf("server saw User-Agent %q", got)
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer srv.Close()
-
-	req, err := newHTTPRequest(context.Background(), http.MethodGet, srv.URL, nil)
-	if err != nil {
-		t.Fatalf("newHTTPRequest: %v", err)
-	}
-	resp, err := doHTTP(req)
-	if err != nil {
-		t.Fatalf("doHTTP: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNoContent)
-	}
 }

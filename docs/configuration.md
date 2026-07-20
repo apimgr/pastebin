@@ -32,7 +32,6 @@ Override with: `--config /path/to/server.yml`
 --daemon                  Run as daemon
 --color {auto|yes|no}     Color output (default: auto)
 --lang CODE               Language for output (default: auto)
---clean-expired           Delete expired/burned pastes and exit
 --shell CMD [SHELL]       Shell integration (completions, init)
 --service CMD             Service management
 --maintenance CMD         Maintenance operations

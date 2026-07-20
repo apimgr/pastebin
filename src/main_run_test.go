@@ -26,8 +26,8 @@ func TestRunHelp(t *testing.T) {
 		if !strings.Contains(out, "--version") {
 			t.Errorf("run(%v): help output missing --version flag", args)
 		}
-		if !strings.Contains(out, "scheduler list") {
-			t.Errorf("run(%v): help output missing 'scheduler list'", args)
+		if !strings.Contains(out, "--maintenance") {
+			t.Errorf("run(%v): help output missing '--maintenance'", args)
 		}
 	}
 }
@@ -251,28 +251,6 @@ func TestRunUpdateUnknownSubcommand(t *testing.T) {
 	}
 }
 
-// TestRunEmailNoSubcommand verifies --email with no recognised subcommand exits 2.
-func TestRunEmailNoSubcommand(t *testing.T) {
-	code, _, errOut := runCapture("--email", "badsubcmd")
-	if code != 2 {
-		t.Errorf("--email badsubcmd: exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "badsubcmd") {
-		t.Errorf("--email badsubcmd: stderr should mention the bad subcommand; got %q", errOut)
-	}
-}
-
-// TestRunEmailTestNoAddress verifies --email test with no address exits 2.
-func TestRunEmailTestNoAddress(t *testing.T) {
-	code, _, errOut := runCapture("--email", "test")
-	if code != 2 {
-		t.Errorf("--email test (no addr): exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "test") {
-		t.Errorf("--email test (no addr): stderr should mention 'test'; got %q", errOut)
-	}
-}
-
 // TestRunNormalizeHelp verifies -help is treated as --help (normalizeArgs
 // converts -flag → --flag for multi-char flags).
 func TestRunNormalizeHelp(t *testing.T) {
@@ -484,16 +462,6 @@ func TestRunStatus(t *testing.T) {
 	}
 }
 
-// TestRunEmailTestWithAddress exercises --email test <addr>: SMTP is not
-// configured in tests so TestSMTP returns an error → run() returns 1.
-func TestRunEmailTestWithAddress(t *testing.T) {
-	code, _, _ := runCapture("--email", "test", "nobody@example.com")
-	// Either SMTP fails (exit 1) or config is missing — both are non-panic exits.
-	if code == 0 {
-		t.Log("--email test nobody@example.com: exit 0 (SMTP configured in environment)")
-	}
-}
-
 // TestRunShellInitZsh verifies --shell init zsh exits 0.
 func TestRunShellInitZsh(t *testing.T) {
 	code, _, _ := runCapture("--shell", "init", "zsh")
@@ -570,152 +538,6 @@ func tempDBPath(t *testing.T) {
 	t.Setenv("CONFIG_DIR", dir)
 }
 
-// TestRunSchedulerList exercises the "scheduler list" path through an empty DB.
-func TestRunSchedulerList(t *testing.T) {
-	tempDBPath(t)
-	code, out, errOut := runCapture("scheduler", "list")
-	if code != 0 {
-		t.Errorf("scheduler list: exit %d, want 0; stderr=%q", code, errOut)
-	}
-	if !strings.Contains(out, "ID") {
-		t.Errorf("scheduler list: output missing header 'ID'; got %q", out)
-	}
-}
-
-// TestRunSchedulerShowNoArg verifies "scheduler show" with no task-ID exits 2.
-func TestRunSchedulerShowNoArg(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "show")
-	if code != 2 {
-		t.Errorf("scheduler show (no id): exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "show") {
-		t.Errorf("scheduler show (no id): stderr missing 'show'; got %q", errOut)
-	}
-}
-
-// TestRunSchedulerShowUnknownID verifies "scheduler show <id>" for a task that
-// does not exist returns exit 1 with an error message.
-func TestRunSchedulerShowUnknownID(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "show", "no-such-task")
-	if code != 1 {
-		t.Errorf("scheduler show <unknown>: exit %d, want 1", code)
-	}
-	_ = errOut
-}
-
-// TestRunSchedulerRunNoArg verifies "scheduler run" with no ID exits 2.
-func TestRunSchedulerRunNoArg(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "run")
-	if code != 2 {
-		t.Errorf("scheduler run (no id): exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "run") {
-		t.Errorf("scheduler run (no id): stderr missing 'run'; got %q", errOut)
-	}
-}
-
-// TestRunSchedulerRunNoToken verifies "scheduler run <id>" with no server token
-// in config exits 1.
-func TestRunSchedulerRunNoToken(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "run", "some-task")
-	if code != 1 {
-		t.Errorf("scheduler run (no token): exit %d, want 1", code)
-	}
-	_ = errOut
-}
-
-// TestRunSchedulerEnableNoArg verifies "scheduler enable" with no ID exits 2.
-func TestRunSchedulerEnableNoArg(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "enable")
-	if code != 2 {
-		t.Errorf("scheduler enable (no id): exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "enable") {
-		t.Errorf("scheduler enable (no id): stderr missing 'enable'; got %q", errOut)
-	}
-}
-
-// TestRunSchedulerEnableUnknownID verifies "scheduler enable <id>" for a
-// non-existent task still returns exit 0 (SQL UPDATE affects 0 rows, no error).
-func TestRunSchedulerEnableUnknownID(t *testing.T) {
-	tempDBPath(t)
-	code, out, _ := runCapture("scheduler", "enable", "no-such-task")
-	if code != 0 {
-		t.Errorf("scheduler enable <unknown>: exit %d, want 0", code)
-	}
-	if !strings.Contains(out, "enabled") {
-		t.Errorf("scheduler enable <unknown>: expected 'enabled' in output; got %q", out)
-	}
-}
-
-// TestRunSchedulerDisableNoArg verifies "scheduler disable" with no ID exits 2.
-func TestRunSchedulerDisableNoArg(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "disable")
-	if code != 2 {
-		t.Errorf("scheduler disable (no id): exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "disable") {
-		t.Errorf("scheduler disable (no id): stderr missing 'disable'; got %q", errOut)
-	}
-}
-
-// TestRunSchedulerDisableUnknownID verifies "scheduler disable <id>" for a
-// non-existent task still returns exit 0 (SQL UPDATE affects 0 rows, no error).
-func TestRunSchedulerDisableUnknownID(t *testing.T) {
-	tempDBPath(t)
-	code, out, _ := runCapture("scheduler", "disable", "no-such-task")
-	if code != 0 {
-		t.Errorf("scheduler disable <unknown>: exit %d, want 0", code)
-	}
-	if !strings.Contains(out, "disabled") {
-		t.Errorf("scheduler disable <unknown>: expected 'disabled' in output; got %q", out)
-	}
-}
-
-// TestRunSchedulerHistoryNoArg verifies "scheduler history" with no ID exits 2.
-func TestRunSchedulerHistoryNoArg(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "history")
-	if code != 2 {
-		t.Errorf("scheduler history (no id): exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "history") {
-		t.Errorf("scheduler history (no id): stderr missing 'history'; got %q", errOut)
-	}
-}
-
-// TestRunSchedulerHistoryUnknownID verifies "scheduler history <id>" for a
-// non-existent task returns exit 0 with "No history" message.
-func TestRunSchedulerHistoryUnknownID(t *testing.T) {
-	tempDBPath(t)
-	code, out, _ := runCapture("scheduler", "history", "no-such-task")
-	if code != 0 {
-		t.Errorf("scheduler history <unknown>: exit %d, want 0", code)
-	}
-	if !strings.Contains(out, "No history") {
-		t.Errorf("scheduler history <unknown>: expected 'No history'; got %q", out)
-	}
-}
-
-// TestRunSchedulerUnknownSubcmd exercises the default branch of the scheduler
-// switch, which exits 2.
-func TestRunSchedulerUnknownSubcmd(t *testing.T) {
-	tempDBPath(t)
-	code, _, errOut := runCapture("scheduler", "notasubcmd")
-	if code != 2 {
-		t.Errorf("scheduler <unknown>: exit %d, want 2", code)
-	}
-	if !strings.Contains(errOut, "unknown") {
-		t.Errorf("scheduler <unknown>: stderr missing 'unknown'; got %q", errOut)
-	}
-}
-
 // ─── Token CLI ────────────────────────────────────────────────────────────────
 //
 // AI.md canonicalises token management under --maintenance token (bare
@@ -781,18 +603,6 @@ func TestRunDebugWithStatus(t *testing.T) {
 	}
 }
 
-// TestRunCleanExpired exercises the full server-startup section (config load,
-// port resolution, SMTP auto-detect, ConfigManager init, DB init) and the
-// --clean-expired one-shot block that returns 0 before entering runServer().
-// A temporary SQLite DB path is injected via tempDBPath to prevent log.Fatalf.
-func TestRunCleanExpired(t *testing.T) {
-	tempDBPath(t)
-	code, _, _ := runCapture("--clean-expired")
-	if code != 0 {
-		t.Errorf("--clean-expired: exit %d, want 0", code)
-	}
-}
-
 // TestRunUpdateCheck exercises the --update check branch which calls
 // CheckForUpdate with a 30-second context. Accepts exit 0 (up to date) or
 // exit 1 (network unavailable / rate-limited) — both are non-panic outcomes.
@@ -808,33 +618,6 @@ func TestRunUpdateCheck(t *testing.T) {
 func TestRunMaintenanceBackup(t *testing.T) {
 	code, _, _ := runCapture("--maintenance", "backup")
 	_ = code
-}
-
-// TestRunCleanExpiredAllFlags covers the five path-flag true-branches
-// (--data, --log, --cache, --backup, --pid lines 768-780) and the four
-// server-config flag true-branches (--port, --address, --baseurl, --mode
-// lines 835-844) and the configFlag branch inside the config-load section
-// (line 826). All require entering the server-startup section, which is
-// reached via --clean-expired + tempDBPath so run() exits before blocking.
-func TestRunCleanExpiredAllFlags(t *testing.T) {
-	tempDBPath(t)
-	tmp := t.TempDir()
-	code, _, _ := runCapture(
-		"--data", tmp,
-		"--log", tmp,
-		"--cache", tmp,
-		"--backup", tmp,
-		"--pid", filepath.Join(tmp, "pastebin.pid"),
-		"--config", filepath.Join(tmp, "server.yml"),
-		"--port", "19999",
-		"--address", "127.0.0.1",
-		"--baseurl", "/app",
-		"--mode", "production",
-		"--clean-expired",
-	)
-	if code != 0 {
-		t.Errorf("--clean-expired with all flags: exit %d, want 0", code)
-	}
 }
 
 // TestRunStatusWithConfig covers the configFlag true-branch inside the

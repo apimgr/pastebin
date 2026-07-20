@@ -145,7 +145,7 @@ _%s() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="--help --version --status --daemon --debug --clean-expired
+    opts="--help --version --status --daemon --debug
           --shell --service --maintenance --update
           --config --data --cache --log --backup --pid
           --port --address --baseurl --mode --color --lang"
@@ -195,7 +195,6 @@ _%s() {
         '--status[Show server status]'
         '--daemon[Run as background daemon]'
         '--debug[Enable debug logging]'
-        '--clean-expired[Remove expired pastes and exit]'
         '--shell[Shell integration]:subcmd:(completions init --help)'
         '--service[Service management]:subcmd:(start stop restart reload --install --uninstall --disable --help)'
         '--maintenance[Maintenance tasks]:subcmd:(backup restore update mode setup pgp token data compliance --help)'
@@ -226,7 +225,6 @@ complete -c %s -l version -d 'Show version'
 complete -c %s -l status  -d 'Show server status'
 complete -c %s -l daemon  -d 'Run as background daemon'
 complete -c %s -l debug   -d 'Enable debug logging'
-complete -c %s -l clean-expired -d 'Remove expired pastes and exit'
 
 complete -c %s -l shell -d 'Shell integration' -xa 'completions init --help'
 complete -c %s -l service -d 'Service management' -xa 'start stop restart reload --install --uninstall --disable --help'
@@ -247,7 +245,7 @@ complete -c %s -l mode    -d 'Application mode'  -xa 'production development'
 complete -c %s -l color   -d 'Color output'      -xa 'auto yes no'
 complete -c %s -l lang    -d 'Language'          -xa 'en fr de es pt ja zh'
 `, bin,
-		bin, bin, bin, bin, bin, bin,
+		bin, bin, bin, bin, bin,
 		bin, bin, bin, bin,
 		bin, bin, bin, bin, bin, bin,
 		bin, bin, bin, bin, bin, bin)
@@ -258,7 +256,7 @@ func printPOSIX(bin string) {
 	fmt.Printf(`# POSIX sh/dash/ksh completion for %s — source this file
 # Usage: . <(%s --shell completions sh)
 if [ -n "$BASH_VERSION" ]; then
-    complete -W "--help --version --status --daemon --debug --clean-expired --shell --service --maintenance --update --config --data --cache --log --backup --pid --port --address --baseurl --mode --color --lang" %s
+    complete -W "--help --version --status --daemon --debug --shell --service --maintenance --update --config --data --cache --log --backup --pid --port --address --baseurl --mode --color --lang" %s
 fi
 `, bin, bin, bin)
 }
@@ -268,7 +266,7 @@ func printPowerShell(bin string) {
 Register-ArgumentCompleter -Native -CommandName '%s' -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     $opts = @(
-        '--help','--version','--status','--daemon','--debug','--clean-expired',
+        '--help','--version','--status','--daemon','--debug',
         '--shell','--service','--maintenance','--update',
         '--config','--data','--cache','--log','--backup','--pid',
         '--port','--address','--baseurl','--mode','--color','--lang'
