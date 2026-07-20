@@ -56,6 +56,7 @@ This software includes the following third-party libraries:
 | github.com/mattn/go-isatty | v0.0.20 | MIT | 2017 Yasuhiro Matsumoto |
 | github.com/mattn/go-localereader | v0.0.1 | MIT | 2021 Yasuhiro Matsumoto |
 | github.com/mattn/go-runewidth | v0.0.19 | MIT | 2016 Yasuhiro Matsumoto |
+| github.com/microcosm-cc/bluemonday | v1.0.27 | BSD-3-Clause | 2014 David Kitchen |
 | github.com/muesli/ansi | v0.0.0-20230316100256-276c6243b2f6 | MIT | 2022 Christian Muehlhaeuser |
 | github.com/muesli/cancelreader | v0.2.2 | MIT | 2022 Christian Muehlhaeuser |
 | github.com/muesli/termenv | v0.16.0 | MIT | 2020 Christian Muehlhaeuser |
@@ -66,10 +67,13 @@ This software includes the following third-party libraries:
 | github.com/prometheus/client_model | v0.6.2 | Apache-2.0 | 2012-2015 The Prometheus Authors |
 | github.com/prometheus/common | v0.66.1 | Apache-2.0 | 2015 The Prometheus Authors |
 | github.com/prometheus/procfs | v0.16.1 | Apache-2.0 | 2014-2015 The Prometheus Authors |
+| github.com/ProtonMail/go-crypto | v1.4.1 | BSD-3-Clause | 2009 The Go Authors |
 | github.com/redis/go-redis/v9 | v9.7.3 | BSD-2-Clause | 2012 Vmihailenco and contributors |
 | github.com/remyoudompheng/bigfft | v0.0.0-20230129092748-24d4a6f8daec | MIT | 2012 Rémy Oudompheng |
 | github.com/rivo/uniseg | v0.4.7 | MIT | 2019 Oliver Schneider |
+| github.com/skip2/go-qrcode | v0.0.0-20200617195104-da1b6568686e | MIT | 2014 Tom Harwood |
 | github.com/xo/terminfo | v0.0.0-20220910002029-abceb7e1c41e | MIT | 2019 xo authors |
+| github.com/yuin/goldmark | v1.8.2 | MIT | 2019 Yusuke Inuzuka |
 | go.yaml.in/yaml/v2 | v2.4.2 | Apache-2.0 | The yaml.in Authors |
 | golang.org/x/crypto | v0.41.0 | BSD-3-Clause | 2009 The Go Authors |
 | golang.org/x/net | v0.43.0 | BSD-3-Clause | 2009 The Go Authors |
