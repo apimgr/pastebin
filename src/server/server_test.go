@@ -1420,6 +1420,30 @@ func TestBuildCSP(t *testing.T) {
 	}
 }
 
+// TestBuildCSPScriptSrcNoUnsafeInline verifies the default CSP policy
+// (AI.md "Content Security Policy" directive table): script-src is 'self'
+// only — no 'unsafe-inline' — while style-src keeps 'unsafe-inline' for
+// inline style="" attributes.
+func TestBuildCSPScriptSrcNoUnsafeInline(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Web.CSP.Enabled = true
+	cfg.Web.CSP.Mode = "enforce"
+	s := newMinimalServer(cfg)
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	policy, _ := s.buildCSP(r)
+
+	if !strings.Contains(policy, "script-src 'self';") {
+		t.Errorf("CSP script-src should be 'self' only; policy: %q", policy)
+	}
+	if strings.Contains(policy, "script-src 'self' 'unsafe-inline'") {
+		t.Error("CSP script-src must not contain 'unsafe-inline'")
+	}
+	if !strings.Contains(policy, "style-src 'self' 'unsafe-inline'") {
+		t.Errorf("CSP style-src should keep 'unsafe-inline'; policy: %q", policy)
+	}
+}
+
 // ─── Server.buildReportingHeaders ────────────────────────────────────────────
 
 func TestBuildReportingHeaders(t *testing.T) {
@@ -2406,19 +2430,26 @@ func TestBuildHealthResponseScheduler(t *testing.T) {
 // ─── Server.handleHealthz (nil templates path) ────────────────────────────────
 
 func TestHandleHealthz(t *testing.T) {
-	t.Run("JSON accept has no special case, renders HTML", func(t *testing.T) {
-		// PART 13/16: /server/healthz no longer special-cases
-		// "Accept: application/json" — that response lives exclusively at the
-		// versioned /api/{api_version}/server/healthz endpoint. A JSON-accept
-		// request here falls through to the HTML path like any browser client.
+	t.Run("JSON accept honors content negotiation", func(t *testing.T) {
+		// PART 13/14: /server/healthz honors "Accept: application/json" the
+		// same way every other dual-format endpoint does (detectClientType),
+		// mirroring the versioned /api/{api_version}/server/healthz response.
+		// This does not depend on templates being loaded.
 		db := &stubDB{}
 		s := newServerWithDB(&config.Config{}, db)
 		r := httptest.NewRequest(http.MethodGet, "/server/healthz", nil)
 		r.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
 		s.handleHealthz(w, r)
-		if w.Code != http.StatusInternalServerError {
-			t.Errorf("healthz JSON-accept status = %d, want 500 (nil templates)", w.Code)
+		if w.Code != http.StatusOK {
+			t.Errorf("healthz JSON-accept status = %d, want 200", w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("healthz JSON-accept content-type = %q, want application/json", ct)
+		}
+		var hr HealthResponse
+		if err := json.NewDecoder(w.Body).Decode(&hr); err != nil {
+			t.Fatalf("healthz JSON body not valid: %v", err)
 		}
 	})
 
@@ -2501,6 +2532,39 @@ func TestTemplateHandlersNilTemplates(t *testing.T) {
 				t.Errorf("%s text: content-type = %q, want text/plain", tc.name, ct)
 			}
 		})
+	}
+}
+
+// TestHandleAboutVersionSection verifies /server/about renders the required
+// Version section (AI.md "Standard Pages" → /server/about, ~25734) sourced
+// from the build-time main.Version/main.BuildDate values, not a placeholder.
+func TestHandleAboutVersionSection(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Web.SiteTitle = "Test Paste"
+	cfg.Web.Theme = "dark"
+	s := newMinimalServer(cfg)
+	s.version = "1.2.3"
+	s.buildDate = "2026-07-18"
+	tmpl, err := s.buildTemplates()
+	if err != nil {
+		t.Fatalf("build templates: %v", err)
+	}
+	s.templates = tmpl
+
+	r := httptest.NewRequest(http.MethodGet, "/server/about", nil)
+	r.Header.Set("Accept", "text/html")
+	w := httptest.NewRecorder()
+	s.handleAbout(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("about status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "1.2.3") {
+		t.Errorf("about page missing Version value %q; body snippet: %q", s.version, body[:min(len(body), 400)])
+	}
+	if !strings.Contains(body, "2026-07-18") {
+		t.Errorf("about page missing BuildDate value %q", s.buildDate)
 	}
 }
 

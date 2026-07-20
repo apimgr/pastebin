@@ -50,6 +50,9 @@
                         {{end}}
                     </ul>
 
+                    <h2 class="section-mt">{{t .Lang "about.version"}}</h2>
+                    <p class="long-string">{{.Version}} ({{.BuildDate}})</p>
+
                     <h2 class="section-mt">Source</h2>
                     <p class="about-links">
                         {{range .Links}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Label}}</a>
@@ -66,7 +69,7 @@
     <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
     <div id="toast-container"></div>
 
-    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script type="application/json" id="pb-i18n-data">{{i18njs .Lang}}</script>
     <script src="{{.AssetPrefix}}/static/js/main.js"></script>
 </body>
 </html>

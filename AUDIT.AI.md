@@ -17,13 +17,13 @@ once every item is fixed and committed.
 - [x] **M3** DNS-01 ACME challenge config (`DNSProviderType`,
       `DNSCredentials`) exists but is dead — only HTTP-01/TLS-ALPN-01
       wired via autocert.Manager. AI.md:19376-19413. `src/ssl/ssl.go`
-- [ ] **M4** `/server/healthz` ignores JSON content negotiation, always
+- [x] **M4** `/server/healthz` ignores JSON content negotiation, always
       renders HTML. AI.md:11934. `src/server/server.go:2427-2440,2743-2758`
 - [ ] **M5** Inline `<script>` blocks in all 19 templates violate "NO
       Inline CSS/JS". AI.md:21422. `src/server/templates/*.html`
-- [ ] **M6** CSP allows `'unsafe-inline'` for script-src/style-src —
+- [x] **M6** CSP allows `'unsafe-inline'` for script-src/style-src —
       enabler for M5. `src/server/server.go:1370,1376`
-- [ ] **M7** `/server/about` missing required Version section.
+- [x] **M7** `/server/about` missing required Version section.
       AI.md:25734. `src/server/templates/about.html`,
       `src/server/server.go` (aboutPageData)
 - [x] **M8** Missing email template `ssl_renewal_failed.txt`.

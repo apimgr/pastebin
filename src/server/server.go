@@ -1367,7 +1367,10 @@ func (s *Server) buildCSP(r *http.Request) (header string, reportOnly bool) {
 	reportURI := "/api/" + apiVer + "/server/reports/csp"
 
 	csp := cfg.Web.CSP
-	scriptSrc := "'self' 'unsafe-inline'"
+	// script-src stays 'self' only — no 'unsafe-inline' — per the CSP spec
+	// (AI.md "Content Security Policy" table): all JS lives in
+	// static/js/app.js, so this blocks every injected inline <script>.
+	scriptSrc := "'self'"
 	if csp.ScriptSrcOverride != "" {
 		scriptSrc = csp.ScriptSrcOverride
 	} else if csp.ScriptSrcExtra != "" {
@@ -2444,12 +2447,16 @@ func formatUptime(d time.Duration) string {
 }
 
 // handleHealthz serves /server/healthz using the standard frontend content
-// negotiation rules (PART 13/16): HTML for browsers, plain text for
-// non-interactive HTTP tools. There is no special-case for an
-// "Accept: application/json" header here — the JSON response lives at the
-// versioned /api/{api_version}/server/healthz endpoint instead.
+// negotiation rules (PART 13/14): JSON for clients that ask for
+// "Accept: application/json" (mirrors the versioned
+// /api/{api_version}/server/healthz endpoint), plain text for non-interactive
+// HTTP tools, and HTML for browsers.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if detectClientType(r) == "text" {
+	switch detectClientType(r) {
+	case "json":
+		s.handleHealthzJSON(w, r)
+		return
+	case "text":
 		hr := s.buildHealthResponse()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		writeHealthText(w, hr)
