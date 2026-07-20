@@ -38,14 +38,14 @@ once every item is fixed and committed.
       blocking unencrypted backups + audit-log warning when
       `server.compliance.enabled`. AI.md:28951,28983-28989.
       `src/maintenance/maintenance.go`, `src/task/task.go`
-- [ ] **M12** Missing `su` (Linux/BSD) and `osascript` (macOS) privilege
+- [x] **M12** Missing `su` (Linux/BSD) and `osascript` (macOS) privilege
       escalation fallbacks. AI.md:30049-30074.
       `src/service/privilege_unix.go:21,61`
-- [ ] **M13** OpenRC init script missing `name=`, `command_user=`,
+- [x] **M13** OpenRC init script missing `name=`, `command_user=`,
       correct pidfile org dir, output/error logs, `depend()` dns/logger,
       `start_pre()` checkpath. AI.md:30716-30742.
       `src/service/service.go:414-426`
-- [ ] **M14** SysVinit init script missing `$remote_fs` dep,
+- [x] **M14** SysVinit init script missing `$remote_fs` dep,
       `DAEMON_USER`+`--chuid`, `LOGFILE` wiring, correct pidfile org dir;
       has undocumented extra `reload` case. AI.md:30765-30816.
       `src/service/service.go:469-516`

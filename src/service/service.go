@@ -413,17 +413,28 @@ func installOpenRC() error {
 
 	rcContent := fmt.Sprintf(`#!/sbin/openrc-run
 
-description="%s API Server"
+name="%s"
+description="Pastebin API Server"
 command="%s"
-command_background=true
-pidfile="/run/%s.pid"
 command_args=""
+command_user="%s:%s"
+pidfile="/var/run/%s/%s.pid"
+command_background=true
+output_log="/var/log/%s/%s/server.log"
+error_log="/var/log/%s/%s/error.log"
 
 depend() {
 	need net
 	after firewall
+	use dns logger
 }
-`, appName, binaryPath, appName)
+
+start_pre() {
+	checkpath -d -m 0755 -o %s:%s /var/run/%s
+	checkpath -d -m 0755 -o %s:%s /var/log/%s/%s
+}
+`, appName, binaryPath, serviceUser, serviceUser, orgName, appName, orgName, appName, orgName, appName,
+		serviceUser, serviceUser, orgName, serviceUser, serviceUser, orgName, appName)
 
 	if err := os.WriteFile(rcPath, []byte(rcContent), 0755); err != nil {
 		return fmt.Errorf("failed to write OpenRC init script: %w", err)
@@ -469,51 +480,55 @@ func installSysV() error {
 	initContent := fmt.Sprintf(`#!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          %s
-# Required-Start:    $network $syslog
-# Required-Stop:     $network $syslog
+# Required-Start:    $network $remote_fs $syslog
+# Required-Stop:     $network $remote_fs $syslog
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: %s API Server
+# Short-Description: Pastebin API Server
+# Description:       Pastebin API Server daemon
 ### END INIT INFO
 
-PATH=/sbin:/usr/sbin:/bin:/usr/bin
-DAEMON="%s"
-PIDFILE=/var/run/%s.pid
 NAME=%s
+DAEMON=%s
+DAEMON_USER=%s
+PIDFILE=/var/run/%s/%s.pid
+LOGFILE=/var/log/%s/%s/server.log
 
 case "$1" in
-  start)
-    echo "Starting $NAME..."
-    start-stop-daemon --start --quiet --pidfile "$PIDFILE" \
-      --background --make-pidfile --exec "$DAEMON"
-    ;;
-  stop)
-    echo "Stopping $NAME..."
-    start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
-    ;;
-  restart)
-    $0 stop
-    $0 start
-    ;;
-  reload)
-    echo "Reloading $NAME..."
-    start-stop-daemon --stop --signal HUP --quiet --pidfile "$PIDFILE"
-    ;;
-  status)
-    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "$NAME is running"
-    else
-      echo "$NAME is not running"
-      exit 1
-    fi
-    ;;
-  *)
-    echo "Usage: $0 {start|stop|restart|reload|status}" >&2
-    exit 1
-    ;;
+    start)
+        echo "Starting $NAME..."
+        mkdir -p $(dirname $PIDFILE) $(dirname $LOGFILE)
+        chown -R $DAEMON_USER:$DAEMON_USER $(dirname $PIDFILE) $(dirname $LOGFILE)
+        start-stop-daemon --start --quiet --background --make-pidfile \
+            --pidfile $PIDFILE --chuid $DAEMON_USER --exec $DAEMON \
+            --no-close >> $LOGFILE 2>&1
+        ;;
+    stop)
+        echo "Stopping $NAME..."
+        start-stop-daemon --stop --quiet --pidfile $PIDFILE --retry 30
+        rm -f $PIDFILE
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    status)
+        if [ -f $PIDFILE ] && kill -0 $(cat $PIDFILE) 2>/dev/null; then
+            echo "$NAME is running (pid $(cat $PIDFILE))"
+            exit 0
+        else
+            echo "$NAME is stopped"
+            exit 3
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
 esac
 exit 0
-`, appName, appName, binaryPath, appName, appName)
+`, appName, appName, binaryPath, serviceUser, orgName, appName, orgName, appName)
 
 	if err := os.WriteFile(initPath, []byte(initContent), 0755); err != nil {
 		return fmt.Errorf("failed to write SysV init script: %w", err)
