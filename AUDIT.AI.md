@@ -68,9 +68,11 @@ once every item is fixed and committed.
       inconsistent (`--help` vs bare `help`). AI.md:10207-10246
 - [ ] `--color` accepts undocumented `always`/`never` aliases (superset,
       not a break). `src/main.go`, `src/client/main.go`
-- [ ] `compat.go` legacy endpoints use non-canonical error shape —
-      likely intentional (legacy dpaste-compat surface), needs
-      confirmation. `src/handler/compat.go`
+- [x] `compat.go` legacy endpoints use non-canonical error shape — CONFIRMED
+      intentional: IDEA.md:68-79 requires 100% wire-compatibility with
+      pastebin.com/dpaste/stikked/etc. wire protocols ("existing scripts...
+      must work without modification"); canonical envelope would break
+      that. Not a violation. `src/handler/compat.go`
 - [ ] `tracking.go` Google fallback branch skips `G-` prefix validation
       applied on primary branch (operator-config, low risk).
       `src/server/tracking.go:32-38`
@@ -96,8 +98,11 @@ once every item is fixed and committed.
       `src/service/service.go:416,476`
 - [ ] mkdocs.yml missing `pymdownx.arithmatex`/`pymdownx.magiclink`
       extensions. AI.md:37275,37290. `mkdocs.yml:55-91`
-- [ ] Skip-link text hardcoded English instead of `t()` key (spec's own
-      example does the same — low priority). `src/server/templates/*`
+- [x] Skip-link text hardcoded English instead of `t()` key — fixed:
+      all 18 templates now use `{{t .Lang "nav.skip_to_content"}}`,
+      reusing the existing (previously unused) locale key present with
+      parity across all 7 locale files. AI.md:22006, PART 30 key-parity
+      requirement. `src/server/templates/*.html`
 - [ ] `writeIfChanged` dead code, only referenced from tests.
       `src/tor/tor.go:434-440`
 - [ ] `Auth.TokenFile`/`auth.token_file` config field declared but never
