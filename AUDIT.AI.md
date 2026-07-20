@@ -84,10 +84,10 @@ once every item is fixed and committed.
       `src/server/server.go:160-167`
 - [ ] `/api/v1/server/version` payload omits `commit`/`go_version`/
       `build.date` despite tracking them. `src/server/server.go:2496-2498`
-- [ ] localStorage owner-token key mismatch: create.html writes
-      `pastebin_owner_token`, remove.html reads `api_token` — breaks
-      pre-fill UX. `src/server/templates/create.html:207`,
-      `remove.html:106,109`
+- [x] localStorage owner-token key mismatch — fixed: `remove.js` now
+      uses the same `pastebin_owner_token` key as `create.js` (canonical
+      per IDEA.md:34 and AI.md:11799), instead of the stray `api_token`
+      key it read/wrote before. `src/server/static/js/remove.js`
 - [ ] CSS dark palette (`#1e1e2e`/`#cdd6f4`, Catppuccin) matches neither
       AI.md CSS var reference (`#1a1a2e`) nor Go theme struct
       (`#1a1b26`). `src/server/static/css/main.css:9-16`
