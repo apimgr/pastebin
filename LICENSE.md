@@ -48,8 +48,9 @@ This software includes the following third-party libraries:
 | github.com/dlclark/regexp2 | v1.12.0 | MIT | 2014 Doug Clark |
 | github.com/dustin/go-humanize | v1.0.1 | MIT | 2012 Dustin Sallings |
 | github.com/erikgeiser/coninput | v0.0.0-20211004153227-1c3628e74d0f | MIT | 2021 Erik Geiser |
+| github.com/go-acme/lego/v4 | v4.35.2 | MIT | 2017-2024 Ludovic Fernandez, 2015-2017 Sebastian Erhart |
 | github.com/go-chi/chi/v5 | v5.0.11 | MIT | 2015-present Peter Kieltyka, Google Inc. |
-| github.com/google/uuid | v1.3.0 | BSD-3-Clause | 2018 Google LLC |
+| github.com/google/uuid | v1.6.0 | BSD-3-Clause | 2018 Google LLC |
 | github.com/hashicorp/golang-lru/v2 | v2.0.7 | MPL-2.0 | HashiCorp, Inc. |
 | github.com/kr/text | v0.2.0 | MIT | 2012 Keith Rarick |
 | github.com/lucasb-eyer/go-colorful | v1.3.0 | MIT | 2013 Lucas B. Eyer |

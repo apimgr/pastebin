@@ -201,6 +201,131 @@ func TestEnsureSelfSignedCert_GeneratesAndReuses(t *testing.T) {
 	}
 }
 
+// ─── dnsProviderEnvMapping ──────────────────────────────────────────────────
+
+func TestDNSProviderEnvMapping_SixExplicitProviders(t *testing.T) {
+	// PART 15 "Common Providers" table: verify the mapping table covers all 6
+	// explicit providers with their real lego environment variable names
+	// (verified against go-acme/lego/v4 source, not guessed).
+	want := map[string]map[string]string{
+		"cloudflare": {
+			"api_token": "CF_DNS_API_TOKEN",
+			"api_key":   "CF_API_KEY",
+			"email":     "CF_API_EMAIL",
+		},
+		"route53": {
+			"access_key_id":     "AWS_ACCESS_KEY_ID",
+			"secret_access_key": "AWS_SECRET_ACCESS_KEY",
+			"region":            "AWS_REGION",
+		},
+		"digitalocean": {
+			"auth_token": "DO_AUTH_TOKEN",
+		},
+		"godaddy": {
+			"api_key":    "GODADDY_API_KEY",
+			"api_secret": "GODADDY_API_SECRET",
+		},
+		"namecheap": {
+			"api_user": "NAMECHEAP_API_USER",
+			"api_key":  "NAMECHEAP_API_KEY",
+		},
+		"rfc2136": {
+			"nameserver":     "DNSUPDATE_NAMESERVER",
+			"tsig_key":       "DNSUPDATE_TSIG_KEY",
+			"tsig_secret":    "DNSUPDATE_TSIG_SECRET",
+			"tsig_algorithm": "DNSUPDATE_TSIG_ALGORITHM",
+		},
+	}
+	for provider, fields := range want {
+		got, ok := dnsProviderEnvMapping[provider]
+		if !ok {
+			t.Errorf("dnsProviderEnvMapping missing provider %q", provider)
+			continue
+		}
+		for field, envVar := range fields {
+			if got[field] != envVar {
+				t.Errorf("dnsProviderEnvMapping[%q][%q] = %q; want %q", provider, field, got[field], envVar)
+			}
+		}
+		if len(got) != len(fields) {
+			t.Errorf("dnsProviderEnvMapping[%q] has %d fields; want %d", provider, len(got), len(fields))
+		}
+	}
+	// namecheap intentionally has no client_ip mapping — lego auto-detects it.
+	if _, present := dnsProviderEnvMapping["namecheap"]["client_ip"]; present {
+		t.Error("dnsProviderEnvMapping[\"namecheap\"] should not map client_ip")
+	}
+}
+
+func TestDNSProviderEnvMapping_ExactlySixProviders(t *testing.T) {
+	if len(dnsProviderEnvMapping) != 6 {
+		t.Errorf("dnsProviderEnvMapping has %d providers; want 6", len(dnsProviderEnvMapping))
+	}
+}
+
+// ─── buildDNSProvider ─────────────────────────────────────────────────────────
+
+func TestBuildDNSProvider_EmptyProviderName(t *testing.T) {
+	_, err := buildDNSProvider("", map[string]string{"auth_token": "x"})
+	if err == nil {
+		t.Error("expected error for empty provider name")
+	}
+}
+
+func TestBuildDNSProvider_NoCredentials(t *testing.T) {
+	_, err := buildDNSProvider("digitalocean", nil)
+	if err == nil {
+		t.Error("expected error for missing credentials")
+	}
+	_, err = buildDNSProvider("digitalocean", map[string]string{})
+	if err == nil {
+		t.Error("expected error for empty credentials map")
+	}
+}
+
+func TestBuildDNSProvider_MappedProvider_Digitalocean(t *testing.T) {
+	// digitalocean's NewDNSProvider makes no network calls during
+	// construction, so it's safe to exercise end-to-end here.
+	t.Setenv("DO_AUTH_TOKEN", "")
+	provider, err := buildDNSProvider("digitalocean", map[string]string{"auth_token": "test-token-value"})
+	if err != nil {
+		t.Fatalf("buildDNSProvider(digitalocean): unexpected error: %v", err)
+	}
+	if provider == nil {
+		t.Error("expected non-nil challenge.Provider")
+	}
+	if got := os.Getenv("DO_AUTH_TOKEN"); got != "test-token-value" {
+		t.Errorf("DO_AUTH_TOKEN = %q; want %q (credential translation)", got, "test-token-value")
+	}
+}
+
+func TestBuildDNSProvider_UnknownProviderName(t *testing.T) {
+	// Not in dnsProviderEnvMapping and not a real lego provider name — the
+	// generic passthrough branch sets the env var verbatim, then lego's
+	// factory itself rejects the unrecognized provider name.
+	_, err := buildDNSProvider("totally-not-a-real-provider", map[string]string{"SOME_ENV_VAR": "x"})
+	if err == nil {
+		t.Error("expected error for unrecognized provider name")
+	}
+}
+
+func TestBuildDNSProvider_UnmappedProvider_VerbatimEnvPassthrough(t *testing.T) {
+	// Unmapped-but-real lego provider ("exec" — no network calls on
+	// construction, reads EXEC_PATH) exercises the verbatim env-var-name
+	// passthrough branch instead of the 6-provider mapping table.
+	t.Setenv("EXEC_PATH", "")
+	provider, err := buildDNSProvider("exec", map[string]string{"EXEC_PATH": "/bin/true"})
+	if err != nil {
+		t.Fatalf("buildDNSProvider(exec): unexpected error: %v", err)
+	}
+	if provider == nil {
+		t.Error("expected non-nil challenge.Provider")
+	}
+	if got := os.Getenv("EXEC_PATH"); got != "/bin/true" {
+		t.Errorf("EXEC_PATH = %q; want verbatim passthrough %q", got, "/bin/true")
+	}
+}
+
 // generateSelfSignedCert generates a minimal self-signed PEM certificate valid
 // until notAfter (or expired if notAfter is in the past).
 func generateSelfSignedCert(t *testing.T, cn string, notAfter time.Time) (certPEM []byte, keyPEM []byte) {

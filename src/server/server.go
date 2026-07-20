@@ -1981,6 +1981,18 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 
 	cfg := s.liveCfg()
 
+	// PART 15: "Server validates credentials on startup and before
+	// certificate requests" — non-fatal, warn-and-continue (config.Validate()
+	// pattern). A bad DNS-01 provider config must never abort startup.
+	if ssl.ParseChallenge(cfg.Server.TLS.LetsEncrypt.Challenge) == "dns-01" && cfg.Server.TLS.DNSProvider != "" {
+		creds, err := cfg.DecryptDNSCredentials()
+		if err != nil {
+			log.Printf("WARN: ssl: dns-01 provider %q: failed to decrypt credentials: %v", cfg.Server.TLS.DNSProvider, err)
+		} else if err := ssl.ValidateDNSProvider(cfg.Server.TLS.DNSProvider, creds); err != nil {
+			log.Printf("WARN: ssl: dns-01 provider %q failed startup validation: %v", cfg.Server.TLS.DNSProvider, err)
+		}
+	}
+
 	// Server-lifecycle audit events (AI.md server.* catalog).
 	s.auditLog(nil, audit.Entry{
 		Event:    "server.started",
@@ -2056,6 +2068,11 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	// When TLS is configured, set up SSL manager and serve HTTPS.
 	if cfg.Server.TLS.Enabled {
 		fqdn := cfg.Server.FQDN
+		dnsCreds, err := cfg.DecryptDNSCredentials()
+		if err != nil {
+			log.Printf("WARN: ssl: failed to decrypt dns-01 credentials: %v", err)
+			dnsCreds = map[string]string{}
+		}
 		sslMgr := ssl.NewManager(ssl.Config{
 			Enabled: true,
 			CertDir: s.configDir + "/ssl",
@@ -2065,6 +2082,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 				Email:           cfg.Server.TLS.LetsEncrypt.Email,
 				Challenge:       ssl.ParseChallenge(cfg.Server.TLS.LetsEncrypt.Challenge),
 				DNSProviderType: cfg.Server.TLS.DNSProvider,
+				DNSCredentials:  dnsCreds,
 				Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
 			},
 		})
@@ -2127,6 +2145,11 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 // dropped once before serving. Shutdown cancels both listeners together.
 func (s *Server) runDualPort(ctx context.Context, cfg *config.Config, host, httpPort, httpsPort string, readTimeout, writeTimeout, idleTimeout time.Duration) error {
 	fqdn := cfg.Server.FQDN
+	dnsCreds, err := cfg.DecryptDNSCredentials()
+	if err != nil {
+		log.Printf("WARN: ssl: failed to decrypt dns-01 credentials: %v", err)
+		dnsCreds = map[string]string{}
+	}
 	sslMgr := ssl.NewManager(ssl.Config{
 		Enabled: true,
 		CertDir: s.configDir + "/ssl",
@@ -2136,6 +2159,7 @@ func (s *Server) runDualPort(ctx context.Context, cfg *config.Config, host, http
 			Email:           cfg.Server.TLS.LetsEncrypt.Email,
 			Challenge:       ssl.ParseChallenge(cfg.Server.TLS.LetsEncrypt.Challenge),
 			DNSProviderType: cfg.Server.TLS.DNSProvider,
+			DNSCredentials:  dnsCreds,
 			Staging:         cfg.Server.TLS.LetsEncrypt.Staging,
 		},
 	})

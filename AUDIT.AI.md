@@ -14,7 +14,7 @@ once every item is fixed and committed.
       PART 17-22 audit confirms `scheduler` task plumbing is legitimate
       (task.go, main.go:1343), so this is likely a PART 8 command-list
       documentation gap, not a code violation. `src/main.go`
-- [ ] **M3** DNS-01 ACME challenge config (`DNSProviderType`,
+- [x] **M3** DNS-01 ACME challenge config (`DNSProviderType`,
       `DNSCredentials`) exists but is dead — only HTTP-01/TLS-ALPN-01
       wired via autocert.Manager. AI.md:19376-19413. `src/ssl/ssl.go`
 - [ ] **M4** `/server/healthz` ignores JSON content negotiation, always

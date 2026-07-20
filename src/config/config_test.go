@@ -780,6 +780,70 @@ func TestEncryptionKey(t *testing.T) {
 	})
 }
 
+// TestDNSCredentials_EncryptDecrypt_RoundTrip covers PART 15's DNS-01
+// provider credential storage — encrypted at rest via EncryptDNSCredentials,
+// decrypted via DecryptDNSCredentials — including the warn-and-default
+// "unset returns empty map, not error" startup-validation path.
+func TestDNSCredentials_EncryptDecrypt_RoundTrip(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Web.Security.EncryptionKey = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+	t.Run("round_trip", func(t *testing.T) {
+		creds := map[string]string{"auth_token": "secret-value", "region": "us-east-1"}
+		encrypted, err := cfg.EncryptDNSCredentials(creds)
+		if err != nil {
+			t.Fatalf("EncryptDNSCredentials: unexpected error: %v", err)
+		}
+		if encrypted == "" {
+			t.Fatal("EncryptDNSCredentials returned empty string")
+		}
+		if strings.Contains(encrypted, "secret-value") {
+			t.Error("EncryptDNSCredentials leaked plaintext credential in encoded output")
+		}
+
+		cfg.Server.TLS.DNSCredentialsEncrypted = encrypted
+		got, err := cfg.DecryptDNSCredentials()
+		if err != nil {
+			t.Fatalf("DecryptDNSCredentials: unexpected error: %v", err)
+		}
+		if got["auth_token"] != "secret-value" || got["region"] != "us-east-1" {
+			t.Errorf("DecryptDNSCredentials round trip = %v; want original creds", got)
+		}
+	})
+
+	t.Run("unset_returns_empty_map_not_error", func(t *testing.T) {
+		// Startup validation (server.go) checks DNSProvider != "" before
+		// calling this — an unconfigured DNSCredentialsEncrypted must never
+		// be treated as a fatal error (warn-and-default pattern).
+		cfg.Server.TLS.DNSCredentialsEncrypted = ""
+		got, err := cfg.DecryptDNSCredentials()
+		if err != nil {
+			t.Fatalf("DecryptDNSCredentials (unset): unexpected error: %v", err)
+		}
+		if got == nil {
+			t.Error("DecryptDNSCredentials (unset) returned nil map; want empty non-nil map")
+		}
+		if len(got) != 0 {
+			t.Errorf("DecryptDNSCredentials (unset) = %v; want empty map", got)
+		}
+	})
+
+	t.Run("corrupt_ciphertext_returns_error", func(t *testing.T) {
+		cfg.Server.TLS.DNSCredentialsEncrypted = "not-valid-base64!!!"
+		if _, err := cfg.DecryptDNSCredentials(); err == nil {
+			t.Error("expected error for corrupt DNSCredentialsEncrypted")
+		}
+	})
+
+	t.Run("missing_encryption_key_returns_error", func(t *testing.T) {
+		badCfg := config.DefaultConfig()
+		badCfg.Web.Security.EncryptionKey = ""
+		if _, err := badCfg.EncryptDNSCredentials(map[string]string{"a": "b"}); err == nil {
+			t.Error("expected error when EncryptionKey is unset")
+		}
+	})
+}
+
 // ─── Load edge cases ──────────────────────────────────────────────────────────
 
 // TestLoad_InvalidYAML verifies that a file with invalid YAML does not panic

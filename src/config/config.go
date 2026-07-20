@@ -2,7 +2,9 @@ package config
 
 import (
 	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -21,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
+	"github.com/apimgr/pastebin/src/common/secretbox"
 	"github.com/apimgr/pastebin/src/logging"
 )
 
@@ -1693,6 +1696,58 @@ func (c *Config) EncryptionKey() ([]byte, error) {
 		return nil, fmt.Errorf("encryption_key must be 32 bytes (got %d)", len(b))
 	}
 	return b, nil
+}
+
+// EncryptDNSCredentials JSON-marshals creds, seals it with AES-256-GCM using
+// EncryptionKey(), and returns the result base64-encoded for storage in
+// server.tls.dns_credentials_encrypted (PART 15: DNS-01 provider credentials
+// are never stored in plaintext).
+func (c *Config) EncryptDNSCredentials(creds map[string]string) (string, error) {
+	key, err := c.EncryptionKey()
+	if err != nil {
+		return "", fmt.Errorf("dns credentials: %w", err)
+	}
+	plain, err := json.Marshal(creds)
+	if err != nil {
+		return "", fmt.Errorf("dns credentials: marshal: %w", err)
+	}
+	sealed, err := secretbox.Seal(key, plain)
+	if err != nil {
+		return "", fmt.Errorf("dns credentials: seal: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(sealed), nil
+}
+
+// DecryptDNSCredentials decodes and opens
+// server.tls.dns_credentials_encrypted, returning the provider credential
+// map. Following the config package's warn-and-default pattern, an unset
+// DNSCredentialsEncrypted is not an error — it returns an empty, non-nil
+// map so callers can range over it safely.
+func (c *Config) DecryptDNSCredentials() (map[string]string, error) {
+	s := c.Server.TLS.DNSCredentialsEncrypted
+	if s == "" {
+		return map[string]string{}, nil
+	}
+	key, err := c.EncryptionKey()
+	if err != nil {
+		return nil, fmt.Errorf("dns credentials: %w", err)
+	}
+	sealed, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("dns credentials: decode: %w", err)
+	}
+	plain, err := secretbox.Open(key, sealed)
+	if err != nil {
+		return nil, fmt.Errorf("dns credentials: open: %w", err)
+	}
+	var creds map[string]string
+	if err := json.Unmarshal(plain, &creds); err != nil {
+		return nil, fmt.Errorf("dns credentials: unmarshal: %w", err)
+	}
+	if creds == nil {
+		creds = map[string]string{}
+	}
+	return creds, nil
 }
 
 // projectName is the AI.md {project_name} placeholder (PART 12 dynamic
