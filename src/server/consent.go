@@ -8,10 +8,11 @@ import (
 )
 
 // consentClientConfig is the client-side consent configuration serialized into
-// window.PB_CONSENT. It is sourced entirely from server.privacy and drives the
-// cookie-consent banner and granular preferences UI rendered by consent.js
-// (PART 31). Consent state itself is stored client-side (localStorage), never on
-// the server.
+// an inert <script type="application/json" id="pb-consent-data"> block (never
+// an executable inline <script>, per project rules). It is sourced entirely
+// from server.privacy and drives the cookie-consent banner and granular
+// preferences UI rendered by consent.js (PART 31). Consent state itself is
+// stored client-side (localStorage), never on the server.
 type consentClientConfig struct {
 	// ShowUntilAcknowledged keeps the banner visible until the visitor responds.
 	ShowUntilAcknowledged bool `json:"showUntilAcknowledged"`

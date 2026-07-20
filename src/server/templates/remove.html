@@ -69,6 +69,7 @@
                                 placeholder="Paste your delete token here"
                                 required
                                 autocomplete="off"
+                                data-token-error="{{if .Error}}true{{else}}false{{end}}"
                             >
                             <p class="token-hint">
                                 This is the token you received when the paste was created. This action cannot be undone.
@@ -90,29 +91,8 @@
     <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
     <div id="toast-container"></div>
 
-    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script type="application/json" id="pb-i18n-data">{{i18njs .Lang}}</script>
     <script src="{{.AssetPrefix}}/static/js/main.js"></script>
-    <script>
-        // Progressive enhancement only — the form works as a plain POST without
-        // this. Pre-fill the delete-token field from the owner token saved at
-        // creation time (canonical localStorage key: api_token).
-        // If the page is showing an error, the saved token was invalid — clear it
-        // so the user is not silently retrying with a bad token on the next attempt.
-        (function () {
-            const tokenField = document.getElementById('token');
-            if (!tokenField) return;
-            {{if .Error}}
-            // Server returned an error: the stored token was rejected. Rotate it.
-            localStorage.removeItem('api_token');
-            {{else}}
-            if (!tokenField.value) {
-                const saved = localStorage.getItem('api_token') || '';
-                if (saved) {
-                    tokenField.value = saved;
-                }
-            }
-            {{end}}
-        })();
-    </script>
+    <script src="{{.AssetPrefix}}/static/js/remove.js"></script>
 </body>
 </html>

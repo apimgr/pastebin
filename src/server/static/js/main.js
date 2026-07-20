@@ -4,8 +4,10 @@
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 
 // English fallback strings for the few messages this script generates at
-// runtime. The server injects window.PB_I18N with the active-locale values;
-// this map is used when that bundle is absent (e.g. cached page, no template).
+// runtime. The server embeds the active-locale bundle as an inert JSON
+// script block (id="pb-i18n-data") rather than an executable inline
+// <script>, per project rules (no inline JS). This map is used when that
+// bundle is absent or a key is missing (e.g. cached page, no template).
 const I18N_FALLBACK = {
     update_available: 'A new version is available.',
     update_now: 'Update Now',
@@ -24,10 +26,24 @@ const I18N_FALLBACK = {
     offline: 'You are offline',
 };
 
+// loadI18nBundle parses the server-rendered <script type="application/json"
+// id="pb-i18n-data"> block into a plain object. Returns {} when the block is
+// absent or unparsable, so callers always fall back to I18N_FALLBACK.
+function loadI18nBundle() {
+    const el = document.getElementById('pb-i18n-data');
+    if (!el) return {};
+    try {
+        return JSON.parse(el.textContent || '{}');
+    } catch (_) {
+        return {};
+    }
+}
+
+const PB_I18N = loadI18nBundle();
+
 // t returns the localized string for key, falling back to English.
 function t(key) {
-    const bundle = window.PB_I18N || {};
-    return bundle[key] || I18N_FALLBACK[key] || key;
+    return PB_I18N[key] || I18N_FALLBACK[key] || key;
 }
 
 // ─── Toast Notifications ─────────────────────────────────────────────────────

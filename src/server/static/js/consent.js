@@ -3,13 +3,31 @@
 // localStorage; the server never records per-visitor consent. Analytics scripts
 // are shipped inert inside <template id="pb-tracking-snippet"> and only activated
 // here once the visitor's analytics consent is known.
+//
+// The consent config itself is embedded by the server as an inert JSON
+// script block (id="pb-consent-data") rather than an executable inline
+// <script>, per project rules (no inline JS).
 
 (function () {
     'use strict';
 
     var STORAGE_KEY = 'cookieConsent';
     var CCPA_KEY = 'ccpaDoNotSell';
-    var cfg = window.PB_CONSENT || {};
+
+    // loadConsentConfig parses the server-rendered JSON config block.
+    // Returns {} when absent or unparsable, matching prior window.PB_CONSENT
+    // fallback behavior.
+    function loadConsentConfig() {
+        var el = document.getElementById('pb-consent-data');
+        if (!el) return {};
+        try {
+            return JSON.parse(el.textContent || '{}');
+        } catch (e) {
+            return {};
+        }
+    }
+
+    var cfg = loadConsentConfig();
 
     // ─── Consent state ───────────────────────────────────────────────────────
 

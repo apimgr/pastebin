@@ -122,7 +122,7 @@
     <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
     <div id="toast-container"></div>
 
-    <script>window.PB_I18N = {{i18njs .Lang}};</script>
+    <script type="application/json" id="pb-i18n-data">{{i18njs .Lang}}</script>
     <script src="{{.AssetPrefix}}/static/js/main.js"></script>
 </body>
 </html>
