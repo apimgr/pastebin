@@ -34,7 +34,7 @@ once every item is fixed and committed.
 - [x] **M10** `ssl_renewal_failed` email never sent + no
       `NotificationEvents` config toggle. AI.md:26827.
       `src/task/task.go`, `src/config/config.go:820-825`
-- [ ] **M11** Compliance-mode backup enforcement absent — spec requires
+- [x] **M11** Compliance-mode backup enforcement absent — spec requires
       blocking unencrypted backups + audit-log warning when
       `server.compliance.enabled`. AI.md:28951,28983-28989.
       `src/maintenance/maintenance.go`, `src/task/task.go`

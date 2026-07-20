@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/apimgr/pastebin/src/audit"
 )
 
 func TestParseMaxTotalSize(t *testing.T) {
@@ -223,6 +226,72 @@ func TestLatestBackupSize(t *testing.T) {
 		}
 		if got := latestBackupSize(dir, project); got != 300 {
 			t.Errorf("latestBackupSize = %d, want 300", got)
+		}
+	})
+}
+
+// TestCompliancePreCheck covers the M11 / AI.md 28945-28989 scheduler gate:
+// scheduled backups are skipped (never run unencrypted) when compliance mode
+// is on and no encryption password is configured.
+func TestCompliancePreCheck(t *testing.T) {
+	tests := []struct {
+		name       string
+		compliance bool
+		password   string
+		wantSkip   bool
+	}{
+		{name: "compliance enabled, no password: skipped", compliance: true, password: "", wantSkip: true},
+		{name: "compliance enabled, password set: not skipped", compliance: true, password: "s3cur3p@ss", wantSkip: false},
+		{name: "compliance disabled, no password: not skipped", compliance: false, password: "", wantSkip: false},
+		{name: "compliance disabled, password set: not skipped", compliance: false, password: "s3cur3p@ss", wantSkip: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := BackupConfig{Compliance: tc.compliance, Password: tc.password}
+			skip, reason := compliancePreCheck(cfg)
+			if skip != tc.wantSkip {
+				t.Errorf("compliancePreCheck(compliance=%v,password=%q) = %v, want %v",
+					tc.compliance, tc.password, skip, tc.wantSkip)
+			}
+			if skip && reason == "" {
+				t.Error("skip decision must carry a reason")
+			}
+		})
+	}
+}
+
+// TestAuditBackupComplianceBlocked verifies the backup.compliance_blocked
+// audit event is recorded with severity=warn (AI.md 28983-28989) and is a
+// no-op when no Audit writer is configured.
+func TestAuditBackupComplianceBlocked(t *testing.T) {
+	t.Run("nil audit writer is a no-op", func(t *testing.T) {
+		cfg := BackupConfig{BackupDir: t.TempDir(), ProjectName: "pastebin"}
+		auditBackupComplianceBlocked(cfg, "compliance mode requires an encryption password; scheduled backup skipped")
+	})
+
+	t.Run("writes backup.compliance_blocked entry", func(t *testing.T) {
+		auditDir := t.TempDir()
+		w := audit.New(audit.Config{
+			Enabled: true,
+			Dir:     auditDir,
+			Events:  audit.EventCategories{Backup: true},
+		})
+		cfg := BackupConfig{
+			BackupDir:   t.TempDir(),
+			ProjectName: "pastebin",
+			Audit:       w,
+		}
+		auditBackupComplianceBlocked(cfg, "compliance mode requires an encryption password; scheduled backup skipped")
+
+		data, err := os.ReadFile(filepath.Join(auditDir, "audit.log"))
+		if err != nil {
+			t.Fatalf("audit log not written: %v", err)
+		}
+		if !strings.Contains(string(data), "backup.compliance_blocked") {
+			t.Fatalf("audit log missing backup.compliance_blocked event: %s", data)
+		}
+		if !strings.Contains(string(data), `"severity":"warn"`) {
+			t.Fatalf("audit log entry missing severity=warn: %s", data)
 		}
 	})
 }

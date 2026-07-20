@@ -1,11 +1,13 @@
 package maintenance_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/maintenance"
 )
 
@@ -83,6 +85,91 @@ func TestBackupAndVerify_WithEncryption(t *testing.T) {
 	// Verify with correct password.
 	if err := maintenance.VerifyBackup(bkpPath, "s3cur3p@ssw0rd"); err != nil {
 		t.Fatalf("VerifyBackup (correct password) error: %v", err)
+	}
+}
+
+// ─── Compliance-mode enforcement (M11, AI.md 28945-28989) ─────────────────────
+
+func TestBackup_ComplianceMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		compliance bool
+		password   string
+		wantErr    bool
+	}{
+		{
+			name:       "compliance enabled, no password: blocked",
+			compliance: true,
+			password:   "",
+			wantErr:    true,
+		},
+		{
+			name:       "compliance enabled, password set: succeeds",
+			compliance: true,
+			password:   "s3cur3p@ssw0rd",
+			wantErr:    false,
+		},
+		{
+			name:       "compliance disabled, no password: unaffected",
+			compliance: false,
+			password:   "",
+			wantErr:    false,
+		},
+		{
+			name:       "compliance disabled, password set: unaffected",
+			compliance: false,
+			password:   "s3cur3p@ssw0rd",
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfgDir, dataDir, bkpDir := makeTestDirs(t)
+			auditDir := t.TempDir()
+			auditW := audit.New(audit.Config{
+				Enabled: true,
+				Dir:     auditDir,
+				Events:  audit.EventCategories{Backup: true},
+			})
+
+			opts := maintenance.BackupOptions{
+				ConfigDir:         cfgDir,
+				DataDir:           dataDir,
+				BackupDir:         bkpDir,
+				AppVersion:        "v1.0.0",
+				Password:          tt.password,
+				ComplianceEnabled: tt.compliance,
+				Audit:             auditW,
+			}
+			err := maintenance.Backup(opts)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Backup: expected error, got nil")
+				}
+				if !errors.Is(err, maintenance.ErrComplianceBackupBlocked) {
+					t.Fatalf("Backup error = %v, want wrapped ErrComplianceBackupBlocked", err)
+				}
+				logPath := filepath.Join(auditDir, "audit.log")
+				data, rerr := os.ReadFile(logPath)
+				if rerr != nil {
+					t.Fatalf("audit log not written: %v", rerr)
+				}
+				if !strings.Contains(string(data), "backup.compliance_blocked") {
+					t.Fatalf("audit log missing backup.compliance_blocked event: %s", data)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Backup error: %v", err)
+			}
+			entries, rerr := os.ReadDir(bkpDir)
+			if rerr != nil || len(entries) == 0 {
+				t.Fatalf("no backup file created: %v", rerr)
+			}
+		})
 	}
 }
 

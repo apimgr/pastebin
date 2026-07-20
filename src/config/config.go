@@ -748,6 +748,10 @@ type HealthzConfig struct {
 // enable only the standards that apply to their deployment. Consent state is
 // stored client-side (cookies) — there is no server-side consent table.
 type ComplianceConfig struct {
+	// Enabled is the compliance-mode master switch (server.compliance.enabled,
+	// AI.md 28945-28989): when true, backups are blocked unless an encryption
+	// password is set, independent of which per-standard flags below are on.
+	Enabled  bool `yaml:"enabled"`
 	GDPR     bool `yaml:"gdpr"`
 	CCPA     bool `yaml:"ccpa"`
 	HIPAA    bool `yaml:"hipaa"`

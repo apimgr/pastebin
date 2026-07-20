@@ -352,6 +352,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				Password:   backupPass,
 				// optional custom filename
 				Filename: maintenanceArg,
+				// M11: compliance mode blocks unencrypted backups (AI.md 28945-28989).
+				ComplianceEnabled: btCfgErr == nil && btCfg.Server.Compliance.Enabled,
 			}
 			if err := maintenance.Backup(opts); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance backup: %v\n", binaryName, err)
@@ -1026,6 +1028,7 @@ Examples:
 		},
 		DiskThreshold: cfg.Server.Maintenance.Cleanup.DiskThreshold,
 		Audit:         auditW,
+		Compliance:    cfg.Server.Compliance.Enabled,
 	}
 	logSchedErr(sched.Register("backup_daily", "Backup Daily", "0 2 * * *", true,
 		task.BackupDaily(backupCfg)))

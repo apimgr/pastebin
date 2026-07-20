@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,9 +21,17 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
+	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/common/secretbox"
 	"github.com/apimgr/pastebin/src/pgp"
 )
+
+// ErrComplianceBackupBlocked is returned by Backup when compliance mode
+// (server.compliance.enabled) is on and no encryption password was supplied
+// (AI.md 28945-28989: "Backups will NOT run unless encryption password is
+// set"). Callers can match it with errors.Is to distinguish a compliance
+// refusal from any other backup failure.
+var ErrComplianceBackupBlocked = errors.New("compliance mode requires an encryption password; backup refused")
 
 const (
 	orgName     = "apimgr"
@@ -51,11 +60,33 @@ type BackupOptions struct {
 	Password string
 	// empty = auto-generate
 	Filename string
+	// ComplianceEnabled mirrors server.compliance.enabled (AI.md 28945-28989).
+	// When true, Backup refuses to run unless Password is set.
+	ComplianceEnabled bool
+	// Audit records the backup.compliance_blocked event when a backup is
+	// refused under compliance mode; nil = no audit logging.
+	Audit *audit.Writer
 }
 
 // Backup creates a tar.gz (optionally AES-256-GCM encrypted) backup of the
 // config and database files and writes it to BackupDir.
 func Backup(opts BackupOptions) error {
+	// Compliance-mode enforcement (AI.md 28945-28989): encryption is optional
+	// unless compliance mode is enabled, in which case an unencrypted backup
+	// must be blocked outright — never silently created.
+	if opts.ComplianceEnabled && opts.Password == "" {
+		if opts.Audit != nil {
+			opts.Audit.Log(audit.Entry{
+				Event:    "backup.compliance_blocked",
+				Severity: audit.SeverityWarn,
+				Result:   audit.ResultFailure,
+				Target:   &audit.Target{Type: "backup_dir", ID: opts.BackupDir},
+				Reason:   ErrComplianceBackupBlocked.Error(),
+			})
+		}
+		return fmt.Errorf("%w (set backup.encryption_password / backup.encryption.enabled in server.yml)", ErrComplianceBackupBlocked)
+	}
+
 	if err := os.MkdirAll(opts.BackupDir, 0o700); err != nil {
 		return fmt.Errorf("creating backup dir: %w", err)
 	}

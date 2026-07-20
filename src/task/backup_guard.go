@@ -116,6 +116,36 @@ func auditBackupSkipped(cfg BackupConfig, reason string) {
 	})
 }
 
+// compliancePreCheck applies the PART 21 / M11 compliance-mode gate: when
+// cfg.Compliance is on, a scheduled backup is skipped rather than run
+// unencrypted (AI.md 28945-28989: "Scheduled backups skip with audit log
+// warning"). It returns the human-readable reason for the skip.
+func compliancePreCheck(cfg BackupConfig) (skip bool, reason string) {
+	if cfg.Compliance && cfg.Password == "" {
+		return true, "compliance mode requires an encryption password; scheduled backup skipped"
+	}
+	return false, ""
+}
+
+// auditBackupComplianceBlocked records the backup.compliance_blocked audit
+// event (severity=warn per AI.md 28983-28989) documenting a scheduled backup
+// that was skipped because compliance mode requires an encryption password.
+func auditBackupComplianceBlocked(cfg BackupConfig, reason string) {
+	if cfg.Audit == nil {
+		return
+	}
+	cfg.Audit.Log(audit.Entry{
+		Event:    "backup.compliance_blocked",
+		Severity: audit.SeverityWarn,
+		Result:   audit.ResultFailure,
+		Target:   &audit.Target{Type: "backup_dir", ID: cfg.BackupDir},
+		Reason:   reason,
+		Details: map[string]any{
+			"project_name": cfg.ProjectName,
+		},
+	})
+}
+
 // sizeUnits maps size suffixes to binary multipliers; longer suffixes are
 // listed first so "mb" is matched before "b".
 var sizeUnits = []struct {

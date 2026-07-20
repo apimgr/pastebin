@@ -57,6 +57,10 @@ type BackupConfig struct {
 	AppVersion  string
 	// Password is the AES-256-GCM encryption password; empty = no encryption.
 	Password string
+	// Compliance mirrors server.compliance.enabled (AI.md 28945-28989): when
+	// true and Password is empty, scheduled backups are skipped (not run
+	// unencrypted) and an audit warning is logged.
+	Compliance bool
 	// OperatorEmail is the admin recipient for backup_complete/backup_failed emails.
 	// Empty or nil Mailer disables email for that task invocation.
 	OperatorEmail string
@@ -368,6 +372,14 @@ func BackupDaily(cfg BackupConfig) func() error {
 			return fmt.Errorf("backup_daily: mkdir: %w", err)
 		}
 
+		// Compliance-mode pre-check (AI.md 28945-28989 / M11): skip rather than
+		// run an unencrypted backup when compliance mode requires a password.
+		if skip, reason := compliancePreCheck(cfg); skip {
+			log.Printf("backup_daily: skipped: %s", reason)
+			auditBackupComplianceBlocked(cfg, reason)
+			return nil
+		}
+
 		// Step 2 (PART 21): disk space pre-check — skip (without error) when
 		// free space or disk usage make a new backup unsafe.
 		if skip, reason := diskPreCheck(cfg); skip {
@@ -387,12 +399,14 @@ func BackupDaily(cfg BackupConfig) func() error {
 		fullPath := filepath.Join(cfg.BackupDir, fullName)
 
 		if err := maintenance.Backup(maintenance.BackupOptions{
-			ConfigDir:  cfg.ConfigDir,
-			DataDir:    cfg.DataDir,
-			BackupDir:  cfg.BackupDir,
-			AppVersion: cfg.AppVersion,
-			Password:   cfg.Password,
-			Filename:   fullName,
+			ConfigDir:         cfg.ConfigDir,
+			DataDir:           cfg.DataDir,
+			BackupDir:         cfg.BackupDir,
+			AppVersion:        cfg.AppVersion,
+			Password:          cfg.Password,
+			Filename:          fullName,
+			ComplianceEnabled: cfg.Compliance,
+			Audit:             cfg.Audit,
 		}); err != nil {
 			os.Remove(fullPath)
 			backupSendFailed(cfg, fullName, err.Error())
@@ -420,12 +434,14 @@ func BackupDaily(cfg BackupConfig) func() error {
 		dailyTmp := dailyPath + ".tmp"
 
 		if err := maintenance.Backup(maintenance.BackupOptions{
-			ConfigDir:  cfg.ConfigDir,
-			DataDir:    cfg.DataDir,
-			BackupDir:  cfg.BackupDir,
-			AppVersion: cfg.AppVersion,
-			Password:   cfg.Password,
-			Filename:   dailyName + ".tmp",
+			ConfigDir:         cfg.ConfigDir,
+			DataDir:           cfg.DataDir,
+			BackupDir:         cfg.BackupDir,
+			AppVersion:        cfg.AppVersion,
+			Password:          cfg.Password,
+			Filename:          dailyName + ".tmp",
+			ComplianceEnabled: cfg.Compliance,
+			Audit:             cfg.Audit,
 		}); err != nil {
 			os.Remove(dailyTmp)
 			log.Printf("backup_daily: daily incremental create warning: %v", err)
@@ -461,6 +477,14 @@ func BackupHourly(cfg BackupConfig) func() error {
 			return fmt.Errorf("backup_hourly: mkdir: %w", err)
 		}
 
+		// Compliance-mode pre-check (AI.md 28945-28989 / M11): skip rather than
+		// run an unencrypted backup when compliance mode requires a password.
+		if skip, reason := compliancePreCheck(cfg); skip {
+			log.Printf("backup_hourly: skipped: %s", reason)
+			auditBackupComplianceBlocked(cfg, reason)
+			return nil
+		}
+
 		ext := ".tar.gz"
 		if cfg.Password != "" {
 			ext = ".tar.gz.enc"
@@ -472,12 +496,14 @@ func BackupHourly(cfg BackupConfig) func() error {
 		tmpPath := filepath.Join(cfg.BackupDir, tmpName)
 
 		if err := maintenance.Backup(maintenance.BackupOptions{
-			ConfigDir:  cfg.ConfigDir,
-			DataDir:    cfg.DataDir,
-			BackupDir:  cfg.BackupDir,
-			AppVersion: cfg.AppVersion,
-			Password:   cfg.Password,
-			Filename:   tmpName,
+			ConfigDir:         cfg.ConfigDir,
+			DataDir:           cfg.DataDir,
+			BackupDir:         cfg.BackupDir,
+			AppVersion:        cfg.AppVersion,
+			Password:          cfg.Password,
+			Filename:          tmpName,
+			ComplianceEnabled: cfg.Compliance,
+			Audit:             cfg.Audit,
 		}); err != nil {
 			os.Remove(tmpPath)
 			backupSendFailed(cfg, hourlyName, err.Error())
