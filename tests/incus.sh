@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# @@License : MIT
+# @@License : WTFPL
 # tests/incus.sh — Incus integration tests for pastebin
 # Launches an Incus system container (Debian, systemd), installs the built
 # binaries, and exercises the full systemd service workflow plus the same

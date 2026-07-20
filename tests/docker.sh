@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# @@License : MIT
+# @@License : WTFPL
 # tests/docker.sh — Docker integration tests for pastebin
 # Builds the local image, brings it up via the mandated
 # docker/docker-compose.test.yml (copied to a temp dir, never run from the

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# @@License : MIT
+# @@License : WTFPL
 # Integration test runner — auto-detects incus or docker (incus preferred).
 # Delegates to the runtime-specific script so there is a single source of
 # truth per runtime (tests/incus.sh, tests/docker.sh).
