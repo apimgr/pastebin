@@ -58,8 +58,14 @@ once every item is fixed and committed.
 - [ ] `.claude/rules` PART-assignment headers mismatch spec groupings
       (binary-rules.md missing 32; backend-rules.md has 32 not 31; PART
       31 unassigned). AI.md:5942-5943
-- [ ] Forbidden `github.com/mattn/go-sqlite3` checksum present in
-      `go.sum` (unused, stale transitive entry). AI.md:6421,6563
+- [x] Forbidden `github.com/mattn/go-sqlite3` checksum present in
+      `go.sum` — CONFIRMED non-issue: `go mod why -m` shows it's a
+      test-only transitive dependency of `modernc.org/sqlite` itself
+      (its test suite compares against mattn/go-sqlite3), required by
+      Go's module graph verification. Re-running `go mod tidy` keeps
+      the entry; no source file imports it (`grep -rn` clean). We use
+      `modernc.org/sqlite` correctly per AI.md:6421. Not a violation.
+      AI.md:6421,6563
 - [ ] Windows "Privileged (Administrator)" paths unreachable —
       `isRoot()` always false on Windows. AI.md:6768-6779.
       `src/paths/paths.go:23-28`
