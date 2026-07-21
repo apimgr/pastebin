@@ -104,9 +104,18 @@ once every item is fixed and committed.
       pastebin.com/dpaste/stikked/etc. wire protocols ("existing scripts...
       must work without modification"); canonical envelope would break
       that. Not a violation. `src/handler/compat.go`
-- [ ] `tracking.go` Google fallback branch skips `G-` prefix validation
-      applied on primary branch (operator-config, low risk).
-      `src/server/tracking.go:32-38`
+- [x] `tracking.go` Google fallback branch skips `G-` prefix validation
+      applied on primary branch — CONFIRMED non-issue: canonical
+      `ValidateTracking()` (AI.md:16420-16429,
+      `src/config/config.go:2489`) already enforces
+      `^(UA-\d+-\d+|G-[A-Z0-9]+)$` on `cfg.Server.Tracking.ID` at
+      config load/reload (warn-and-disable on mismatch, PART 5). The
+      only call site (`server.go:638`, via `s.liveCfg()`) always
+      passes an already-validated config, so by the time
+      `renderTrackingScript`'s fallback (UA-XXXX legacy) branch runs,
+      the ID is guaranteed to already match one of the two valid
+      formats — re-checking the `G-` prefix there would be dead code.
+      Not a violation. `src/server/tracking.go:32-38`
 - [ ] `HealthResponse.Maintenance` field placed mid-struct instead of
       after `Stats` per "add custom fields at end" ordering.
       AI.md:17108-17144. `src/server/server.go:110`
