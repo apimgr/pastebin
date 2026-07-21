@@ -66,9 +66,16 @@ once every item is fixed and committed.
       the entry; no source file imports it (`grep -rn` clean). We use
       `modernc.org/sqlite` correctly per AI.md:6421. Not a violation.
       AI.md:6421,6563
-- [ ] Windows "Privileged (Administrator)" paths unreachable —
-      `isRoot()` always false on Windows. AI.md:6768-6779.
-      `src/paths/paths.go:23-28`
+- [x] Windows "Privileged (Administrator)" paths unreachable — fixed:
+      split `isRoot()` into `paths_unix.go` (`os.Geteuid() == 0`) and
+      `paths_windows.go` (Administrator group membership via
+      `golang.org/x/sys/windows`, matching the existing pattern in
+      `service/privilege_windows.go`), replacing the old function that
+      unconditionally returned `false` on Windows. Verified: gofmt,
+      native build/vet, `go test ./src/paths/...`, and cross-compile
+      build for windows/darwin/freebsd all pass. AI.md:6768-6779.
+      `src/paths/paths.go`, `src/paths/paths_unix.go`,
+      `src/paths/paths_windows.go`
 - [ ] Server `--help` output has extra Scheduler/Maintenance sections
       not in canonical spec block; also spec itself is internally
       inconsistent (`--help` vs bare `help`). AI.md:10207-10246

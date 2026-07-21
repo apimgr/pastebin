@@ -18,15 +18,6 @@ var rootCheck = isRoot
 // platform-specific branches without running on the target OS.
 var detectedOS = runtime.GOOS
 
-// isRoot returns true when the process is running as the privileged user.
-// Wrapped to keep the Windows build (where Getuid is unsupported by some toolchains) happy.
-func isRoot() bool {
-	if runtime.GOOS == "windows" {
-		return false
-	}
-	return os.Geteuid() == 0
-}
-
 // GetConfigDir returns the platform-correct config directory for appName.
 // See AI.md PART 4 (OS-Specific Paths) and PART 26 (Docker container paths).
 func GetConfigDir(appName string) string {
