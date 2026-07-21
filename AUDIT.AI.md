@@ -91,8 +91,14 @@ once every item is fixed and committed.
       `--help`. Code consistently follows the flags-block form
       (`--shell --help`, `<command> --help`) everywhere, which is the
       only self-consistent choice available. AI.md:10207-10246
-- [ ] `--color` accepts undocumented `always`/`never` aliases (superset,
-      not a break). `src/main.go`, `src/client/main.go`
+- [x] `--color` accepts undocumented `always`/`never` aliases — CONFIRMED
+      non-issue: `applyColor()` in both `src/main.go` and
+      `src/client/main.go` treats `always`/`never` as synonyms for the
+      canonical `yes`/`no` (AI.md:10195 `--color {auto|yes|no}`); this
+      is a strict superset — all three canonical values still work
+      exactly as spec'd, and the extra aliases (matching the common
+      `git --color` convention) are additive, not a break. Not a
+      violation. `src/main.go`, `src/client/main.go`
 - [x] `compat.go` legacy endpoints use non-canonical error shape — CONFIRMED
       intentional: IDEA.md:68-79 requires 100% wire-compatibility with
       pastebin.com/dpaste/stikked/etc. wire protocols ("existing scripts...
