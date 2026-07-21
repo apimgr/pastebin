@@ -96,21 +96,22 @@ func (rs *requestStats) last24h() int64 {
 
 // HealthResponse is the canonical /server/healthz response structure (PART 13).
 type HealthResponse struct {
-	Project        ProjectInfo `json:"project"`
-	Status         string      `json:"status"`
-	PendingRestart bool        `json:"pending_restart,omitempty"`
-	RestartReason  []string    `json:"restart_reason,omitempty"`
-	Version        string      `json:"version"`
-	GoVersion      string      `json:"go_version"`
-	Build          BuildInfo   `json:"build"`
-	Uptime         string      `json:"uptime"`
-	Mode           string      `json:"mode"`
-	Timestamp      time.Time   `json:"timestamp"`
-	// Maintenance is populated only while the server is in maintenance mode (PART 20).
+	Project        ProjectInfo  `json:"project"`
+	Status         string       `json:"status"`
+	PendingRestart bool         `json:"pending_restart,omitempty"`
+	RestartReason  []string     `json:"restart_reason,omitempty"`
+	Version        string       `json:"version"`
+	GoVersion      string       `json:"go_version"`
+	Build          BuildInfo    `json:"build"`
+	Uptime         string       `json:"uptime"`
+	Mode           string       `json:"mode"`
+	Timestamp      time.Time    `json:"timestamp"`
+	Features       FeaturesInfo `json:"features"`
+	Checks         ChecksInfo   `json:"checks"`
+	Stats          StatsInfo    `json:"stats"`
+	// Maintenance is an APP-SPECIFIC field (AI.md:17142 "Add custom fields
+	// here"), populated only while the server is in maintenance mode (PART 20).
 	Maintenance *MaintenanceInfo `json:"maintenance,omitempty"`
-	Features    FeaturesInfo     `json:"features"`
-	Checks      ChecksInfo       `json:"checks"`
-	Stats       StatsInfo        `json:"stats"`
 }
 
 // MaintenanceInfo reports maintenance-mode state in the healthz response (PART 20).
@@ -161,9 +162,10 @@ type ChecksInfo struct {
 	Database  string `json:"database"`
 	Cache     string `json:"cache"`
 	Disk      string `json:"disk"`
-	Config    string `json:"config"`
 	Scheduler string `json:"scheduler"`
 	Tor       string `json:"tor,omitempty"`
+	// Config is an APP-SPECIFIC check (AI.md:17202 "Add your checks here").
+	Config string `json:"config"`
 }
 
 // StatsInfo holds public-safe aggregate statistics.

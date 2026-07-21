@@ -116,12 +116,19 @@ once every item is fixed and committed.
       the ID is guaranteed to already match one of the two valid
       formats — re-checking the `G-` prefix there would be dead code.
       Not a violation. `src/server/tracking.go:32-38`
-- [ ] `HealthResponse.Maintenance` field placed mid-struct instead of
-      after `Stats` per "add custom fields at end" ordering.
-      AI.md:17108-17144. `src/server/server.go:110`
-- [ ] `ChecksInfo.Config` field inserted between `Disk`/`Scheduler`
-      instead of after `Tor`. AI.md:17190-17204.
-      `src/server/server.go:160-167`
+- [x] `HealthResponse.Maintenance` field placed mid-struct instead of
+      after `Stats` per "add custom fields at end" ordering — fixed:
+      moved `Maintenance` to the end of the struct, after `Stats`,
+      matching AI.md:17142's "APP-SPECIFIC: Add custom fields here"
+      slot. Construction site (`server.go:2381`) uses a keyed struct
+      literal, so the reorder is safe. AI.md:17108-17144.
+      `src/server/server.go:98-114`
+- [x] `ChecksInfo.Config` field inserted between `Disk`/`Scheduler`
+      instead of after `Tor` — fixed: moved `Config` to the end of
+      the struct, after `Tor`, matching AI.md:17202's "APP-SPECIFIC:
+      Add your checks here" slot. Construction site
+      (`server.go:2295`) uses a keyed struct literal, so the reorder
+      is safe. AI.md:17190-17204. `src/server/server.go:161-168`
 - [ ] `/api/v1/server/version` payload omits `commit`/`go_version`/
       `build.date` despite tracking them. `src/server/server.go:2496-2498`
 - [x] localStorage owner-token key mismatch — fixed: `remove.js` now
