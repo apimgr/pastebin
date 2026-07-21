@@ -1,4 +1,4 @@
-# Backend Rules (PART 9, 10, 11, 32)
+# Backend Rules (PART 9, 10, 11, 31)
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
@@ -37,14 +37,17 @@
 - Path traversal: validate all file paths against allowed base dirs
 - Input validation: server validates EVERYTHING — never trust client
 
-## Client Binary (PART 32)
-- Binary: `pastebin-cli`
-- Commands: `create`, `get`, `delete`, `list`, `update`, `tui`, `completions`
-- All requests send `User-Agent: pastebin/{version}` and `Accept-Language: {lang}`
-- Config: `cli.yml` (same OS path logic as server, minus `/etc/`)
-- Exit codes: 0=success, 1=general, 2=config, 3=connection, 4=auth, 5=not found, 64=usage
-- TUI: bubbletea + bubbles + lipgloss (all required deps)
-- Auto-update: download → SHA-256 verify → atomic `os.Rename` → `syscall.Exec` re-exec
+## Tor Hidden Service (PART 31)
+- ALL projects MUST have built-in Tor hidden service support — always enabled if the Tor binary is found, no enable/disable toggle
+- External Tor binary via `github.com/cretz/bine` — keeps `CGO_ENABLED=0` compatibility (no embedded Tor)
+- Server binary owns the Tor process lifecycle (start/stop/manage); hidden service maps `.onion:80` → `localhost:{server_port}`
+- `HiddenServiceVersion 3` — v3 onion addresses (56 chars, ed25519) via `ADD_ONION`
+- Control port: `127.0.0.1:auto` on all OSes — NEVER hardcode a control port, NEVER use default Tor ports (9050/9051)
+- Completely isolated from any system Tor installation — app handles all dirs/files/permissions/torrc generation
+- `SafeLogging` enabled — scrubs sensitive info from Tor logs
+- Optional outbound network mode (`server.tor.use_network`) routes the server's own outbound HTTP requests through Tor's SOCKS5 proxy — separate from hidden-service hosting, default `false`
+- Config keys: `server.tor.{binary,use_network,max_circuits,circuit_timeout,bootstrap_timeout,safe_logging,max_streams_per_circuit,close_circuit_on_stream_limit,bandwidth_rate,bandwidth_burst,max_monthly_bandwidth,num_intro_points,virtual_port}`
+- Trust chain: Tor detection is priority 0 in FQDN resolution (PART 12) — evaluated before reverse proxy headers, always trusted, no IP check required
 
 ---
-For complete details, see AI.md PART 9, 10, 11, 32
+For complete details, see AI.md PART 9, 10, 11, 31

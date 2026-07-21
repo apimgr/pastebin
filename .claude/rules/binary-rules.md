@@ -1,4 +1,4 @@
-# Binary Rules (PART 7, 8)
+# Binary Rules (PART 7, 8, 32)
 
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
@@ -50,5 +50,14 @@
 - Terminal width detection for responsive output
 - 7 size breakpoints: Micro (<40), Tiny (40-59), Small (60-79), Medium (80-99), Large (100-119), Wide (120-139), Wide+ (140+)
 
+## Client Binary (PART 32)
+- Binary: `pastebin-cli`
+- Commands: `create`, `get`, `delete`, `list`, `update`, `tui`, `completions`
+- All requests send `User-Agent: pastebin/{version}` and `Accept-Language: {lang}`
+- Config: `cli.yml` (same OS path logic as server, minus `/etc/`)
+- Exit codes: 0=success, 1=general, 2=config, 3=connection, 4=auth, 5=not found, 64=usage
+- TUI: bubbletea + bubbles + lipgloss (all required deps)
+- Auto-update: download → SHA-256 verify → atomic `os.Rename` → `syscall.Exec` re-exec
+
 ---
-For complete details, see AI.md PART 7, 8
+For complete details, see AI.md PART 7, 8, 32

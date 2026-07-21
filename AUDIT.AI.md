@@ -55,9 +55,17 @@ once every item is fixed and committed.
 
 ## MINOR
 
-- [ ] `.claude/rules` PART-assignment headers mismatch spec groupings
+- [x] `.claude/rules` PART-assignment headers mismatch spec groupings
       (binary-rules.md missing 32; backend-rules.md has 32 not 31; PART
-      31 unassigned). AI.md:5942-5943
+      31 unassigned) — fixed: moved the "Client Binary (PART 32)"
+      section from `backend-rules.md` to `binary-rules.md` (its
+      canonical home per AI.md:5942's directory listing), and added the
+      previously-missing "Tor Hidden Service (PART 31)" section to
+      `backend-rules.md` (summarized from AI.md:39329-39422, PART 31).
+      Headers now read `binary-rules.md` → PART 7, 8, 32 and
+      `backend-rules.md` → PART 9, 10, 11, 31, matching AI.md:5942-5943
+      exactly. AI.md:5942-5943, 39329-39422.
+      `.claude/rules/binary-rules.md`, `.claude/rules/backend-rules.md`
 - [x] Forbidden `github.com/mattn/go-sqlite3` checksum present in
       `go.sum` — CONFIRMED non-issue: `go mod why -m` shows it's a
       test-only transitive dependency of `modernc.org/sqlite` itself
