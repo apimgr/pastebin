@@ -129,8 +129,15 @@ once every item is fixed and committed.
       Add your checks here" slot. Construction site
       (`server.go:2295`) uses a keyed struct literal, so the reorder
       is safe. AI.md:17190-17204. `src/server/server.go:161-168`
-- [ ] `/api/v1/server/version` payload omits `commit`/`go_version`/
-      `build.date` despite tracking them. `src/server/server.go:2496-2498`
+- [x] `/api/v1/server/version` payload omits `commit`/`go_version`/
+      `build.date` despite tracking them — fixed: `handleVersion()` now
+      returns `version`/`go_version`/`build{commit,date}`, reusing the
+      canonical `BuildInfo` shape defined for `/server/healthz`
+      (AI.md:17118-17123,17156-17162, PART 13) instead of only `version`.
+      AI.md has no dedicated JSON schema for this specific endpoint (it
+      falls under the `/api/{api_version}/server/*` public info-endpoints
+      wildcard, AI.md:19206), so this is an additive consistency fix, not
+      a hard-schema violation. `src/server/server.go:2529-2542`
 - [x] localStorage owner-token key mismatch — fixed: `remove.js` now
       uses the same `pastebin_owner_token` key as `create.js` (canonical
       per IDEA.md:34 and AI.md:11799), instead of the stray `api_token`

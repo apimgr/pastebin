@@ -2527,7 +2527,18 @@ func (s *Server) handleHealthzJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"version": s.version}})
+	// Reuse the canonical version/go_version/build{commit,date} shape defined
+	// for /server/healthz (PART 13, HealthResponse) for consistency across
+	// endpoints that report build metadata.
+	data := map[string]interface{}{
+		"version":    s.version,
+		"go_version": runtime.Version(),
+		"build": BuildInfo{
+			Commit: s.commitID,
+			Date:   s.buildDate,
+		},
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": data})
 }
 
 func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
