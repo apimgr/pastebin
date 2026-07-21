@@ -112,6 +112,13 @@ func TestDetectMode_TokenFlag(t *testing.T) {
 	}
 }
 
+func TestDetectMode_TokenFileFlag(t *testing.T) {
+	got := detectMode([]string{"--token-file=/path/to/token"})
+	if got != "tui" && got != "plain" {
+		t.Errorf("detectMode([--token-file=...]) = %q; want tui or plain", got)
+	}
+}
+
 func TestDetectMode_DebugFlag(t *testing.T) {
 	got := detectMode([]string{"--debug"})
 	if got != "tui" && got != "plain" {

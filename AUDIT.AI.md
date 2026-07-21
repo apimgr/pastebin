@@ -118,9 +118,16 @@ once every item is fixed and committed.
       requirement. `src/server/templates/*.html`
 - [ ] `writeIfChanged` dead code, only referenced from tests.
       `src/tor/tor.go:434-440`
-- [ ] `Auth.TokenFile`/`auth.token_file` config field declared but never
-      read; `--token-file` documented in spec help but unimplemented.
-      AI.md:42972. `src/client/main.go:83`
+- [x] `Auth.TokenFile`/`auth.token_file` config field declared but never
+      read; `--token-file` documented in spec help but unimplemented —
+      fixed: added `--token-file` flag, wired into the PART 32 token
+      priority chain (`--token` → `--token-file` → `PASTEBIN_TOKEN` env
+      → cli.yml `auth.token` → cli.yml `auth.token_file`), added
+      `readTokenFile()` helper (trims whitespace, errors on empty
+      file), persists `--token-file` to cli.yml via the same
+      `saveIfUnset` pattern as `--token`, documented in `--help`
+      output, and added to the TUI-launch config-flag maps in
+      `detectMode`. AI.md:42972,42451. `src/client/main.go`
 
 ## Not violations (confirmed compliant, noted only)
 - PWA icons served via dynamic handlers, no static dir needed — fine.

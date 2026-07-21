@@ -431,6 +431,42 @@ func TestIsValidURL_Table(t *testing.T) {
 	}
 }
 
+// ─── readTokenFile — PART 32 --token-file / auth.token_file ──────────────────
+
+func TestReadTokenFile_TrimsWhitespace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	if err := os.WriteFile(path, []byte("tok_abc123\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := readTokenFile(path)
+	if err != nil {
+		t.Fatalf("readTokenFile: %v", err)
+	}
+	if got != "tok_abc123" {
+		t.Errorf("readTokenFile() = %q; want %q", got, "tok_abc123")
+	}
+}
+
+func TestReadTokenFile_Empty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	if err := os.WriteFile(path, []byte("   \n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := readTokenFile(path); err == nil {
+		t.Error("readTokenFile() on empty file: want error, got nil")
+	}
+}
+
+func TestReadTokenFile_Missing(t *testing.T) {
+	if _, err := readTokenFile(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
+		t.Error("readTokenFile() on missing file: want error, got nil")
+	}
+}
+
 // ─── saveIfUnset — comprehensive coverage ───────────────────────────
 
 func TestSaveIfEmptyOrInvalid_Table(t *testing.T) {

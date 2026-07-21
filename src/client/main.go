@@ -208,6 +208,21 @@ func isValidURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
+// readTokenFile reads an API token from path (PART 32 --token-file / auth.token_file),
+// trimming surrounding whitespace so a trailing newline from the file doesn't
+// end up in the Authorization header.
+func readTokenFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read token file: %w", err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("token file %s is empty", path)
+	}
+	return token, nil
+}
+
 // ─── Display mode detection ───────────────────────────────────────────────────
 
 // detectMode returns "tui", "cli", or "plain" based on environment and args.
@@ -228,11 +243,11 @@ func detectMode(args []string) string {
 
 	// Config-only flags that still allow TUI launch (value: flag consumes the next arg).
 	configFlags := map[string]bool{
-		"--config": true, "--server": true, "--token": true, "--debug": true,
-		"--color": true, "--json": true, "--lang": true,
+		"--config": true, "--server": true, "--token": true, "--token-file": true,
+		"--debug": true, "--color": true, "--json": true, "--lang": true,
 	}
 	valueFlags := map[string]bool{
-		"--config": true, "--server": true, "--token": true,
+		"--config": true, "--server": true, "--token": true, "--token-file": true,
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -393,6 +408,8 @@ func main() {
 	langFlag := flag.String("lang", "auto", "output language code (default: auto-detect from LANG)")
 	// PART 32: operator/owner API token. Priority: --token flag → PASTEBIN_TOKEN env → cli.yml auth.token.
 	tokenFlag := flag.String("token", "", "operator/owner API token (or set PASTEBIN_TOKEN)")
+	// PART 32: alternative to --token — read the token from a file instead of the command line.
+	tokenFileFlag := flag.String("token-file", "", "read API token from file")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -478,18 +495,42 @@ func main() {
 
 	*server = defaultServerURL(*server, OfficialSite)
 
-	// Resolve the API token (PART 32 priority): --token flag → PASTEBIN_TOKEN env → cli.yml auth.token.
-	// The env var never persists; the --token flag saves to cli.yml only when the stored token is empty/invalid.
+	// Resolve the API token (PART 32 priority): --token flag → --token-file flag →
+	// PASTEBIN_TOKEN env → cli.yml auth.token → cli.yml auth.token_file.
+	// The env var never persists; the --token/--token-file flags save to cli.yml
+	// only when the stored value is empty/invalid.
 	token := *tokenFlag
+	if token == "" && *tokenFileFlag != "" {
+		t, err := readTokenFile(*tokenFileFlag)
+		if err != nil {
+			log.Printf("warning: could not read --token-file %s: %v", *tokenFileFlag, err)
+		}
+		token = t
+	}
 	if token == "" {
 		token = os.Getenv("PASTEBIN_TOKEN")
 	}
 	if token == "" {
 		token = fileCfg.Auth.Token
 	}
+	if token == "" && fileCfg.Auth.TokenFile != "" {
+		t, err := readTokenFile(fileCfg.Auth.TokenFile)
+		if err != nil {
+			log.Printf("warning: could not read auth.token_file %s: %v", fileCfg.Auth.TokenFile, err)
+		}
+		token = t
+	}
 	if *tokenFlag != "" {
 		if resolvedTok, persist := saveIfUnset(fileCfg.Auth.Token, *tokenFlag, func(s string) bool { return s != "" }); persist && resolvedTok != "" {
 			fileCfg.Auth.Token = resolvedTok
+			if err := saveCLIConfig(fileCfg); err != nil {
+				log.Printf("warning: could not save cli.yml: %v", err)
+			}
+		}
+	}
+	if *tokenFileFlag != "" {
+		if resolvedPath, persist := saveIfUnset(fileCfg.Auth.TokenFile, *tokenFileFlag, func(s string) bool { return s != "" }); persist && resolvedPath != "" {
+			fileCfg.Auth.TokenFile = resolvedPath
 			if err := saveCLIConfig(fileCfg); err != nil {
 				log.Printf("warning: could not save cli.yml: %v", err)
 			}
@@ -1176,6 +1217,8 @@ LIST FLAGS
 
 GLOBAL FLAGS
     --server <url>       Server base URL (required; or set $PASTEBIN_SERVER_PRIMARY)
+    --token <token>      Operator/owner API token (or set $PASTEBIN_TOKEN)
+    --token-file <file>  Read the API token from file
     --json               Output machine-readable JSON
     --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
     --lang <code>        Output language (default: auto-detect from LANG)
