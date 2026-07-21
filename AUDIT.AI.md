@@ -76,9 +76,21 @@ once every item is fixed and committed.
       build for windows/darwin/freebsd all pass. AI.md:6768-6779.
       `src/paths/paths.go`, `src/paths/paths_unix.go`,
       `src/paths/paths_windows.go`
-- [ ] Server `--help` output has extra Scheduler/Maintenance sections
+- [x] Server `--help` output has extra Scheduler/Maintenance sections
       not in canonical spec block; also spec itself is internally
-      inconsistent (`--help` vs bare `help`). AI.md:10207-10246
+      inconsistent (`--help` vs bare `help`) — CONFIRMED non-issue on
+      re-check: `printHelp()` in `src/main.go` has no Scheduler section
+      and matches the canonical `Information/Shell Integration/Server
+      Configuration/Service Management` block exactly (M2's dead
+      `scheduler`/`--clean-expired`/`--email` commands are gone from
+      the codebase entirely, not just undocumented). The only remaining
+      delta is AI.md's own self-contradiction: the flags block
+      (AI.md:10189,10202) declares `--shell {...,--help}` and
+      `--maintenance {...,--help}`, while the "Server --help Output"
+      example text (AI.md:10222,10245) shows bare `help` instead of
+      `--help`. Code consistently follows the flags-block form
+      (`--shell --help`, `<command> --help`) everywhere, which is the
+      only self-consistent choice available. AI.md:10207-10246
 - [ ] `--color` accepts undocumented `always`/`never` aliases (superset,
       not a break). `src/main.go`, `src/client/main.go`
 - [x] `compat.go` legacy endpoints use non-canonical error shape — CONFIRMED
