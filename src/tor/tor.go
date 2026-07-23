@@ -425,7 +425,7 @@ func ensureTorDirs(configDir, dataDir string) error {
 // changes after initial startup (initial startup uses create-only semantics).
 func (m *Manager) updateTorrc() error {
 	torrcPath := filepath.Join(m.cfg.ConfigDir, "tor", "torrc")
-	if err := os.WriteFile(torrcPath, []byte(getTorConfig(&m.cfg)), 0o600); err != nil {
+	if err := writeIfChanged(torrcPath, []byte(getTorConfig(&m.cfg)), 0o600); err != nil {
 		return fmt.Errorf("updateTorrc write: %w", err)
 	}
 	return nil

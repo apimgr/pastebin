@@ -208,8 +208,16 @@ once every item is fixed and committed.
       reusing the existing (previously unused) locale key present with
       parity across all 7 locale files. AI.md:22006, PART 30 key-parity
       requirement. `src/server/templates/*.html`
-- [ ] `writeIfChanged` dead code, only referenced from tests.
+- [x] `writeIfChanged` dead code, only referenced from tests.
       `src/tor/tor.go:434-440`
+      Fixed: wired `writeIfChanged()` into `updateTorrc()` (tor.go:426-432),
+      replacing the direct `os.WriteFile()` call so torrc updates skip the
+      redundant write (and downstream restart) when generated content is
+      unchanged from what's on disk — same "write new content" behavior,
+      no spec change (AI.md:39790-39820 torrc handling unaffected).
+      Verified: `go build ./...`, `go vet ./...`, `go test ./src/tor/...`
+      (`ok`), and `go-lint` all pass clean inside the
+      `casjaysdev/go:latest` Docker toolchain.
 - [x] `Auth.TokenFile`/`auth.token_file` config field declared but never
       read; `--token-file` documented in spec help but unimplemented —
       fixed: added `--token-file` flag, wired into the PART 32 token
