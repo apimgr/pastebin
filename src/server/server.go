@@ -911,6 +911,11 @@ func (s *Server) setupRoutes() {
 	r.Use(s.maintenanceMiddleware)
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
+	// main.css is rendered server-side from the canonical ThemePalette
+	// (src/common/theme/colors.go) rather than served as a static file — see
+	// theme_css.go. chi matches this exact route before the /static/*
+	// wildcard below (AI.md 24290-24355, PART 16).
+	r.Get("/static/css/main.css", s.handleMainCSS)
 	staticSub, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	r.Get("/manifest.json", s.handleManifest)

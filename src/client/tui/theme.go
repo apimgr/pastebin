@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/apimgr/pastebin/src/common/theme"
+	"github.com/charmbracelet/lipgloss"
+)
 
 // TUITheme holds the color palette for the TUI.
 type TUITheme struct {
@@ -31,31 +34,28 @@ type TUIStyles struct {
 	Input    lipgloss.Style
 }
 
-// darkTheme is the default dark color palette.
-var darkTheme = TUITheme{
-	Background: "#282a36",
-	Foreground: "#f8f8f2",
-	Primary:    "#bd93f9",
-	Secondary:  "#6272a4",
-	Accent:     "#8be9fd",
-	Error:      "#ff5555",
-	Success:    "#50fa7b",
-	Warning:    "#f1fa8c",
-	Muted:      "#44475a",
+// tuiThemeFromPalette maps the canonical theme.ThemePalette (single source
+// of truth, src/common/theme/colors.go, AI.md 24320) onto the TUI's
+// lipgloss-facing field set.
+func tuiThemeFromPalette(p theme.ThemePalette) TUITheme {
+	return TUITheme{
+		Background: p.Background,
+		Foreground: p.Foreground,
+		Primary:    p.Primary,
+		Secondary:  p.Secondary,
+		Accent:     p.Accent,
+		Error:      p.Error,
+		Success:    p.Success,
+		Warning:    p.Warning,
+		Muted:      p.Muted,
+	}
 }
 
+// darkTheme is the default dark color palette.
+var darkTheme = tuiThemeFromPalette(theme.ThemePaletteDark)
+
 // lightTheme is the light color palette.
-var lightTheme = TUITheme{
-	Background: "#ffffff",
-	Foreground: "#282a36",
-	Primary:    "#6c5ce7",
-	Secondary:  "#636e72",
-	Accent:     "#0984e3",
-	Error:      "#d63031",
-	Success:    "#00b894",
-	Warning:    "#fdcb6e",
-	Muted:      "#dfe6e9",
-}
+var lightTheme = tuiThemeFromPalette(theme.ThemePaletteLight)
 
 // CurrentTheme is the active theme used by the TUI. Defaults to dark.
 var CurrentTheme = darkTheme

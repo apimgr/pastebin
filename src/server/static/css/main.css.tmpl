@@ -5,33 +5,36 @@
 
 /* CSS Custom Properties - Design Tokens */
 :root {
-    /* Dracula-inspired palette (PART 16) — canonical theme variables */
-    --bg: #1e1e2e;
-    --fg: #cdd6f4;
-    --accent: #89b4fa;
+    /* Canonical palette (PART 16) — rendered server-side from
+       src/common/theme/colors.go (theme.ThemePaletteDark), the single
+       source of truth for color values shared across Web CSS, TUI,
+       Swagger, and GraphQL (AI.md:24320). */
+    --bg: {{.Dark.Background}};
+    --fg: {{.Dark.Foreground}};
+    --accent: {{.Dark.Primary}};
 
     /* Colors - Dark Theme (Default) */
-    --color-bg-primary: #1e1e2e;
-    --color-bg-secondary: #181825;
-    --color-bg-tertiary: #1e1e2e;
-    --color-bg-elevated: #313244;
-    --color-bg-hover: #45475a;
+    --color-bg-primary: {{.Dark.Background}};
+    --color-bg-secondary: {{.Dark.SurfaceAlt}};
+    --color-bg-tertiary: {{.Dark.Background}};
+    --color-bg-elevated: {{.Dark.Surface}};
+    --color-bg-hover: {{.Dark.Border}};
 
-    --color-text-primary: #cdd6f4;
-    --color-text-secondary: #bac2de;
-    --color-text-muted: #6c7086;
-    --color-text-inverse: #1e1e2e;
+    --color-text-primary: {{.Dark.Foreground}};
+    --color-text-secondary: {{.Dark.Foreground}};
+    --color-text-muted: {{.Dark.Muted}};
+    --color-text-inverse: {{.Dark.Background}};
 
-    --color-accent-primary: #89b4fa;
-    --color-accent-secondary: #cba6f7;
-    --color-accent-gradient: linear-gradient(135deg, #89b4fa 0%, #cba6f7 100%);
-    --color-accent-hover: #b4d0ff;
+    --color-accent-primary: {{.Dark.Primary}};
+    --color-accent-secondary: {{.Dark.Accent}};
+    --color-accent-gradient: linear-gradient(135deg, {{.Dark.Primary}} 0%, {{.Dark.Accent}} 100%);
+    --color-accent-hover: {{.Dark.Primary}};
     --color-accent-glow: rgba(137, 180, 250, 0.4);
 
-    --color-success: #10b981;
-    --color-warning: #f59e0b;
-    --color-error: #ef4444;
-    --color-info: #3b82f6;
+    --color-success: {{.Dark.Success}};
+    --color-warning: {{.Dark.Warning}};
+    --color-error: {{.Dark.Error}};
+    --color-info: {{.Dark.Info}};
 
     --color-border: rgba(255, 255, 255, 0.08);
     --color-border-hover: rgba(255, 255, 255, 0.15);
@@ -108,16 +111,30 @@
    html.theme-auto and the OS prefers light, override the dark-default tokens */
 @media (prefers-color-scheme: light) {
     html.theme-auto {
-        --color-bg-primary: #fafafa;
-        --color-bg-secondary: #ffffff;
-        --color-bg-tertiary: #f5f5f5;
-        --color-bg-elevated: #ffffff;
-        --color-bg-hover: #f0f0f0;
+        --bg: {{.Light.Background}};
+        --fg: {{.Light.Foreground}};
+        --accent: {{.Light.Primary}};
 
-        --color-text-primary: #18181b;
-        --color-text-secondary: #52525b;
-        --color-text-muted: #a1a1aa;
-        --color-text-inverse: #fafafa;
+        --color-bg-primary: {{.Light.Background}};
+        --color-bg-secondary: {{.Light.SurfaceAlt}};
+        --color-bg-tertiary: {{.Light.Background}};
+        --color-bg-elevated: {{.Light.Surface}};
+        --color-bg-hover: {{.Light.Border}};
+
+        --color-text-primary: {{.Light.Foreground}};
+        --color-text-secondary: {{.Light.Foreground}};
+        --color-text-muted: {{.Light.Muted}};
+        --color-text-inverse: {{.Light.Background}};
+
+        --color-accent-primary: {{.Light.Primary}};
+        --color-accent-secondary: {{.Light.Accent}};
+        --color-accent-gradient: linear-gradient(135deg, {{.Light.Primary}} 0%, {{.Light.Accent}} 100%);
+        --color-accent-hover: {{.Light.Primary}};
+
+        --color-success: {{.Light.Success}};
+        --color-warning: {{.Light.Warning}};
+        --color-error: {{.Light.Error}};
+        --color-info: {{.Light.Info}};
 
         --color-border: rgba(0, 0, 0, 0.08);
         --color-border-hover: rgba(0, 0, 0, 0.15);
@@ -132,16 +149,30 @@
 
 /* Light Theme (PART 16, AI.md 23277) — server renders class="theme-light" on <html> */
 html.theme-light {
-    --color-bg-primary: #fafafa;
-    --color-bg-secondary: #ffffff;
-    --color-bg-tertiary: #f5f5f5;
-    --color-bg-elevated: #ffffff;
-    --color-bg-hover: #f0f0f0;
+    --bg: {{.Light.Background}};
+    --fg: {{.Light.Foreground}};
+    --accent: {{.Light.Primary}};
 
-    --color-text-primary: #18181b;
-    --color-text-secondary: #52525b;
-    --color-text-muted: #a1a1aa;
-    --color-text-inverse: #fafafa;
+    --color-bg-primary: {{.Light.Background}};
+    --color-bg-secondary: {{.Light.SurfaceAlt}};
+    --color-bg-tertiary: {{.Light.Background}};
+    --color-bg-elevated: {{.Light.Surface}};
+    --color-bg-hover: {{.Light.Border}};
+
+    --color-text-primary: {{.Light.Foreground}};
+    --color-text-secondary: {{.Light.Foreground}};
+    --color-text-muted: {{.Light.Muted}};
+    --color-text-inverse: {{.Light.Background}};
+
+    --color-accent-primary: {{.Light.Primary}};
+    --color-accent-secondary: {{.Light.Accent}};
+    --color-accent-gradient: linear-gradient(135deg, {{.Light.Primary}} 0%, {{.Light.Accent}} 100%);
+    --color-accent-hover: {{.Light.Primary}};
+
+    --color-success: {{.Light.Success}};
+    --color-warning: {{.Light.Warning}};
+    --color-error: {{.Light.Error}};
+    --color-info: {{.Light.Info}};
 
     --color-border: rgba(0, 0, 0, 0.08);
     --color-border-hover: rgba(0, 0, 0, 0.15);
@@ -2537,7 +2568,7 @@ main {
     font-weight: 800;
     line-height: 1;
     margin-bottom: var(--space-3);
-    color: var(--color-accent, #89b4fa);
+    color: var(--color-accent-primary);
 }
 
 .error-title {

@@ -8,11 +8,11 @@ import (
 
 func TestDarkThemeReturnsExpectedPalette(t *testing.T) {
 	theme := DarkTheme()
-	if theme.Background != "#282a36" {
-		t.Errorf("DarkTheme().Background = %q, want %q", theme.Background, "#282a36")
+	if theme.Background != "#1a1b26" {
+		t.Errorf("DarkTheme().Background = %q, want %q", theme.Background, "#1a1b26")
 	}
-	if theme.Foreground != "#f8f8f2" {
-		t.Errorf("DarkTheme().Foreground = %q, want %q", theme.Foreground, "#f8f8f2")
+	if theme.Foreground != "#c0caf5" {
+		t.Errorf("DarkTheme().Foreground = %q, want %q", theme.Foreground, "#c0caf5")
 	}
 	if theme.Primary == "" {
 		t.Error("DarkTheme().Primary is empty")
@@ -27,8 +27,8 @@ func TestLightThemeReturnsExpectedPalette(t *testing.T) {
 	if theme.Background != "#ffffff" {
 		t.Errorf("LightTheme().Background = %q, want %q", theme.Background, "#ffffff")
 	}
-	if theme.Foreground != "#282a36" {
-		t.Errorf("LightTheme().Foreground = %q, want %q", theme.Foreground, "#282a36")
+	if theme.Foreground != "#1a1b26" {
+		t.Errorf("LightTheme().Foreground = %q, want %q", theme.Foreground, "#1a1b26")
 	}
 	if theme.Primary == "" {
 		t.Error("LightTheme().Primary is empty")

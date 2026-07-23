@@ -1,94 +1,59 @@
 package swagger
 
+import (
+	"fmt"
+
+	"github.com/apimgr/pastebin/src/common/theme"
+)
+
+// themeVarsBlock renders the CSS custom-property declarations shared by all
+// four Swagger UI theme blocks, sourcing values from the canonical
+// theme.ThemePalette (src/common/theme/colors.go, single source of truth
+// per AI.md 24320) instead of hardcoded hex literals.
+func themeVarsBlock(p theme.ThemePalette) string {
+	return fmt.Sprintf(`  --bg: %s;
+  --bg-alt: %s;
+  --bg-elevated: %s;
+  --text: %s;
+  --text-muted: %s;
+  --accent-cyan: %s;
+  --accent-green: %s;
+  --accent-orange: %s;
+  --accent-red: %s;
+  --accent-purple: %s;
+  --accent-pink: %s;
+  --accent-yellow: %s;
+  --border: %s;
+  --method-get: %s;
+  --method-post: %s;
+  --method-put: %s;
+  --method-delete: %s;
+  --method-patch: %s;
+`,
+		p.Background, p.Surface, p.SurfaceAlt, p.Foreground, p.Muted,
+		p.Info, p.Success, p.Warning, p.Error, p.Primary, p.Accent, p.Secondary,
+		p.Border, p.Info, p.Success, p.Warning, p.Error, p.Primary)
+}
+
 // CSS returns the theme CSS for the Swagger UI viewer.
 // Supports dark (default), light, and auto (system preference) themes.
 func CSS() string {
+	dark := themeVarsBlock(theme.ThemePaletteDark)
+	light := themeVarsBlock(theme.ThemePaletteLight)
 	return `/* Swagger UI theme — dark default, light alternate, auto follows OS */
 :root {
-  --bg: #282a36;
-  --bg-alt: #1e1f29;
-  --bg-elevated: #44475a;
-  --text: #f8f8f2;
-  --text-muted: #6272a4;
-  --accent-cyan: #8be9fd;
-  --accent-green: #50fa7b;
-  --accent-orange: #ffb86c;
-  --accent-red: #ff5555;
-  --accent-purple: #bd93f9;
-  --accent-pink: #ff79c6;
-  --accent-yellow: #f1fa8c;
-  --border: #44475a;
-  --method-get: #8be9fd;
-  --method-post: #50fa7b;
-  --method-put: #ffb86c;
-  --method-delete: #ff5555;
-  --method-patch: #bd93f9;
-}
+` + dark + `}
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #ffffff;
-    --bg-alt: #f5f5f5;
-    --bg-elevated: #e0e0e0;
-    --text: #1a1a1a;
-    --text-muted: #666666;
-    --accent-cyan: #0066cc;
-    --accent-green: #008000;
-    --accent-orange: #ff8c00;
-    --accent-red: #cc0000;
-    --accent-purple: #6600cc;
-    --accent-pink: #c00060;
-    --accent-yellow: #806000;
-    --border: #cccccc;
-    --method-get: #0066cc;
-    --method-post: #008000;
-    --method-put: #ff8c00;
-    --method-delete: #cc0000;
-    --method-patch: #6600cc;
-  }
+` + light + `  }
 }
 
 [data-theme="light"] {
-  --bg: #ffffff;
-  --bg-alt: #f5f5f5;
-  --bg-elevated: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #666666;
-  --accent-cyan: #0066cc;
-  --accent-green: #008000;
-  --accent-orange: #ff8c00;
-  --accent-red: #cc0000;
-  --accent-purple: #6600cc;
-  --accent-pink: #c00060;
-  --accent-yellow: #806000;
-  --border: #cccccc;
-  --method-get: #0066cc;
-  --method-post: #008000;
-  --method-put: #ff8c00;
-  --method-delete: #cc0000;
-  --method-patch: #6600cc;
-}
+` + light + `}
 
 [data-theme="dark"] {
-  --bg: #282a36;
-  --bg-alt: #1e1f29;
-  --bg-elevated: #44475a;
-  --text: #f8f8f2;
-  --text-muted: #6272a4;
-  --accent-cyan: #8be9fd;
-  --accent-green: #50fa7b;
-  --accent-orange: #ffb86c;
-  --accent-red: #ff5555;
-  --accent-purple: #bd93f9;
-  --accent-pink: #ff79c6;
-  --accent-yellow: #f1fa8c;
-  --border: #44475a;
-  --method-get: #8be9fd;
-  --method-post: #50fa7b;
-  --method-put: #ffb86c;
-  --method-delete: #ff5555;
-  --method-patch: #bd93f9;
-}
+` + dark + `}
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
