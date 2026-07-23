@@ -150,9 +150,34 @@ once every item is fixed and committed.
       uses the same `pastebin_owner_token` key as `create.js` (canonical
       per IDEA.md:34 and AI.md:11799), instead of the stray `api_token`
       key it read/wrote before. `src/server/static/js/remove.js`
-- [ ] CSS dark palette (`#1e1e2e`/`#cdd6f4`, Catppuccin) matches neither
+- [x] CSS dark palette (`#1e1e2e`/`#cdd6f4`, Catppuccin) matches neither
       AI.md CSS var reference (`#1a1a2e`) nor Go theme struct
-      (`#1a1b26`). `src/server/static/css/main.css:9-16`
+      (`#1a1b26`) — fixed via full wiring: rather than hand-syncing a
+      second hardcoded hex literal, `src/common/theme/colors.go`'s
+      `ThemePalette`/`GetThemePalette()` is now the single source of
+      truth for every consumer, per AI.md:24320 ("Colors are defined
+      ONCE in Go and used everywhere - Web CSS, TUI, CLI, GUI").
+      - `src/server/static/css/{main.css -> main.css.tmpl}`: renamed
+        and converted to a `text/template` that renders both
+        dark/light palettes as CSS custom properties from template
+        data instead of literal hex values
+      - `src/server/theme_css.go`: new file — lazily parses the
+        embedded `main.css.tmpl`, renders per-request with
+        `theme.ThemePaletteDark`/`ThemePaletteLight`
+      - `src/server/server.go`: exact chi route for
+        `/static/css/main.css` registered ahead of the `/static/*`
+        wildcard file server
+      - `src/client/tui/theme.go`/`theme_test.go`: `tuiThemeFromPalette`
+        maps the canonical palette onto the TUI's lipgloss-facing
+        `TUITheme` fields; `darkTheme`/`lightTheme` derived from
+        `theme.ThemePaletteDark`/`ThemePaletteLight`
+      - `src/swagger/theme.go`, `src/graphql/theme.go`: `CSS()`
+        renders CSS custom properties (including Swagger's 5
+        `--method-*` HTTP-verb colors) from the same canonical
+        palette instead of hardcoded hex blocks
+      Verified: `go build ./...`, `go vet ./...`, `go test ./...`
+      (all touched packages `ok`), and `go-lint` all pass clean inside
+      the `casjaysdev/go:latest` Docker toolchain.
 - [ ] `--service --help` missing "Current status" block (Service/State/
       Auto-start/PID). AI.md:30149-30169. `src/service/service.go:984-1003`
 - [ ] Service Description hardcoded `"pastebin API Server"` instead of
