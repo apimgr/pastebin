@@ -195,8 +195,14 @@ once every item is fixed and committed.
       now emit `Description=%s service` / `description="%s service"` /
       `Short-Description: %s service` using `appName` (`pastebin` per
       IDEA.md), per AI.md:30680-30709.
-- [ ] mkdocs.yml missing `pymdownx.arithmatex`/`pymdownx.magiclink`
+- [x] mkdocs.yml missing `pymdownx.arithmatex`/`pymdownx.magiclink`
       extensions. AI.md:37275,37290. `mkdocs.yml:55-91`
+      Fixed: added `pymdownx.arithmatex: {generic: true}` and
+      `pymdownx.magiclink: {repo_url_shorthand: true, user: apimgr,
+      repo: pastebin}` matching AI.md:37275,37290 exactly.
+      Verified: YAML structure parses cleanly (custom `!!python/name:`
+      emoji/format tags require mkdocs-material at runtime — pre-existing,
+      unaffected by this change).
 - [x] Skip-link text hardcoded English instead of `t()` key — fixed:
       all 18 templates now use `{{t .Lang "nav.skip_to_content"}}`,
       reusing the existing (previously unused) locale key present with
