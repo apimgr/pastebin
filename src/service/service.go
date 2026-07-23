@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/pastebin/src/paths"
+	"github.com/apimgr/pastebin/src/pid"
 )
 
 const (
@@ -298,7 +299,7 @@ func installSystemd() error {
 	binaryPath := GetBinaryPath()
 
 	serviceContent := fmt.Sprintf(`[Unit]
-Description=Pastebin API Server
+Description=%s service
 Documentation=https://apimgr.github.io/pastebin
 After=network-online.target
 Wants=network-online.target
@@ -323,7 +324,7 @@ ReadWritePaths=/var/log/%s/%s
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
+`, appName, binaryPath, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
@@ -414,7 +415,7 @@ func installOpenRC() error {
 	rcContent := fmt.Sprintf(`#!/sbin/openrc-run
 
 name="%s"
-description="Pastebin API Server"
+description="%s service"
 command="%s"
 command_args=""
 command_user="%s:%s"
@@ -433,7 +434,7 @@ start_pre() {
 	checkpath -d -m 0755 -o %s:%s /var/run/%s
 	checkpath -d -m 0755 -o %s:%s /var/log/%s/%s
 }
-`, appName, binaryPath, serviceUser, serviceUser, orgName, appName, orgName, appName, orgName, appName,
+`, appName, appName, binaryPath, serviceUser, serviceUser, orgName, appName, orgName, appName, orgName, appName,
 		serviceUser, serviceUser, orgName, serviceUser, serviceUser, orgName, appName)
 
 	if err := os.WriteFile(rcPath, []byte(rcContent), 0755); err != nil {
@@ -484,8 +485,8 @@ func installSysV() error {
 # Required-Stop:     $network $remote_fs $syslog
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Pastebin API Server
-# Description:       Pastebin API Server daemon
+# Short-Description: %s service
+# Description:       %s service daemon
 ### END INIT INFO
 
 NAME=%s
@@ -528,7 +529,7 @@ case "$1" in
         ;;
 esac
 exit 0
-`, appName, appName, binaryPath, serviceUser, orgName, appName, orgName, appName)
+`, appName, appName, appName, appName, binaryPath, serviceUser, orgName, appName, orgName, appName)
 
 	if err := os.WriteFile(initPath, []byte(initContent), 0755); err != nil {
 		return fmt.Errorf("failed to write SysV init script: %w", err)
@@ -995,6 +996,96 @@ func Disable() error {
 	}
 }
 
+// Status reports the current installed/running/enabled state of the service,
+// plus its PID if running (AI.md 30149-30169, PART 8/23).
+type Status struct {
+	Installed bool
+	Running   bool
+	Enabled   bool
+	PID       int
+}
+
+// GetStatus probes the detected service manager (and, as a fallback, the PID
+// file) to determine whether the service is installed, running, and enabled
+// to auto-start.
+func GetStatus() Status {
+	var st Status
+
+	switch DetectServiceManager() {
+	case ServiceSystemd:
+		servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
+		if _, err := os.Stat(servicePath); err == nil {
+			st.Installed = true
+		}
+		if out, err := exec.Command("systemctl", "is-active", appName).Output(); err == nil {
+			st.Running = strings.TrimSpace(string(out)) == "active"
+		}
+		if out, err := exec.Command("systemctl", "is-enabled", appName).Output(); err == nil {
+			st.Enabled = strings.TrimSpace(string(out)) == "enabled"
+		}
+	case ServiceOpenRC:
+		svcPath := "/etc/init.d/" + appName
+		if _, err := os.Stat(svcPath); err == nil {
+			st.Installed = true
+		}
+		st.Running = exec.Command("rc-service", appName, "status").Run() == nil
+		if out, err := exec.Command("rc-update", "show").Output(); err == nil {
+			st.Enabled = strings.Contains(string(out), appName)
+		}
+	case ServiceSysV:
+		svcPath := "/etc/init.d/" + appName
+		if _, err := os.Stat(svcPath); err == nil {
+			st.Installed = true
+			st.Running = exec.Command(svcPath, "status").Run() == nil
+		}
+		if out, err := exec.Command("chkconfig", "--list", appName).Output(); err == nil {
+			st.Enabled = strings.Contains(string(out), "3:on")
+		}
+	case ServiceRunit:
+		svcPath := "/etc/sv/" + appName
+		if _, err := os.Stat(svcPath); err == nil {
+			st.Installed = true
+		}
+		st.Running = exec.Command("sv", "status", appName).Run() == nil
+		if _, err := os.Lstat("/service/" + appName); err == nil {
+			st.Enabled = true
+		}
+	case ServiceLaunchd:
+		plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
+		if _, err := os.Stat(plistPath); err == nil {
+			st.Installed = true
+			st.Enabled = true
+		}
+		st.Running = exec.Command("launchctl", "list", launchdLabel).Run() == nil
+	case ServiceWindows:
+		if out, err := exec.Command("sc.exe", "query", appName).Output(); err == nil {
+			st.Installed = true
+			st.Running = strings.Contains(string(out), "RUNNING")
+		}
+		if out, err := exec.Command("sc.exe", "qc", appName).Output(); err == nil {
+			st.Enabled = strings.Contains(string(out), "AUTO_START")
+		}
+	case ServiceBSDRC:
+		svcPath := "/usr/local/etc/rc.d/" + appName
+		if _, err := os.Stat(svcPath); err == nil {
+			st.Installed = true
+			st.Running = exec.Command("service", appName, "status").Run() == nil
+		}
+		if out, err := exec.Command("sysrc", "-n", appName+"_enable").Output(); err == nil {
+			st.Enabled = strings.TrimSpace(string(out)) == "YES"
+		}
+	}
+
+	// The PID file is authoritative for "running" and supplies the PID,
+	// regardless of what the service manager reports.
+	if running, foundPID, err := pid.CheckPIDFile(paths.GetPIDFile(appName)); err == nil && running {
+		st.Running = true
+		st.PID = foundPID
+	}
+
+	return st
+}
+
 // PrintHelp prints service subcommand help to stdout.
 func PrintHelp(binaryName string) {
 	fmt.Printf(`Service management: %s --service <command>
@@ -1015,4 +1106,33 @@ Examples:
   sudo %s --service stop
   sudo %s --service --uninstall
 `, binaryName, binaryName, binaryName, binaryName, binaryName)
+
+	st := GetStatus()
+
+	installedStr := "not installed"
+	if st.Installed {
+		installedStr = "installed"
+	}
+
+	stateStr := "stopped"
+	switch {
+	case st.Running:
+		stateStr = "running"
+	case st.Installed && !st.Enabled:
+		stateStr = "disabled"
+	}
+
+	enabledStr := "disabled"
+	if st.Enabled {
+		enabledStr = "enabled"
+	}
+
+	fmt.Println()
+	fmt.Println("Current status:")
+	fmt.Printf("  Service:    %s\n", installedStr)
+	fmt.Printf("  State:      %s\n", stateStr)
+	fmt.Printf("  Auto-start: %s\n", enabledStr)
+	if st.Running {
+		fmt.Printf("  PID:        %d\n", st.PID)
+	}
 }

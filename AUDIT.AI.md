@@ -178,11 +178,23 @@ once every item is fixed and committed.
       Verified: `go build ./...`, `go vet ./...`, `go test ./...`
       (all touched packages `ok`), and `go-lint` all pass clean inside
       the `casjaysdev/go:latest` Docker toolchain.
-- [ ] `--service --help` missing "Current status" block (Service/State/
+- [x] `--service --help` missing "Current status" block (Service/State/
       Auto-start/PID). AI.md:30149-30169. `src/service/service.go:984-1003`
-- [ ] Service Description hardcoded `"pastebin API Server"` instead of
+      Fixed: added `Status` struct and `GetStatus()` probing the detected
+      service manager (systemd/OpenRC/SysV/runit/launchd/Windows/BSD rc)
+      plus the PID file; `PrintHelp()` now appends the exact
+      "Current status:" block from AI.md:30149-30169.
+      Verified: `go build ./...`, `go vet ./...`,
+      `go test ./src/service/... ./src/pid/...` (both `ok`), and
+      `go-lint` all pass clean inside the `casjaysdev/go:latest` Docker
+      toolchain.
+- [x] Service Description hardcoded `"pastebin API Server"` instead of
       `{app_name}` placeholder — depends on IDEA.md value, needs check.
       `src/service/service.go:416,476`
+      Fixed: `installSystemd()`, `installOpenRC()`, and `installSysV()`
+      now emit `Description=%s service` / `description="%s service"` /
+      `Short-Description: %s service` using `appName` (`pastebin` per
+      IDEA.md), per AI.md:30680-30709.
 - [ ] mkdocs.yml missing `pymdownx.arithmatex`/`pymdownx.magiclink`
       extensions. AI.md:37275,37290. `mkdocs.yml:55-91`
 - [x] Skip-link text hardcoded English instead of `t()` key — fixed:
