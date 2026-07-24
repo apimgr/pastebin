@@ -16,7 +16,7 @@ Scope: AI.md PART 7–33 line-by-line compliance. AI.md is authoritative; code i
 - [x] main.css.tmpl `.hidden` non-print `!important` removed; reduced-motion reset kept as WCAG-canonical exception per PART 30 (AI.md §23623) — commit fbd97b18
 
 ### Frontend PART 16 — DEFERRED (full rewrite of rendering layer; browser verification required, not safely auto-fixable in an audit pass)
-- [ ] CSS: single main.css.tmpl → common.css / components.css / public.css, load order common→components→public (AI.md §23602-23605, §23619-23620). Requires 3 CSS-serving routes + head-link changes across all 21 pages; cascade unverifiable without a browser.
+- [x] CSS: single main.css.tmpl → common.css / components.css / public.css, load order common→components→public (AI.md §23602-23605, §23619-23620). 3 CSS-serving routes added (`handleCSS`), all 19 page templates (excl. `_footer.html` partial) updated with 3 `<link>` tags in load order; verified via `docker-compose.test.yml` — `/`, `/server/about`, `/server/help` all 200 with non-empty bodies, and `/static/css/{common,components,public}.css` all 200 `text/css`.
 - [ ] templates: flat `src/server/templates/*.html` → `src/server/template/` with `.tmpl` + layout/partial/page/component subdirs and {{block}}/{{define}} composition; update //go:embed (server.go:57) + ParseFS (server.go:647) + all includes (AI.md §9286, §23588-23596). Full rearchitecture of every page; a passing build does not prove pages render. Recommend a dedicated designer-agent pass with a live server + browser verification.
 
 ## Completed

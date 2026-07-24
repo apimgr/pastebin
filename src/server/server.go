@@ -911,11 +911,15 @@ func (s *Server) setupRoutes() {
 	r.Use(s.maintenanceMiddleware)
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
-	// main.css is rendered server-side from the canonical ThemePalette
-	// (src/common/theme/colors.go) rather than served as a static file — see
-	// theme_css.go. chi matches this exact route before the /static/*
-	// wildcard below (AI.md 24290-24355, PART 16).
-	r.Get("/static/css/main.css", s.handleMainCSS)
+	// common.css / components.css / public.css are rendered server-side from
+	// the canonical ThemePalette (src/common/theme/colors.go) rather than
+	// served as static files — see theme_css.go. chi matches these exact
+	// routes before the /static/* wildcard below (AI.md 24290-24355,
+	// PART 16 §23602-23605, §23619-23620). Load order (common -> components
+	// -> public) is enforced by <link> order in partial/head.tmpl.
+	r.Get("/static/css/common.css", s.handleCSS("common"))
+	r.Get("/static/css/components.css", s.handleCSS("components"))
+	r.Get("/static/css/public.css", s.handleCSS("public"))
 	staticSub, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	r.Get("/manifest.json", s.handleManifest)
@@ -3584,7 +3588,9 @@ const PRECACHE_ASSETS = [
   '/create',
   '/recent',
   '/offline',
-  '/static/css/main.css',
+  '/static/css/common.css',
+  '/static/css/components.css',
+  '/static/css/public.css',
   '/static/js/app.js',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'
