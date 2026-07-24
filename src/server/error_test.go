@@ -1,37 +1,27 @@
 package server
 
 import (
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 )
 
 func newErrorTestServer(t *testing.T) *Server {
 	t.Helper()
-	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"t":               func(lang, key string) string { return i18n.Translate(lang, key) },
-		"i18njs":          func(lang string) template.JS { return template.JS(i18n.JSBundle(lang)) },
-		"markdown":        func(s string) template.HTML { return renderMarkdown(s) },
-		"trackingEnabled": func() bool { return false },
-		"trackingScript":  func() template.HTML { return "" },
-		"consentConfig":   func() template.JS { return template.JS("{}") },
-		"fmtTime":         fmtUserTime,
-		"fmtDate":         fmtUserDate,
-	}).ParseFS(templatesFS, "templates/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
-	return &Server{
+	s := &Server{
 		cfg:       &config.Config{Web: config.WebConfig{SiteTitle: "Pastebin", Theme: "dark"}},
-		templates: tmpl,
 		version:   "test",
 		buildDate: "2026-01-01",
 	}
+	tmpl, err := s.buildTemplates()
+	if err != nil {
+		t.Fatalf("build templates: %v", err)
+	}
+	s.templates = tmpl
+	return s
 }
 
 func TestErrorCodeForStatus(t *testing.T) {

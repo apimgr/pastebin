@@ -1,40 +1,9 @@
-<!DOCTYPE html>
-<html lang="{{.Lang}}" dir="{{.Dir}}" class="theme-{{.Theme}}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{{define "meta"}}
     <title>Create Paste - {{.SiteTitle}}</title>
     <meta name="description" content="Create a new paste with syntax highlighting">
-    <meta name="theme-color" content="#89b4fa">
-    {{.SEOMeta}}
-    <link rel="manifest" href="{{.AssetPrefix}}/manifest.json">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="{{.SiteTitle}}">
-    <link rel="apple-touch-icon" href="{{.AssetPrefix}}/static/icons/icon-180.png">
-    <link rel="stylesheet" href="{{.AssetPrefix}}/static/css/common.css">
-    <link rel="stylesheet" href="{{.AssetPrefix}}/static/css/components.css">
-    <link rel="stylesheet" href="{{.AssetPrefix}}/static/css/public.css">
-</head>
-<body>
-    <a href="#main-content" class="skip-link">{{t .Lang "nav.skip_to_content"}}</a>
-    <!-- Header -->
-    <header class="header">
-        <nav class="nav">
-            <a href="{{.AssetPrefix}}/" class="nav-brand">
-                <div class="nav-brand-icon">📋</div>
-                <span>{{.SiteTitle}}</span>
-            </a>
-            <div class="nav-links">
-                <a href="{{.AssetPrefix}}/" class="nav-link">{{t .Lang "nav.home"}}</a>
-                <a href="{{.AssetPrefix}}/create" class="nav-link active">{{t .Lang "nav.create"}}</a>
-                <a href="{{.AssetPrefix}}/recent" class="nav-link">{{t .Lang "nav.recent"}}</a>
-                <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="theme" value="{{.NextTheme}}"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
-            </div>
-        </nav>
-    </header>
+{{end}}
 
-    <main id="main-content">
+{{define "content"}}
         <section class="search-section">
             <div class="container container-sm">
                 <div class="section-header">
@@ -193,14 +162,4 @@
                 </form>
             </div>
         </section>
-    </main>
-
-    {{template "footer" .}}
-
-    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
-    <div id="toast-container"></div>
-
-    <script type="application/json" id="pb-i18n-data">{{i18njs .Lang}}</script>
-    <script src="{{.AssetPrefix}}/static/js/app.js"></script>
-</body>
-</html>
+{{end}}

@@ -54,7 +54,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-//go:embed templates/*.html
+//go:embed template/layout/*.tmpl template/partial/*.tmpl template/partial/public/*.tmpl template/page/*.tmpl
 var templatesFS embed.FS
 
 //go:embed static
@@ -193,7 +193,7 @@ type Server struct {
 	cacheStore       cache.Cache
 	cfg              *config.Config
 	cfgMgr           *config.ConfigManager
-	templates        *template.Template
+	templates        map[string]*template.Template
 	pasteHandler     *handler.PasteHandler
 	compatHandler    *handler.CompatHandler
 	swaggerHandler   *swagger.Handler
@@ -619,11 +619,22 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	return s
 }
 
-// buildTemplates parses every embedded HTML template with the server's FuncMap.
+// buildTemplates parses every embedded template with the server's FuncMap.
 // Isolating parsing here keeps New readable and ensures the FuncMap used at
 // startup is the single source of truth for template rendering.
-func (s *Server) buildTemplates() (*template.Template, error) {
-	return template.New("").Funcs(template.FuncMap{
+//
+// The layout and partials are parsed once into a shared base tree, then each
+// page under template/page/*.tmpl is parsed into its own clone of that base.
+// This is required because every page defines {{define "meta"}} and
+// {{define "content"}} with the same names — a single shared *template.Template
+// has one flat namespace, so parsing all pages together would collide. Cloning
+// per page keeps each page's "meta"/"content" (and, for emb.tmpl, "layout")
+// definitions isolated from every other page.
+//
+// Map keys retain the legacy "{name}.html" form (e.g. "about.html") so the
+// ~40 existing renderTemplate(w, r, "about.html", data) call sites are unchanged.
+func (s *Server) buildTemplates() (map[string]*template.Template, error) {
+	funcMap := template.FuncMap{
 		"t": func(lang, key string) string {
 			return i18n.Translate(lang, key)
 		},
@@ -644,7 +655,33 @@ func (s *Server) buildTemplates() (*template.Template, error) {
 		},
 		"fmtTime": fmtUserTime,
 		"fmtDate": fmtUserDate,
-	}).ParseFS(templatesFS, "templates/*.html")
+	}
+	base, err := template.New("").Funcs(funcMap).ParseFS(templatesFS,
+		"template/layout/*.tmpl",
+		"template/partial/*.tmpl",
+		"template/partial/public/*.tmpl",
+	)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := fs.Glob(templatesFS, "template/page/*.tmpl")
+	if err != nil {
+		return nil, err
+	}
+	pages := make(map[string]*template.Template, len(entries))
+	for _, entry := range entries {
+		clone, err := base.Clone()
+		if err != nil {
+			return nil, err
+		}
+		clone, err = clone.ParseFS(templatesFS, entry)
+		if err != nil {
+			return nil, err
+		}
+		name := strings.TrimSuffix(filepath.Base(entry), ".tmpl") + ".html"
+		pages[name] = clone
+	}
+	return pages, nil
 }
 
 // userTimeLayout is the canonical user-facing timestamp format (AI.md 19714):
@@ -3872,13 +3909,16 @@ func (s *Server) handleSchedulerHistory(w http.ResponseWriter, r *http.Request) 
 // ─── Template helpers ─────────────────────────────────────────────────────────
 
 func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
-	if s.templates == nil {
+	tmpl := s.templates[name]
+	if tmpl == nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "templates not loaded"})
 		return
 	}
 	if data == nil {
 		data = make(map[string]interface{})
 	}
+	// Inject the request path so nav.tmpl can mark the active nav-link
+	data["CurrentPath"] = r.URL.Path
 	// Inject language for i18n — templates access it as .Lang
 	lang := i18n.LangFromRequest(r)
 	data["Lang"] = lang
@@ -3920,7 +3960,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
 	// link and onion address only when the service is enabled and running (PART 31)
 	s.injectTorData(data)
-	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template %s error: %v", name, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
 	}
@@ -3929,12 +3969,14 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 // renderTemplateToString renders a named template to a string instead of writing to a ResponseWriter.
 // Used by handlers that need to apply HTML2TextConverter for plain-text clients.
 func (s *Server) renderTemplateToString(r *http.Request, name string, data map[string]interface{}) (string, error) {
-	if s.templates == nil {
+	tmpl := s.templates[name]
+	if tmpl == nil {
 		return "", fmt.Errorf("templates not loaded")
 	}
 	if data == nil {
 		data = make(map[string]interface{})
 	}
+	data["CurrentPath"] = r.URL.Path
 	lang := i18n.LangFromRequest(r)
 	data["Lang"] = lang
 	data["Dir"] = i18n.Direction(lang)
@@ -3955,7 +3997,7 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	s.injectFooterData(data)
 	s.injectTorData(data)
 	var buf bytes.Buffer
-	if err := s.templates.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, "layout", data); err != nil {
 		return "", err
 	}
 	return buf.String(), nil
@@ -4090,15 +4132,25 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	data["StatusCode"] = status
 	data["StatusText"] = statusText
 	data["Message"] = message
-	if s.templates == nil {
+	tmpl := s.templates["error.html"]
+	if tmpl == nil {
 		http.Error(w, message, status)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
+	data["CurrentPath"] = r.URL.Path
 	lang := i18n.LangFromRequest(r)
 	data["Lang"] = lang
 	data["Dir"] = i18n.Direction(lang)
+	theme := s.themeFromRequest(r)
+	data["Theme"] = theme
+	data["NextTheme"] = nextTheme(theme)
+	if tok, ok := r.Context().Value(csrfTokenKey).(string); ok && tok != "" {
+		data["CSRFToken"] = tok
+	} else {
+		data["CSRFToken"] = ""
+	}
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID
@@ -4108,9 +4160,12 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	if _, ok := data["AssetPrefix"]; !ok {
 		data["AssetPrefix"] = s.assetPrefix(r)
 	}
+	if _, ok := data["SEOMeta"]; !ok {
+		data["SEOMeta"] = s.seoMetaTags(r)
+	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
-	if err := s.templates.ExecuteTemplate(w, "error.html", data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("error template render failed: %v", err)
 	}
 }

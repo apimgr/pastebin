@@ -1,0 +1,17 @@
+{{define "meta"}}
+    <title>Offline - {{.SiteTitle}}</title>
+{{end}}
+
+{{define "content"}}
+        <div class="offline-page">
+            <div class="offline-icon">📡</div>
+            <h1 class="offline-title">You are offline</h1>
+            <p class="offline-message">
+                This page is not available while you are offline.
+                Check your internet connection and try again.
+            </p>
+            <button class="btn btn-primary" data-action="reload">
+                Try Again
+            </button>
+        </div>
+{{end}}

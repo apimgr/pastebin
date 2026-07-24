@@ -1,0 +1,7 @@
+{{define "scripts"}}
+    <div id="offline-indicator" hidden>{{t .Lang "offline"}}</div>
+    <div id="toast-container"></div>
+
+    <script type="application/json" id="pb-i18n-data">{{i18njs .Lang}}</script>
+    <script src="{{.AssetPrefix}}/static/js/app.js"></script>
+{{end}}

@@ -1,0 +1,37 @@
+{{define "meta"}}
+    <title>Recent Pastes - {{.SiteTitle}}</title>
+    <meta name="description" content="Browse recent public pastes">
+{{end}}
+
+{{define "content"}}
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">{{t .Lang "recent.title"}}</h1>
+                    <p class="section-description">{{t .Lang "recent.description"}}</p>
+                </div>
+
+                {{if .Pastes}}
+                <div class="pastes-list">
+                    {{range .Pastes}}
+                    <div class="paste-item">
+                        <a href="{{$.AssetPrefix}}/{{.ID}}" class="paste-title">{{.Title}}</a>
+                        <div class="paste-item-meta">
+                            <span class="language">{{.Language}}</span>
+                            <span>{{.Views}} {{t $.Lang "recent.views"}}</span>
+                            <span>{{fmtDate .CreatedAt}}</span>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <div class="empty-state">
+                    <div class="empty-state-icon">📋</div>
+                    <h3 class="empty-state-title">{{t .Lang "recent.empty_title"}}</h3>
+                    <p class="empty-state-description">{{t .Lang "recent.empty_desc"}}</p>
+                    <a href="{{.AssetPrefix}}/create" class="btn btn-primary">{{t .Lang "recent.create_paste"}}</a>
+                </div>
+                {{end}}
+            </div>
+        </section>
+{{end}}

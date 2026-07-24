@@ -1,0 +1,12 @@
+{{define "header"}}
+    <a href="#main-content" class="skip-link">{{t .Lang "nav.skip_to_content"}}</a>
+    <header class="header">
+        <nav class="nav">
+            <a href="{{.AssetPrefix}}/" class="nav-brand">
+                <div class="nav-brand-icon">📋</div>
+                <span>{{.SiteTitle}}</span>
+            </a>
+            {{template "nav" .}}
+        </nav>
+    </header>
+{{end}}
