@@ -5,19 +5,21 @@ Scope: AI.md PART 7–33 line-by-line compliance. AI.md is authoritative; code i
 
 ## Pass 5: Spec Compliance
 
-### Build / Docker / Makefile (bounded — fix now)
-- [ ] docker/Dockerfile:73 `ENV MODE=development` in production runtime stage → remove; keep TZ + DATABASE_DIR (AI.md PART 26 §32031-32033: "MODE is never baked into the image")
-- [ ] Makefile:8 `VERSION ?=` inverts release.txt precedence → `VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")` (AI.md PART 25 §31150)
-- [ ] Makefile:12 `BUILD_DATE` human date → ISO 8601 UTC `date -u +"%Y-%m-%dT%H:%M:%SZ"` (AI.md PART 25 §31153-31154)
+### Build / Docker / Makefile
+- [x] docker/Dockerfile:73 `ENV MODE=development` in production stage → removed (AI.md §32031-32033) — commit 78fa9683
+- [x] Makefile VERSION `?=` precedence → `:=` release.txt wins (AI.md §31150) — commit dfdcd39a
+- [x] Makefile BUILD_DATE → ISO 8601 UTC (AI.md §31153-31154) — commit dfdcd39a
 
-### Frontend PART 16 (bounded — fix now)
-- [ ] JS: 4 files (main.js, create.js, consent.js, remove.js) → single static/js/app.js; update all `<script src>`; delete extras (AI.md §23606-23607, §23658)
-- [ ] templates/offline.html:41 inline `onclick="window.location.reload()"` → bind via addEventListener in app.js (AI.md §23622 "NO inline styles/handlers", PART 16 progressive-enhancement)
-- [ ] static/css/main.css.tmpl non-print `!important` uses (lines ~1279, ~2035, ~2603-2606) → remove or confine to `@media print` (AI.md §23623)
+### Frontend PART 16
+- [x] JS: 4 files → single static/js/app.js; refs updated; extras deleted (AI.md §23606-23607, §23658) — commit fbd97b18
+- [x] offline.html inline `onclick` → data-action hook bound in app.js (AI.md §23622) — commit fbd97b18
+- [x] main.css.tmpl `.hidden` non-print `!important` removed; reduced-motion reset kept as WCAG-canonical exception per PART 30 (AI.md §23623) — commit fbd97b18
 
-### Frontend PART 16 (LARGE — full rewrite of rendering layer; browser verification required — deferred, flagged to user)
-- [ ] CSS: single main.css.tmpl → split into common.css / components.css / public.css, load order common→components→public (AI.md §23602-23605, §23619-23620)
-- [ ] templates: flat `src/server/templates/*.html` → `src/server/template/` with `.tmpl` + layout/partial/page/component subdirs; update //go:embed (server.go:57) + ParseFS (server.go:647) + all {{template}} includes (AI.md §9286, §23588-23596)
+### Frontend PART 16 — DEFERRED (full rewrite of rendering layer; browser verification required, not safely auto-fixable in an audit pass)
+- [ ] CSS: single main.css.tmpl → common.css / components.css / public.css, load order common→components→public (AI.md §23602-23605, §23619-23620). Requires 3 CSS-serving routes + head-link changes across all 21 pages; cascade unverifiable without a browser.
+- [ ] templates: flat `src/server/templates/*.html` → `src/server/template/` with `.tmpl` + layout/partial/page/component subdirs and {{block}}/{{define}} composition; update //go:embed (server.go:57) + ParseFS (server.go:647) + all includes (AI.md §9286, §23588-23596). Full rearchitecture of every page; a passing build does not prove pages render. Recommend a dedicated designer-agent pass with a live server + browser verification.
 
 ## Completed
-(none yet)
+- docker/Dockerfile MODE removal (78fa9683)
+- Makefile VERSION + BUILD_DATE (dfdcd39a)
+- JS consolidation + offline handler + .hidden !important (fbd97b18)
