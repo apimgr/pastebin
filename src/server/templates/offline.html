@@ -38,7 +38,7 @@
                 This page is not available while you are offline.
                 Check your internet connection and try again.
             </p>
-            <button class="btn btn-primary" onclick="window.location.reload()">
+            <button class="btn btn-primary" data-action="reload">
                 Try Again
             </button>
         </div>
@@ -50,6 +50,6 @@
     <div id="toast-container"></div>
 
     <script type="application/json" id="pb-i18n-data">{{i18njs .Lang}}</script>
-    <script src="{{.AssetPrefix}}/static/js/main.js"></script>
+    <script src="{{.AssetPrefix}}/static/js/app.js"></script>
 </body>
 </html>

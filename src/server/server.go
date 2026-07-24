@@ -3585,7 +3585,7 @@ const PRECACHE_ASSETS = [
   '/recent',
   '/offline',
   '/static/css/main.css',
-  '/static/js/main.js',
+  '/static/js/app.js',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png'
 ];

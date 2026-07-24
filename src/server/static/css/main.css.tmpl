@@ -1276,7 +1276,6 @@ main {
 /* ============================================
    Utility Classes
    ============================================ */
-.hidden { display: none !important; }
 .text-center { text-align: center; }
 .text-muted { color: var(--color-text-muted); }
 .mt-4 { margin-top: var(--space-4); }
@@ -2030,9 +2029,9 @@ main {
     color: var(--color-error);
 }
 
-/* Hidden utility */
+/* Hidden utility — placed after component rules so source order wins (no !important, per PART 16) */
 .hidden {
-    display: none !important;
+    display: none;
 }
 
 /* Danger button */
