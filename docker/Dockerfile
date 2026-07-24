@@ -67,11 +67,10 @@ COPY docker/Dockerfile /root/Dockerfile
 RUN chmod 755 /usr/local/bin/*
 
 # Set environment
-# Note: MODE=development allows localhost, .local, .test, etc. (per PART 26)
+# Note: MODE is never baked into the image — binary defaults to production; compose sets MODE explicitly (PART 26)
 # Do NOT set ENABLE_TOR here; the binary auto-detects Tor from PATH.
 # DATABASE_DIR: SQLite location (binary auto-detects container, but explicit is clearer)
-ENV MODE=development \
-    TZ=America/New_York \
+ENV TZ=America/New_York \
     DATABASE_DIR=/data/db/sqlite
 
 # Internal port (always 80 in container per PART 8 / PART 26)
