@@ -4,12 +4,12 @@
 PROJECT_NAME := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)(\.git)?$$|\1|' || basename "$$(pwd)")
 PROJECT_ORG  := $(shell git remote get-url origin 2>/dev/null | sed -E 's|.*/([^/]+)/[^/]+(\.git)?$$|\1|' || basename "$$(dirname "$$(pwd)")")
 
-# Version precedence: release.txt > env/default fallback
-VERSION ?= $(shell cat release.txt 2>/dev/null || echo "devel")
+# Version precedence: release.txt (wins if it exists) > VERSION env var > "devel" fallback
+VERSION := $(shell cat release.txt 2>/dev/null || echo "$${VERSION:-devel}")
 
-# Build info
+# Build info - ISO 8601 UTC (format: "2025-12-04T13:05:13Z")
 COMMIT_ID  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "N/A")
-BUILD_DATE := $(shell date +"%B %-d, %Y at %H:%M:%S")
+BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Official site URL (OPTIONAL - never guess or assume)
 # Sources (in order of precedence):
