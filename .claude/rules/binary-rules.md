@@ -16,20 +16,25 @@
 ```
 --help / -h
 --version / -v
+--shell {completions,init,--help} [SHELL]
 --mode {production|development}
 --config {config_dir}
 --data {data_dir}
+--cache {cache_dir}
 --log {log_dir}
+--backup {backup_dir}
 --pid {pid_file}
 --address {listen}
 --port {port}
 --baseurl {path}
---debug
 --status
 --service {start,restart,stop,reload,--install,--uninstall,--disable,--help}
 --daemon
---maintenance {backup,restore,update,mode,setup,--help} [optional-file-or-setting]
---update [check|yes|branch {stable|beta|daily}]
+--debug
+--color {auto|yes|no}
+--lang {code}
+--maintenance {backup,restore,update,mode,setup,pgp,token,data,compliance,--help} [optional-file-or-setting-or-action]
+--update [check|yes|branch {stable|beta|daily}|--help]
 ```
 - Short flags: `-h` (help) and `-v` (version) ONLY — all others are long-form only
 - These CLI flags are NON-NEGOTIABLE — do not change, rename, or remove
@@ -46,7 +51,7 @@
 
 ## Display Detection
 - `NO_COLOR` env var respected — disables all ANSI color
-- `--color {auto|always|never}` flag overrides `NO_COLOR`
+- `--color {auto|yes|no}` flag overrides `NO_COLOR`
 - Terminal width detection for responsive output
 - 7 size breakpoints: Micro (<40), Tiny (40-59), Small (60-79), Medium (80-99), Large (100-119), Wide (120-139), Wide+ (140+)
 

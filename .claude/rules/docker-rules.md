@@ -32,8 +32,8 @@ docker/
 | Context | Port mapping |
 |---------|-------------|
 | Production | `172.17.0.1:{random}:80` |
-| Development | `172.17.0.1:64580:80` |
-| Test | `64581:80` (all interfaces) |
+| Development | `{randomport}:80` (all interfaces, e.g. `64580:80`) |
+| Test | `172.17.0.1:64581:80` |
 
 ## Docker Build (in containers)
 - Builder: `casjaysdev/go:latest`
@@ -48,11 +48,15 @@ docker/
 
 ## Docker Compose
 - `name: {project_name}` (top-level)
-- `container_name: {project_name}-app`
-- `hostname: ${BASE_HOST_NAME:-$HOSTNAME}`
+- `container_name: {project_name}-app` (main), `{project_name}-cache` (Valkey)
+- `hostname: {project_name}` (hardcoded, production compose only)
 - `pull_policy: always`
 - `restart: always`
-- All env vars use `${VAR:-default}` fallbacks — stack works with zero .env files
+- NEVER `${VAR}` / `${VAR:-default}` syntax — env vars are hardcoded with sane defaults, YAML map style (`KEY: value`), never list style (`- KEY=value`)
+- NEVER `.env`, `.env.example`, `.env.sample` files — stack works with zero .env files
+- NEVER `build:` or `version:` keys
+- `docker-compose.yml` (prod): no `DEBUG`/`MODE` — production defaults apply
+- `docker-compose.dev.yml` / `docker-compose.test.yml`: `DEBUG: 1`, `MODE: dev`
 - NEVER run compose from project directory — always use temp dir workflow
 
 ---

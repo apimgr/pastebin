@@ -36,7 +36,7 @@
 
 ## NO_COLOR Support
 - Respect `NO_COLOR` env var — disables ALL ANSI color output
-- `--color {auto|always|never}` flag overrides `NO_COLOR`
+- `--color {auto|yes|no}` flag overrides `NO_COLOR`
 - `auto`: color when TTY, no color when piped/redirected
 
 ---
