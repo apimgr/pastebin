@@ -14,7 +14,6 @@ services:
   pastebin:
     image: ghcr.io/apimgr/pastebin:latest
     container_name: pastebin-app
-    hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     pull_policy: always
     logging: *default-logging
@@ -22,19 +21,19 @@ services:
       - MODE=production
       - PORT=80
       - DEBUG=false
-      - TZ=${TZ:-America/New_York}
+      - TZ=America/New_York
       - CACHE_URL=valkey://pastebin-cache:6379
-      - TERMBIN_ENABLED=${TERMBIN_ENABLED:-true}
+      - TERMBIN_ENABLED=true
       # For remote libsql/Turso: set DATABASE_DRIVER=libsql and DATABASE_URL
       # - DATABASE_DRIVER=libsql
-      # - DATABASE_URL=libsql://your-db.turso.io?authToken=${TURSO_AUTH_TOKEN}
+      # - DATABASE_URL=libsql://your-db.turso.io?authToken=your-turso-auth-token
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
     ports:
       - '172.17.0.1::80'
       # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
-      - '${TERMBIN_PORT:-9999}:9999'
+      - '9999:9999'
     healthcheck:
       test: /usr/local/bin/pastebin --status
       interval: 10s
