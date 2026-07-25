@@ -121,8 +121,10 @@
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-                        <tr><td>POST</td><td><code>/api/create</code></td><td>Create paste; returns URL as plain text</td></tr>
-                        <tr><td>GET</td><td><code>/api/paste/{id}</code></td><td>Get paste as JSON</td></tr>
+                        <tr><td>POST</td><td><code>/api/create</code></td><td>Create paste (form <code>text</code>/<code>title</code>/<code>name</code>/<code>lang</code>/<code>expire</code>/<code>private</code>; <code>apikey</code> accepted and ignored); returns the view URL <code>{{.BaseURL}}/view/{id}</code> as plain text, or <code>Error: &lt;msg&gt;</code></td></tr>
+                        <tr><td>GET</td><td><code>/view/{id}</code></td><td>Redirects to the native paste view</td></tr>
+                        <tr><td>GET</td><td><code>/view/raw/{id}</code></td><td>Raw paste content</td></tr>
+                        <tr><td>GET</td><td><code>/api/paste/{id}</code></td><td>Get paste as JSON (<code>pid</code>, <code>title</code>, <code>name</code>, <code>created</code>, <code>lang</code>, <code>raw</code>, <code>hits</code>)</td></tr>
                     </table>
 
                     <h3 class="section-mt">hastebin / haste-server</h3>
@@ -135,8 +137,9 @@ curl {{.BaseURL}}/documents/AbCdEfGh</pre></div>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-                        <tr><td>POST</td><td><code>/documents</code></td><td>Create paste; returns <code>{"key":"…"}</code></td></tr>
-                        <tr><td>GET</td><td><code>/documents/{key}</code></td><td>Get paste content</td></tr>
+                        <tr><td>POST</td><td><code>/documents</code></td><td>Create paste from the raw request body; returns <code>{"key":"…"}</code></td></tr>
+                        <tr><td>GET</td><td><code>/documents/{key}</code></td><td>Get paste content as <code>{"data":"...","key":"..."}</code> (<code>404 {"message":"..."}</code> if missing)</td></tr>
+                        <tr><td>GET</td><td><code>/raw/{key}</code></td><td>Raw paste content (native raw route)</td></tr>
                     </table>
 
                     <h3 class="section-mt">dpaste</h3>
@@ -166,8 +169,9 @@ curl -F "f:1=&lt;-" {{.BaseURL}}/</pre></div>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
-                        <tr><td>POST</td><td><code>/</code></td><td>Upload via <code>file</code>, <code>sprunge</code>, <code>f:1</code>, or raw body; returns bare URL</td></tr>
+                        <tr><td>POST</td><td><code>/</code></td><td>Upload via multipart <code>file</code> (0x0.st), form <code>sprunge</code> (sprunge.us), or form <code>f:1</code> (ix.io); returns a bare raw-content URL <code>{{.BaseURL}}/raw/{id}</code>. Requests with none of these fields fall through to the native paste-create handler.</td></tr>
                     </table>
+                    <p>The 0x0.st style also returns an <code>X-Token</code> response header — the paste's compat delete token, mirroring the 0x0.st management-token convention.</p>
 
                     {{if .TermbinEnabled}}
                     <h3 class="section-mt" id="termbin">termbin / fiche (raw TCP)</h3>

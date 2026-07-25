@@ -4045,16 +4045,16 @@ func (s *Server) injectTermbinData(r *http.Request, data map[string]interface{})
 	tb := cfg.Server.Termbin
 	data["TermbinEnabled"] = tb.Enabled
 	if tb.Enabled {
-		host := cfg.Server.Address
-		if host == "" || host == "0.0.0.0" {
-			if h, err := os.Hostname(); err == nil {
-				host = h
-			} else {
-				host = r.Host
-				if h, _, err := net.SplitHostPort(host); err == nil {
-					host = h
-				}
-			}
+		// Use the same FQDN resolution as every other example on this page
+		// (BaseURL override / trusted proxy headers / request Host, PART 12)
+		// rather than the bind address or machine hostname — otherwise the nc
+		// example shows a different host than the curl examples on the page.
+		host := r.Host
+		if u, err := url.Parse(s.baseURL(r)); err == nil && u.Hostname() != "" {
+			host = u.Hostname()
+		}
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
 		}
 		data["TermbinHost"] = host
 		data["TermbinPort"] = tb.Port

@@ -4134,7 +4134,11 @@ func TestInjectTermbinData(t *testing.T) {
 		}
 	})
 
-	t.Run("termbin enabled with explicit address uses it", func(t *testing.T) {
+	t.Run("termbin enabled uses the same FQDN resolution as the rest of the help page", func(t *testing.T) {
+		// cfg.Server.Address is the bind address, not the public FQDN — it must
+		// never leak into the nc example; the resolved request/BaseURL host must
+		// be used instead so the nc example matches every curl example on the
+		// same page.
 		cfg := &config.Config{}
 		cfg.Server.Termbin.Enabled = true
 		cfg.Server.Termbin.Port = 9999
@@ -4142,19 +4146,39 @@ func TestInjectTermbinData(t *testing.T) {
 		s := newServerWithDB(cfg, &stubDB{})
 		data := map[string]interface{}{}
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Host = "paste.example.com"
 		s.injectTermbinData(r, data)
 		if data["TermbinEnabled"] != true {
 			t.Errorf("TermbinEnabled = %v, want true", data["TermbinEnabled"])
 		}
-		if data["TermbinHost"] != "192.168.1.50" {
-			t.Errorf("TermbinHost = %q, want 192.168.1.50", data["TermbinHost"])
+		if data["TermbinHost"] != "paste.example.com" {
+			t.Errorf("TermbinHost = %q, want paste.example.com (request host, not bind address)", data["TermbinHost"])
 		}
 		if data["TermbinPort"] != 9999 {
 			t.Errorf("TermbinPort = %v, want 9999", data["TermbinPort"])
 		}
 	})
 
-	t.Run("termbin enabled with 0.0.0.0 falls back to hostname or request host", func(t *testing.T) {
+	t.Run("termbin enabled honours BaseURL override", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.Termbin.Enabled = true
+		cfg.Server.Termbin.Port = 9999
+		cfg.Server.Address = "0.0.0.0"
+		cfg.Server.BaseURL = "https://paste.example.org"
+		s := newServerWithDB(cfg, &stubDB{})
+		data := map[string]interface{}{}
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Host = "example.com:8080"
+		s.injectTermbinData(r, data)
+		if data["TermbinEnabled"] != true {
+			t.Errorf("TermbinEnabled = %v, want true", data["TermbinEnabled"])
+		}
+		if data["TermbinHost"] != "paste.example.org" {
+			t.Errorf("TermbinHost = %q, want paste.example.org (from BaseURL)", data["TermbinHost"])
+		}
+	})
+
+	t.Run("termbin enabled with 0.0.0.0 falls back to request host, stripped of port", func(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.Server.Termbin.Enabled = true
 		cfg.Server.Termbin.Port = 9999
@@ -4167,9 +4191,8 @@ func TestInjectTermbinData(t *testing.T) {
 		if data["TermbinEnabled"] != true {
 			t.Errorf("TermbinEnabled = %v, want true", data["TermbinEnabled"])
 		}
-		host, _ := data["TermbinHost"].(string)
-		if host == "" || host == "0.0.0.0" {
-			t.Errorf("TermbinHost = %q with 0.0.0.0 address, want hostname or request host", host)
+		if data["TermbinHost"] != "example.com" {
+			t.Errorf("TermbinHost = %q, want example.com", data["TermbinHost"])
 		}
 	})
 }
