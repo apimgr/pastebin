@@ -19,7 +19,7 @@
 | Jenkins | `Jenkinsfile` |
 
 ## GitHub Actions Job Order (ci.yml)
-- Parallel: `lint`, `test`, `secret-scan`, `workflow-policy`, `vuln-check`
+- Parallel: `lint`, `test`, `secret-scan`, `workflow-policy`, `vuln-scan`
 - Then: `build` (needs: lint, test)
 - Then: `coverage`, `image-scan`, `upload-artifacts` (need: build)
 
