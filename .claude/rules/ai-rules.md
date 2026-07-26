@@ -23,8 +23,11 @@
 - ✅ Update IDEA.md when features change
 - ✅ Keep all docs in sync with code
 - ✅ When unsure, ASK — never guess or assume
+- ✅ Use AskUserQuestion wizard — one question at a time, options + custom input
+- ✅ Source /server/about and /server/help content from IDEA.md
 - ✅ Implement features 100% complete — no stubs, no TODOs, no "future"
 - ✅ ONE thing at a time — finish current task completely before starting another
+- ✅ Return after cross-references — a "See PART X" jump never replaces the rest of the PART/section you were reading; read it, then continue from where you left off
 
 ## KEY DECISIONS (pre-answered)
 | Question | Answer | Reference |
@@ -44,7 +47,7 @@
 |------|---------|
 | server | Main binary `pastebin` — runs as service |
 | client | CLI binary `pastebin-cli` — REQUIRED |
-| Operator | Person who deploys and manages the server |
+| Operator | Person who deploys and manages the server via CLI and `server.yml` |
 
 ## COMPLIANCE CHECK
 Before completing ANY task:

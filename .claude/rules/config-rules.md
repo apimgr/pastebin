@@ -5,13 +5,13 @@
 ## Configuration (PART 5)
 - Config file: `server.yml` (NOT `.yaml`); auto-migrate if `.yaml` found
 - NEVER use `strconv.ParseBool()` — ALWAYS use `config.ParseBool()` / `config.IsTruthy()`
-- Accepts ~40 truthy/falsy strings: yes/no, true/false, 1/0, on/off, enable/disable, etc.
+- Accepts 46 truthy/falsy strings (23 each): yes/no, true/false, 1/0, on/off, enable/disable, etc.
 - NEVER load `.env` files — read env vars individually as overrides
 - Port: random unused 64000–64999 on first run, saved to config; dual format `"8090,8443"`
 - Port 80/443 triggers Let's Encrypt; first-run auto-select random 64xxx port
-- `Validate()` warns-and-defaults — NEVER fails startup
-- `EncryptionKey`: AES-256, auto-generated via `crypto/rand`, stored in config
-- Maintenance mode: response has `ok:false`, `error:"MAINTENANCE_MODE"`, `Retry-After` header
+- `validateConfig(cfg *Config)` warns-and-defaults — NEVER fails startup
+- `server.security.encryption_key`: 32 bytes AES-256-GCM, auto-generated on first run, stored in `server.yml`
+- Maintenance mode: response has `ok:false`, `error:"MAINTENANCE"`, `Retry-After` header
 
 ## Boolean Handling
 - `config.ParseBool()` — the ONLY boolean parser in this codebase
@@ -35,13 +35,13 @@
 | development | true | Dev + debug endpoints |
 
 - Mode priority: `--mode` flag → `MODE` env → default `production`
-- Debug priority: `--debug` flag → `DEBUG` env truthy → default `false`
+- Debug priority: `--debug` flag → `DEBUG` env truthy → `--mode debug`/`MODE=debug` alias → default `false`
 - Debug enables: `/debug/pprof/*`, `/debug/vars`, `/debug/config`, `/debug/routes`
-- Debug bypasses operator token auth (dev-only — NEVER in production tests)
+- Debug affects verbosity/diagnostics ONLY — operator token (`server.token`) auth is NEVER bypassed, in any mode
 - `src/mode/mode.go`: `SetAppMode()`, `SetDebugEnabled()`, `IsDebugEnabled()`, `FromEnv()`
 
 ## Server Configuration (PART 12)
-- Schema covers: limits, proxies, rate-limit, TLS, scheduler, headers, webhooks, contact roles
+- Schema covers: base URL, request limits, response compression, trusted proxies, Tor hidden service, rate-limit, i18n, contact roles + webhooks, analytics, privacy/consent, cache
 - All settings configurable via config file AND API
 - NEVER hardcode dev machine values — detect at runtime
 

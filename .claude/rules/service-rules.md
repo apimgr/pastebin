@@ -21,7 +21,7 @@
 - `Type=simple`
 - `RestartSec=5`
 - `Restart=on-failure` (NOT `Restart=always`)
-- Hardening directives: `NoNewPrivileges=yes`, `ProtectSystem=strict`, `PrivateTmp=yes`, etc.
+- Hardening directives: `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`, `ReadWritePaths=...` (config/data/cache/log dirs)
 
 ## Supported Service Managers (PART 24)
 | Platform | Service Manager |
@@ -29,6 +29,7 @@
 | Linux (systemd) | systemd unit |
 | Linux (SysV) | init.d script |
 | Linux (OpenRC) | OpenRC service |
+| Linux (runit) | runit service dir |
 | macOS | launchd plist |
 | Windows | Windows Service |
 | FreeBSD | rc.d script |

@@ -3,12 +3,16 @@
 ⚠️ **These rules are NON-NEGOTIABLE. Violations are bugs.** ⚠️
 
 ## Makefile is LOCAL DEV ONLY — NEVER used in CI/CD
+Six core targets. DO NOT ADD MORE.
+
 | Command | Purpose | Output |
 |---------|---------|--------|
 | `make dev` | Development build | `${TMPDIR}/${PROJECT_ORG}/${PROJECT_NAME}-XXXXXX/` |
 | `make local` | Production test build | `binaries/` (with version) |
 | `make build` | Full release build | `binaries/` (all 8 platforms) |
 | `make test` | Unit tests + coverage | Coverage report |
+| `make release` | Release with source archive (manual local only) | `releases/` |
+| `make docker` | Build and push container | `$REGISTRY` |
 
 - NEVER: `go build ...` locally (use `make dev`)
 - NEVER: `go test ...` locally (use `make test`)
@@ -35,7 +39,7 @@ GOARCH={arch}
   -X 'main.Version=${VERSION}' \
   -X 'main.CommitID=${COMMIT_ID}' \
   -X 'main.BuildDate=${BUILD_DATE}' \
-  -X 'main.OfficialSite=${OFFICIALSITE}'
+  -X 'main.OfficialSite=${OFFICIAL_SITE}'
 ```
 
 ---

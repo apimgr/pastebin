@@ -12,7 +12,7 @@
 ## Workflow Files Required
 | Provider | Location |
 |----------|---------|
-| GitHub | `.github/workflows/ci.yml`, `release.yml`, `daily.yml`, `beta.yml`, `docker.yml`, `security.yml` |
+| GitHub | `.github/workflows/ci.yml`, `release.yml`, `daily.yml`, `beta.yml`, `docker.yml` (security jobs live inside `ci.yml`, no separate `security.yml`) |
 | GitLab | `.gitlab-ci.yml` |
 | Gitea | `.gitea/workflows/ci.yml`, `release.yml`, `daily.yml`, `beta.yml`, `docker.yml` |
 | Forgejo | `.forgejo/workflows/ci.yml`, `release.yml` |
@@ -36,11 +36,13 @@
 | Action | SHA | Version |
 |--------|-----|---------|
 | `actions/checkout` | `9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` | v7.0.0 |
-| `actions/setup-go` | `924ae3a1cded613372ab5595356fb5720e22ba16` | v6.5.0 |
 | `actions/upload-artifact` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | v7.0.1 |
 | `actions/download-artifact` | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | v8.0.1 |
 | `softprops/action-gh-release` | `718ea10b132b3b2eba29c1007bb80653f286566b` | v3.0.1 |
-| `trufflesecurity/trufflehog` | `30d5bb91af1a771378349dbbb0c82129392acf70` | v3.95.6 |
+| `docker/setup-qemu-action` | `06116385d9baf250c9f4dcb4858b16962ea869c3` | v4.1.0 |
+| `docker/setup-buildx-action` | `d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5` | v4.1.0 |
+| `docker/login-action` | `650006c6eb7dba73a995cc03b0b2d7f5ca915bee` | v4.2.0 |
+| `docker/build-push-action` | `f9f3042f7e2789586610d6e8b85c8f03e5195baf` | v7.2.0 |
 
 ## Docker Image Tags
 - Any push → `devel`, `{commit}`

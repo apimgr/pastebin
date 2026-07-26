@@ -17,7 +17,7 @@
 - Valkey/Redis: local cache ONLY — not used for clustering
 
 ## Database (PART 10)
-- SQLite default: `{data_dir}/server.db`
+- SQLite default: `{data_dir}/db/server.db`
 - ALL queries MUST be parameterized with `?` — NEVER `fmt.Sprintf` into SQL
 - ZERO `SELECT *` — always name columns explicitly
 - Idempotent schema: `CREATE TABLE IF NOT EXISTS`, guarded `ALTER TABLE`

@@ -30,10 +30,11 @@
 
 ## LONG STRINGS (REQUIRED CSS)
 ```css
-.long-string, .ip-address, .onion-address, .api-token, .hash {
+.long-string, .ip-address, .onion-address, .api-token, .hash, .uuid, .monospace-data {
   word-break: break-all;
   overflow-wrap: break-word;
   font-family: monospace;
+  font-size: 0.875rem;
 }
 ```
 Apply to: IPv6, Tor .onion, API tokens, hashes, UUIDs, Base64
@@ -44,6 +45,7 @@ Apply to: IPv6, Tor .onion, API tokens, hashes, UUIDs, Base64
 | Mobile (base) | No media query |
 | Tablet+ | `@media (min-width: 768px)` |
 | Desktop+ | `@media (min-width: 1024px)` |
+| Large desktop (optional) | `@media (min-width: 1280px)` |
 
 ## SERVER VS CLIENT
 | Task | Where | Why |
@@ -67,9 +69,11 @@ Apply to: IPv6, Tor .onion, API tokens, hashes, UUIDs, Base64
 
 ## THEME SYSTEM
 - CSS custom properties only — NEVER hardcode colors
-- Dark mode default; user preference via `prefers-color-scheme` + JS toggle
-- Dracula-inspired palette: `--bg: #1e1e2e`, `--fg: #cdd6f4`, `--accent: #89b4fa`
-- `data-theme="dark|light"` on `<html>`; persisted in `localStorage`
+- Applies project-wide: web, Swagger, GraphiQL, CLI, TUI, GUI — colors defined once in `src/common/theme/colors.go`
+- Dark mode default; three themes: dark, light, auto (`auto` follows `prefers-color-scheme`, no detection JS)
+- Palette (dark): `Background #1a1b26`, `Foreground #c0caf5`, `Primary #7aa2f7`, `Accent #bb9af7`
+- Palette (light): `Background #ffffff`, `Foreground #1a1b26`, `Primary #2e7de9`, `Accent #7847bd`
+- `theme-light` / `theme-dark` / `theme-auto` class on `<html>`; persisted in the `theme` cookie (server-readable, no FOUC, no init JS) — NEVER localStorage
 
 ---
 For complete details, see AI.md PART 16

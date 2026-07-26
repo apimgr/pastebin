@@ -39,13 +39,13 @@ releases/          # Release artifacts (gitignored)
 |---------|--------|------|------|
 | Root/system | `/etc/apimgr/pastebin/server.yml` | `/var/lib/apimgr/pastebin/` | `/var/log/apimgr/pastebin/` |
 | User | `~/.config/apimgr/pastebin/server.yml` | `~/.local/share/apimgr/pastebin/` | `~/.local/log/apimgr/pastebin/` |
-| Docker | `/config/pastebin/server.yml` | `/data/pastebin/` | `/data/pastebin/logs/` |
+| Docker | `/config/pastebin/server.yml` | `/data/pastebin/` | `/data/log/pastebin/` |
 | macOS | `~/Library/Application Support/apimgr/pastebin/` | same | `~/Library/Logs/apimgr/pastebin/` |
 | Windows | `%APPDATA%\apimgr\pastebin\` | `%LOCALAPPDATA%\apimgr\pastebin\` | `%LOCALAPPDATA%\apimgr\pastebin\logs\` |
 
-- DB file: `{data_dir}/server.db`
-- Cache: `{data_dir}/cache/`
-- Backup: `{data_dir}/backup/`
+- DB file: `{data_dir}/db/server.db`
+- Cache: `{cache_dir}` (separate dir, NOT under data_dir — e.g. `/var/cache/...` root, `~/.cache/...` user)
+- Backup: `{data_dir}/backup/` (fallback only; prefers `/mnt/Backups/{internal_org}/{internal_name}/` if writable)
 - Temp: `/tmp/apimgr/pastebin-XXXXXX/`
 
 ---
