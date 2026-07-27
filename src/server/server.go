@@ -693,6 +693,12 @@ const userTimeLayout = "January 2, 2006 at 15:04:05 MST"
 // wall-clock time (e.g. a compact "recent pastes" list).
 const userDateLayout = "January 2, 2006"
 
+// ownerTokenCookieName is the project-unique browser storage name for the
+// resource-owner token cookie (and, in app.js, the matching localStorage key).
+// Per AI.md PART 11 "Naming": both MUST share this exact {project_name}_owner_token_XXXXXX
+// name — fixed suffix recorded in IDEA.md (`owner_token: pastebin_owner_token_rU3uW5Ze`).
+const ownerTokenCookieName = "pastebin_owner_token_rU3uW5Ze"
+
 // fmtUserTime renders t in the canonical user-facing timestamp format in the
 // server's local timezone. The zero time renders as an empty string so callers
 // can omit unset timestamps without a template guard.
@@ -2787,7 +2793,7 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     "owner_token",
+		Name:     ownerTokenCookieName,
 		Value:    resp.OwnerToken,
 		Path:     "/",
 		MaxAge:   maxAge,
@@ -3107,7 +3113,7 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 	// API routes (/api/...) never reach this handler, so this is always a
 	// browser-context form POST — cookie use is safe here.
 	if token == "" {
-		if c, err := r.Cookie("owner_token"); err == nil && c.Value != "" {
+		if c, err := r.Cookie(ownerTokenCookieName); err == nil && c.Value != "" {
 			token = c.Value
 		}
 	}

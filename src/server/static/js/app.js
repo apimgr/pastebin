@@ -762,7 +762,9 @@ async function fetchAPI(endpoint, options) {
 // Progressive enhancement only — the form works as a plain POST without any
 // of this. These handlers add convenience for JS-capable browsers.
 (function () {
-    const TOKEN_KEY = 'pastebin_owner_token';
+    // Canonical browser-storage name shared with the owner_token cookie
+    // (AI.md PART 11 "Naming"; suffix recorded in IDEA.md).
+    const TOKEN_KEY = 'pastebin_owner_token_rU3uW5Ze';
 
     // Persist a freshly issued owner token (rendered server-side after a
     // successful create) so the next paste can reuse it.
@@ -814,14 +816,14 @@ async function fetchAPI(endpoint, options) {
 // Pastebin — Remove page enhancements
 // Progressive enhancement only — the form works as a plain POST without
 // this. Pre-fill the delete-token field from the owner token saved at
-// creation time (canonical localStorage key: pastebin_owner_token, per
-// IDEA.md and AI.md:11799).
+// creation time (canonical localStorage key: pastebin_owner_token_rU3uW5Ze,
+// shared with the owner_token cookie name, per IDEA.md and AI.md:11801).
 // If the page is showing an error, the saved token was invalid — clear it
 // so the user is not silently retrying with a bad token on the next attempt.
 // The error state is passed via the data-token-error attribute (server-
 // rendered, no inline JS needed to read it).
 (function () {
-    const TOKEN_KEY = 'pastebin_owner_token';
+    const TOKEN_KEY = 'pastebin_owner_token_rU3uW5Ze';
     const tokenField = document.getElementById('token');
     if (!tokenField) return;
 

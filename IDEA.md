@@ -18,6 +18,7 @@ maintainer_name: apimgr
 maintainer_email: git-admin@casjaysdev.pro
 api_version: v1
 coverage_minimum: 80
+owner_token: pastebin_owner_token_rU3uW5Ze
 
 ## Business logic
 
@@ -31,7 +32,7 @@ coverage_minimum: 80
 - Burn after N reads: paste is permanently deleted once its view count reaches a user-set threshold (1–9999); `0` = disabled
 - Visibility: public (listed in recent pastes) or unlisted (URL-only, not listed)
 - Owner token: a `tok_`-prefixed cryptographically random token returned in every API create response; reusable across pastes created by the same caller; stored as a SHA-256 hash; required to delete the paste before natural expiry
-- Token reuse: callers may supply an existing owner token on paste creation to link the new paste to that token; the web UI saves the token to `localStorage` key `pastebin_owner_token` and pre-fills it on subsequent creates
+- Token reuse: callers may supply an existing owner token on paste creation to link the new paste to that token; the web UI saves the token to the `pastebin_owner_token_rU3uW5Ze` cookie (HttpOnly, primary) and, as a JS convenience copy, to `localStorage` under the same key; the create form is pre-filled by JS only, never load-bearing
 - Raw paste view, file download, iframe-embeddable view at `/emb/{id}` with copy-ready HTML and Markdown embed snippets on the paste view page, QR code page at `/qr/{id}` and PNG image at `/qr/{id}/image`
 - View count tracking; automatic background cleanup of expired and burned pastes
 - Full web frontend (server-side Go templates, dark/light/auto theme, PWA, mobile-first)
