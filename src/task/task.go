@@ -709,12 +709,13 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 // simply logs and never errors.
 // UpdateCheck returns a task that checks for a newer release on the configured
 // channel (PART 18/22, daily at 06:00, skippable). When autoInstall is false
-// the task only logs and fires an update_available email (off by default). When
-// autoInstall is true and an eligible release exists, the full --update yes flow
-// runs. deferDays delays eligibility: a release must be at least that many days
-// old before the task acts on it. A nil mailer or empty operatorEmail silently
-// skips email.
-func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool, deferDays int, mailer Mailer) func() error {
+// the task only logs and, if notifyAvailable is true, fires an update_available
+// email. When autoInstall is true and an eligible release exists, the full
+// --update yes flow runs; on success, if notifyInstalled is true, an
+// update_installed email is sent before the process restarts. deferDays delays
+// eligibility: a release must be at least that many days old before the task
+// acts on it. A nil mailer or empty operatorEmail silently skips email.
+func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool, deferDays int, notifyAvailable, notifyInstalled bool, mailer Mailer) func() error {
 	return func() error {
 		if branch == "" {
 			branch = "stable"
@@ -738,15 +739,7 @@ func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool,
 			}
 		}
 		log.Printf("update_check: update available %s → %s (branch %s)", currentVersion, rel.TagName, branch)
-		if mailer != nil && mailer.Enabled() && operatorEmail != "" {
-			if sendErr := mailer.Send(operatorEmail, "update_available", map[string]string{
-				"CurrentVersion": currentVersion,
-				"NewVersion":     rel.TagName,
-				"Branch":         branch,
-			}); sendErr != nil {
-				log.Printf("update_check: email notify failed: %v", sendErr)
-			}
-		}
+		updateSendAvailable(mailer, operatorEmail, notifyAvailable, currentVersion, rel.TagName, branch)
 		if !autoInstall {
 			return nil
 		}
@@ -757,10 +750,41 @@ func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool,
 			return fmt.Errorf("update_check: auto-install failed: %w", err)
 		}
 		log.Printf("update_check: installed %s — restarting", rel.TagName)
+		updateSendInstalled(mailer, operatorEmail, notifyInstalled, currentVersion, rel.TagName, branch)
 		if restartErr := updater.RestartSelf(); restartErr != nil {
 			return fmt.Errorf("update_check: restart failed: %w", restartErr)
 		}
 		return nil
+	}
+}
+
+// updateSendAvailable sends an update_available email when notify is true and
+// the Mailer, OperatorEmail preconditions are met (PART 17/18).
+func updateSendAvailable(mailer Mailer, operatorEmail string, notify bool, currentVersion, newVersion, branch string) {
+	if !notify || mailer == nil || !mailer.Enabled() || operatorEmail == "" {
+		return
+	}
+	if err := mailer.Send(operatorEmail, "update_available", map[string]string{
+		"current_version": currentVersion,
+		"new_version":     newVersion,
+		"branch":          branch,
+	}); err != nil {
+		log.Printf("update_check: failed to send update_available email: %v", err)
+	}
+}
+
+// updateSendInstalled sends an update_installed email when notify is true and
+// the Mailer, OperatorEmail preconditions are met (PART 17/18).
+func updateSendInstalled(mailer Mailer, operatorEmail string, notify bool, currentVersion, newVersion, branch string) {
+	if !notify || mailer == nil || !mailer.Enabled() || operatorEmail == "" {
+		return
+	}
+	if err := mailer.Send(operatorEmail, "update_installed", map[string]string{
+		"current_version": currentVersion,
+		"new_version":     newVersion,
+		"branch":          branch,
+	}); err != nil {
+		log.Printf("update_check: failed to send update_installed email: %v", err)
 	}
 }
 

@@ -88,6 +88,116 @@ func TestBackupSendFailed_NilMailer(t *testing.T) {
 	}, "f.tar.gz", "err")
 }
 
+// ─── updateSendAvailable ────────────────────────────────────────────────────
+
+// TestUpdateSendAvailable_Sends verifies the function sends an
+// update_available email with snake_case vars when notify, Mailer, and
+// operatorEmail preconditions are met.
+func TestUpdateSendAvailable_Sends(t *testing.T) {
+	m := &mockMailer{enabled: true}
+	updateSendAvailable(m, "admin@example.com", true, "1.2.3", "1.3.0", "stable")
+	if len(m.calls) != 1 {
+		t.Fatalf("expected 1 email call, got %d", len(m.calls))
+	}
+	if m.calls[0].template != "update_available" {
+		t.Errorf("template: got %q, want update_available", m.calls[0].template)
+	}
+	if m.calls[0].vars["current_version"] != "1.2.3" {
+		t.Errorf("current_version var: got %q", m.calls[0].vars["current_version"])
+	}
+	if m.calls[0].vars["new_version"] != "1.3.0" {
+		t.Errorf("new_version var: got %q", m.calls[0].vars["new_version"])
+	}
+	if m.calls[0].vars["branch"] != "stable" {
+		t.Errorf("branch var: got %q", m.calls[0].vars["branch"])
+	}
+}
+
+// TestUpdateSendAvailable_NotifyFalse verifies no email is sent when notify
+// is false, even with a valid Mailer and operatorEmail.
+func TestUpdateSendAvailable_NotifyFalse(t *testing.T) {
+	m := &mockMailer{enabled: true}
+	updateSendAvailable(m, "admin@example.com", false, "1.2.3", "1.3.0", "stable")
+	if len(m.calls) != 0 {
+		t.Errorf("expected no email when notify=false, got %d", len(m.calls))
+	}
+}
+
+// TestUpdateSendAvailable_MailerDisabled verifies no email is sent when the
+// Mailer reports itself disabled.
+func TestUpdateSendAvailable_MailerDisabled(t *testing.T) {
+	m := &mockMailer{enabled: false}
+	updateSendAvailable(m, "admin@example.com", true, "1.2.3", "1.3.0", "stable")
+	if len(m.calls) != 0 {
+		t.Errorf("expected no email when Mailer disabled, got %d", len(m.calls))
+	}
+}
+
+// TestUpdateSendAvailable_NoOperatorEmail verifies no email is sent when
+// operatorEmail is empty.
+func TestUpdateSendAvailable_NoOperatorEmail(t *testing.T) {
+	m := &mockMailer{enabled: true}
+	updateSendAvailable(m, "", true, "1.2.3", "1.3.0", "stable")
+	if len(m.calls) != 0 {
+		t.Errorf("expected no email when operatorEmail empty, got %d", len(m.calls))
+	}
+}
+
+// TestUpdateSendAvailable_NilMailer verifies no panic when Mailer is nil.
+func TestUpdateSendAvailable_NilMailer(t *testing.T) {
+	updateSendAvailable(nil, "admin@example.com", true, "1.2.3", "1.3.0", "stable")
+}
+
+// ─── updateSendInstalled ────────────────────────────────────────────────────
+
+// TestUpdateSendInstalled_Sends verifies the function sends an
+// update_installed email with snake_case vars when notify, Mailer, and
+// operatorEmail preconditions are met.
+func TestUpdateSendInstalled_Sends(t *testing.T) {
+	m := &mockMailer{enabled: true}
+	updateSendInstalled(m, "admin@example.com", true, "1.2.3", "1.3.0", "beta")
+	if len(m.calls) != 1 {
+		t.Fatalf("expected 1 email call, got %d", len(m.calls))
+	}
+	if m.calls[0].template != "update_installed" {
+		t.Errorf("template: got %q, want update_installed", m.calls[0].template)
+	}
+	if m.calls[0].vars["current_version"] != "1.2.3" {
+		t.Errorf("current_version var: got %q", m.calls[0].vars["current_version"])
+	}
+	if m.calls[0].vars["new_version"] != "1.3.0" {
+		t.Errorf("new_version var: got %q", m.calls[0].vars["new_version"])
+	}
+	if m.calls[0].vars["branch"] != "beta" {
+		t.Errorf("branch var: got %q", m.calls[0].vars["branch"])
+	}
+}
+
+// TestUpdateSendInstalled_NotifyFalse verifies no email is sent when notify
+// is false, even with a valid Mailer and operatorEmail.
+func TestUpdateSendInstalled_NotifyFalse(t *testing.T) {
+	m := &mockMailer{enabled: true}
+	updateSendInstalled(m, "admin@example.com", false, "1.2.3", "1.3.0", "stable")
+	if len(m.calls) != 0 {
+		t.Errorf("expected no email when notify=false, got %d", len(m.calls))
+	}
+}
+
+// TestUpdateSendInstalled_SendErr verifies the send error is swallowed (only
+// logged) so the caller can continue toward RestartSelf.
+func TestUpdateSendInstalled_SendErr(t *testing.T) {
+	m := &mockMailer{enabled: true, sendErr: errors.New("smtp down")}
+	updateSendInstalled(m, "admin@example.com", true, "1.2.3", "1.3.0", "stable")
+	if len(m.calls) != 1 {
+		t.Fatalf("expected 1 email call attempt, got %d", len(m.calls))
+	}
+}
+
+// TestUpdateSendInstalled_NilMailer verifies no panic when Mailer is nil.
+func TestUpdateSendInstalled_NilMailer(t *testing.T) {
+	updateSendInstalled(nil, "admin@example.com", true, "1.2.3", "1.3.0", "stable")
+}
+
 // TestBackupSendFailed_MailerDisabled verifies no email when Enabled() returns false.
 func TestBackupSendFailed_MailerDisabled(t *testing.T) {
 	m := &mockMailer{enabled: false}

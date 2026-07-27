@@ -7,18 +7,31 @@ Flagged remain — they are design decisions that require operator input and
 were intentionally NOT auto-changed.
 
 ## Flagged (design decisions — NOT auto-fixed)
-- task/task.go: the `update_available` scheduler email is dead — PART 17
-  defines exactly 8 email templates and does not include `update_available`,
-  and the call passes CamelCase keys (`CurrentVersion`, `NewVersion`,
-  `Branch`) that never substitute against the snake_case renderer. Either
-  drop the notification or add a spec'd template + snake_case keys. Needs a
-  spec decision (adding a 9th template deviates from PART 17).
-- cache Get/Set/Delete appear unused (PART 9 design question — keep as public
-  API surface or wire in / remove).
 - security.yml vs ci.yml consolidation (risky CI restructure, needs `act`
   verification before touching).
 - ~9 dead exported symbols (low-value churn; leave unless a cleanup pass is
   explicitly requested).
+- src/main.go lines 64-188: hand-rolled CLI argument parsing (for-loop +
+  switch, with a `normalizeArgs()` helper for `=`-form flags) instead of
+  `flag`/`pflag`/`cobra` — flagged by go-lint. Functionally correct (all
+  required flags/forms work) but violates the "never hand-roll" convention.
+  Out of scope for the email-notification/cache work in this commit; needs a
+  deliberate refactor pass since it touches every CLI flag in PART 8.
+- cache Get/Set/Delete appeared unused. Operator decision: keep `Delete` per
+  AI.md/IDEA.md. Not yet wired — implementation has not started; separate
+  follow-up commit.
+
+## Resolved (operator decisions)
+- task/task.go: the `update_available` scheduler email was dead — PART 17
+  defined only 8 email templates and the call used CamelCase keys that never
+  substituted against the snake_case renderer. Operator decision: PART 17 now
+  documents 10 templates; added `update_available`/`update_installed` embedded
+  templates, fixed the key casing to snake_case, added config-gated
+  `notifyAvailable`/`notifyInstalled` toggles wired from
+  `server.notifications.email.events.{update_available,update_installed}`,
+  and added an `update_installed` send before `RestartSelf()`. Unit tests
+  added in task/task_email_test.go via extracted `updateSendAvailable`/
+  `updateSendInstalled` helpers.
 
 ## Completed
 - config/config.go: Save() now writes server.yml atomically (temp + fsync +

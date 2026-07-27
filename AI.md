@@ -26514,6 +26514,8 @@ server:
 | `ssl_renewed` | Certificate renewed successfully | ✗ |
 | `ssl_renewal_failed` | Certificate renewal failure | ✗ |
 | `scheduler_error` | Scheduled task failed | ✗ |
+| `update_available` | New version available | ✗ |
+| `update_installed` | Update installed, restarting | ✗ |
 | `test` | Test email | ✗ |
 
 ## Sane Defaults
@@ -26529,6 +26531,8 @@ server:
 | `ssl_renewed` | `SSL Certificate Renewed - {app_name}` | Confirmation of renewal |
 | `ssl_renewal_failed` | `SSL Renewal Failed - {app_name}` | Includes domain, error, days until expiry, next retry |
 | `scheduler_error` | `Scheduled Task Failed - {app_name}` | Includes task name and error |
+| `update_available` | `Update Available - {app_name}` | Includes current version, new version, branch |
+| `update_installed` | `Update Installed - {app_name}` | Includes previous version, new version, branch |
 | `test` | `Test Email - {app_name}` | Simple test message |
 
 **Default Sender:**
@@ -26708,6 +26712,13 @@ Next run: {next_run}
 | `{next_run}` | Next scheduled run |
 
 **Suppression:** `scheduler_error` fires only for tasks that have no dedicated failure event of their own. It is suppressed when a subsystem emits a more specific failure notification for the same execution: `backup_failed` suppresses it for backup tasks; `ssl_renewal_failed` suppresses it for SSL renewal tasks. Tasks with no dedicated failure event (`token_cleanup`, `log_rotation`, `update_check`) still fire `scheduler_error` normally.
+
+### update_available / update_installed
+| Variable | Description |
+|----------|-------------|
+| `{current_version}` | Version currently running (previous version, for `update_installed`) |
+| `{new_version}` | Version detected as available / just installed |
+| `{branch}` | Update channel (`stable`, `beta`, `daily`) |
 
 ## Email Template Configuration
 

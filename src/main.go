@@ -1083,7 +1083,8 @@ Examples:
 	// Daily update check (PART 18/22): runs at 06:00, notify-only by default;
 	// auto-installs when server.update.auto_install is true (default false).
 	logSchedErr(sched.Register("update_check", "Update Check", "0 6 * * *", true,
-		task.UpdateCheck(Version, cfg.Server.Update.Branch, taskOperatorEmail, cfg.Server.Update.AutoInstall, cfg.Server.Update.DeferDays, taskMailer)))
+		task.UpdateCheck(Version, cfg.Server.Update.Branch, taskOperatorEmail, cfg.Server.Update.AutoInstall, cfg.Server.Update.DeferDays,
+			cfg.Server.Notifications.Email.Events.UpdateAvailable, cfg.Server.Notifications.Email.Events.UpdateInstalled, taskMailer)))
 
 	// Retry policy (PART 18). Network-dependent tasks retry on failure by
 	// default with a 1h base delay; operators override per task in server.yml.

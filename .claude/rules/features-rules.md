@@ -5,8 +5,8 @@
 ## Email & Notifications (PART 17)
 - SMTP loaded from `server.yml`; silent disable when unconfigured
 - 7 env var overrides: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_TLS`, `SMTP_FROM_NAME`, `SMTP_FROM_EMAIL`
-- 8 required email templates (file-based, embedded English default subjects + `{variable}` substitution):
-  - `security_alert`, `backup_complete`, `backup_failed`, `ssl_expiring`, `ssl_renewed`, `ssl_renewal_failed`, `scheduler_error`, `test`
+- 10 required email templates (file-based, embedded English default subjects + `{variable}` substitution):
+  - `security_alert`, `backup_complete`, `backup_failed`, `ssl_expiring`, `ssl_renewed`, `ssl_renewal_failed`, `scheduler_error`, `update_available`, `update_installed`, `test`
 - NEVER use i18n keys for email subjects — use embedded English templates
 
 ## Built-in Scheduler (PART 18)
