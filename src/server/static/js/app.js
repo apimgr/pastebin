@@ -809,6 +809,31 @@ async function fetchAPI(endpoint, options) {
         });
         content.focus();
     }
+
+    // Clear local token copies — keeps UI preferences (theme, lang) intact.
+    // Per AI.md "API Token Storage in PWA": the owner_token cookie is
+    // HttpOnly and expires via its own Max-Age; this only clears the
+    // optional localStorage convenience copy and any cached
+    // private/token-scoped IndexedDB data.
+    async function revokeLocalToken() {
+        localStorage.removeItem(TOKEN_KEY);
+
+        if (window.indexedDB && indexedDB.databases) {
+            const databases = await indexedDB.databases();
+            for (const db of databases) {
+                if (db.name && (db.name.includes('private') || db.name.includes('token'))) {
+                    indexedDB.deleteDatabase(db.name);
+                }
+            }
+        }
+
+        window.location.reload();
+    }
+
+    const forgetTokenBtn = document.querySelector('[data-action="forget-token"]');
+    if (forgetTokenBtn) {
+        forgetTokenBtn.addEventListener('click', revokeLocalToken);
+    }
 })();
 
 // ─── Remove page enhancements (merged from remove.js) ─────────────────────────
