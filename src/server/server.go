@@ -1862,7 +1862,15 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 				if splitErr != nil {
 					clientHost = r.RemoteAddr
 				}
-				log.Printf("security.csrf_failure ip=%s endpoint=%s reason=%q", clientHost, r.URL.Path, reason)
+				s.securityLog("security.csrf_failure",
+					"ip", clientHost, "endpoint", r.URL.Path, "reason", reason)
+				s.auditLog(r, audit.Entry{
+					Event:    "security.csrf_failure",
+					Severity: audit.SeverityWarn,
+					Result:   audit.ResultFailure,
+					Target:   &audit.Target{Type: "endpoint", ID: r.URL.Path},
+					Reason:   reason,
+				})
 				writeJSON(w, http.StatusForbidden, map[string]interface{}{
 					"ok":      false,
 					"error":   "CSRF_FAILED",

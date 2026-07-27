@@ -146,6 +146,102 @@ func auditBackupComplianceBlocked(cfg BackupConfig, reason string) {
 	})
 }
 
+// auditBackupCreated records the backup.created audit event once a backup
+// archive has been written and verified (AI.md PART 11 audit-events table).
+func auditBackupCreated(cfg BackupConfig, filename string, sizeBytes int64, encrypted bool) {
+	if cfg.Audit == nil {
+		return
+	}
+	cfg.Audit.Log(audit.Entry{
+		Event:    "backup.created",
+		Severity: audit.SeverityInfo,
+		Result:   audit.ResultSuccess,
+		Target:   &audit.Target{Type: "backup_file", ID: filename},
+		Details: map[string]any{
+			"filename":            filename,
+			"size_bytes":          sizeBytes,
+			"encrypted":           encrypted,
+			"verification_status": "passed",
+		},
+	})
+}
+
+// auditBackupFailed records the backup.failed audit event when a backup
+// archive could not be created.
+func auditBackupFailed(cfg BackupConfig, filename, errMsg string) {
+	if cfg.Audit == nil {
+		return
+	}
+	cfg.Audit.Log(audit.Entry{
+		Event:    "backup.failed",
+		Severity: audit.SeverityError,
+		Result:   audit.ResultFailure,
+		Target:   &audit.Target{Type: "backup_file", ID: filename},
+		Reason:   errMsg,
+		Details: map[string]any{
+			"filename": filename,
+			"error":    errMsg,
+		},
+	})
+}
+
+// auditBackupVerificationFailed records the backup.verification_failed audit
+// event when a written backup archive fails post-write verification. This is
+// distinct from backup.failed (create-step failure) per the AI.md PART 11
+// audit-events table.
+func auditBackupVerificationFailed(cfg BackupConfig, filename, check string) {
+	if cfg.Audit == nil {
+		return
+	}
+	cfg.Audit.Log(audit.Entry{
+		Event:    "backup.verification_failed",
+		Severity: audit.SeverityError,
+		Result:   audit.ResultFailure,
+		Target:   &audit.Target{Type: "backup_file", ID: filename},
+		Reason:   check,
+		Details: map[string]any{
+			"filename": filename,
+			"check":    check,
+		},
+	})
+}
+
+// auditBackupDailyUpdated records the backup.daily_updated audit event once
+// the rolling daily incremental has been replaced.
+func auditBackupDailyUpdated(cfg BackupConfig, filename string) {
+	if cfg.Audit == nil {
+		return
+	}
+	cfg.Audit.Log(audit.Entry{
+		Event:    "backup.daily_updated",
+		Severity: audit.SeverityInfo,
+		Result:   audit.ResultSuccess,
+		Target:   &audit.Target{Type: "backup_file", ID: filename},
+		Details: map[string]any{
+			"filename": filename,
+		},
+	})
+}
+
+// auditBackupRetentionCleanup records the backup.retention_cleanup audit
+// event when a retention pass removes one or more old backups.
+func auditBackupRetentionCleanup(cfg BackupConfig, deleted []string, reason string, remaining int) {
+	if cfg.Audit == nil || len(deleted) == 0 {
+		return
+	}
+	cfg.Audit.Log(audit.Entry{
+		Event:    "backup.retention_cleanup",
+		Severity: audit.SeverityInfo,
+		Result:   audit.ResultSuccess,
+		Target:   &audit.Target{Type: "backup_dir", ID: cfg.BackupDir},
+		Reason:   reason,
+		Details: map[string]any{
+			"deleted_files": deleted,
+			"remaining":     remaining,
+		},
+	})
+}
+
 // sizeUnits maps size suffixes to binary multipliers; longer suffixes are
 // listed first so "mb" is matched before "b".
 var sizeUnits = []struct {
@@ -231,14 +327,15 @@ func resolveSizeCap(dir, setting string) int64 {
 // total size fits under capBytes (PART 21 step 8: the size cap overrides all
 // count limits). The newest dated backup and the rolling incrementals are
 // never deleted; if the set is still over the cap a warning is logged.
-func applySizeCap(dir, project string, capBytes int64) {
+// Returns the filenames actually deleted, for audit accounting.
+func applySizeCap(dir, project string, capBytes int64) []string {
 	if capBytes <= 0 {
-		return
+		return nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		log.Printf("backup: retention: size cap read dir: %v", err)
-		return
+		return nil
 	}
 	type backupFile struct {
 		name string
@@ -266,6 +363,7 @@ func applySizeCap(dir, project string, capBytes int64) {
 	// Oldest first, so deletion walks from the oldest toward the newest.
 	sort.Slice(files, func(i, j int) bool { return files[i].date < files[j].date })
 
+	var deleted []string
 	for i := 0; total > capBytes && i < len(files)-1; i++ {
 		p := filepath.Join(dir, files[i].name)
 		if err := os.Remove(p); err != nil {
@@ -273,9 +371,11 @@ func applySizeCap(dir, project string, capBytes int64) {
 			continue
 		}
 		total -= files[i].size
+		deleted = append(deleted, files[i].name)
 		log.Printf("backup: retention: size cap removed %s (%d B)", files[i].name, files[i].size)
 	}
 	if total > capBytes {
 		log.Printf("backup: retention: warning: backups still exceed max_total_size (%d B > %d B) after pruning", total, capBytes)
 	}
+	return deleted
 }

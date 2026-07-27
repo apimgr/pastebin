@@ -292,7 +292,7 @@ func TestApplyRetention_RemoveFailsGracefully(t *testing.T) {
 	}
 	defer os.Chmod(dir, 0o750)
 	// applyRetention logs the error and returns nil even if removes fail.
-	err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 1})
+	err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{MaxBackups: 1}})
 	if err != nil {
 		t.Errorf("applyRetention should return nil even when remove fails, got: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestApplyRetention_ZeroMaxBackupsKeepsNone(t *testing.T) {
 	if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 0}); err != nil {
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{MaxBackups: 0}}); err != nil {
 		t.Fatalf("applyRetention with MaxBackups=0: %v", err)
 	}
 	// With MaxBackups=0, all daily backups are pruned.
@@ -331,7 +331,7 @@ func TestApplyRetention_NonMatchingFilesIgnored(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 1}); err != nil {
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{MaxBackups: 1}}); err != nil {
 		t.Fatalf("applyRetention: %v", err)
 	}
 	for _, name := range []string{"pastebin-daily.tar.gz", "pastebin-hourly.tar.gz", "README.txt"} {

@@ -27,7 +27,7 @@ func TestApplyRetention_KeepsMaxBackups(t *testing.T) {
 	}
 
 	// Keep only 2 most recent.
-	if err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 2}); err != nil {
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{MaxBackups: 2}}); err != nil {
 		t.Fatalf("applyRetention error: %v", err)
 	}
 
@@ -54,10 +54,10 @@ func TestApplyRetention_KeepsWeekly(t *testing.T) {
 
 	// MaxBackups=1 would keep only the newest daily (Mon 01-06).
 	// KeepWeekly=1 also retains the Sunday (01-05).
-	if err := applyRetention(dir, "pastebin", BackupRetention{
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{
 		MaxBackups: 1,
 		KeepWeekly: 1,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("applyRetention error: %v", err)
 	}
 
@@ -85,10 +85,10 @@ func TestApplyRetention_YearlyKept(t *testing.T) {
 	}
 
 	// MaxBackups=1 keeps newest daily (jan2). KeepYearly=1 keeps jan1 as yearly.
-	if err := applyRetention(dir, "pastebin", BackupRetention{
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{
 		MaxBackups: 1,
 		KeepYearly: 1,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("applyRetention error: %v", err)
 	}
 
@@ -103,13 +103,13 @@ func TestApplyRetention_YearlyKept(t *testing.T) {
 
 func TestApplyRetention_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	if err := applyRetention(dir, "pastebin", BackupRetention{MaxBackups: 3}); err != nil {
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{MaxBackups: 3}}); err != nil {
 		t.Fatalf("unexpected error on empty dir: %v", err)
 	}
 }
 
 func TestApplyRetention_InvalidDir(t *testing.T) {
-	err := applyRetention("/nonexistent/path/xxx", "pastebin", BackupRetention{MaxBackups: 3})
+	err := applyRetention(BackupConfig{BackupDir: "/nonexistent/path/xxx", ProjectName: "pastebin", Retention: BackupRetention{MaxBackups: 3}})
 	if err == nil {
 		t.Error("expected error for nonexistent dir, got nil")
 	}
@@ -130,10 +130,10 @@ func TestApplyRetention_KeepsMonthly(t *testing.T) {
 	}
 
 	// MaxBackups=1 keeps newest daily (Feb 2). KeepMonthly=1 also retains Feb 1st.
-	if err := applyRetention(dir, "pastebin", BackupRetention{
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{
 		MaxBackups:  1,
 		KeepMonthly: 1,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("applyRetention error: %v", err)
 	}
 
@@ -168,12 +168,12 @@ func TestApplyRetention_ExceedsAllTiers(t *testing.T) {
 		}
 	}
 
-	if err := applyRetention(dir, "pastebin", BackupRetention{
+	if err := applyRetention(BackupConfig{BackupDir: dir, ProjectName: "pastebin", Retention: BackupRetention{
 		MaxBackups:  1,
 		KeepWeekly:  1,
 		KeepMonthly: 1,
 		KeepYearly:  1,
-	}); err != nil {
+	}}); err != nil {
 		t.Fatalf("applyRetention error: %v", err)
 	}
 

@@ -410,6 +410,7 @@ func BackupDaily(cfg BackupConfig) func() error {
 		}); err != nil {
 			os.Remove(fullPath)
 			backupSendFailed(cfg, fullName, err.Error())
+			auditBackupFailed(cfg, fullName, err.Error())
 			return fmt.Errorf("backup_daily: create full backup: %w", err)
 		}
 
@@ -417,16 +418,20 @@ func BackupDaily(cfg BackupConfig) func() error {
 		if err := maintenance.VerifyBackup(fullPath, cfg.Password); err != nil {
 			os.Remove(fullPath)
 			backupSendFailed(cfg, fullName, err.Error())
+			auditBackupVerificationFailed(cfg, fullName, err.Error())
 			return fmt.Errorf("backup_daily: verification failed for %s: %w", fullName, err)
 		}
 
 		info, _ := os.Stat(fullPath)
 		sizeKB := int64(0)
+		sizeBytes := int64(0)
 		if info != nil {
-			sizeKB = info.Size() / 1024
+			sizeBytes = info.Size()
+			sizeKB = sizeBytes / 1024
 		}
 		log.Printf("backup_daily: full backup verified: %s (%d KB)", fullName, sizeKB)
 		backupSendComplete(cfg, fullName, fmt.Sprintf("%d KB", sizeKB))
+		auditBackupCreated(cfg, fullName, sizeBytes, cfg.Password != "")
 
 		// Step 3: create/replace the daily incremental.
 		dailyName := fmt.Sprintf("%s-daily%s", cfg.ProjectName, ext)
@@ -456,12 +461,13 @@ func BackupDaily(cfg BackupConfig) func() error {
 					log.Printf("backup_daily: daily incremental rename warning: %v", err)
 				} else {
 					log.Printf("backup_daily: daily incremental updated: %s", dailyName)
+					auditBackupDailyUpdated(cfg, dailyName)
 				}
 			}
 		}
 
 		// Step 5: apply retention policy.
-		if err := applyRetention(cfg.BackupDir, cfg.ProjectName, cfg.Retention); err != nil {
+		if err := applyRetention(cfg); err != nil {
 			log.Printf("backup_daily: retention warning: %v", err)
 		}
 
@@ -507,22 +513,31 @@ func BackupHourly(cfg BackupConfig) func() error {
 		}); err != nil {
 			os.Remove(tmpPath)
 			backupSendFailed(cfg, hourlyName, err.Error())
+			auditBackupFailed(cfg, hourlyName, err.Error())
 			return fmt.Errorf("backup_hourly: create archive: %w", err)
 		}
 
 		if err := maintenance.VerifyBackup(tmpPath, cfg.Password); err != nil {
 			os.Remove(tmpPath)
 			backupSendFailed(cfg, hourlyName, err.Error())
+			auditBackupVerificationFailed(cfg, hourlyName, err.Error())
 			return fmt.Errorf("backup_hourly: verification failed: %w", err)
 		}
 
 		if err := os.Rename(tmpPath, hourlyPath); err != nil {
 			os.Remove(tmpPath)
 			backupSendFailed(cfg, hourlyName, err.Error())
+			auditBackupFailed(cfg, hourlyName, err.Error())
 			return fmt.Errorf("backup_hourly: rename: %w", err)
 		}
 
+		info, _ := os.Stat(hourlyPath)
+		sizeBytes := int64(0)
+		if info != nil {
+			sizeBytes = info.Size()
+		}
 		log.Printf("backup_hourly: updated %s", hourlyName)
+		auditBackupCreated(cfg, hourlyName, sizeBytes, cfg.Password != "")
 		return nil
 	}
 }
@@ -599,7 +614,7 @@ func RetentionSweep(cfg BackupConfig) error {
 		}
 		return err
 	}
-	return applyRetention(cfg.BackupDir, cfg.ProjectName, cfg.Retention)
+	return applyRetention(cfg)
 }
 
 // backupFileRE matches dated backup filenames like project_backup_2025-01-15.tar.gz[.enc].
@@ -608,7 +623,10 @@ var backupFileRE = regexp.MustCompile(`_backup_(\d{4}-\d{2}-\d{2})\.tar\.gz(\.en
 // applyRetention removes old backups according to the retention policy (PART 21).
 // Priority order: yearly > monthly > weekly > daily.
 // The daily incremental (*-daily.*) and hourly (*-hourly.*) are never deleted here.
-func applyRetention(dir, project string, ret BackupRetention) error {
+// Emits backup.retention_cleanup (when cfg.Audit is set and at least one
+// backup was removed) with the deleted filenames and the remaining count.
+func applyRetention(cfg BackupConfig) error {
+	dir, project, ret := cfg.BackupDir, cfg.ProjectName, cfg.Retention
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -666,6 +684,7 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 
 	// Count how many of each tier we have seen (newest first).
 	countYearly, countMonthly, countWeekly, countDaily := 0, 0, 0, 0
+	var deleted []string
 	for _, b := range backups {
 		t := classify(b.date)
 		keep := false
@@ -689,13 +708,16 @@ func applyRetention(dir, project string, ret BackupRetention) error {
 				log.Printf("backup: retention: remove %s: %v", b.name, err)
 			} else {
 				log.Printf("backup: retention: removed %s", b.name)
+				deleted = append(deleted, b.name)
 			}
 		}
 	}
 
 	// PART 21 step 8: after count-based pruning, enforce the max_total_size
 	// cap — it overrides all count limits.
-	applySizeCap(dir, project, resolveSizeCap(dir, ret.MaxTotalSize))
+	deleted = append(deleted, applySizeCap(dir, project, resolveSizeCap(dir, ret.MaxTotalSize))...)
+
+	auditBackupRetentionCleanup(cfg, deleted, "retention policy", len(backups)-len(deleted))
 
 	return nil
 }
