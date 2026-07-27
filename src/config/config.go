@@ -1598,7 +1598,9 @@ func Load(path string) (*Config, error) {
 			saveCfg.Server.FQDN = cfg.ResolveFQDN()
 			saveCfg.Web.Security.EncryptionKey = cfg.Web.Security.EncryptionKey
 			saveCfg.Server.Token = cfg.Server.Token
-			_ = Save(path, saveCfg)
+			if saveErr := Save(path, saveCfg); saveErr != nil {
+				log.Printf("config: warning: could not persist generated secrets to %s: %v", path, saveErr)
+			}
 			cfg.FirstRun = true
 			return cfg, nil
 		}
@@ -1644,7 +1646,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	if needSave {
-		_ = Save(path, cfg)
+		if saveErr := Save(path, cfg); saveErr != nil {
+			log.Printf("config: warning: could not persist generated secrets to %s: %v", path, saveErr)
+		}
 	}
 
 	return cfg, nil
@@ -2545,13 +2549,41 @@ func ValidateTracking(cfg *TrackingConfig) error {
 	return nil
 }
 
-// Save writes config to path.
+// Save writes config to path atomically. The config file holds the AES-256-GCM
+// encryption key and operator token, so a crash mid-write must never leave a
+// truncated or corrupt file: the data is written to a temp file in the same
+// directory and renamed into place (rename is atomic on the same filesystem).
 func Save(path string, cfg *Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o640)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".server.yml.*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o640); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod temp config: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing temp config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("syncing temp config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("renaming temp config: %w", err)
+	}
+	return nil
 }
 
 // SetUpdateBranch loads the config at path, sets server.update.branch to the

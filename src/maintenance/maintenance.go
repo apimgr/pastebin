@@ -286,13 +286,13 @@ func SetYAMLField(cfgPath, key, value string) error {
 		}
 		// File does not exist — create it with just the requested key.
 		content := fmt.Sprintf("%s: %s\n", key, value)
-		if writeErr := os.WriteFile(cfgPath, []byte(content), 0o600); writeErr != nil {
+		if writeErr := atomicWriteFile(cfgPath, []byte(content), 0o600); writeErr != nil {
 			return fmt.Errorf("writing config: %w", writeErr)
 		}
 		return nil
 	}
 	updated := strings.Join(replaceYAMLField(strings.Split(string(data), "\n"), key, value), "\n")
-	if err := os.WriteFile(cfgPath, []byte(updated), 0o600); err != nil {
+	if err := atomicWriteFile(cfgPath, []byte(updated), 0o600); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}
 	return nil
@@ -306,10 +306,43 @@ func SetMode(configDir, mode string) error {
 		return fmt.Errorf("reading config: %w", err)
 	}
 	updated := strings.Join(replaceYAMLField(strings.Split(string(data), "\n"), "mode", mode), "\n")
-	if err := os.WriteFile(cfgPath, []byte(updated), 0o600); err != nil {
+	if err := atomicWriteFile(cfgPath, []byte(updated), 0o600); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}
 	fmt.Printf("Mode set to: %s\n", mode)
+	return nil
+}
+
+// atomicWriteFile writes data to path atomically: it writes to a temp file in
+// the same directory, fsyncs it, and renames it into place so a crash mid-write
+// can never leave a truncated server.yml (which holds the encryption key and
+// operator token).
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".server.yml.*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp config: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod temp config: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing temp config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("syncing temp config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("renaming temp config: %w", err)
+	}
 	return nil
 }
 

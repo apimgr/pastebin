@@ -18,15 +18,13 @@ services:
     pull_policy: always
     logging: *default-logging
     environment:
-      - MODE=production
-      - PORT=80
-      - DEBUG=false
-      - TZ=America/New_York
-      - CACHE_URL=valkey://pastebin-cache:6379
-      - TERMBIN_ENABLED=true
+      PORT: 80
+      TZ: America/New_York
+      CACHE_URL: valkey://pastebin-cache:6379
+      TERMBIN_ENABLED: true
       # For remote libsql/Turso: set DATABASE_DRIVER=libsql and DATABASE_URL
-      # - DATABASE_DRIVER=libsql
-      # - DATABASE_URL=libsql://your-db.turso.io?authToken=your-turso-auth-token
+      # DATABASE_DRIVER: libsql
+      # DATABASE_URL: libsql://your-db.turso.io?authToken=your-turso-auth-token
     volumes:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'

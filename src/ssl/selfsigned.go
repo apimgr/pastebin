@@ -55,11 +55,13 @@ func ensureSelfSignedCert(dir, fqdn string) (certPath, keyPath string, err error
 	if err != nil {
 		return "", "", err
 	}
-	if err := os.WriteFile(certPath, certPEM, 0600); err != nil {
-		return "", "", fmt.Errorf("write cert %s: %w", certPath, err)
-	}
-	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
+	// Write the key before the cert so a crash mid-write never leaves a cert
+	// without its matching key; each write is atomic (temp + rename).
+	if err := atomicWriteFile(keyPath, keyPEM, 0600); err != nil {
 		return "", "", fmt.Errorf("write key %s: %w", keyPath, err)
+	}
+	if err := atomicWriteFile(certPath, certPEM, 0600); err != nil {
+		return "", "", fmt.Errorf("write cert %s: %w", certPath, err)
 	}
 	return certPath, keyPath, nil
 }

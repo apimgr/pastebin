@@ -3,6 +3,7 @@
 package pid
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,8 +20,10 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 	// On Unix, FindProcess always succeeds — signal 0 is the real check.
+	// EPERM means the process exists but is owned by a different user (e.g. the
+	// root-to-pastebin privilege drop), so treat it as running, not dead.
 	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // isOurProcess verifies that the running process is our binary, not a

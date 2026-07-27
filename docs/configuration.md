@@ -146,11 +146,71 @@ confirmation), or as the service user with the operator password.
 
 ## Environment Variables
 
+Environment variables override the matching `server.yml` values at startup;
+they are read individually (no `.env` file is ever loaded).
+
+### Server
+
 | Variable | Description |
 |----------|-------------|
-| `PORT`   | Override listen port (useful in Docker) |
-| `TZ`     | Timezone (default: `America/New_York`) |
+| `PORT`   | Override listen port (dual format `"8090,8443"` supported) |
+| `PASTEBIN_PORT` | Alias for `PORT` |
+| `ADDRESS` | Listen address (e.g. `0.0.0.0`) |
+| `LISTEN` | Full listen spec (`address:port`) |
+| `BASE_URL` | Public base URL / path prefix |
+| `DOMAIN` | Primary FQDN used for links and certificates |
 | `MODE`   | Application mode (`production` or `development`) |
+| `DEBUG`  | Enable debug endpoints when truthy |
+| `TZ`     | Timezone (default: `America/New_York`) |
+
+### Identity and limits
+
+| Variable | Description |
+|----------|-------------|
+| `SITE_TITLE` | Site title shown in the web UI |
+| `APPLICATION_NAME` | Application name (About/Help pages) |
+| `APPLICATION_TAGLINE` | Application tagline |
+| `MAX_SIZE_BYTES` | Maximum paste size in bytes |
+| `THEME` | Default theme (`dark`, `light`, or `auto`) |
+| `NO_COLOR` | Disable all ANSI color output when set |
+
+### Database and cache
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_DRIVER` | Database driver (`sqlite`, `libsql`) |
+| `DATABASE_URL` | Remote database URL (libsql/Turso) |
+| `DATABASE_DIR` | Directory holding the SQLite DB |
+| `DB_PATH` | Full path to the SQLite DB file |
+| `CACHE_URL` | Cache backend URL (memory/valkey/redis) |
+
+### SMTP (email notifications)
+
+| Variable | Description |
+|----------|-------------|
+| `SMTP_HOST` | SMTP server host (empty = autodetect) |
+| `SMTP_PORT` | SMTP server port (default: `587`) |
+| `SMTP_USERNAME` | SMTP auth username |
+| `SMTP_PASSWORD` | SMTP auth password |
+| `SMTP_TLS` | TLS mode (`auto`, `starttls`, `tls`, `none`) |
+| `SMTP_FROM_NAME` | From display name (default: app name) |
+| `SMTP_FROM_EMAIL` | From address (default: `no-reply@{fqdn}`) |
+
+### Directory overrides
+
+| Variable | Description |
+|----------|-------------|
+| `CONFIG_DIR` | Configuration directory |
+| `DATA_DIR` | Data directory |
+| `CACHE_DIR` | Cache directory |
+| `LOG_DIR` / `LOGS_DIR` | Log directory |
+| `BACKUP_DIR` | Backup directory |
+| `PID_FILE` | PID file path |
+
+### termbin compatibility listener
+
+| Variable | Description |
+|----------|-------------|
 | `TERMBIN_ENABLED` | Enable the raw-TCP termbin/fiche compat listener (default: `false`) |
 | `TERMBIN_PORT`    | termbin listener port (default: `9999`) |
 | `TERMBIN_MAX_SIZE`| Max termbin payload in bytes (default: `32768`) |

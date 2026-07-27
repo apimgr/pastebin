@@ -19,11 +19,11 @@ services:
     restart: always
     logging: *default-logging
     environment:
-      - MODE=development
-      - PORT=80
-      - DEBUG=true
-      - TZ=America/New_York
-      - TERMBIN_ENABLED=true
+      MODE: dev
+      DEBUG: 1
+      PORT: 80
+      TZ: America/New_York
+      TERMBIN_ENABLED: true
     ports:
       - '172.17.0.1:64580:80'
       # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces

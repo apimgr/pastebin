@@ -97,8 +97,8 @@ func generateOwnerToken() (plaintext string, tokenHash [32]byte, err error) {
 	return plaintext, tokenHash, nil
 }
 
-// HashToken returns the SHA-256 hex digest of a token string.
-// Exported so the server layer can call it for web form submissions.
+// HashToken returns the SHA-256 hex digest of a token string. It is exported so
+// the black-box package test (paste_test.go) can verify hashing determinism.
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
@@ -842,8 +842,11 @@ func ParseExpiry(s string) *time.Time {
 	case "2y":
 		d = 730 * 24 * time.Hour
 	default:
-		// Try raw seconds.
-		if sec, err := strconv.ParseInt(s, 10, 64); err == nil && sec > 0 {
+		// Try raw seconds. Cap at 10 years: time.Duration is int64 nanoseconds,
+		// so sec * 1e9 overflows past ~9.2e9 seconds and wraps negative, which
+		// would mark the paste as already expired. Reject out-of-range values.
+		const maxExpirySeconds = 10 * 365 * 24 * 60 * 60
+		if sec, err := strconv.ParseInt(s, 10, 64); err == nil && sec > 0 && sec <= maxExpirySeconds {
 			d = time.Duration(sec) * time.Second
 		} else {
 			return nil

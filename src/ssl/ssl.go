@@ -315,6 +315,38 @@ func (u *legoAccountUser) GetPrivateKey() crypto.PrivateKey        { return u.ke
 
 // loadOrCreateAccountKey loads the ACME account's ECDSA private key from
 // path, generating and persisting a new P-256 key if none exists.
+// atomicWriteFile writes data to path atomically by writing to a temp file in
+// the same directory, fsyncing, and renaming into place. Certificate and key
+// files must never be left half-written after a crash.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".ssl.*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("syncing temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("renaming temp file: %w", err)
+	}
+	return nil
+}
+
 func loadOrCreateAccountKey(path string) (*ecdsa.PrivateKey, error) {
 	if data, err := os.ReadFile(path); err == nil {
 		if block, _ := pem.Decode(data); block != nil {
@@ -428,11 +460,14 @@ func (m *Manager) getLetsEncryptTLSConfigDNS01(domains []string) (*tls.Config, e
 
 	certPath := filepath.Join(cacheDir, "fullchain.pem")
 	keyPath := filepath.Join(cacheDir, "privkey.pem")
-	if err := os.WriteFile(certPath, cert.Certificate, 0o644); err != nil {
-		return nil, fmt.Errorf("ssl: dns-01: write certificate: %w", err)
-	}
-	if err := os.WriteFile(keyPath, cert.PrivateKey, 0o600); err != nil {
+	// Write the private key before the certificate: a crash between the two
+	// writes must never leave a certificate with no matching key, which would
+	// fail tls.LoadX509KeyPair on the next startup. Each write is atomic.
+	if err := atomicWriteFile(keyPath, cert.PrivateKey, 0o600); err != nil {
 		return nil, fmt.Errorf("ssl: dns-01: write private key: %w", err)
+	}
+	if err := atomicWriteFile(certPath, cert.Certificate, 0o644); err != nil {
+		return nil, fmt.Errorf("ssl: dns-01: write certificate: %w", err)
 	}
 
 	log.Printf("ssl: dns-01: obtained certificate for %v via provider %q", domains, m.config.LetsEncrypt.DNSProviderType)

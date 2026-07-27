@@ -19,10 +19,10 @@ services:
     container_name: pastebin-test
     restart: "no"
     environment:
-      - MODE=development
-      - DEBUG=true
-      - TZ=America/New_York
-      - TERMBIN_ENABLED=true
+      MODE: dev
+      DEBUG: 1
+      TZ: America/New_York
+      TERMBIN_ENABLED: true
     ports:
       - "64581:80"
       - "64599:9999"
