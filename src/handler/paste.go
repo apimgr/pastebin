@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -20,12 +21,18 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 
+	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/metrics"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
 )
+
+// pasteCacheTTL is the read-cache lifetime for individual pastes. AI.md PART 9's
+// TTL table has no paste-specific row, so this uses the generic "page cache"
+// tier (5 minutes) for dynamic content.
+const pasteCacheTTL = 5 * time.Minute
 
 // charset for paste IDs — URL-safe alphanumeric.
 const idCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -45,6 +52,9 @@ type PasteHandler struct {
 	// A constant-time compare against this lets operator tokens bypass the api_tokens
 	// lookup and delete any paste unconditionally (PART 11).
 	operatorTokenHash [32]byte
+	// cache is the optional read-through cache for individual pastes (PART 9).
+	// nil in unit tests and until the server layer injects it via SetCache.
+	cache cache.Cache
 }
 
 // NewPasteHandler constructs a PasteHandler.
@@ -61,6 +71,67 @@ func NewPasteHandler(db database.DB, baseURL string, operatorTokenHash [32]byte)
 // chain instead of a simplified copy.
 func (h *PasteHandler) SetBaseURLResolver(fn func(*http.Request) string) {
 	h.baseURLFn = fn
+}
+
+// SetCache injects the server's shared cache driver (PART 9/12) so paste reads
+// can be served from cache. Passing nil disables read caching; a nil cache
+// field is treated as "no cache configured" everywhere it is used.
+func (h *PasteHandler) SetCache(c cache.Cache) {
+	h.cache = c
+}
+
+// pasteCacheKey returns the cache key for a paste ID, following AI.md PART 9's
+// "{type}:{id}" hierarchical key pattern. The "pastebin:" prefix is applied
+// automatically by the cache driver — callers pass un-prefixed keys.
+func pasteCacheKey(id string) string {
+	return "paste:" + id
+}
+
+// getCachedPaste returns a cached paste and true on a cache hit. Burn-limited
+// pastes (BurnAfter > 0) are never served from cache: the cached Views count
+// can lag the database, and burn-after-read enforcement must stay
+// DB-authoritative to avoid over- or under-counting views toward the burn
+// threshold. Cache misses/errors are non-fatal — callers fall through to the
+// database (backend-rules.md: "Cache miss is non-fatal").
+func (h *PasteHandler) getCachedPaste(id string) (*model.Paste, bool) {
+	if h.cache == nil {
+		return nil, false
+	}
+	raw, err := h.cache.Get(context.Background(), pasteCacheKey(id))
+	if err != nil {
+		return nil, false
+	}
+	var paste model.Paste
+	if err := json.Unmarshal([]byte(raw), &paste); err != nil {
+		return nil, false
+	}
+	if paste.BurnAfter > 0 {
+		return nil, false
+	}
+	return &paste, true
+}
+
+// cachePaste stores a freshly loaded paste for subsequent reads. Burn-limited
+// pastes are never cached (see getCachedPaste for why). Errors are non-fatal.
+func (h *PasteHandler) cachePaste(paste *model.Paste) {
+	if h.cache == nil || paste == nil || paste.BurnAfter > 0 {
+		return
+	}
+	raw, err := json.Marshal(paste)
+	if err != nil {
+		return
+	}
+	_ = h.cache.Set(context.Background(), pasteCacheKey(paste.ID), string(raw), pasteCacheTTL)
+}
+
+// invalidatePasteCache removes a paste from the cache after delete or expiry
+// (PART 9 event-based invalidation: "Delete on update/delete"). No-op when no
+// cache is configured; errors are non-fatal.
+func (h *PasteHandler) invalidatePasteCache(id string) {
+	if h.cache == nil {
+		return
+	}
+	_ = h.cache.Delete(context.Background(), pasteCacheKey(id))
 }
 
 // ─── ID & token generation ────────────────────────────────────────────────────
@@ -438,6 +509,7 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 	// After incrementing, check burn limit.
 	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
 		h.db.DeletePaste(id)
+		h.invalidatePasteCache(id)
 		metrics.PastesDeletedTotal.Inc()
 	}
 
@@ -486,6 +558,7 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 
 	if paste.BurnAfter > 0 && paste.Views+1 >= paste.BurnAfter {
 		h.db.DeletePaste(id)
+		h.invalidatePasteCache(id)
 		metrics.PastesDeletedTotal.Inc()
 	}
 
@@ -608,6 +681,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 			h.errJSON(w, "paste not found", http.StatusNotFound)
 			return
 		}
+		h.invalidatePasteCache(id)
 		metrics.PastesDeletedTotal.Inc()
 		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"message": "paste deleted"}})
 		return
@@ -622,6 +696,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 		h.errJSON(w, "paste not found", http.StatusNotFound)
 		return
 	}
+	h.invalidatePasteCache(id)
 	metrics.PastesDeletedTotal.Inc()
 	h.refreshActiveTokenGauge()
 
@@ -633,15 +708,21 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 // GetPasteForWeb returns the paste struct for server-side template rendering.
 // Increments views and handles burn logic. Returns nil if paste is unavailable.
 func (h *PasteHandler) GetPasteForWeb(id string) (*model.Paste, error) {
-	paste, err := h.db.GetPasteByID(id)
-	if err != nil {
-		return nil, err
-	}
-	if paste == nil {
-		return nil, nil
+	paste, hit := h.getCachedPaste(id)
+	if !hit {
+		var err error
+		paste, err = h.db.GetPasteByID(id)
+		if err != nil {
+			return nil, err
+		}
+		if paste == nil {
+			return nil, nil
+		}
+		h.cachePaste(paste)
 	}
 	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
 		h.db.DeletePaste(id)
+		h.invalidatePasteCache(id)
 		return nil, nil
 	}
 
@@ -651,6 +732,7 @@ func (h *PasteHandler) GetPasteForWeb(id string) (*model.Paste, error) {
 
 	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
 		h.db.DeletePaste(id)
+		h.invalidatePasteCache(id)
 		metrics.PastesDeletedTotal.Inc()
 	}
 
@@ -700,17 +782,23 @@ func HighlightedContent(paste *model.Paste) template.HTML {
 // loadLivePaste retrieves a paste by ID, enforces expiry, and writes an error
 // response if unavailable. Returns nil when a response has already been written.
 func (h *PasteHandler) loadLivePaste(w http.ResponseWriter, id string) (*model.Paste, error) {
-	paste, err := h.db.GetPasteByID(id)
-	if err != nil {
-		h.errJSON(w, "internal server error", http.StatusInternalServerError)
-		return nil, err
-	}
-	if paste == nil {
-		h.errJSON(w, "paste not found", http.StatusNotFound)
-		return nil, nil
+	paste, hit := h.getCachedPaste(id)
+	if !hit {
+		var err error
+		paste, err = h.db.GetPasteByID(id)
+		if err != nil {
+			h.errJSON(w, "internal server error", http.StatusInternalServerError)
+			return nil, err
+		}
+		if paste == nil {
+			h.errJSON(w, "paste not found", http.StatusNotFound)
+			return nil, nil
+		}
+		h.cachePaste(paste)
 	}
 	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
 		h.db.DeletePaste(id)
+		h.invalidatePasteCache(id)
 		h.errJSON(w, "paste has expired", http.StatusGone)
 		return nil, nil
 	}

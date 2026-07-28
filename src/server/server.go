@@ -532,6 +532,8 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	} else {
 		s.cacheStore = cs
 	}
+	// Wire the cache driver into the paste read path (PART 9) now that it's ready.
+	s.pasteHandler.SetCache(s.cacheStore)
 
 	if cfg.RateLimit.Enabled {
 		readReqs := cfg.RateLimit.Read.Requests

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/go-chi/chi/v5"
@@ -312,6 +313,140 @@ func TestDeletePaste_NoToken(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status: got %d, want 401", rr.Code)
+	}
+}
+
+// ─── Cache wiring (PART 9) ─────────────────────────────────────────────────────
+
+// pasteCacheTestKey mirrors the un-prefixed "paste:{id}" key format documented
+// on the unexported pasteCacheKey helper in paste.go.
+func pasteCacheTestKey(id string) string {
+	return "paste:" + id
+}
+
+// TestPasteCache_HitAvoidsDB verifies that once a paste is cached, a read
+// still succeeds even after the underlying DB row is removed directly —
+// proving the read was served from cache, not the database.
+func TestPasteCache_HitAvoidsDB(t *testing.T) {
+	h, db := newTestHandler(t)
+	c, err := cache.New(cache.DefaultConfig())
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	h.SetCache(c)
+
+	m := createViaAPI(t, h, `{"content":"cache hit test"}`)
+	data := m["data"].(map[string]interface{})
+	id := data["id"].(string)
+
+	// First read populates the cache from the DB.
+	if _, err := h.GetPasteForWeb(id); err != nil {
+		t.Fatalf("first GetPasteForWeb: %v", err)
+	}
+
+	// Remove the DB row directly, bypassing the handler/cache entirely.
+	if err := db.DeletePaste(id); err != nil {
+		t.Fatalf("db.DeletePaste: %v", err)
+	}
+
+	// A second read must still succeed — it can only come from cache now.
+	paste, err := h.GetPasteForWeb(id)
+	if err != nil {
+		t.Fatalf("second GetPasteForWeb should hit cache, got error: %v", err)
+	}
+	if paste.Content != "cache hit test" {
+		t.Errorf("content: got %q, want %q", paste.Content, "cache hit test")
+	}
+}
+
+// TestPasteCache_PopulatesOnDBRead verifies a DB-backed read populates the
+// cache entry for subsequent reads.
+func TestPasteCache_PopulatesOnDBRead(t *testing.T) {
+	h, _ := newTestHandler(t)
+	c, err := cache.New(cache.DefaultConfig())
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	h.SetCache(c)
+
+	m := createViaAPI(t, h, `{"content":"populate test"}`)
+	data := m["data"].(map[string]interface{})
+	id := data["id"].(string)
+
+	if _, err := h.GetPasteForWeb(id); err != nil {
+		t.Fatalf("GetPasteForWeb: %v", err)
+	}
+
+	raw, err := c.Get(context.Background(), pasteCacheTestKey(id))
+	if err != nil {
+		t.Fatalf("expected cache entry after DB read, got error: %v", err)
+	}
+	if !strings.Contains(raw, "populate test") {
+		t.Errorf("cached value missing content: %q", raw)
+	}
+}
+
+// TestPasteCache_InvalidatedOnDelete verifies DeletePaste removes the cache
+// entry alongside the DB row.
+func TestPasteCache_InvalidatedOnDelete(t *testing.T) {
+	h, _ := newTestHandler(t)
+	c, err := cache.New(cache.DefaultConfig())
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	h.SetCache(c)
+
+	m := createViaAPI(t, h, `{"content":"invalidate on delete"}`)
+	data := m["data"].(map[string]interface{})
+	id := data["id"].(string)
+	token := data["owner_token"].(string)
+
+	// Populate the cache.
+	if _, err := h.GetPasteForWeb(id); err != nil {
+		t.Fatalf("GetPasteForWeb: %v", err)
+	}
+	if _, err := c.Get(context.Background(), pasteCacheTestKey(id)); err != nil {
+		t.Fatalf("expected cache entry before delete, got error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req = withID(req, id)
+	rr := httptest.NewRecorder()
+	h.DeletePaste(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DeletePaste status: got %d, want 200\nbody: %s", rr.Code, rr.Body.String())
+	}
+
+	if _, err := c.Get(context.Background(), pasteCacheTestKey(id)); err == nil {
+		t.Error("expected cache miss after DeletePaste, got a hit")
+	}
+}
+
+// TestPasteCache_BurnAfterNeverCached verifies a burn-after-read paste is
+// never written to the cache, keeping burn-threshold enforcement DB-authoritative.
+func TestPasteCache_BurnAfterNeverCached(t *testing.T) {
+	h, _ := newTestHandler(t)
+	c, err := cache.New(cache.DefaultConfig())
+	if err != nil {
+		t.Fatalf("cache.New: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+	h.SetCache(c)
+
+	m := createViaAPI(t, h, `{"content":"burn me","burn_after":5}`)
+	data := m["data"].(map[string]interface{})
+	id := data["id"].(string)
+
+	if _, err := h.GetPasteForWeb(id); err != nil {
+		t.Fatalf("GetPasteForWeb: %v", err)
+	}
+
+	if _, err := c.Get(context.Background(), pasteCacheTestKey(id)); err == nil {
+		t.Error("burn-limited paste must never be cached, but got a cache hit")
 	}
 }
 
