@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -58,10 +59,17 @@ func main() {
 func run(rawArgs []string, stdout, stderr io.Writer) int {
 	binaryName := filepath.Base(os.Args[0])
 
-	// Pre-process args: normalise -flag to --flag and expand -h/-v aliases.
+	// Pre-process args: expand -h/-v short aliases to their long form.
 	args := normalizeArgs(rawArgs)
 
-	// Simple manual flag parser so we control order and aliases.
+	// A bare trailing "--update" (no subcommand following) defaults to "yes"
+	// (check + install). stdlib flag requires an explicit value for a
+	// non-boolean flag, so the default is injected here rather than in the
+	// flag.FlagSet itself.
+	if len(args) > 0 && args[len(args)-1] == "--update" {
+		args = append(args, "yes")
+	}
+
 	var (
 		portFlag    string
 		addressFlag string
@@ -97,94 +105,62 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		updateCmd      string
 	)
 
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		val := func() string {
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-				i++
-				return args[i]
-			}
-			return ""
-		}
+	fs := flag.NewFlagSet(binaryName, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 
-		switch arg {
-		case "--help", "-h", "-help":
-			showHelp = true
-		case "--version", "-v", "-version":
-			showVersion = true
-		case "--status":
-			showStatus = true
-		case "--daemon":
-			daemonFlag = true
-		case "--debug":
-			debugFlag = true
-		case "--port":
-			portFlag = val()
-		case "--address":
-			addressFlag = val()
-		case "--mode":
-			modeFlag = val()
-		case "--config":
-			configFlag = val()
-		case "--data":
-			dataFlag = val()
-		case "--log":
-			logFlag = val()
-		case "--cache":
-			cacheFlag = val()
-		case "--backup":
-			backupFlag = val()
-		case "--pid":
-			pidFlag = val()
-		case "--baseurl":
-			baseurlFlag = val()
-		case "--color":
-			colorFlag = val()
-		case "--lang":
-			langFlag = val()
-		case "--shell":
-			shellCmd = val()
-			// optional SHELL name (bash, zsh, fish, …)
-			shellArg = val()
-		case "--service":
-			serviceCmd = val()
-		case "--maintenance":
-			maintenanceCmd = val()
-			// Capture an optional second positional argument (e.g. filename for
-			// "restore" or mode name for "mode", or the action for "pgp").
-			maintenanceArg = val()
-			// "pgp"/"token"/"data" take further positionals (e.g. "export
-			// private <path>", "revoke <prefix>", "delete <prefix>");
-			// greedily collect all remaining non-flag args.
-			switch maintenanceCmd {
-			case "pgp", "token", "data":
-				for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-					i++
-					maintenancePGP = append(maintenancePGP, args[i])
-				}
-			}
-		case "--update":
-			// Consume the next arg unconditionally as the update subcommand so
-			// that "--update --help" routes to update-specific help instead of
-			// triggering the global --help handler.
-			if i+1 < len(args) {
-				i++
-				updateCmd = args[i]
-				// For "branch <name>", consume the branch name as well.
-				if updateCmd == "branch" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-					i++
-					updateCmd = "branch " + args[i]
-				}
-			} else {
-				updateCmd = "yes"
-			}
-		default:
-			if strings.HasPrefix(arg, "--") || (strings.HasPrefix(arg, "-") && len(arg) > 2) {
-				fmt.Fprintf(stderr, "%s: unknown flag: %s\n", binaryName, arg)
-				fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", binaryName)
-				return 2
-			}
+	fs.BoolVar(&showHelp, "help", false, "Show help")
+	fs.BoolVar(&showHelp, "h", false, "Show help")
+	fs.BoolVar(&showVersion, "version", false, "Show version")
+	fs.BoolVar(&showVersion, "v", false, "Show version")
+	fs.BoolVar(&showStatus, "status", false, "Show server status and health")
+	fs.BoolVar(&daemonFlag, "daemon", false, "Run as daemon (detach from terminal)")
+	fs.BoolVar(&debugFlag, "debug", false, "Enable debug mode")
+	fs.StringVar(&portFlag, "port", "", "Listen port")
+	fs.StringVar(&addressFlag, "address", "", "Listen address")
+	fs.StringVar(&modeFlag, "mode", "", "Application mode (production|development)")
+	fs.StringVar(&configFlag, "config", "", "Config directory")
+	fs.StringVar(&dataFlag, "data", "", "Data directory")
+	fs.StringVar(&logFlag, "log", "", "Log directory")
+	fs.StringVar(&cacheFlag, "cache", "", "Cache directory")
+	fs.StringVar(&backupFlag, "backup", "", "Backup directory")
+	fs.StringVar(&pidFlag, "pid", "", "PID file path")
+	fs.StringVar(&baseurlFlag, "baseurl", "", "URL path prefix")
+	fs.StringVar(&colorFlag, "color", "", "Color output (auto|yes|no)")
+	fs.StringVar(&langFlag, "lang", "", "Language for output")
+	fs.StringVar(&shellCmd, "shell", "", "Shell integration (completions|init|--help)")
+	fs.StringVar(&serviceCmd, "service", "", "Service management")
+	fs.StringVar(&maintenanceCmd, "maintenance", "", "Maintenance operations")
+	fs.StringVar(&updateCmd, "update", "", "Check/perform updates")
+
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", binaryName, err)
+		fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", binaryName)
+		return 2
+	}
+
+	// Positional arguments left over after the flag(s) that take a secondary
+	// value (--shell, --maintenance, --update branch).
+	positional := fs.Args()
+
+	if shellCmd != "" && len(positional) > 0 {
+		// optional SHELL name (bash, zsh, fish, …)
+		shellArg = positional[0]
+	}
+
+	if maintenanceCmd != "" && len(positional) > 0 {
+		// Second positional argument (e.g. filename for "restore" or mode
+		// name for "mode", or the action for "pgp").
+		maintenanceArg = positional[0]
+		// "pgp"/"token"/"data" take further positionals (e.g. "export
+		// private <path>", "revoke <prefix>", "delete <prefix>").
+		switch maintenanceCmd {
+		case "pgp", "token", "data":
+			maintenancePGP = positional[1:]
 		}
+	}
+
+	if strings.HasPrefix(updateCmd, "branch") && len(positional) > 0 {
+		updateCmd = "branch " + positional[0]
 	}
 
 	// Apply --color flag before any output.
@@ -1223,10 +1199,11 @@ Examples:
 	return 0
 }
 
-// normalizeArgs expands short flags (-h → --help, -v → --version) and splits
-// --flag=value forms into two tokens so both space and equals forms are accepted.
-// Single-dash multi-character flags are NOT converted — spec mandates short flags
-// are ONLY -h and -v (PART 8).
+// normalizeArgs expands short flags (-h → --help, -v → --version) to their
+// long form. --flag=value forms need no pre-processing — stdlib flag.Parse
+// accepts both "--flag value" and "--flag=value" natively. Single-dash
+// multi-character flags are NOT converted — spec mandates short flags are
+// ONLY -h and -v (PART 8).
 func normalizeArgs(args []string) []string {
 	out := make([]string, 0, len(args))
 	for _, a := range args {
@@ -1236,13 +1213,6 @@ func normalizeArgs(args []string) []string {
 		case "-v":
 			out = append(out, "--version")
 		default:
-			// Split --flag=value into --flag + value so both forms are accepted.
-			if strings.HasPrefix(a, "--") {
-				if eq := strings.IndexByte(a, '='); eq != -1 {
-					out = append(out, a[:eq], a[eq+1:])
-					continue
-				}
-			}
 			out = append(out, a)
 		}
 	}

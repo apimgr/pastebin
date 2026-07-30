@@ -1,8 +1,5 @@
 # TODO.AI.md
 
-- Hand-rolled CLI argument parsing in `src/main.go` lines 64-188 should use
-  stdlib `flag` per `binary-rules.md` (server binary is single-command,
-  never manual `switch`/`os.Args` loops).
 - `src/server/pgp_keypair.go` `Server.RotateKeypair` (AI.md 14182: PGP
   keypair rotation with 30-day grace window) is fully implemented but wired
   to nothing — no scheduler task, maintenance command, or handler calls it.

@@ -7,13 +7,25 @@ Flagged remain — they are design decisions that require operator input and
 were intentionally NOT auto-changed.
 
 ## Flagged (design decisions — NOT auto-fixed)
-- src/main.go lines 64-188: hand-rolled CLI argument parsing (for-loop +
-  switch, with a `normalizeArgs()` helper for `=`-form flags) instead of
-  `flag`/`pflag`/`cobra` — flagged by go-lint. Functionally correct (all
-  required flags/forms work) but violates the "never hand-roll" convention.
-  Out of scope for the email-notification/cache work in this commit; needs a
-  deliberate refactor pass since it touches every CLI flag in PART 8.
 ## Resolved (operator decisions)
+- src/main.go: refactored CLI argument parsing from a hand-rolled for-loop +
+  switch (previously lines 64-188) to a `flag.NewFlagSet(binaryName,
+  flag.ContinueOnError)`-based parser, per `binary-rules.md` ("never
+  hand-roll argument parsing for the server binary"). All primary flags
+  (`--help`, `--version`, `--status`, `--daemon`, `--debug`, `--port`,
+  `--address`, `--mode`, `--config`, `--data`, `--log`, `--cache`,
+  `--backup`, `--pid`, `--baseurl`, `--color`, `--lang`, `--shell`,
+  `--service`, `--maintenance`, `--update`) are registered via
+  `BoolVar`/`StringVar`. Multi-positional subcommands (`--shell completions
+  bash`, `--maintenance pgp generate`, `--maintenance token revoke <prefix>`,
+  `--update branch stable`) are handled via `fs.Args()` leftover positionals
+  after the flag that names the subcommand. `normalizeArgs()` is kept (still
+  unit-tested by name in `main_helpers_test.go`) but simplified to only
+  expand `-h`/`-v` short aliases — the `--flag=value` splitting branch was
+  removed since stdlib `flag.Parse` accepts `=`-form natively. Exit codes
+  (0/1/2) and the unknown-flag stderr message are unchanged. Verified via
+  `make test` (Docker, `casjaysdev/go:latest`): all tests pass, coverage
+  75.6% (>= 60% required).
 - Dead-symbol cleanup pass (explicitly requested). A whole-program
   `golang.org/x/tools/cmd/deadcode ./...` run (casjaysdev/go:latest) reported
   ~60 "unreachable func" hits. Each was triaged individually with `grep -rn`
