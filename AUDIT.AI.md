@@ -15,21 +15,23 @@ were intentionally NOT auto-changed.
   required flags/forms work) but violates the "never hand-roll" convention.
   Out of scope for the email-notification/cache work in this commit; needs a
   deliberate refactor pass since it touches every CLI flag in PART 8.
-- cache Get/Set/Delete appeared unused. Operator decision: keep `Delete` per
-  AI.md/IDEA.md. Not yet wired — implementation has not started; separate
-  follow-up commit.
-
 ## Resolved (operator decisions)
+- cache Get/Set/Delete appeared unused as of the audit start. Operator
+  decision: keep `Delete` per AI.md/IDEA.md. Wired in commit 1a99645eb6d1
+  ("Wire paste cache Get/Set/Delete into handler") — `pasteCacheKey`/
+  `getCachedPaste`/`cachePaste`/`invalidatePasteCache` in
+  `src/handler/paste.go`, wired into `loadLivePaste`, `GetPasteForWeb`,
+  `DeletePaste`, and the burn-after-read deletion paths; burn-after-read
+  pastes are never cached so the DB-authoritative Views count stays correct.
 - security.yml vs ci.yml consolidation: `.github/workflows/security.yml` was
   a forbidden duplicate — cicd-rules.md requires security jobs to live
   inside `ci.yml` with no separate `security.yml`, and `ci.yml` already ran
   `secret-scan`/`workflow-policy`/`vuln-scan`. Deleted `security.yml`
   (commit 356047ddf224); no `act` verification was needed since nothing was
-  restructured, only the duplicate file removed. Pushed; CI and Daily Build
-  confirmed green on main afterward (Docker Build still running at time of
-  this note). A full spec
-  sweep of `/server/security**` (handlers, templates, config, i18n, all 37
-  related tests) found no other issues — feature is spec-compliant.
+  restructured, only the duplicate file removed. Pushed; CI, Daily Build,
+  and Docker Build all confirmed green on main afterward. A full spec sweep
+  of `/server/security**` (handlers, templates, config, i18n, all 37 related
+  tests) found no other issues — feature is spec-compliant.
 - task/task.go: the `update_available` scheduler email was dead — PART 17
   defined only 8 email templates and the call used CamelCase keys that never
   substituted against the snake_case renderer. Operator decision: PART 17 now
