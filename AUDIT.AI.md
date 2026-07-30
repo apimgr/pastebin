@@ -7,8 +7,6 @@ Flagged remain — they are design decisions that require operator input and
 were intentionally NOT auto-changed.
 
 ## Flagged (design decisions — NOT auto-fixed)
-- security.yml vs ci.yml consolidation (risky CI restructure, needs `act`
-  verification before touching).
 - ~9 dead exported symbols (low-value churn; leave unless a cleanup pass is
   explicitly requested).
 - src/main.go lines 64-188: hand-rolled CLI argument parsing (for-loop +
@@ -22,6 +20,16 @@ were intentionally NOT auto-changed.
   follow-up commit.
 
 ## Resolved (operator decisions)
+- security.yml vs ci.yml consolidation: `.github/workflows/security.yml` was
+  a forbidden duplicate — cicd-rules.md requires security jobs to live
+  inside `ci.yml` with no separate `security.yml`, and `ci.yml` already ran
+  `secret-scan`/`workflow-policy`/`vuln-scan`. Deleted `security.yml`
+  (commit 356047ddf224); no `act` verification was needed since nothing was
+  restructured, only the duplicate file removed. Pushed; CI and Daily Build
+  confirmed green on main afterward (Docker Build still running at time of
+  this note). A full spec
+  sweep of `/server/security**` (handlers, templates, config, i18n, all 37
+  related tests) found no other issues — feature is spec-compliant.
 - task/task.go: the `update_available` scheduler email was dead — PART 17
   defined only 8 email templates and the call used CamelCase keys that never
   substituted against the snake_case renderer. Operator decision: PART 17 now
