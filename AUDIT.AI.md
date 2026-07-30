@@ -7,8 +7,6 @@ Flagged remain — they are design decisions that require operator input and
 were intentionally NOT auto-changed.
 
 ## Flagged (design decisions — NOT auto-fixed)
-- ~9 dead exported symbols (low-value churn; leave unless a cleanup pass is
-  explicitly requested).
 - src/main.go lines 64-188: hand-rolled CLI argument parsing (for-loop +
   switch, with a `normalizeArgs()` helper for `=`-form flags) instead of
   `flag`/`pflag`/`cobra` — flagged by go-lint. Functionally correct (all
@@ -16,6 +14,47 @@ were intentionally NOT auto-changed.
   Out of scope for the email-notification/cache work in this commit; needs a
   deliberate refactor pass since it touches every CLI flag in PART 8.
 ## Resolved (operator decisions)
+- Dead-symbol cleanup pass (explicitly requested). A whole-program
+  `golang.org/x/tools/cmd/deadcode ./...` run (casjaysdev/go:latest) reported
+  ~60 "unreachable func" hits. Each was triaged individually with `grep -rn`
+  across src/, *_test.go, tests/*.sh, docs/, and templates. Result: ZERO
+  symbols were safe to delete — every hit is a false positive of the
+  whole-program pass, which by design ignores tests, interface satisfaction,
+  and build-tag variants. Nothing removed. Breakdown of why each was KEPT:
+  - Test-covered package public API (majority): the deadcode pass ignores
+    `_test.go`, so black-box/white-box tests keep these alive as legitimate
+    library API. Verified test callers exist for: theme.DarkTheme/LightTheme;
+    display.DetectDisplayEnv/CanUseANSI/NewSpinner/ShowProgress/IsDumbTerminal/
+    IsAutoDetectDisplayMode{GUI,TUI,CLI,Headless}/autoDetectDisplayMode;
+    i18n.TranslateFormat/TranslatePlural/LocaleFS/toString/pluralForm;
+    terminal.NewSymbolSet; theme.GetThemePalette/IsSystemDarkTheme;
+    config.MustParseBool/IsFalsy; maintenance.SetYAMLField;
+    mode.IsDevelopment/IsProduction/Initialize/GetErrorDetail/GetCacheHeaders/
+    GetLogLevel/ShouldCacheTemplates/ShouldEnableAutoReload/
+    ShouldEnableProfiling/GetPanicRecoveryMode; tor.GetHTTPClient/UpdateConfig/
+    RegenerateAddress/ApplyKeys/updateTorrc/writeIfChanged; task.SSLRenewal;
+    server.BaseDomain/WildcardDomain/readPrivateKey/decryptSecurityReport;
+    metric.New; pgp.Decrypt; handler.mapAPIErrorCodeToHTTPStatus/sendAPIError.
+  - Interface satisfaction: display.TextSpinner/ANSISpinner
+    Start/Stop/SetMessage implement the `Spinner` interface (spinner.go:10,
+    returned by NewSpinner); health.Monitor.State is part of the monitor's
+    State/service surface. Removing any would break the interface.
+  - Build-tag platform variants: display.detectPlatformDisplay (detect_unix.go
+    + detect_windows.go), terminal.OnResize (resize_unix.go +
+    resize_windows.go), theme.isLinuxDarkTheme/isMacOSDarkTheme/
+    isWindowsDarkTheme/isTerminalDarkTheme — each is a per-OS impl reached only
+    on its target platform; the whole-program pass sees one build's view.
+  - Internal helper of a tested public function: i18n.fmt_int has no direct
+    test but is called by i18n.toString (i18n.go:279), which IS tested.
+  - Unwired but spec-mandated (KEEP + wire, never delete): server.RotateKeypair
+    (PGP keypair rotation, 30-day grace window) has zero callers but is a
+    required cryptographic-key-rotation capability; handler.sendAPIError +
+    mapAPIErrorCodeToHTTPStatus (PART 9 canonical error envelope) are
+    implemented + unit-tested but no handler routes through them (handlers
+    write the `{ok:false}` envelope inline at paste.go:847). Both logged to
+    TODO.AI.md as wire-up tasks so they are not re-flagged as "dead" later.
+  No code changed (docs only), so the build is unaffected; no `go vet`
+  regression is possible from this pass.
 - cache Get/Set/Delete appeared unused as of the audit start. Operator
   decision: keep `Delete` per AI.md/IDEA.md. Wired in commit 1a99645eb6d1
   ("Wire paste cache Get/Set/Delete into handler") — `pasteCacheKey`/
