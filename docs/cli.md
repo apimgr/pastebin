@@ -6,10 +6,17 @@ The `pastebin-cli` binary is a fully spec-compliant command-line client.
 
 | Flag | Description |
 |------|-------------|
-| `--server URL` | Target server URL (default: `https://pste.us`, the embedded official site) |
+| `--server URL` | Target server URL (default: `https://pste.us`, the embedded official site; or set `$PASTEBIN_SERVER_PRIMARY`) |
+| `--token TOKEN` | Operator/owner API token (or set `$PASTEBIN_TOKEN`) |
+| `--token-file PATH` | Read the API token from a file |
 | `--json` | Output in JSON format |
+| `--color MODE` | Color output: `auto`, `yes`, or `no` |
+| `--debug` | Enable debug output |
+| `--update check\|yes` | Check for or apply CLI updates |
 | `-h, --help` | Show help |
 | `-v, --version` | Show version |
+
+Environment variables: `PASTEBIN_SERVER_PRIMARY`, `PASTEBIN_TOKEN`, `CLI_CONFIG`, and `NO_COLOR`. See the README for details.
 
 ## Commands
 
