@@ -145,7 +145,9 @@ Platform default paths:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PASTEBIN_SERVER` | `https://pste.us` (embedded) | Server base URL override for self-hosted instances |
+| `PASTEBIN_SERVER_PRIMARY` | `https://pste.us` (embedded) | Server base URL override for self-hosted instances |
+| `PASTEBIN_TOKEN` | unset | Operator/owner API token (overridden by `--token`; falls back to `cli.yml` `auth.token`) |
+| `CLI_CONFIG` | Platform default | Path to the client `cli.yml` configuration file |
 | `NO_COLOR` | unset | Set to any value to disable ANSI color output |
 
 ## API
