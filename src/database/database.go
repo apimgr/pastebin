@@ -66,7 +66,7 @@ type DB interface {
 	CreatePaste(paste *model.Paste) error
 	GetPasteByID(id string) (*model.Paste, error)
 	GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error)
-	IncrementPasteViews(id string) error
+	IncrementViewsAndCheckBurn(id string) (views int, burned bool, err error)
 	DeletePaste(id string) error
 	DeletePasteByToken(id, deleteTokenHash string) error
 	DeleteExpiredPastes() (int64, error)
@@ -160,7 +160,12 @@ func newSQLiteDB(path string) (*SQLiteDB, error) {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path+"?_foreign_keys=on&_journal_mode=WAL")
+	// busy_timeout (via _pragma, modernc.org/sqlite's DSN param for PRAGMA
+	// statements) makes concurrent writers block and retry, up to the given
+	// milliseconds, on SQLITE_BUSY instead of failing immediately — required
+	// for correctness whenever two writers can legitimately race for the same
+	// row (e.g. concurrent burn-after-read view increments).
+	db, err := sql.Open("sqlite", path+"?_foreign_keys=on&_journal_mode=WAL&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -509,12 +514,47 @@ func (s *SQLiteDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int,
 	return items, total, rows.Err()
 }
 
-// IncrementPasteViews atomically increments the view counter.
-func (s *SQLiteDB) IncrementPasteViews(id string) error {
+// IncrementViewsAndCheckBurn atomically increments the view counter and, when
+// the paste has burn-after-N-reads enabled and the new count reaches the
+// threshold, deletes it in the same transaction. SQLite serializes writers at
+// the file level, so the increment+check+delete sequence below cannot
+// interleave with a concurrent call for the same id — closing the
+// check-then-act race a separate read + increment + in-memory compare would
+// have (multiple concurrent readers all passing a stale threshold check).
+// Returns the paste's new view count and whether it was burned (deleted).
+func (s *SQLiteDB) IncrementViewsAndCheckBurn(id string) (views int, burned bool, err error) {
 	ctx, cancel := dbCtx(dbWriteTimeout)
 	defer cancel()
-	_, err := s.db.ExecContext(ctx, `UPDATE pastes SET views = views + 1, updated_at = ? WHERE id = ?`, time.Now(), id)
-	return err
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+
+	var burnAfter int
+	err = tx.QueryRowContext(ctx,
+		`UPDATE pastes SET views = views + 1, updated_at = ? WHERE id = ? RETURNING views, burn_after`,
+		time.Now(), id,
+	).Scan(&views, &burnAfter)
+	if err == sql.ErrNoRows {
+		return 0, false, fmt.Errorf("paste not found")
+	}
+	if err != nil {
+		return 0, false, err
+	}
+
+	if burnAfter > 0 && views >= burnAfter {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM pastes WHERE id = ?`, id); err != nil {
+			return 0, false, err
+		}
+		burned = true
+	}
+
+	if err = tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return views, burned, nil
 }
 
 // DeletePaste removes a paste by ID with no token check (admin / internal use).

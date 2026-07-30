@@ -2121,7 +2121,7 @@ func (d *stubDB) GetPasteByID(id string) (*model.Paste, error) {
 func (d *stubDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error) {
 	return nil, 0, nil
 }
-func (d *stubDB) IncrementPasteViews(id string) error                     { return nil }
+func (d *stubDB) IncrementViewsAndCheckBurn(id string) (int, bool, error) { return 0, false, nil }
 func (d *stubDB) DeletePaste(id string) error                             { return nil }
 func (d *stubDB) DeletePasteByToken(id, tok string) error                 { return nil }
 func (d *stubDB) DeleteExpiredPastes() (int64, error)                     { return 0, nil }

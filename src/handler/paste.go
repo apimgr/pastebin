@@ -502,13 +502,15 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.db.IncrementPasteViews(id)
-	paste.Views++
+	views, burned, verr := h.db.IncrementViewsAndCheckBurn(id)
+	if verr == nil {
+		paste.Views = views
+	} else {
+		paste.Views++
+	}
 	metric.PastesViewedTotal.Inc()
 
-	// After incrementing, check burn limit.
-	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
-		h.db.DeletePaste(id)
+	if burned {
 		h.invalidatePasteCache(id)
 		metric.PastesDeletedTotal.Inc()
 	}
@@ -553,11 +555,10 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.db.IncrementPasteViews(id)
+	_, burned, verr := h.db.IncrementViewsAndCheckBurn(id)
 	metric.PastesViewedTotal.Inc()
 
-	if paste.BurnAfter > 0 && paste.Views+1 >= paste.BurnAfter {
-		h.db.DeletePaste(id)
+	if verr == nil && burned {
 		h.invalidatePasteCache(id)
 		metric.PastesDeletedTotal.Inc()
 	}
@@ -726,12 +727,15 @@ func (h *PasteHandler) GetPasteForWeb(id string) (*model.Paste, error) {
 		return nil, nil
 	}
 
-	h.db.IncrementPasteViews(id)
-	paste.Views++
+	views, burned, verr := h.db.IncrementViewsAndCheckBurn(id)
+	if verr == nil {
+		paste.Views = views
+	} else {
+		paste.Views++
+	}
 	metric.PastesViewedTotal.Inc()
 
-	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
-		h.db.DeletePaste(id)
+	if burned {
 		h.invalidatePasteCache(id)
 		metric.PastesDeletedTotal.Inc()
 	}

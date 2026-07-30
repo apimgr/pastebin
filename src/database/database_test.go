@@ -9,8 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -255,8 +258,15 @@ func TestIncrementViews(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := db.IncrementPasteViews("views001"); err != nil {
-		t.Fatalf("IncrementPasteViews: %v", err)
+	views, burned, err := db.IncrementViewsAndCheckBurn("views001")
+	if err != nil {
+		t.Fatalf("IncrementViewsAndCheckBurn: %v", err)
+	}
+	if views != 1 {
+		t.Errorf("views: got %d, want 1", views)
+	}
+	if burned {
+		t.Errorf("burned: got true, want false (BurnAfter=0 means no burn)")
 	}
 
 	got, err := db.GetPasteByID("views001")
@@ -265,6 +275,94 @@ func TestIncrementViews(t *testing.T) {
 	}
 	if got.Views != 1 {
 		t.Errorf("Views: got %d, want 1", got.Views)
+	}
+}
+
+// TestIncrementViewsBurnsAtThreshold verifies the paste is deleted once its
+// view count reaches BurnAfter, in the same call that pushed it over.
+func TestIncrementViewsBurnsAtThreshold(t *testing.T) {
+	db := newTestDB(t)
+
+	p := samplePaste("burn0001")
+	p.BurnAfter = 2
+	if err := db.CreatePaste(p); err != nil {
+		t.Fatal(err)
+	}
+
+	views, burned, err := db.IncrementViewsAndCheckBurn("burn0001")
+	if err != nil {
+		t.Fatalf("IncrementViewsAndCheckBurn (1st): %v", err)
+	}
+	if views != 1 || burned {
+		t.Fatalf("1st call: got views=%d burned=%v, want views=1 burned=false", views, burned)
+	}
+
+	views, burned, err = db.IncrementViewsAndCheckBurn("burn0001")
+	if err != nil {
+		t.Fatalf("IncrementViewsAndCheckBurn (2nd): %v", err)
+	}
+	if views != 2 || !burned {
+		t.Fatalf("2nd call: got views=%d burned=%v, want views=2 burned=true", views, burned)
+	}
+
+	got, err := db.GetPasteByID("burn0001")
+	if err != nil {
+		t.Fatalf("GetPasteByID after burn: %v", err)
+	}
+	if got != nil {
+		t.Errorf("paste still exists after burn threshold reached")
+	}
+}
+
+// TestIncrementViewsBurnConcurrent proves the check-then-act race is closed:
+// with BurnAfter=1, N concurrent callers must see exactly one "burned=true"
+// result, never more (which would mean the paste was double-served past its
+// configured limit) and never zero (which would mean it was never burned).
+// Every other caller must see a "paste not found" error — once the winning
+// transaction commits the delete, no later transaction can observe the row,
+// so a concurrent caller can never serve a stale read past the threshold.
+func TestIncrementViewsBurnConcurrent(t *testing.T) {
+	db := newTestDB(t)
+
+	p := samplePaste("burnrace")
+	p.BurnAfter = 1
+	if err := db.CreatePaste(p); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 20
+	var wg sync.WaitGroup
+	var burnedCount, notFoundCount int32
+	unexpected := make(chan error, n)
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, burned, err := db.IncrementViewsAndCheckBurn("burnrace")
+			switch {
+			case err != nil && err.Error() == "paste not found":
+				atomic.AddInt32(&notFoundCount, 1)
+			case err != nil:
+				unexpected <- err
+			case burned:
+				atomic.AddInt32(&burnedCount, 1)
+			default:
+				unexpected <- fmt.Errorf("call succeeded with burned=false, want burned=true or \"paste not found\"")
+			}
+		}()
+	}
+	wg.Wait()
+	close(unexpected)
+
+	for err := range unexpected {
+		t.Errorf("IncrementViewsAndCheckBurn concurrent call: %v", err)
+	}
+	if burnedCount != 1 {
+		t.Errorf("burnedCount: got %d, want exactly 1", burnedCount)
+	}
+	if notFoundCount != n-1 {
+		t.Errorf("notFoundCount: got %d, want %d", notFoundCount, n-1)
 	}
 }
 

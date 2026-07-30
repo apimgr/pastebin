@@ -28,6 +28,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/data"
 	"github.com/apimgr/pastebin/src/database"
+	"github.com/apimgr/pastebin/src/metric"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
 )
@@ -225,9 +226,9 @@ func (c *CompatHandler) PastebinRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.db.IncrementPasteViews(id)
-	if paste.BurnAfter > 0 && paste.Views+1 >= paste.BurnAfter {
-		c.db.DeletePaste(id)
+	if _, burned, verr := c.db.IncrementViewsAndCheckBurn(id); verr == nil && burned {
+		c.ph.invalidatePasteCache(id)
+		metric.PastesDeletedTotal.Inc()
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -385,11 +386,16 @@ func (c *CompatHandler) LenGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c.db.IncrementPasteViews(id)
-	paste.Views++
+	views, burned, verr := c.db.IncrementViewsAndCheckBurn(id)
+	if verr == nil {
+		paste.Views = views
+	} else {
+		paste.Views++
+	}
 
-	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
-		c.db.DeletePaste(id)
+	if burned {
+		c.ph.invalidatePasteCache(id)
+		metric.PastesDeletedTotal.Inc()
 	}
 
 	paste.DeleteTokenHash = ""
@@ -666,7 +672,10 @@ func (c *CompatHandler) HastebinGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "document not found"})
 		return
 	}
-	c.db.IncrementPasteViews(id)
+	if _, burned, verr := c.db.IncrementViewsAndCheckBurn(id); verr == nil && burned {
+		c.ph.invalidatePasteCache(id)
+		metric.PastesDeletedTotal.Inc()
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"key": paste.ID, "data": paste.Content})
 }
 

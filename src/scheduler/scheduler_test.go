@@ -144,7 +144,7 @@ func (m *mockDB) GetPasteByID(id string) (*model.Paste, error) { return nil, nil
 func (m *mockDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error) {
 	return nil, 0, nil
 }
-func (m *mockDB) IncrementPasteViews(id string) error      { return nil }
+func (m *mockDB) IncrementViewsAndCheckBurn(id string) (int, bool, error) { return 0, false, nil }
 func (m *mockDB) DeletePaste(id string) error              { return nil }
 func (m *mockDB) DeletePasteByToken(id, hash string) error { return nil }
 func (m *mockDB) DeleteExpiredPastes() (int64, error)      { return 0, nil }
