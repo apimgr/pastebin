@@ -1,6 +1,6 @@
 // Package metrics registers and exposes Prometheus metrics for the pastebin service.
 // All metrics are prefixed with "pastebin_" per the project naming convention.
-package metrics
+package metric
 
 import (
 	"crypto/subtle"

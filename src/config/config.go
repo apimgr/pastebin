@@ -65,7 +65,7 @@ type ServerConfig struct {
 	// Token is the operator token (server.token). Auto-generated on first run.
 	// All operator-protected API endpoints require: Authorization: Bearer <token>
 	Token string `yaml:"token"`
-	// DataDir is the runtime data directory. Resolved at startup by main from paths.GetDataDir.
+	// DataDir is the runtime data directory. Resolved at startup by main from path.GetDataDir.
 	// Used by middleware (blocklist) and tasks that need access to security databases.
 	DataDir       string              `yaml:"data_dir"`
 	Metrics       MetricsConfig       `yaml:"metrics"`

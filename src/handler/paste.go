@@ -24,7 +24,7 @@ import (
 	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/database"
-	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/metric"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
 )
@@ -422,7 +422,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 	if err := h.db.CreatePaste(paste); err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("failed to create paste")
 	}
-	metrics.PastesCreatedTotal.Inc()
+	metric.PastesCreatedTotal.Inc()
 
 	// Store the token in api_tokens. token_prefix = first 12 chars of raw token.
 	tokenHashHex := hex.EncodeToString(tokenHash[:])
@@ -504,13 +504,13 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 
 	h.db.IncrementPasteViews(id)
 	paste.Views++
-	metrics.PastesViewedTotal.Inc()
+	metric.PastesViewedTotal.Inc()
 
 	// After incrementing, check burn limit.
 	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
 		h.db.DeletePaste(id)
 		h.invalidatePasteCache(id)
-		metrics.PastesDeletedTotal.Inc()
+		metric.PastesDeletedTotal.Inc()
 	}
 
 	// Never return delete token hash.
@@ -554,12 +554,12 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.db.IncrementPasteViews(id)
-	metrics.PastesViewedTotal.Inc()
+	metric.PastesViewedTotal.Inc()
 
 	if paste.BurnAfter > 0 && paste.Views+1 >= paste.BurnAfter {
 		h.db.DeletePaste(id)
 		h.invalidatePasteCache(id)
-		metrics.PastesDeletedTotal.Inc()
+		metric.PastesDeletedTotal.Inc()
 	}
 
 	// Binary pastes are stored as base64 to survive the TEXT DB column; decode
@@ -682,7 +682,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.invalidatePasteCache(id)
-		metrics.PastesDeletedTotal.Inc()
+		metric.PastesDeletedTotal.Inc()
 		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"message": "paste deleted"}})
 		return
 	}
@@ -697,7 +697,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.invalidatePasteCache(id)
-	metrics.PastesDeletedTotal.Inc()
+	metric.PastesDeletedTotal.Inc()
 	h.refreshActiveTokenGauge()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": map[string]string{"message": "paste deleted"}})
@@ -728,12 +728,12 @@ func (h *PasteHandler) GetPasteForWeb(id string) (*model.Paste, error) {
 
 	h.db.IncrementPasteViews(id)
 	paste.Views++
-	metrics.PastesViewedTotal.Inc()
+	metric.PastesViewedTotal.Inc()
 
 	if paste.BurnAfter > 0 && paste.Views >= paste.BurnAfter {
 		h.db.DeletePaste(id)
 		h.invalidatePasteCache(id)
-		metrics.PastesDeletedTotal.Inc()
+		metric.PastesDeletedTotal.Inc()
 	}
 
 	paste.DeleteTokenHash = ""
@@ -812,7 +812,7 @@ func (h *PasteHandler) refreshActiveTokenGauge() {
 	if err != nil {
 		return
 	}
-	metrics.APITokensActive.Set(float64(len(toks)))
+	metric.APITokensActive.Set(float64(len(toks)))
 }
 
 func (h *PasteHandler) pasteURL(r *http.Request, id string) string {

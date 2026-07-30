@@ -28,7 +28,7 @@ import (
 	"github.com/apimgr/pastebin/src/logging"
 	"github.com/apimgr/pastebin/src/maintenance"
 	"github.com/apimgr/pastebin/src/mode"
-	"github.com/apimgr/pastebin/src/paths"
+	"github.com/apimgr/pastebin/src/path"
 	"github.com/apimgr/pastebin/src/pid"
 	"github.com/apimgr/pastebin/src/scheduler"
 	"github.com/apimgr/pastebin/src/server"
@@ -285,17 +285,17 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 
 	if maintenanceCmd != "" {
 		// Paths must be resolved before maintenance commands.
-		mcConfigDir := paths.GetConfigDir(appName)
-		mcDataDir := paths.GetDataDir(appName)
+		mcConfigDir := path.GetConfigDir(appName)
+		mcDataDir := path.GetDataDir(appName)
 		// Backups always live in the canonical backup dir (PART 21), matching
 		// the scheduled backup tasks.
-		mcBackupDir := paths.GetBackupDir(appName)
+		mcBackupDir := path.GetBackupDir(appName)
 		// Sensitive maintenance operations (setup/restore/mode) require
 		// authorization proof (AI.md PART 5 sensitive operations).
 		mcAuthOpts := maintenance.AuthOptions{
 			ConfigDir:   mcConfigDir,
-			DBPath:      paths.GetDBPath(appName),
-			LogDir:      paths.GetLogsDir(appName),
+			DBPath:      path.GetDBPath(appName),
+			LogDir:      path.GetLogsDir(appName),
 			ServiceUser: appName,
 		}
 
@@ -309,7 +309,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				btCfgFile := filepath.Join(mcConfigDir, "server.yml")
 				btCfg, _ := config.Load(btCfgFile)
 				if btCfg.Database.Path == "" {
-					btCfg.Database.Path = paths.GetDBPath(appName)
+					btCfg.Database.Path = path.GetDBPath(appName)
 				}
 				btDB, dbErr := database.NewDatabase(btCfg.Database.Type, btCfg.Database.Path)
 				if dbErr != nil {
@@ -433,8 +433,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			pgpOpts := maintenance.PGPOptions{
 				ConfigDir: mcConfigDir,
 				DataDir:   mcDataDir,
-				DBPath:    paths.GetDBPath(appName),
-				LogDir:    paths.GetLogsDir(appName),
+				DBPath:    path.GetDBPath(appName),
+				LogDir:    path.GetLogsDir(appName),
 			}
 			if err := maintenance.RunPGP(maintenanceArg, maintenancePGP, pgpOpts); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance pgp: %v\n", binaryName, err)
@@ -450,7 +450,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			tkCfgFile := filepath.Join(mcConfigDir, "server.yml")
 			tkCfg, _ := config.Load(tkCfgFile)
 			if tkCfg.Database.Path == "" {
-				tkCfg.Database.Path = paths.GetDBPath(appName)
+				tkCfg.Database.Path = path.GetDBPath(appName)
 			}
 			tkDB, err := database.NewDatabase(tkCfg.Database.Type, tkCfg.Database.Path)
 			if err != nil {
@@ -516,8 +516,8 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			}
 			dataOpts := maintenance.DataOptions{
 				ConfigDir: mcConfigDir,
-				DBPath:    paths.GetDBPath(appName),
-				LogDir:    paths.GetLogsDir(appName),
+				DBPath:    path.GetDBPath(appName),
+				LogDir:    path.GetLogsDir(appName),
 			}
 			if err := maintenance.AuthorizeDataOp(mcAuthOpts); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance data: %v\n", binaryName, err)
@@ -534,7 +534,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 			}
 			complianceOpts := maintenance.ComplianceOptions{
 				ConfigDir: mcConfigDir,
-				LogDir:    paths.GetLogsDir(appName),
+				LogDir:    path.GetLogsDir(appName),
 			}
 			if err := maintenance.RunCompliance(maintenanceArg, complianceOpts); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance compliance: %v\n", binaryName, err)
@@ -557,7 +557,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 
 	if updateCmd != "" {
 		// Load config to resolve configured update branch.
-		updateCfgFile := filepath.Join(paths.GetConfigDir(appName), "server.yml")
+		updateCfgFile := filepath.Join(path.GetConfigDir(appName), "server.yml")
 		updateCfg, _ := config.Load(updateCfgFile)
 		configuredBranch := updateCfg.Server.Update.Branch
 		if configuredBranch == "" {
@@ -686,12 +686,12 @@ Examples:
 
 	// ── Directory resolution ─────────────────────────────────────────────────
 
-	configDir := paths.GetConfigDir(appName)
-	dataDir := paths.GetDataDir(appName)
-	logsDir := paths.GetLogsDir(appName)
-	cacheDir := paths.GetCacheDir(appName)
-	backupDir := paths.GetBackupDir(appName)
-	pidFile := paths.GetPIDFile(appName)
+	configDir := path.GetConfigDir(appName)
+	dataDir := path.GetDataDir(appName)
+	logsDir := path.GetLogsDir(appName)
+	cacheDir := path.GetCacheDir(appName)
+	backupDir := path.GetBackupDir(appName)
+	pidFile := path.GetPIDFile(appName)
 
 	if dataFlag != "" {
 		dataDir = dataFlag
@@ -719,13 +719,13 @@ Examples:
 	}
 
 	for _, dir := range []string{configDir, dataDir, logsDir, cacheDir, backupDir} {
-		if err := paths.EnsureDir(dir); err != nil {
+		if err := path.EnsureDir(dir); err != nil {
 			log.Printf("warning: could not create directory %s: %v", dir, err)
 		}
 	}
 
 	// Ensure parent of PID file exists.
-	if err := paths.EnsureDir(filepath.Dir(pidFile)); err != nil {
+	if err := path.EnsureDir(filepath.Dir(pidFile)); err != nil {
 		log.Printf("warning: could not create pid file directory: %v", err)
 	}
 
@@ -813,7 +813,7 @@ Examples:
 
 	// ── Port resolution (random 64xxx on first run; 80 in container) ──────────
 
-	if err := config.ResolvePort(cfgFile, cfg, paths.IsContainer()); err != nil {
+	if err := config.ResolvePort(cfgFile, cfg, path.IsContainer()); err != nil {
 		log.Printf("warning: %v", err)
 		if cfg.Server.Port == "" {
 			// last-resort fallback
@@ -850,7 +850,7 @@ Examples:
 		cfg.Server.GeoIP.Dir = filepath.Join(dataDir, "security", "geoip")
 	}
 	if cfg.Server.GeoIP.Enabled {
-		if err := paths.EnsureDir(cfg.Server.GeoIP.Dir); err != nil {
+		if err := path.EnsureDir(cfg.Server.GeoIP.Dir); err != nil {
 			log.Printf("warning: geoip dir: %v", err)
 		}
 	}
@@ -859,10 +859,10 @@ Examples:
 
 	if cfg.Database.Path == "" {
 		// Derive from the (possibly --data-overridden) dataDir, not the global
-		// paths.GetDBPath() which ignores the --data flag.
+		// path.GetDBPath() which ignores the --data flag.
 		cfg.Database.Path = filepath.Join(dataDir, "db", "server.db")
 	}
-	if err := paths.EnsureDir(filepath.Dir(cfg.Database.Path)); err != nil {
+	if err := path.EnsureDir(filepath.Dir(cfg.Database.Path)); err != nil {
 		log.Printf("warning: db dir: %v", err)
 	}
 

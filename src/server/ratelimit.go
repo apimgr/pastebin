@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/metric"
 )
 
 // ipBucket tracks request counts for a single IP within a sliding window.
@@ -122,12 +122,12 @@ func rateLimitMiddleware(rl *rateLimiter, endpointClass string) func(http.Handle
 				ip = r.RemoteAddr
 			}
 
-			metrics.RateLimitHits.WithLabelValues(endpointClass).Inc()
+			metric.RateLimitHits.WithLabelValues(endpointClass).Inc()
 
 			if !rl.allow(ip) {
-				metrics.RateLimitBlocks.WithLabelValues(endpointClass).Inc()
-				metrics.RateLimitRequestsTotal.WithLabelValues("per_ip", "limited").Inc()
-				metrics.RateLimitBlockedTotal.WithLabelValues("per_ip").Inc()
+				metric.RateLimitBlocks.WithLabelValues(endpointClass).Inc()
+				metric.RateLimitRequestsTotal.WithLabelValues("per_ip", "limited").Inc()
+				metric.RateLimitBlockedTotal.WithLabelValues("per_ip").Inc()
 
 				retryAfter := int(rl.window.Seconds())
 				w.Header().Set("Retry-After", fmt.Sprint(retryAfter))
@@ -143,7 +143,7 @@ func rateLimitMiddleware(rl *rateLimiter, endpointClass string) func(http.Handle
 				})
 				return
 			}
-			metrics.RateLimitRequestsTotal.WithLabelValues("per_ip", "allowed").Inc()
+			metric.RateLimitRequestsTotal.WithLabelValues("per_ip", "allowed").Inc()
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/database"
-	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/metric"
 )
 
 const (
@@ -351,9 +351,9 @@ func (s *Scheduler) execute(e *taskEntry) error {
 	start := time.Now()
 	log.Printf("scheduler: running %s", e.id)
 
-	metrics.SchedulerTasksRunning.WithLabelValues(e.id).Inc()
+	metric.SchedulerTasksRunning.WithLabelValues(e.id).Inc()
 	taskErr := e.fn()
-	metrics.SchedulerTasksRunning.WithLabelValues(e.id).Dec()
+	metric.SchedulerTasksRunning.WithLabelValues(e.id).Dec()
 
 	finished := time.Now()
 	durationMS := finished.Sub(start).Milliseconds()
@@ -368,9 +368,9 @@ func (s *Scheduler) execute(e *taskEntry) error {
 		log.Printf("scheduler: task %s completed (%dms)", e.id, durationMS)
 	}
 
-	metrics.SchedulerTasksTotal.WithLabelValues(e.id, status).Inc()
-	metrics.SchedulerTaskDuration.WithLabelValues(e.id).Observe(finished.Sub(start).Seconds())
-	metrics.SchedulerLastRunTimestamp.WithLabelValues(e.id).Set(float64(finished.Unix()))
+	metric.SchedulerTasksTotal.WithLabelValues(e.id, status).Inc()
+	metric.SchedulerTaskDuration.WithLabelValues(e.id).Observe(finished.Sub(start).Seconds())
+	metric.SchedulerLastRunTimestamp.WithLabelValues(e.id).Set(float64(finished.Unix()))
 
 	s.mu.Lock()
 	e.lastRun = start

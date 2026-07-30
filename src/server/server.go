@@ -42,7 +42,7 @@ import (
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/health"
 	"github.com/apimgr/pastebin/src/logging"
-	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/metric"
 	"github.com/apimgr/pastebin/src/mode"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/apimgr/pastebin/src/notify"
@@ -198,7 +198,7 @@ type Server struct {
 	compatHandler    *handler.CompatHandler
 	swaggerHandler   *swagger.Handler
 	graphqlHandler   *graphql.Handler
-	metricsCollector *metrics.Collector
+	metricsCollector *metric.Collector
 	geoipDB          *geoip.DB
 	torManager       *tor.Manager
 	readLimiter      *rateLimiter
@@ -433,7 +433,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
 	s.swaggerHandler.SetBaseURLResolver(s.baseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
-	s.metricsCollector = metrics.NewWithOptions(metrics.Options{
+	s.metricsCollector = metric.NewWithOptions(metric.Options{
 		Version:         version,
 		Commit:          commitID,
 		BuildDate:       buildDate,
@@ -1211,7 +1211,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		authHeader := r.Header.Get("Authorization")
 		const prefix = "Bearer "
 		if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
-			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			metric.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
 			s.authLog(r, "operator", "fail", "missing_bearer_token")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -1223,7 +1223,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 		incomingHash := sha256.Sum256([]byte(incoming))
 		var zeroHash [32]byte
 		if s.operatorTokenHash == zeroHash {
-			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			metric.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
 			s.authLog(r, "operator", "fail", "token_not_configured")
 			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 				"ok": false, "error": "SERVER_ERROR", "message": "server.token not configured",
@@ -1231,7 +1231,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 			return
 		}
 		if subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) != 1 {
-			metrics.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			metric.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
 			s.authLog(r, "operator", "fail", "invalid_token")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -1239,7 +1239,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 			})
 			return
 		}
-		metrics.AuthAttemptsTotal.WithLabelValues("bearer", "success").Inc()
+		metric.AuthAttemptsTotal.WithLabelValues("bearer", "success").Inc()
 		s.authLog(r, "operator", "success", "")
 		next.ServeHTTP(w, r)
 	})

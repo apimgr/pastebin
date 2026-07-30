@@ -1,6 +1,6 @@
 //go:build !linux
 
-package metrics
+package metric
 
 // systemStats holds a single sample of system resource usage.
 type systemStats struct {

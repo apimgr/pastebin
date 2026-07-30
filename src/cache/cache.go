@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apimgr/pastebin/src/metrics"
+	"github.com/apimgr/pastebin/src/metric"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -120,7 +120,7 @@ func (c *memoryCache) Get(_ context.Context, key string) (string, error) {
 	e, ok := c.data[c.key(key)]
 	c.mu.RUnlock()
 	if !ok {
-		metrics.CacheMissesTotal.WithLabelValues("memory").Inc()
+		metric.CacheMissesTotal.WithLabelValues("memory").Inc()
 		return "", ErrCacheMiss
 	}
 	if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
@@ -128,12 +128,12 @@ func (c *memoryCache) Get(_ context.Context, key string) (string, error) {
 		delete(c.data, c.key(key))
 		size := len(c.data)
 		c.mu.Unlock()
-		metrics.CacheEvictionsTotal.WithLabelValues("memory").Inc()
-		metrics.CacheSize.WithLabelValues("memory").Set(float64(size))
-		metrics.CacheMissesTotal.WithLabelValues("memory").Inc()
+		metric.CacheEvictionsTotal.WithLabelValues("memory").Inc()
+		metric.CacheSize.WithLabelValues("memory").Set(float64(size))
+		metric.CacheMissesTotal.WithLabelValues("memory").Inc()
 		return "", ErrCacheMiss
 	}
-	metrics.CacheHitsTotal.WithLabelValues("memory").Inc()
+	metric.CacheHitsTotal.WithLabelValues("memory").Inc()
 	return e.value, nil
 }
 
@@ -149,7 +149,7 @@ func (c *memoryCache) Set(_ context.Context, key, value string, ttl time.Duratio
 	c.data[c.key(key)] = memEntry{value: value, expiresAt: expiresAt}
 	size := len(c.data)
 	c.mu.Unlock()
-	metrics.CacheSize.WithLabelValues("memory").Set(float64(size))
+	metric.CacheSize.WithLabelValues("memory").Set(float64(size))
 	return nil
 }
 
@@ -158,7 +158,7 @@ func (c *memoryCache) Delete(_ context.Context, key string) error {
 	delete(c.data, c.key(key))
 	size := len(c.data)
 	c.mu.Unlock()
-	metrics.CacheSize.WithLabelValues("memory").Set(float64(size))
+	metric.CacheSize.WithLabelValues("memory").Set(float64(size))
 	return nil
 }
 
@@ -186,9 +186,9 @@ func (c *memoryCache) reaper() {
 		size := len(c.data)
 		c.mu.Unlock()
 		if evicted > 0 {
-			metrics.CacheEvictionsTotal.WithLabelValues("memory").Add(float64(evicted))
+			metric.CacheEvictionsTotal.WithLabelValues("memory").Add(float64(evicted))
 		}
-		metrics.CacheSize.WithLabelValues("memory").Set(float64(size))
+		metric.CacheSize.WithLabelValues("memory").Set(float64(size))
 	}
 }
 
@@ -264,13 +264,13 @@ func (c *redisCache) key(k string) string { return c.prefix + k }
 func (c *redisCache) Get(ctx context.Context, key string) (string, error) {
 	val, err := c.client.Get(ctx, c.key(key)).Result()
 	if err == redis.Nil {
-		metrics.CacheMissesTotal.WithLabelValues("redis").Inc()
+		metric.CacheMissesTotal.WithLabelValues("redis").Inc()
 		return "", ErrCacheMiss
 	}
 	if err != nil {
 		return "", fmt.Errorf("cache get %q: %w", key, err)
 	}
-	metrics.CacheHitsTotal.WithLabelValues("redis").Inc()
+	metric.CacheHitsTotal.WithLabelValues("redis").Inc()
 	return val, nil
 }
 
