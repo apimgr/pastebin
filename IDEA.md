@@ -17,7 +17,6 @@ client_binary: pastebin-cli
 maintainer_name: apimgr
 maintainer_email: git-admin@casjaysdev.pro
 api_version: v1
-coverage_minimum: 80
 owner_token: pastebin_owner_token_rU3uW5Ze
 
 ## Business logic
