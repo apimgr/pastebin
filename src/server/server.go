@@ -970,6 +970,11 @@ func (s *Server) setupRoutes() {
 	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 	r.Get("/robots.txt", s.handleRobots)
+	r.Get("/sitemap.xml", s.handleSitemap)
+	// AI-agent discovery file (PART 13/14) — canonical well-known path plus the
+	// bare /llms.txt alias; both serve the same generated document.
+	r.Get("/.well-known/llms.txt", s.handleLLMs)
+	r.Get("/llms.txt", s.handleLLMs)
 	r.Get("/static/icons/icon-180.png", s.handlePWAIcon180)
 	r.Get("/static/icons/icon-192.png", s.handlePWAIcon192)
 	r.Get("/static/icons/icon-512.png", s.handlePWAIcon512)
@@ -1726,6 +1731,7 @@ var reservedSlugs = map[string]struct{}{
 	"images":        {},
 	"robots.txt":    {},
 	"sitemap.xml":   {},
+	"llms.txt":      {},
 	"favicon.ico":   {},
 	".well-known":   {},
 	"raw":           {},
@@ -3765,6 +3771,9 @@ func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 	for _, p := range s.liveCfg().Web.Robots.Deny {
 		b.WriteString("Disallow: " + p + "\n")
 	}
+	// Sitemap reference (PART 16) — resolved per request so it matches the
+	// Host/proto the client actually used (and the onion service over Tor).
+	b.WriteString("Sitemap: " + strings.TrimRight(s.baseURL(r), "/") + "/sitemap.xml\n")
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(b.String()))
 }
