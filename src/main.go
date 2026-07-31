@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 	// Embed the IANA timezone database so time.LoadLocation works in CGO_ENABLED=0 static binaries.
 	_ "time/tzdata"
@@ -1098,14 +1097,18 @@ Examples:
 
 	// ── PID file ──────────────────────────────────────────────────────────────
 	// WritePIDFile also calls CheckPIDFile; it exits non-zero if another
-	// instance of our binary is already running.
+	// instance of our binary is already running. Skipped entirely inside a
+	// container: the container runtime supervises the process, so a PID file is
+	// never created or checked there (PART 8).
 
-	if err := pid.WritePIDFile(pidFile); err != nil {
-		log.Printf("pid file: %v", err)
-		// EX_IOERR
-		os.Exit(74)
+	if !path.IsContainer() {
+		if err := pid.WritePIDFile(pidFile); err != nil {
+			log.Printf("pid file: %v", err)
+			// EX_IOERR
+			os.Exit(74)
+		}
+		defer pid.RemovePIDFile(pidFile) //nolint:errcheck
 	}
-	defer pid.RemovePIDFile(pidFile) //nolint:errcheck
 
 	addr := cfg.Server.Address + ":" + cfg.Server.Port
 
@@ -1121,8 +1124,24 @@ Examples:
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		// Graceful-shutdown signals (platform-specific set, PART 8).
 		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		signal.Notify(sig, shutdownSignals()...)
+
+		// Non-shutdown platform signals (Unix only): SIGHUP ignored (config
+		// auto-reloads), SIGUSR1 reopens logs, SIGUSR2 dumps a status summary.
+		installPlatformSignals(
+			func() {
+				log.Printf("SIGUSR1: reopening log files")
+				if err := logMgr.Reopen(); err != nil {
+					log.Printf("reopen logs: %v", err)
+				}
+			},
+			func() {
+				log.Printf("SIGUSR2: status pid=%d version=%s mode=%s listen=%s goroutines=%d",
+					os.Getpid(), Version, string(mode.Get()), addr, runtime.NumGoroutine())
+			},
+		)
 
 		stopCfgMgr := make(chan struct{})
 		cfgMgr.Start(stopCfgMgr, srv.OnConfigChange)
@@ -1131,7 +1150,9 @@ Examples:
 			<-sig
 			log.Printf("shutting down…")
 			logMgr.Server("info", "server shutting down")
-			pid.RemovePIDFile(pidFile) //nolint:errcheck
+			if !path.IsContainer() {
+				pid.RemovePIDFile(pidFile) //nolint:errcheck
+			}
 			close(stopCfgMgr)
 			cancel()
 		}()
@@ -1142,9 +1163,26 @@ Examples:
 		// show the public base URL and the listen address with protocol.
 		proto := startupScheme(cfg)
 		publicURL := startupBaseURL(cfg)
-		listenURL := proto + "://" + addr
-		if addr != "" && addr[0] == ':' {
-			listenURL = proto + "://0.0.0.0" + addr
+		// Listen URL is a diagnostic showing the bound interface. Never display a
+		// wildcard bind address (0.0.0.0/::) — resolve the real FQDN/IP instead
+		// (PART 7); strip :80/:443 for display.
+		listenHost := strings.TrimSpace(cfg.Server.Address)
+		switch listenHost {
+		case "", "0.0.0.0", "::", "[::]":
+			listenHost = cfg.ResolveFQDN()
+			if listenHost == "" {
+				listenHost = "localhost"
+			}
+		}
+		listenPort := cfg.Server.Port
+		if strings.Contains(listenPort, ",") {
+			listenPort = ""
+		} else if (proto == "http" && listenPort == "80") || (proto == "https" && listenPort == "443") {
+			listenPort = ""
+		}
+		listenURL := proto + "://" + listenHost
+		if listenPort != "" {
+			listenURL += ":" + listenPort
 		}
 		// Tor URL: http:// on overlays unless clearnet is HTTPS-only (single
 		// port 443) — overlay networks inherit HTTPS-only mode (AI.md:19916-19942).

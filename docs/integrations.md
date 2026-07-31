@@ -10,7 +10,7 @@ Pastebin is a drop-in replacement for [pastebin.com](https://pastebin.com), [mic
 | pastebin.com | `https://pste.us/api/api_post.php` | Drop-in replacement |
 | lenpaste | `https://pste.us/api/v1/new`, `https://pste.us/api/v1/get` | Compatible paste creation/retrieval |
 | microbin | `https://pste.us/upload`, `https://pste.us/p/{id}` | Compatible upload and retrieval |
-| GraphQL | `https://pste.us/graphql` | Read-only query interface |
+| GraphQL | `https://pste.us/api/v1/server/graphql` | Read-only query interface (GraphiQL UI at `/server/docs/graphql`) |
 
 ## Native REST API
 

@@ -304,6 +304,28 @@ func (m *Manager) RotateCheck() error {
 	return firstErr
 }
 
+// Reopen closes and reopens every log file handle. This backs the SIGUSR1
+// signal (PART 8): after external log rotation renames the live files, reopening
+// recreates them so writes continue into fresh files.
+func (m *Manager) Reopen() error {
+	if m == nil {
+		return nil
+	}
+	var firstErr error
+	for _, w := range []*fileWriter{m.access, m.server, m.errorW, m.app, m.auth, m.debug, m.audit, m.security} {
+		if w == nil {
+			continue
+		}
+		if err := w.reopen(); err != nil {
+			log.Printf("logging: reopen %s: %v", w.path, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
 // Close releases every open file handle.
 func (m *Manager) Close() {
 	if m == nil {

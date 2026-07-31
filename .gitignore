@@ -150,3 +150,6 @@ coverage.html
 # Docker build cache mounts
 .gocache/
 .gomodcache/
+
+# transient AI audit tracker (created/deleted per audit run)
+AUDIT.AI.md

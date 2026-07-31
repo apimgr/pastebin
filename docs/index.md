@@ -22,7 +22,7 @@ uses it as the default server; use `--server <url>` to target your own instance.
 - Full web frontend (dark/light/auto theme, PWA, mobile-first)
 - CLI client (`pastebin-cli`)
 - OpenAPI/Swagger docs at `/api/v1/server/swagger`
-- GraphQL at `/graphql` (read-only)
+- GraphQL at `/api/v1/server/graphql` (GraphiQL UI at `/server/docs/graphql`, read-only)
 - Full route compatibility with pastebin.com, microbin, and lenpaste
 - Single self-contained static binary with embedded SQLite
 
@@ -32,7 +32,7 @@ uses it as the default server; use `--server <url>` to target your own instance.
 ./pastebin
 ```
 
-Open your browser at `http://localhost:3010`.
+On first run the server binds all interfaces on a random port in the 64000-64999 range and prints the URL to the console. Open that URL in your browser, or pass `--port` to pin a specific port.
 
 ## Links
 

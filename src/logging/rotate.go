@@ -222,6 +222,21 @@ func (w *fileWriter) closeLocked() {
 	}
 }
 
+// reopen closes the current handle and reopens the log path from scratch. This
+// is the SIGUSR1 primitive (PART 8): after an external tool (logrotate) has
+// renamed the live file, reopening recreates it so subsequent writes land in a
+// fresh file rather than the moved inode.
+func (w *fileWriter) reopen() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closeLocked()
+	if !w.holdOpen {
+		// Non-held writers open lazily on the next write; nothing to do now.
+		return nil
+	}
+	return w.open()
+}
+
 // needsRotate reports whether the file must rotate before writing n more bytes.
 // Callers must hold w.mu with the file open.
 func (w *fileWriter) needsRotate(n int64, now time.Time) bool {

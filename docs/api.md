@@ -98,7 +98,7 @@ Interactive API docs at `https://pste.us/api/v1/server/swagger`.
 
 ## GraphQL
 
-Endpoint: `https://pste.us/graphql`
+Endpoint: `https://pste.us/api/v1/server/graphql` (unversioned alias: `https://pste.us/api/graphql`). Interactive GraphiQL UI: `https://pste.us/server/docs/graphql`.
 
 ```graphql
 # Get a paste

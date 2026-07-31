@@ -51,4 +51,4 @@ The server works with zero configuration. On first run it creates:
 - Data / DB: `/var/lib/apimgr/pastebin/db/server.db` (Linux)
 - Logs: `/var/log/apimgr/pastebin/` (Linux)
 
-Open your browser at `http://localhost:3010` (default port when run locally).
+On first run the server binds all interfaces on a random port in the 64000-64999 range and saves it to `server.yml`; the chosen URL is printed to the console at startup. Pass `--port` to pin a specific port.

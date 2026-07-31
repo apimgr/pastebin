@@ -32,7 +32,7 @@ uses it as the default server; use `--server <url>` to target your own instance.
 - Server pages: `/server/about`, `/server/help`, `/server/healthz`, `/server/privacy`, `/server/terms`
 - CLI client (`pastebin-cli`)
 - OpenAPI/Swagger docs at `/api/v1/server/swagger`
-- GraphQL at `/graphql` (read-only queries)
+- GraphQL at `/api/v1/server/graphql` (GraphiQL UI at `/server/docs/graphql`, read-only queries)
 - Full route compatibility with pastebin.com, microbin, and lenpaste
 - Single self-contained static binary with embedded SQLite
 
@@ -226,7 +226,7 @@ make test
 ### Usage (local build)
 
 ```bash
-# Start server (defaults: 0.0.0.0:3010)
+# Start server (binds all interfaces on a random port in 64000-64999, saved to server.yml on first run)
 ./pastebin
 
 # Custom address and port
