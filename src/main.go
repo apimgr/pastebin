@@ -717,9 +717,11 @@ Examples:
 		if port == "" {
 			port = "80"
 		}
+		// AI.md PART 11 Display Rules: never hardcode a static IP such as
+		// 127.0.0.1 — use the "localhost" name for this loopback self-probe.
 		address := statusCfg.Server.Address
 		if address == "" || address == "0.0.0.0" {
-			address = "127.0.0.1"
+			address = "localhost"
 		}
 		probeURL := "http://" + address + ":" + port + "/api/v1/server/healthz"
 		client := &http.Client{Timeout: 5 * time.Second}

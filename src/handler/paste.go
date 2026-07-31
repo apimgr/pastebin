@@ -465,7 +465,7 @@ func (h *PasteHandler) CreateFromForm(r *http.Request) (*model.CreateResponse, i
 func (h *PasteHandler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	resp, status, err := h.createFromRequest(r)
 	if err != nil {
-		h.errJSON(w, err.Error(), status)
+		sendAPIError(w, httpErrCode(status), err.Error())
 		return
 	}
 
@@ -621,7 +621,7 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 
 	pastes, total, err := h.db.GetPublicPastes(page, limit)
 	if err != nil {
-		h.errJSON(w, "failed to fetch pastes", http.StatusInternalServerError)
+		sendAPIError(w, "SERVER_ERROR", "failed to fetch pastes")
 		return
 	}
 
@@ -668,7 +668,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 
 	token := extractToken(r)
 	if token == "" {
-		h.errJSON(w, "owner token required (Authorization: Bearer tok_...)", http.StatusUnauthorized)
+		sendAPIError(w, "UNAUTHORIZED", "owner token required (Authorization: Bearer tok_...)")
 		return
 	}
 
@@ -679,7 +679,7 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 	if h.operatorTokenHash != zeroHash &&
 		subtle.ConstantTimeCompare(incomingHash[:], h.operatorTokenHash[:]) == 1 {
 		if err := h.db.DeletePaste(id); err != nil {
-			h.errJSON(w, "paste not found", http.StatusNotFound)
+			sendAPIError(w, "NOT_FOUND", "paste not found")
 			return
 		}
 		h.invalidatePasteCache(id)
@@ -690,11 +690,11 @@ func (h *PasteHandler) DeletePaste(w http.ResponseWriter, r *http.Request) {
 
 	// Tier 2: resource-owner token — must match api_tokens for this paste.
 	if err := h.db.VerifyAPIToken(incomingHash, "paste", id); err != nil {
-		h.errJSON(w, "paste not found or invalid token", http.StatusNotFound)
+		sendAPIError(w, "NOT_FOUND", "paste not found or invalid token")
 		return
 	}
 	if err := h.db.DeletePaste(id); err != nil {
-		h.errJSON(w, "paste not found", http.StatusNotFound)
+		sendAPIError(w, "NOT_FOUND", "paste not found")
 		return
 	}
 	h.invalidatePasteCache(id)
@@ -791,11 +791,11 @@ func (h *PasteHandler) loadLivePaste(w http.ResponseWriter, id string) (*model.P
 		var err error
 		paste, err = h.db.GetPasteByID(id)
 		if err != nil {
-			h.errJSON(w, "internal server error", http.StatusInternalServerError)
+			sendAPIError(w, "SERVER_ERROR", "internal server error")
 			return nil, err
 		}
 		if paste == nil {
-			h.errJSON(w, "paste not found", http.StatusNotFound)
+			sendAPIError(w, "NOT_FOUND", "paste not found")
 			return nil, nil
 		}
 		h.cachePaste(paste)
@@ -803,7 +803,7 @@ func (h *PasteHandler) loadLivePaste(w http.ResponseWriter, id string) (*model.P
 	if paste.ExpiresAt != nil && paste.ExpiresAt.Before(time.Now()) {
 		h.db.DeletePaste(id)
 		h.invalidatePasteCache(id)
-		h.errJSON(w, "paste has expired", http.StatusGone)
+		sendAPIError(w, "GONE", "paste has expired")
 		return nil, nil
 	}
 	return paste, nil
@@ -842,15 +842,8 @@ func (h *PasteHandler) base(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-func (h *PasteHandler) errJSON(w http.ResponseWriter, msg string, status int) {
-	writeJSON(w, status, map[string]interface{}{
-		"ok":      false,
-		"error":   httpErrCode(status),
-		"message": msg,
-	})
-}
-
-// httpErrCode maps HTTP status to a canonical error code string (PART 9).
+// httpErrCode maps HTTP status to a canonical error code string (PART 9), for
+// call sites that only have a dynamic http.Status* value on hand.
 func httpErrCode(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -865,6 +858,8 @@ func httpErrCode(status int) string {
 		return "METHOD_NOT_ALLOWED"
 	case http.StatusConflict:
 		return "CONFLICT"
+	case http.StatusGone:
+		return "GONE"
 	case http.StatusTooManyRequests:
 		return "RATE_LIMITED"
 	case http.StatusServiceUnavailable:
@@ -889,6 +884,8 @@ func mapAPIErrorCodeToHTTPStatus(code string) int {
 		return http.StatusMethodNotAllowed
 	case "CONFLICT":
 		return http.StatusConflict
+	case "GONE":
+		return http.StatusGone
 	case "RATE_LIMITED":
 		return http.StatusTooManyRequests
 	case "MAINTENANCE":

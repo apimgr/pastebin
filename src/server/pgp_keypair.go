@@ -153,49 +153,6 @@ func (s *Server) installKeypair(kp *pgp.Keypair, rotatedFrom *database.SecurityK
 	return s.db.UpsertSecurityKeypair(meta)
 }
 
-// RotateKeypair generates a fresh keypair, parks the current private key for the
-// 30-day in-flight grace window, installs the new keypair, and republishes to
-// keyservers (AI.md 14182).
-func (s *Server) RotateKeypair() error {
-	prev, err := s.db.GetSecurityKeypair()
-	if err != nil {
-		return fmt.Errorf("pgp: read current keypair: %w", err)
-	}
-	cfg := s.liveCfg()
-	kp, err := pgp.Generate(cfg.Web.SiteTitle, cfg.SecurityEmail(), time.Now(), keypairValidity)
-	if err != nil {
-		return fmt.Errorf("pgp: generate rotated keypair: %w", err)
-	}
-	// Cross-sign the new public key with the outgoing private key so trust chains
-	// from the previous key to the rotated one (AI.md 14182). Best-effort: a
-	// signing failure must not block the rotation — the new key is still valid on
-	// its own self-signature.
-	if _, statErr := os.Stat(s.pgpPrivateKeyPath()); statErr == nil {
-		if oldPriv, rerr := s.readPrivateKey(s.pgpPrivateKeyPath()); rerr == nil {
-			if signed, serr := pgp.SignPublicKey(oldPriv, kp.PublicArmored); serr == nil {
-				kp.PublicArmored = signed
-			} else {
-				log.Printf("pgp: cross-sign rotated public key: %v", serr)
-			}
-		} else {
-			log.Printf("pgp: read outgoing private key for cross-sign: %v", rerr)
-		}
-	}
-	// Park the outgoing private key so reports encrypted to it stay decryptable
-	// through the grace window.
-	if _, statErr := os.Stat(s.pgpPrivateKeyPath()); statErr == nil {
-		if err := os.Rename(s.pgpPrivateKeyPath(), s.pgpRotatedKeyPath()); err != nil {
-			return fmt.Errorf("pgp: park previous private key: %w", err)
-		}
-	}
-	if err := s.installKeypair(kp, prev); err != nil {
-		return err
-	}
-	log.Printf("pgp: rotated project security keypair to %s", kp.Fingerprint)
-	go s.publishToKeyservers(kp.PublicArmored)
-	return nil
-}
-
 // pruneRotatedKey removes the parked previous private key once the 30-day grace
 // window has elapsed since the last rotation.
 func (s *Server) pruneRotatedKey() {
