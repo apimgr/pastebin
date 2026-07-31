@@ -328,28 +328,9 @@ WantedBy=multi-user.target
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
-	// Dynamically find an available UID/GID in the system range 200-899.
-	sysID, idErr := findAvailableSystemID()
-	if idErr != nil {
-		return fmt.Errorf("could not find available system UID/GID: %w", idErr)
-	}
-	uidStr := strconv.Itoa(sysID)
-	homeDir := fmt.Sprintf("/etc/%s/%s", orgName, appName)
-	exec.Command("groupadd", "-r", "-g", uidStr, serviceUser).Run()
-	exec.Command("useradd", "-r", "-u", uidStr, "-g", uidStr, "-d", homeDir,
-		"-s", "/sbin/nologin", "-c", "Pastebin service account", serviceUser).Run()
-
-	// Create directories
-	dirs := []string{
-		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
-		fmt.Sprintf("/etc/%s/%s", orgName, appName),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
+	// PART 23: --install only writes, enables, and starts the unit. The service
+	// account and runtime directories are provisioned by the binary at normal
+	// startup (Server Startup Sequence step 8), never here.
 
 	// Write service file
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
@@ -690,24 +671,9 @@ func installLaunchd() error {
 	binaryPath := GetBinaryPath()
 	plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)
 
-	// PART 23: create the hidden macOS service account before writing the
-	// plist. Runtime-guarded so this shared code never runs dscl elsewhere.
-	if runtime.GOOS == "darwin" {
-		if _, lookErr := user.Lookup(serviceUser); lookErr != nil {
-			sysID, idErr := findAvailableMacOSSystemID()
-			if idErr != nil {
-				return fmt.Errorf("could not find available macOS system UID/GID: %w", idErr)
-			}
-			// PART 23 macOS: service account home is /usr/local/var/{org}/{name}.
-			homeDir := fmt.Sprintf("/usr/local/var/%s/%s", orgName, appName)
-			if mkErr := os.MkdirAll(homeDir, 0755); mkErr != nil {
-				return fmt.Errorf("failed to create service home directory %s: %w", homeDir, mkErr)
-			}
-			if userErr := createMacOSServiceUser(serviceUser, sysID, homeDir); userErr != nil {
-				return fmt.Errorf("failed to create macOS service user: %w", userErr)
-			}
-		}
-	}
+	// PART 23: --install only writes, enables, and starts the service. The macOS
+	// service account and runtime directories are provisioned by the binary at
+	// normal startup (Server Startup Sequence step 8), never here.
 
 	plistContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -730,17 +696,6 @@ func installLaunchd() error {
 </dict>
 </plist>
 `, launchdLabel, binaryPath, orgName, appName, orgName, appName)
-
-	// Create directories
-	dirs := []string{
-		fmt.Sprintf("/Library/Application Support/%s/%s", orgName, appName),
-		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
 
 	// Write plist file
 	if err := os.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {

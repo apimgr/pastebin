@@ -760,6 +760,13 @@ Examples:
 		log.Printf("warning: config load: %v", err)
 	}
 
+	// PART 23 startup step 8a: while still root, create the dedicated service
+	// account (if missing) before directory setup and the later privilege drop.
+	// No-op for non-root and on Windows (VSA). --service --install never does this.
+	if err := service.EnsureServiceAccount(cfg.Server.User); err != nil {
+		log.Printf("warning: could not ensure service account: %v", err)
+	}
+
 	// CLI flag overrides on config.
 	if portFlag != "" {
 		cfg.Server.Port = portFlag
