@@ -117,6 +117,12 @@ type cliConfig struct {
 	} `yaml:"defaults"`
 }
 
+// activeConfigPath, when non-empty, overrides the default cli.yml path.
+// It is set from the --config flag (profile name or explicit path) during
+// startup, before cli.yml is loaded, so the chosen profile feeds every
+// flag default. Empty means "use cliConfigPath()".
+var activeConfigPath string
+
 // cliConfigPath returns the platform-correct path to cli.yml.
 // The CLI always uses user-scope directories regardless of privilege level;
 // it never falls back to system directories like /etc/.
@@ -139,6 +145,65 @@ func cliConfigPath() string {
 	}
 }
 
+// resolvedConfigPath returns the active config path, falling back to the
+// default cli.yml location when no --config profile/path was selected.
+func resolvedConfigPath() string {
+	if activeConfigPath != "" {
+		return activeConfigPath
+	}
+	return cliConfigPath()
+}
+
+// prescanConfigFlag scans args for --config NAME / --config=NAME before
+// flag.Parse runs, so the selected profile can be loaded first (PART 32).
+func prescanConfigFlag(args []string) string {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--config" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		}
+		if strings.HasPrefix(a, "--config=") {
+			return strings.TrimPrefix(a, "--config=")
+		}
+	}
+	return ""
+}
+
+// resolveConfigPath maps a --config value to a concrete file path (PART 32):
+//   - empty        → default cli.yml
+//   - ~ or absolute → used as-is (home-expanded)
+//   - bare name    → {config_dir}/{name}.yml, preferring .yml over .yaml
+func resolveConfigPath(name string) string {
+	if name == "" {
+		return cliConfigPath()
+	}
+	if strings.HasPrefix(name, "~") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, strings.TrimPrefix(name, "~"))
+	}
+	if filepath.IsAbs(name) {
+		return name
+	}
+	dir := filepath.Dir(cliConfigPath())
+	yml := filepath.Join(dir, name+".yml")
+	if _, err := os.Stat(yml); err == nil {
+		return yml
+	}
+	if yamlPath := filepath.Join(dir, name+".yaml"); fileExists(yamlPath) {
+		return yamlPath
+	}
+	return yml
+}
+
+// fileExists reports whether path exists and is not a directory.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 // loadCLIConfig reads cli.yml; returns zero-value config if absent.
 func loadCLIConfig() (cliConfig, error) {
 	var cfg cliConfig
@@ -155,7 +220,7 @@ func loadCLIConfig() (cliConfig, error) {
 	cfg.Defaults.Syntax = "text"
 	cfg.Defaults.Limit = 20
 
-	data, err := os.ReadFile(cliConfigPath())
+	data, err := os.ReadFile(resolvedConfigPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -170,7 +235,7 @@ func loadCLIConfig() (cliConfig, error) {
 
 // saveCLIConfig writes cfg to cli.yml, creating parent dirs as needed.
 func saveCLIConfig(cfg cliConfig) error {
-	p := cliConfigPath()
+	p := resolvedConfigPath()
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
@@ -391,6 +456,12 @@ func main() {
 
 	ensureDirs()
 
+	// PART 32: --config selects a named profile (or explicit path) before
+	// cli.yml is loaded, so the chosen profile feeds every flag default.
+	if name := prescanConfigFlag(os.Args[1:]); name != "" {
+		activeConfigPath = resolveConfigPath(name)
+	}
+
 	// Load cli.yml.
 	fileCfg, err := loadCLIConfig()
 	if err != nil {
@@ -410,6 +481,10 @@ func main() {
 	tokenFlag := flag.String("token", "", "operator/owner API token (or set PASTEBIN_TOKEN)")
 	// PART 32: alternative to --token — read the token from a file instead of the command line.
 	tokenFileFlag := flag.String("token-file", "", "read API token from file")
+	// PART 32: --config selects a named profile or explicit path to cli.yml.
+	// Pre-scanned above so it applies before config load; declared here so
+	// flag.Parse accepts it and --help lists it.
+	flag.String("config", "", "config profile name or path (default: cli.yml)")
 
 	// -h and -v are aliases for --help and --version.
 	flag.BoolVar(showHelp, "h", false, "show help and exit")
@@ -619,7 +694,7 @@ func runTUI(server, lang string, cfg cliConfig) {
 		Server:  server,
 		Lang:    lang,
 		SaveURL: saveCLIConfigURL,
-		CfgPath: cliConfigPath(),
+		CfgPath: resolvedConfigPath(),
 	}
 	if err := tui.Run(tuiCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: tui: %v\n", filepath.Base(os.Args[0]), err)
