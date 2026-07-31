@@ -27,11 +27,14 @@ Read: AI.md PART 32
 static IP; use `localhost` for display or detect from request context.
 Read: AI.md PART 11
 
-## [ ] Raise Makefile coverage gate to match IDEA.md
-`IDEA.md` declares `coverage_minimum: 80`, but `Makefile`'s `test` target
-hardcodes a 60% enforcement threshold. Current coverage is 75.6%, which
-passes the Makefile's 60% gate but not the declared 80% minimum. Either
-raise the Makefile gate to 80% and add tests to close the gap, or update
-IDEA.md if 80% was aspirational — do not silently pick one without
-checking which the user intends.
+## [ ] Wire Makefile coverage gate to IDEA.md's coverage_minimum override
+`Makefile`'s own comment (line 176-177) documents the mechanism: default
+60%, "override upward in IDEA.md (coverage_minimum: 80) when appropriate."
+`IDEA.md` sets `coverage_minimum: 80`, exercising that documented override
+— this is not a spec conflict, AI.md is the how and this is the how it
+already prescribes. The gap is that the `test:` recipe never reads the
+override; it always hardcodes the `< 60` check. Make the recipe read
+`coverage_minimum` from IDEA.md and enforce that value. Current measured
+coverage is 75.6%, below 80 — raising the gate before adding tests will
+fail `make test`; add tests to close the gap first, then wire the gate.
 Read: Makefile:172-192, IDEA.md:20
