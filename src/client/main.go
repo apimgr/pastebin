@@ -173,29 +173,42 @@ func prescanConfigFlag(args []string) string {
 }
 
 // resolveConfigPath maps a --config value to a concrete file path (PART 32):
-//   - empty        → default cli.yml
-//   - ~ or absolute → used as-is (home-expanded)
-//   - bare name    → {config_dir}/{name}.yml, preferring .yml over .yaml
+//   - empty         → default cli.yml
+//   - ~ or absolute → expanded, then extension-resolved
+//   - relative name → {config_dir}/{name}, then extension-resolved
 func resolveConfigPath(name string) string {
 	if name == "" {
 		return cliConfigPath()
 	}
 	if strings.HasPrefix(name, "~") {
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, strings.TrimPrefix(name, "~"))
+		name = filepath.Join(home, strings.TrimPrefix(name, "~"))
 	}
 	if filepath.IsAbs(name) {
-		return name
+		return resolveYamlExtension(name)
 	}
 	dir := filepath.Dir(cliConfigPath())
-	yml := filepath.Join(dir, name+".yml")
-	if _, err := os.Stat(yml); err == nil {
-		return yml
+	return resolveYamlExtension(filepath.Join(dir, name))
+}
+
+// resolveYamlExtension applies PART 32 rules 3-5: an explicit .yml/.yaml (or any
+// other) extension is kept as-is; an extensionless path prefers an existing
+// .yml, then .yaml, defaulting to .yml for a new config.
+func resolveYamlExtension(path string) string {
+	switch filepath.Ext(path) {
+	case ".yml", ".yaml":
+		return path
+	case "":
+		if fileExists(path + ".yml") {
+			return path + ".yml"
+		}
+		if fileExists(path + ".yaml") {
+			return path + ".yaml"
+		}
+		return path + ".yml"
+	default:
+		return path
 	}
-	if yamlPath := filepath.Join(dir, name+".yaml"); fileExists(yamlPath) {
-		return yamlPath
-	}
-	return yml
 }
 
 // fileExists reports whether path exists and is not a directory.

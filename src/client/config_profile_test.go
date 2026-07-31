@@ -52,6 +52,15 @@ func TestResolveConfigPath(t *testing.T) {
 	if !strings.HasSuffix(resolveConfigPath("dev"), ".yml") {
 		t.Fatalf("bare name should default to .yml")
 	}
+
+	// PART 32 rule 3: an explicit .yml/.yaml extension is used as-is and never
+	// double-suffixed (regression guard for dev.yml -> dev.yml.yml).
+	if got := resolveConfigPath("dev.yml"); got != filepath.Join(dir, "dev.yml") {
+		t.Fatalf("dev.yml = %q, want %q", got, filepath.Join(dir, "dev.yml"))
+	}
+	if got := resolveConfigPath("test.yaml"); got != filepath.Join(dir, "test.yaml") {
+		t.Fatalf("test.yaml = %q, want %q", got, filepath.Join(dir, "test.yaml"))
+	}
 }
 
 // TestResolveConfigPathPrefersYaml verifies .yml wins, falling back to .yaml.
