@@ -525,8 +525,8 @@ func TestClientPostJSON_UnmarshalableBody(t *testing.T) {
 func TestCmdList_Empty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes":     []interface{}{},
-			"pagination": map[string]int{"total": 0, "total_pages": 0},
+			"data":     []interface{}{},
+			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
 	defer srv.Close()
@@ -539,13 +539,13 @@ func TestCmdList_Empty(t *testing.T) {
 func TestCmdList_WithData(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes": []interface{}{
+			"data": []interface{}{
 				map[string]interface{}{
 					"id": "abc123", "title": "Hello", "language": "go",
 					"views": 5, "created_at": "2025-01-01T00:00:00Z",
 				},
 			},
-			"pagination": map[string]int{"total": 1, "total_pages": 1},
+			"pagination": map[string]int{"total": 1, "pages": 1},
 		})
 	}))
 	defer srv.Close()
@@ -557,8 +557,8 @@ func TestCmdList_WithData(t *testing.T) {
 func TestCmdList_AsJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes":     []interface{}{},
-			"pagination": map[string]int{"total": 0, "total_pages": 0},
+			"data":     []interface{}{},
+			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
 	defer srv.Close()
@@ -766,14 +766,14 @@ func TestCmdCreate_WithBurnFlag(t *testing.T) {
 func TestCmdList_WithPage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes": []interface{}{
+			"data": []interface{}{
 				map[string]interface{}{
 					"id": "p1", "title": "A very long title that exceeds forty characters in length for truncation",
 					"language": "go", "views": 3,
 					"created_at": "2025-01-01T00:00:00Z",
 				},
 			},
-			"pagination": map[string]int{"total": 10, "total_pages": 2},
+			"pagination": map[string]int{"total": 10, "pages": 2},
 		})
 	}))
 	defer srv.Close()

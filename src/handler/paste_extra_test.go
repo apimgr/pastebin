@@ -64,17 +64,21 @@ func TestListPastes_WithPastes(t *testing.T) {
 
 	var resp map[string]interface{}
 	json.NewDecoder(rr.Body).Decode(&resp)
-	data, ok := resp["data"].(map[string]interface{})
-	if !ok {
-		t.Fatal("data field missing")
+	// PART 14 canonical list shape: data is the array itself, pagination is a
+	// top-level sibling (never nested under data), with a "pages" field.
+	if _, ok := resp["data"].([]interface{}); !ok {
+		t.Fatal("data field must be a JSON array")
 	}
-	pagination, ok := data["pagination"].(map[string]interface{})
+	pagination, ok := resp["pagination"].(map[string]interface{})
 	if !ok {
 		t.Fatal("pagination field missing")
 	}
 	total := int(pagination["total"].(float64))
 	if total < 1 {
 		t.Errorf("total: got %d, want >= 1", total)
+	}
+	if _, ok := pagination["pages"]; !ok {
+		t.Error("pagination missing pages field")
 	}
 }
 

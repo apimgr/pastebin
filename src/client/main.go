@@ -973,10 +973,10 @@ func (c *client) cmdList(args []string) {
 			Language  string    `json:"language"`
 			Views     int       `json:"views"`
 			CreatedAt time.Time `json:"created_at"`
-		} `json:"pastes"`
+		} `json:"data"`
 		Pagination struct {
-			Total      int `json:"total"`
-			TotalPages int `json:"total_pages"`
+			Total int `json:"total"`
+			Pages int `json:"pages"`
 		} `json:"pagination"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -1010,7 +1010,7 @@ func (c *client) cmdList(args []string) {
 	}
 	tw.Flush()
 	fmt.Printf("\n(%d total, page %d of %d)\n",
-		result.Pagination.Total, *page, result.Pagination.TotalPages)
+		result.Pagination.Total, *page, result.Pagination.Pages)
 }
 
 // defaultServerURL falls back to the embedded OfficialSite (site.txt at build time)

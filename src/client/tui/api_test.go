@@ -323,10 +323,10 @@ func TestClientVersionVar(t *testing.T) {
 
 func TestListResponseJSON(t *testing.T) {
 	jsonData := `{
-		"pastes": [
+		"data": [
 			{"id": "abc", "title": "Test", "language": "go", "views": 5}
 		],
-		"pagination": {"total": 1, "total_pages": 1}
+		"pagination": {"total": 1, "pages": 1}
 	}`
 
 	var lr listResponse

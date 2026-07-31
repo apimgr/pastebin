@@ -99,7 +99,7 @@ func TestDetectMode_AllSupportedConfigFlags(t *testing.T) {
 func TestCmdList_TitleTruncatedAt40(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes": []interface{}{
+			"data": []interface{}{
 				map[string]interface{}{
 					"id": "p1",
 					// 41 chars
@@ -109,7 +109,7 @@ func TestCmdList_TitleTruncatedAt40(t *testing.T) {
 					"created_at": "2025-01-01T00:00:00Z",
 				},
 			},
-			"pagination": map[string]int{"total": 1, "total_pages": 1},
+			"pagination": map[string]int{"total": 1, "pages": 1},
 		})
 	}))
 	defer srv.Close()

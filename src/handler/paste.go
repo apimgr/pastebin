@@ -615,8 +615,11 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 100 {
-		limit = 20
+	if limit < 1 {
+		limit = 250
+	}
+	if limit > 250 {
+		limit = 250
 	}
 
 	pastes, total, err := h.db.GetPublicPastes(page, limit)
@@ -635,19 +638,15 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	totalPages := (total + limit - 1) / limit
+	pages := (total + limit - 1) / limit
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"ok": true,
-		"data": map[string]interface{}{
-			"pastes": pastes,
-			"pagination": map[string]interface{}{
-				"page":        page,
-				"limit":       limit,
-				"total":       total,
-				"total_pages": totalPages,
-				"has_next":    page < totalPages,
-				"has_prev":    page > 1,
-			},
+		"ok":   true,
+		"data": pastes,
+		"pagination": map[string]interface{}{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+			"pages": pages,
 		},
 	})
 }

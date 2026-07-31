@@ -176,7 +176,7 @@ func TestDetectMode_EmptyArgsNoTTY(t *testing.T) {
 func TestCmdList_LongTitleTruncation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes": []interface{}{
+			"data": []interface{}{
 				map[string]interface{}{
 					"id":         "p1",
 					"title":      "This is a very long title that definitely exceeds the forty character limit for display",
@@ -185,7 +185,7 @@ func TestCmdList_LongTitleTruncation(t *testing.T) {
 					"created_at": "2025-06-01T12:00:00Z",
 				},
 			},
-			"pagination": map[string]int{"total": 1, "total_pages": 1},
+			"pagination": map[string]int{"total": 1, "pages": 1},
 		})
 	}))
 	defer srv.Close()
@@ -198,7 +198,7 @@ func TestCmdList_LongTitleTruncation(t *testing.T) {
 func TestCmdList_ExactlyFortyCharTitle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes": []interface{}{
+			"data": []interface{}{
 				map[string]interface{}{
 					"id": "p2",
 					// exactly 40 chars
@@ -208,7 +208,7 @@ func TestCmdList_ExactlyFortyCharTitle(t *testing.T) {
 					"created_at": "2025-06-01T12:00:00Z",
 				},
 			},
-			"pagination": map[string]int{"total": 1, "total_pages": 1},
+			"pagination": map[string]int{"total": 1, "pages": 1},
 		})
 	}))
 	defer srv.Close()
@@ -220,7 +220,7 @@ func TestCmdList_ExactlyFortyCharTitle(t *testing.T) {
 func TestCmdList_MultiplePastes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes": []interface{}{
+			"data": []interface{}{
 				map[string]interface{}{
 					"id": "p1", "title": "First", "language": "go", "views": 1, "created_at": "2025-06-01T00:00:00Z",
 				},
@@ -231,7 +231,7 @@ func TestCmdList_MultiplePastes(t *testing.T) {
 					"id": "p3", "title": "Third", "language": "js", "views": 3, "created_at": "2025-06-03T00:00:00Z",
 				},
 			},
-			"pagination": map[string]int{"total": 3, "total_pages": 1},
+			"pagination": map[string]int{"total": 3, "pages": 1},
 		})
 	}))
 	defer srv.Close()

@@ -18,12 +18,13 @@ type PasteListItem struct {
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
-// listResponse is the API shape for /api/v1/pastes.
+// listResponse is the API shape for /api/v1/pastes: the paste array is the
+// canonical top-level "data" field, with pagination as a sibling (PART 14).
 type listResponse struct {
-	Pastes     []PasteListItem `json:"pastes"`
+	Pastes     []PasteListItem `json:"data"`
 	Pagination struct {
-		Total      int `json:"total"`
-		TotalPages int `json:"total_pages"`
+		Total int `json:"total"`
+		Pages int `json:"pages"`
 	} `json:"pagination"`
 }
 

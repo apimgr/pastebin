@@ -441,8 +441,8 @@ func TestCmdList_QueryStringParameters(t *testing.T) {
 		gotPage = r.URL.Query().Get("page")
 		gotLimit = r.URL.Query().Get("limit")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes":     []interface{}{},
-			"pagination": map[string]int{"total": 0, "total_pages": 0},
+			"data":     []interface{}{},
+			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
 	defer srv.Close()
@@ -464,8 +464,8 @@ func TestCmdList_DefaultQueryParams(t *testing.T) {
 		gotPage = r.URL.Query().Get("page")
 		gotLimit = r.URL.Query().Get("limit")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes":     []interface{}{},
-			"pagination": map[string]int{"total": 0, "total_pages": 0},
+			"data":     []interface{}{},
+			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
 	defer srv.Close()
@@ -745,8 +745,8 @@ func TestCmdList_AcceptsApplicationJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAccept = r.Header.Get("Accept")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pastes":     []interface{}{},
-			"pagination": map[string]int{"total": 0, "total_pages": 0},
+			"data":     []interface{}{},
+			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
 	defer srv.Close()
