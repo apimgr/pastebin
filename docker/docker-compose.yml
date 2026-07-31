@@ -29,7 +29,7 @@ services:
       - './volumes/config:/config:z'
       - './volumes/data:/data:z'
     ports:
-      - '172.17.0.1::80'
+      - '172.17.0.1:64580:80'
       # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
       - '9999:9999'
     healthcheck:
