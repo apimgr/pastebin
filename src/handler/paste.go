@@ -424,7 +424,13 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		req.Language = "text"
 	}
 	if req.Title == "" {
-		req.Title = "Untitled"
+		// A link paste with no explicit title defaults to its target URL,
+		// not the generic "Untitled" fallback used by regular pastes.
+		if req.IsLink {
+			req.Title = req.Content
+		} else {
+			req.Title = "Untitled"
+		}
 	}
 
 	// Generate unique paste ID

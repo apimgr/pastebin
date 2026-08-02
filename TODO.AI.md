@@ -33,6 +33,10 @@
       so it can't simply be deleted — decide whether to fold its recipe inline into `build`/`local`
       or keep it as a non-`.PHONY`-listed internal prerequisite-only target.
 
+- [ ] `src/handler/paste.go:501` uses raw `fmt.Printf()` for a warning (failed
+      `CreateAPIToken` after paste creation) instead of routing through the project's
+      logging system.
+
 ## Robustness improvements (surfaced by audit — optional, not spec-mandated)
 
 - [ ] Scheduler `TaskFunc` (`src/scheduler/scheduler.go`) takes no `context.Context`, so a hung

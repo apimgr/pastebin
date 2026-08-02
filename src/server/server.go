@@ -1083,9 +1083,11 @@ func (s *Server) setupRoutes() {
 	r.Post("/api/create", s.maybeRateLimit(s.compatHandler.StikkedCreate))
 	r.Get("/api/paste/{id}", s.maybeReadRateLimit(s.compatHandler.StikkedJSON))
 	r.Get("/view/raw/{id}", s.maybeReadRateLimit(s.pasteHandler.GetRawPaste))
-	r.Get("/view/{id}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/"+chi.URLParam(r, "id"), http.StatusFound)
-	})
+	// /view/{id} always renders the normal paste-detail page — unlike the root
+	// /{id} route, it never redirects to the target URL for link pastes.
+	r.Get("/view/{id}", s.maybeReadRateLimit(func(w http.ResponseWriter, r *http.Request) {
+		s.renderPasteView(w, r, true)
+	}))
 
 	// ── hastebin / haste-server compatibility ────────────────────────────────
 	r.Post("/documents", s.maybeRateLimit(s.compatHandler.HastebinCreate))
@@ -2897,6 +2899,14 @@ func detectClientType(r *http.Request) string {
 }
 
 func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
+	s.renderPasteView(w, r, false)
+}
+
+// renderPasteView renders (or redirects to) a paste for a given request. The
+// root vanity route (/{id}) redirects link pastes straight to their target
+// URL; the explicit /view/{id} route always renders the normal paste detail
+// view, even for links, so forceView lets callers opt out of the redirect.
+func (s *Server) renderPasteView(w http.ResponseWriter, r *http.Request, forceView bool) {
 	id := chi.URLParam(r, "id")
 
 	// Reject reserved system slugs — these are never valid paste IDs.
@@ -2920,9 +2930,10 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Links redirect instead of rendering, for every client type — the raw route
-	// (/raw/{id}) still returns the target URL as plain text, no redirect.
-	if paste.IsLink {
+	// Links redirect instead of rendering on the root route, for every client
+	// type — the raw route (/raw/{id}) still returns the target URL as plain
+	// text, no redirect, and /view/{id} always renders the normal view.
+	if paste.IsLink && !forceView {
 		http.Redirect(w, r, paste.Content, http.StatusFound)
 		return
 	}

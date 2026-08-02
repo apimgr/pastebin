@@ -3072,6 +3072,29 @@ func TestHandleViewPaste(t *testing.T) {
 	})
 }
 
+// TestRenderPasteView_ForceView verifies /view/{id} (forceView=true) always
+// renders the normal paste-detail view for a link paste instead of
+// redirecting to the target URL, unlike the root /{id} route.
+func TestRenderPasteView_ForceView(t *testing.T) {
+	target := "https://example.com/shortened-target"
+	db := &stubDB{
+		getPasteByIDFn: func(id string) (*model.Paste, error) {
+			return &model.Paste{ID: id, Content: target, IsLink: true}, nil
+		},
+	}
+	s := newServerWithPasteHandler(&config.Config{}, db)
+	r := withChiID(httptest.NewRequest(http.MethodGet, "/view/testid", nil), "testid")
+	r.Header.Set("User-Agent", "curl/7.88.1")
+	w := httptest.NewRecorder()
+	s.renderPasteView(w, r, true)
+	if w.Code == http.StatusFound {
+		t.Fatalf("forceView status = %d, want non-redirect (text render)", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), target) {
+		t.Errorf("forceView body should contain target URL as content, got: %q", w.Body.String())
+	}
+}
+
 // ─── handleEmbed tests ───────────────────────────────────────────────────────
 
 func TestHandleEmbed(t *testing.T) {

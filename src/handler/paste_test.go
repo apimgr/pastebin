@@ -331,6 +331,39 @@ func TestCreateLink_JSON(t *testing.T) {
 	}
 }
 
+// TestCreateLink_TitleDefaultsToURL verifies a link paste with no explicit
+// title gets the target URL as its title, not the generic "Untitled"
+// fallback used by regular pastes.
+func TestCreateLink_TitleDefaultsToURL(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	target := "https://example.com/target"
+	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q}`, target))
+	data, ok := m["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("data field missing or wrong type: %v", m)
+	}
+	if title, _ := data["title"].(string); title != target {
+		t.Errorf("title: got %q, want %q", title, target)
+	}
+}
+
+// TestCreateLink_ExplicitTitleKept verifies an explicitly supplied title on a
+// link paste is not overridden by the URL-default behavior.
+func TestCreateLink_ExplicitTitleKept(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	target := "https://example.com/target"
+	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q,"title":"My Link"}`, target))
+	data, ok := m["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("data field missing or wrong type: %v", m)
+	}
+	if title, _ := data["title"].(string); title != "My Link" {
+		t.Errorf("title: got %q, want %q", title, "My Link")
+	}
+}
+
 // TestCreate_NonSingleURLContentIsNotLink verifies content that is not
 // exactly one absolute http(s) URL is stored as a normal text paste
 // (is_link=false) rather than being rejected — there is no explicit is_link
