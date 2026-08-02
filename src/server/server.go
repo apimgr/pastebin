@@ -2033,6 +2033,9 @@ func (s *Server) startTermbin(ctx context.Context, cfg *config.Config) func() {
 	return func() { _ = ln.Close() }
 }
 
+// Run starts the HTTP server on addr and blocks until ctx is cancelled or a
+// fatal error occurs, performing graceful shutdown and closing the GeoIP
+// database, cache store, and other owned resources on exit.
 func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.geoipDB != nil {
 		defer s.geoipDB.Close()

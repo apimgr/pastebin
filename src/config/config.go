@@ -2671,7 +2671,11 @@ func ResolvePort(cfgPath string, cfg *Config, inContainer bool) error {
 func persistPortOnly(path string, port string) error {
 	base := DefaultConfig()
 	if data, err := os.ReadFile(path); err == nil {
-		_ = yaml.Unmarshal(data, base)
+		// Abort rather than clobber: if the existing file is malformed, saving
+		// defaults over it would silently destroy the operator's config.
+		if err := yaml.Unmarshal(data, base); err != nil {
+			return fmt.Errorf("parse existing config %s: %w", path, err)
+		}
 	}
 	base.Server.Port = port
 	return Save(path, base)

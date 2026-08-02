@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -78,7 +79,7 @@ func fetchPastes(server, lang string, page, limit int) ([]PasteListItem, error) 
 // fetchPasteRaw retrieves the raw text content of a single paste.
 func fetchPasteRaw(server, lang, id string) (string, error) {
 	a := newAPIClient(server, lang)
-	resp, err := a.get("/raw/" + id)
+	resp, err := a.get("/raw/" + url.PathEscape(id))
 	if err != nil {
 		return "", fmt.Errorf("get: %w", err)
 	}
@@ -91,16 +92,9 @@ func fetchPasteRaw(server, lang, id string) (string, error) {
 		return "", fmt.Errorf("server returned %d", resp.StatusCode)
 	}
 
-	var buf []byte
-	tmp := make([]byte, 4096)
-	for {
-		n, readErr := resp.Body.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-		}
-		if readErr != nil {
-			break
-		}
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
 	}
 	return string(buf), nil
 }
@@ -108,7 +102,7 @@ func fetchPasteRaw(server, lang, id string) (string, error) {
 // deletePaste sends a DELETE request to remove a paste using its delete token.
 func deletePaste(server, lang, id, token string) error {
 	hc := &http.Client{Timeout: 15 * time.Second}
-	path := server + "/api/v1/pastes/" + id + "?token=" + url.QueryEscape(token)
+	path := server + "/api/v1/pastes/" + url.PathEscape(id) + "?token=" + url.QueryEscape(token)
 	req, err := http.NewRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

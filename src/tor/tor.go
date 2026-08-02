@@ -384,10 +384,16 @@ func (m *Manager) Monitor() {
 			if _, err := svc.t.Control.GetInfo("version"); err != nil {
 				log.Printf("Tor: control connection lost, restarting")
 				m.mu.Lock()
-				_ = svc.t.Close()
-				m.svc = nil
-				if err := m.startLocked(); err != nil {
-					log.Printf("Tor: restart failed: %v", err)
+				// Another path (Restart/UpdateConfig) may have already replaced
+				// or torn down this service while the lock was released; only act
+				// if the live service is still the one we sampled, to avoid a
+				// double Close() and clobbering a concurrent restart.
+				if m.svc == svc {
+					_ = svc.t.Close()
+					m.svc = nil
+					if err := m.startLocked(); err != nil {
+						log.Printf("Tor: restart failed: %v", err)
+					}
 				}
 				m.mu.Unlock()
 			}

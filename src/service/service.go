@@ -929,12 +929,11 @@ func Disable() error {
 		}
 		return exec.Command("chkconfig", appName, "off").Run()
 	case ServiceRunit:
-		svDir := fmt.Sprintf("/etc/sv/%s", appName)
 		enabledDir := fmt.Sprintf("/var/service/%s", appName)
 		exec.Command("sv", "stop", appName).Run()
-		// Remove the symlink from the active service directory.
+		// Disable only removes the symlink from the active service directory;
+		// the service definition under /etc/sv is left in place.
 		os.Remove(enabledDir)
-		_ = svDir
 		return nil
 	case ServiceLaunchd:
 		plistPath := fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel)

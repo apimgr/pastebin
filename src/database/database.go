@@ -472,6 +472,11 @@ func (s *SQLiteDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int,
 	if page < 1 {
 		page = 1
 	}
+	// Defense-in-depth: callers already clamp, but guard against a non-positive
+	// limit reaching the query so LIMIT can never be zero or negative.
+	if limit < 1 {
+		limit = 1
+	}
 	offset := (page - 1) * limit
 	now := time.Now()
 
@@ -897,6 +902,9 @@ func (s *SQLiteDB) VerifyAPIToken(tokenHash [32]byte, resourceType, resourceID s
 		return fmt.Errorf("paste not found or invalid token")
 	}
 
+	// last_used_at is best-effort metadata written after the token has already
+	// been validated; a write failure here must not fail an otherwise-valid auth,
+	// so the error is intentionally not propagated.
 	wCtx, wCancel := dbCtx(dbWriteTimeout)
 	defer wCancel()
 	_, _ = s.db.ExecContext(wCtx,

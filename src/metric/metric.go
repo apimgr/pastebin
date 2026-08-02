@@ -360,6 +360,11 @@ type Collector struct {
 
 	torMu    sync.Mutex
 	torState func() (enabled, running bool)
+
+	// collectMu guards the delta-sampling state (lastPauseTotalNs, lastCPUTotal,
+	// lastCPUIdle) and serializes concurrent /metrics scrapes, which run in
+	// separate request goroutines.
+	collectMu sync.Mutex
 }
 
 // Options configures a Collector. Buckets default to the package defaults
@@ -522,6 +527,9 @@ func (c *Collector) Handler() http.Handler {
 
 // collectRuntime updates runtime-derived gauges immediately before each scrape.
 func (c *Collector) collectRuntime() {
+	c.collectMu.Lock()
+	defer c.collectMu.Unlock()
+
 	AppUptime.Set(time.Since(c.startTime).Seconds())
 
 	if c.includeRuntime {

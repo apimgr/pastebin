@@ -281,10 +281,7 @@ func (c *CompatHandler) MicrobinCreate(w http.ResponseWriter, r *http.Request) {
 
 // MicrobinGet handles GET /api/v1/pasta/{id}
 func (c *CompatHandler) MicrobinGet(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	// Reuse the standard JSON get handler path.
-	chi.RouteContext(r.Context()).URLParams.Keys[0] = "id"
-	chi.RouteContext(r.Context()).URLParams.Values[0] = id
+	// The route registers {id}, so GetPaste reads the same param directly.
 	c.ph.GetPaste(w, r)
 }
 
