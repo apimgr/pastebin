@@ -839,29 +839,33 @@ async function fetchAPI(endpoint, options) {
 
 // ─── Create form: link-mode content hint (progressive enhancement) ────────────
 
-// The is_link checkbox works without JS (server validates/redirects
-// regardless); this only swaps the content textarea's placeholder/label so
-// sighted users get a hint that a URL is expected in link mode.
+// There is no is_link checkbox — the server auto-detects a link paste from
+// content shape alone (entire trimmed content is exactly one http:// or
+// https:// URL, nothing else). This listener only mirrors that same rule
+// client-side to swap the content label and hide the (meaningless) language
+// field as a visual hint; it changes nothing about validation or submission,
+// which the server always re-checks authoritatively.
 document.addEventListener('DOMContentLoaded', () => {
-    const isLinkCheckbox = document.getElementById('is_link');
     const content = document.getElementById('content');
     const contentLabel = document.getElementById('content-label');
-    if (!isLinkCheckbox || !content || !contentLabel) return;
+    const languageGroup = document.getElementById('language-group');
+    if (!content || !contentLabel) return;
 
-    const textPlaceholder = content.getAttribute('placeholder');
     const textLabel = contentLabel.textContent;
-    const linkPlaceholder = 'https://example.com/target-page';
     const linkLabel = t('content_link_label') || textLabel;
+    const singleURLPattern = /^https?:\/\/\S+$/;
 
-    isLinkCheckbox.addEventListener('change', () => {
-        if (isLinkCheckbox.checked) {
-            content.setAttribute('placeholder', linkPlaceholder);
-            contentLabel.textContent = linkLabel;
-        } else {
-            content.setAttribute('placeholder', textPlaceholder);
-            contentLabel.textContent = textLabel;
+    const updateLinkHint = () => {
+        const trimmed = content.value.trim();
+        const isLink = singleURLPattern.test(trimmed);
+        contentLabel.textContent = isLink ? linkLabel : textLabel;
+        if (languageGroup) {
+            languageGroup.style.display = isLink ? 'none' : '';
         }
-    });
+    };
+
+    content.addEventListener('input', updateLinkHint);
+    updateLinkHint();
 });
 
 // ─── Remove page enhancements (merged from remove.js) ─────────────────────────

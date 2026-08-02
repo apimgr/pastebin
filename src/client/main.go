@@ -828,8 +828,9 @@ func (c *client) cmdCreate(args []string) {
 
 	if *asLink {
 		// Links carry no language/syntax mode and are never base64-encoded —
-		// content is always the plain target URL string.
-		body["is_link"] = true
+		// content is always the plain target URL string. There is no is_link
+		// field to set: the server auto-detects link mode because content is
+		// exactly one http(s):// URL and nothing else.
 		delete(body, "language")
 	} else {
 		// Binary files (images, archives, etc.) cannot travel as raw bytes inside

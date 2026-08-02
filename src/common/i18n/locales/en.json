@@ -159,8 +159,6 @@
     "burn_after_label": "Burn after views (0 = off)",
     "content_label": "Content",
     "content_placeholder": "Paste your code or text here...",
-    "is_link_label": "Create as a link (URL redirect)",
-    "is_link_hint": "Instead of storing text, this paste redirects visitors to a URL you provide. Language/syntax highlighting does not apply.",
     "create_new": "Create New Paste",
     "create_btn": "Create Paste",
     "create_desc": "Share code or text with syntax highlighting",

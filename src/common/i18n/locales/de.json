@@ -528,8 +528,6 @@
     "cancel": "Abbrechen",
     "content_label": "Inhalt",
     "content_placeholder": "Code oder Text hier einfügen...",
-    "is_link_label": "Als Link erstellen (URL-Weiterleitung)",
-    "is_link_hint": "Anstatt Text zu speichern, leitet dieser Paste Besucher zu einer von Ihnen angegebenen URL weiter. Sprachhervorhebung gilt nicht.",
     "copy": "Kopieren",
     "copy_code": "Code kopieren",
     "create_btn": "Paste erstellen",

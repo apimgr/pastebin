@@ -15,10 +15,9 @@ POST https://pste.us/api/v1/paste
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content` | string | required | Paste body text, or (when `is_link` is `true`) the `http://`/`https://` redirect target URL |
+| `content` | string | required | Paste body text. If the entire trimmed content is exactly one absolute `http://`/`https://` URL and nothing else, the paste is auto-detected as a link — there is no field to request this explicitly |
 | `title` | string | `""` | Optional title |
-| `language` | string | `text` | Chroma language identifier; ignored when `is_link` is `true` |
-| `is_link` | boolean | `false` | Create as a link paste — `content` must be an absolute `http://` or `https://` URL |
+| `language` | string | `text` | Chroma language identifier; ignored when content is auto-detected as a link |
 | `visibility` | string | `public` | `public` or `unlisted` |
 | `expires_in` | string | `never` | `1h`, `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `18m`, `2y`, `never`, or seconds |
 | `burn_after` | integer | `0` | Delete after N views; `0` = disabled; max `9999` |
@@ -63,19 +62,19 @@ If the paste is a link (`is_link: true`), the frontend and API view routes (`GET
 
 ## Link Pastes
 
-Create a paste that redirects to a URL instead of rendering text:
+A paste automatically becomes a redirecting link when its entire trimmed content is exactly one absolute `http://` or `https://` URL and nothing else — no extra whitespace, no additional lines, no surrounding text. There is no request field, header, or checkbox to opt in or out; it is derived purely from content shape:
 
 ```bash
 curl -X POST https://pste.us/api/v1/paste \
   --header "Content-Type: application/json" \
-  --data '{"content":"https://example.com/some/long/path","is_link":true}'
+  --data '{"content":"https://example.com/some/long/path"}'
 ```
 
-- Only `http://` and `https://` target URLs are accepted; anything else is rejected with `400 VALIDATION_FAILED`.
+- Only `http://` and `https://` target URLs are accepted; anything else (extra text, multiple lines, other schemes) is stored as a normal text paste instead.
 - Short IDs are auto-generated — there is no custom/vanity slug support.
 - The target URL is never fetched server-side.
 - `GET /{id}` (web and API) issues a `302 Found` redirect to the target.
-- `GET /api/v1/paste/{id}/raw` returns the target URL as plain text, without redirecting.
+- `GET /api/v1/paste/{id}/raw` (and the frontend `/view/raw`, `/dl` routes) always return the target URL as plain text, without redirecting, regardless of `is_link`.
 - Expiry, burn-after-read, visibility, and owner-token deletion all work identically to text pastes.
 
 ## Delete Paste

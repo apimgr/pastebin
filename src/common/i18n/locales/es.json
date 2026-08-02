@@ -528,8 +528,6 @@
     "cancel": "Cancelar",
     "content_label": "Contenido",
     "content_placeholder": "Pega tu código o texto aquí...",
-    "is_link_label": "Crear como enlace (redirección de URL)",
-    "is_link_hint": "En lugar de almacenar texto, este paste redirige a los visitantes a una URL que proporciones. El resaltado de sintaxis no se aplica.",
     "copy": "Copiar",
     "copy_code": "Copiar código",
     "create_btn": "Crear paste",

@@ -78,10 +78,9 @@ func Routes(apiVersion string) []Route {
 		"type":     "object",
 		"required": []string{"content"},
 		"properties": map[string]interface{}{
-			"content":    map[string]interface{}{"type": "string", "description": "Paste body text, or (when is_link=true) the http:// or https:// redirect target URL"},
+			"content":    map[string]interface{}{"type": "string", "description": "Paste body text. If the entire trimmed content is exactly one http:// or https:// URL and nothing else, the paste is auto-detected as a link (is_link=true in the response) — there is no request field to set this explicitly"},
 			"title":      map[string]interface{}{"type": "string", "description": "Optional title"},
-			"language":   map[string]interface{}{"type": "string", "description": "Chroma language identifier; omit for auto-detect; ignored when is_link=true"},
-			"is_link":    map[string]interface{}{"type": "boolean", "default": false, "description": "Create as a link: content is a redirect target URL (http:// or https:// only) instead of paste text"},
+			"language":   map[string]interface{}{"type": "string", "description": "Chroma language identifier; omit for auto-detect; ignored when content is auto-detected as a link"},
 			"is_public":  map[string]interface{}{"type": "boolean", "default": true, "description": "false = unlisted"},
 			"expires_in": map[string]interface{}{"type": "string", "example": "1d", "description": "Duration: 1h 1d 1w 1m 3m 6m 1y 18m 2y never"},
 			"burn_after": map[string]interface{}{"type": "integer", "default": 0, "description": "Delete after N views (0 = disabled; max 9999)"},

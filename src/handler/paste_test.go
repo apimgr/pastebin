@@ -310,14 +310,15 @@ func TestGetRawPaste(t *testing.T) {
 	}
 }
 
-// ─── is_link (URL shortening) ──────────────────────────────────────────────────
+// ─── is_link (URL shortening, auto-detected from content) ─────────────────────
 
-// TestCreateLink_JSON verifies a link paste is created with is_link echoed
-// back and language cleared.
+// TestCreateLink_JSON verifies a paste whose entire content is a single
+// http(s) URL is auto-detected as a link (is_link=true) with language
+// cleared, with no is_link field sent in the request.
 func TestCreateLink_JSON(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	m := createViaAPI(t, h, `{"content":"https://example.com/target","is_link":true}`)
+	m := createViaAPI(t, h, `{"content":"https://example.com/target"}`)
 	data, ok := m["data"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("data field missing or wrong type: %v", m)
@@ -330,8 +331,12 @@ func TestCreateLink_JSON(t *testing.T) {
 	}
 }
 
-// TestCreateLink_RejectsNonHTTPScheme expects 400 for any non-http(s) target.
-func TestCreateLink_RejectsNonHTTPScheme(t *testing.T) {
+// TestCreate_NonSingleURLContentIsNotLink verifies content that is not
+// exactly one absolute http(s) URL is stored as a normal text paste
+// (is_link=false) rather than being rejected — there is no explicit is_link
+// flag to reject against anymore, so anything not matching the auto-detect
+// shape simply falls through to plain-text storage.
+func TestCreate_NonSingleURLContentIsNotLink(t *testing.T) {
 	cases := []struct {
 		name    string
 		content string
@@ -340,37 +345,49 @@ func TestCreateLink_RejectsNonHTTPScheme(t *testing.T) {
 		{"ftp scheme", `ftp://example.com/file`},
 		{"relative path", `/just/a/path`},
 		{"plain text", `not a url at all`},
-		{"empty", ``},
+		{"url with surrounding text", `see https://example.com/target for details`},
+		{"url with trailing newline", "https://example.com/target\nextra"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := newTestHandler(t)
-			body, _ := json.Marshal(map[string]interface{}{
-				"content": tc.content,
-				"is_link": true,
-			})
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
-				bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json")
-
-			rr := httptest.NewRecorder()
-			h.CreatePaste(rr, req)
-
-			if rr.Code != http.StatusBadRequest {
-				t.Errorf("status: got %d, want 400\nbody: %s", rr.Code, rr.Body.String())
+			m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q}`, tc.content))
+			data, ok := m["data"].(map[string]interface{})
+			if !ok {
+				t.Fatalf("data field missing or wrong type: %v", m)
+			}
+			if data["is_link"] != false {
+				t.Errorf("is_link: got %v, want false", data["is_link"])
 			}
 		})
 	}
 }
 
+// TestCreate_EmptyContentRejected verifies empty content is still rejected
+// with 400, regardless of link auto-detection.
+func TestCreate_EmptyContentRejected(t *testing.T) {
+	h, _ := newTestHandler(t)
+	body, _ := json.Marshal(map[string]interface{}{"content": ""})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
+		bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr := httptest.NewRecorder()
+	h.CreatePaste(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want 400\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
 // TestGetLink_Redirects verifies GET /api/{v}/pastes/{id} issues a 302 to the
-// target URL for a link paste, instead of returning JSON.
+// target URL for an auto-detected link paste, instead of returning JSON.
 func TestGetLink_Redirects(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	target := "https://example.com/redirect-target"
-	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q,"is_link":true}`, target))
+	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q}`, target))
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
 
@@ -395,7 +412,7 @@ func TestGetRawLink_NoRedirect(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	target := "https://example.com/raw-target"
-	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q,"is_link":true}`, target))
+	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q}`, target))
 	data := m["data"].(map[string]interface{})
 	id := data["id"].(string)
 

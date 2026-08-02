@@ -24,7 +24,6 @@ import (
 
 	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/httputil"
-	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/metric"
 	"github.com/apimgr/pastebin/src/model"
@@ -236,9 +235,10 @@ type CreateRequest struct {
 	BurnAfter int `json:"burn_after"`
 	// ContentType is the detected MIME type for non-text uploads; empty = plain text.
 	ContentType string `json:"content_type,omitempty"`
-	// IsLink marks this paste as a URL redirect instead of stored text/file
-	// content — Content must then be an absolute http:// or https:// URL.
-	IsLink bool `json:"is_link"`
+	// IsLink is never client-settable — it is derived automatically from
+	// Content by isSingleURLContent after parsing. A `json:"-"` tag keeps it
+	// out of the decoded request body entirely.
+	IsLink bool `json:"-"`
 }
 
 // ValidateLinkTarget reports whether target is an absolute http:// or https://
@@ -254,6 +254,27 @@ func ValidateLinkTarget(target string) bool {
 		return false
 	}
 	return u.Host != ""
+}
+
+// isSingleURLContent reports whether content, once trimmed of surrounding
+// whitespace, is exactly one absolute http:// or https:// URL and nothing
+// else — no internal whitespace, no additional lines, no surrounding text.
+// This is the sole trigger for auto-detecting a link-shortener paste: there
+// is no client-settable is_link flag. A URL embedded in larger text, or any
+// other content, is stored as a normal paste; raw/download/view-raw routes
+// always return the literal stored content regardless, so nothing is hidden.
+func isSingleURLContent(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return false
+	}
+	if strings.ContainsAny(trimmed, " \t\n\r") {
+		return false
+	}
+	if !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "https://") {
+		return false
+	}
+	return ValidateLinkTarget(trimmed)
 }
 
 // createFromRequest parses the request body (JSON, multipart, urlencoded, or
@@ -302,7 +323,6 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		if ba, err := strconv.Atoi(r.FormValue("burn_after")); err == nil {
 			req.BurnAfter = ba
 		}
-		req.IsLink = config.IsTruthy(r.FormValue("is_link"))
 
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
 		if err := r.ParseForm(); err != nil {
@@ -316,7 +336,6 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		if ba, err := strconv.Atoi(r.FormValue("burn_after")); err == nil {
 			req.BurnAfter = ba
 		}
-		req.IsLink = config.IsTruthy(r.FormValue("is_link"))
 
 	default:
 		// Raw body (curl --data-binary)
@@ -325,8 +344,12 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		req.Title = r.Header.Get("X-Title")
 		req.Language = r.Header.Get("X-Language")
 		req.ExpiresIn = r.Header.Get("X-Expires-In")
-		req.IsLink = config.IsTruthy(r.Header.Get("X-Is-Link"))
 	}
+
+	// is_link is auto-detected from content shape alone (see
+	// isSingleURLContent) — there is no client-settable is_link flag/field/
+	// header on any submission path (web form, JSON, multipart, raw body).
+	req.IsLink = isSingleURLContent(req.Content)
 
 	// Links (is_link=true) store the redirect target verbatim as plain text —
 	// they never go through binary detection/base64 encoding, and language/

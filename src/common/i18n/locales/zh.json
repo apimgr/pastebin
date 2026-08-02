@@ -528,8 +528,6 @@
     "cancel": "取消",
     "content_label": "内容",
     "content_placeholder": "在此粘贴代码或文本...",
-    "is_link_label": "创建为链接（URL 重定向）",
-    "is_link_hint": "此分享不存储文本，而是将访问者重定向到您提供的 URL。语言/语法高亮不适用。",
     "copy": "复制",
     "copy_code": "复制代码",
     "create_btn": "创建粘贴",
