@@ -1,15 +1,12 @@
 # TODO.AI.md
 
-## Deferred audit findings (require a design/release decision — not auto-fixed)
+## Deferred lint findings (require a design decision — not auto-fixed)
 
-- [ ] api_version is hardcoded as `v1` (`src/server/server.go:1427,1516` and literal
-      `/api/v1/...` route registrations throughout `server.go`). PART 14 requires using
-      `{api_version}` / `APIBasePath()` instead of a hardcoded `v1`. This is a cross-cutting
-      route-tree refactor; centralize the version in one constant/helper and thread it through
-      every `/api/...` registration and the endpoint-listing maps.
-- [ ] `release.txt` is `0.0.9`. PART 13 requires SemVer to start at `1.0.0` (never `0.x.x`).
-      Bumping to `1.0.0` is an operator release decision (signals production-ready) — confirm
-      before changing.
+- [ ] `Makefile` has a 7th target, `clean` (line 223), beyond the six core targets PART 25
+      mandates (`dev`, `local`, `build`, `test`, `release`, `docker`). It's also a documented
+      prerequisite of `build`/`local` (PART 25: "ALWAYS run `clean` before `build` and `local`"),
+      so it can't simply be deleted — decide whether to fold its recipe inline into `build`/`local`
+      or keep it as a non-`.PHONY`-listed internal prerequisite-only target.
 
 ## Robustness improvements (surfaced by audit — optional, not spec-mandated)
 

@@ -16,6 +16,8 @@ import (
 type Handler struct {
 	title   string
 	version string
+	// apiVersion is the {api_version} route segment (PART 14); defaults to "v1".
+	apiVersion string
 	// static override; takes precedence over baseURLFn
 	baseURL string
 	// dynamic resolver; used when baseURL is empty
@@ -23,8 +25,12 @@ type Handler struct {
 }
 
 // New creates a Handler. baseURL can be left empty to auto-detect from the request.
-func New(title, version, baseURL string) *Handler {
-	return &Handler{title: title, version: version, baseURL: baseURL}
+// apiVersion is the {api_version} route segment (e.g. "v1"); empty defaults to "v1".
+func New(title, version, baseURL, apiVersion string) *Handler {
+	if apiVersion == "" {
+		apiVersion = "v1"
+	}
+	return &Handler{title: title, version: version, baseURL: baseURL, apiVersion: apiVersion}
 }
 
 // SetBaseURLResolver registers a trusted dynamic base-URL resolver.
@@ -56,7 +62,7 @@ func (h *Handler) ServeSpec(w http.ResponseWriter, r *http.Request) {
 // ServeUI writes the self-contained HTML Swagger viewer.
 func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
 	base := h.resolveBase(r)
-	specURL := base + "/api/v1/server/swagger"
+	specURL := base + "/api/" + h.apiVersion + "/server/swagger"
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
@@ -84,7 +90,7 @@ func (h *Handler) resolveBase(r *http.Request) string {
 // buildSpec generates the OpenAPI 3.0.3 document from the route annotations.
 func (h *Handler) buildSpec(base string) map[string]interface{} {
 	paths := map[string]interface{}{}
-	for _, route := range Routes() {
+	for _, route := range Routes(h.apiVersion) {
 		p, ok := paths[route.Path].(map[string]interface{})
 		if !ok {
 			p = map[string]interface{}{}

@@ -722,7 +722,11 @@ Examples:
 		if address == "" || address == "0.0.0.0" {
 			address = "localhost"
 		}
-		probeURL := "http://" + address + ":" + port + "/api/v1/server/healthz"
+		apiVersion := strings.TrimSpace(statusCfg.Server.APIVersion)
+		if apiVersion == "" {
+			apiVersion = "v1"
+		}
+		probeURL := "http://" + address + ":" + port + "/api/" + apiVersion + "/server/healthz"
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(probeURL)
 		if err != nil || resp.StatusCode >= 500 {

@@ -392,6 +392,16 @@ func (s *Server) liveCfg() *config.Config {
 	return s.cfg
 }
 
+// apiVersion returns the configured {api_version} route segment (PART 14),
+// falling back to "v1" when unset.
+func (s *Server) apiVersion() string {
+	v := strings.TrimSpace(s.liveCfg().Server.APIVersion)
+	if v == "" {
+		return "v1"
+	}
+	return v
+}
+
 // New constructs a Server and wires all routes.
 // cfgMgr may be nil (e.g. in tests); when set, hot-reloadable settings are read live.
 func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, version, commitID, buildDate, configDir, dataDir string) *Server {
@@ -430,7 +440,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.pasteHandler = handler.NewPasteHandler(db, cfg.Server.BaseURL, s.operatorTokenHash)
 	s.pasteHandler.SetBaseURLResolver(s.baseURL)
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
-	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL)
+	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL, cfg.Server.APIVersion)
 	s.swaggerHandler.SetBaseURLResolver(s.baseURL)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
 	s.metricsCollector = metric.NewWithOptions(metric.Options{
@@ -1088,7 +1098,7 @@ func (s *Server) setupRoutes() {
 	// ── Versioned API (native) ───────────────────────────────────────────────
 	r.Get("/api", s.handleAPIInfo)
 
-	r.Route("/api/v1", func(r chi.Router) {
+	r.Route("/api/"+s.apiVersion(), func(r chi.Router) {
 		r.Get("/", s.handleAPIInfo)
 
 		// Native REST API (PART 14): plural resource routes only; no singular forms.
@@ -1424,8 +1434,7 @@ func (s *Server) buildCSP(r *http.Request) (header string, reportOnly bool) {
 	}
 
 	fqdn := cfg.Server.FQDN
-	apiVer := "v1"
-	reportURI := "/api/" + apiVer + "/server/reports/csp"
+	reportURI := "/api/" + s.apiVersion() + "/server/reports/csp"
 
 	csp := cfg.Web.CSP
 	// script-src stays 'self' only — no 'unsafe-inline' — per the CSP spec
@@ -1513,8 +1522,7 @@ func (s *Server) buildReportingHeaders() (endpoints, reportTo, nel string) {
 	if fqdn == "" || fqdn == "localhost" || !cfg.Server.TLS.Enabled {
 		return "", "", ""
 	}
-	apiVer := "v1"
-	base := "https://" + fqdn + "/api/" + apiVer + "/server/reports"
+	base := "https://" + fqdn + "/api/" + s.apiVersion() + "/server/reports"
 	endpoints = `default="` + base + `/default"`
 	reportTo = `{"group":"default","max_age":10886400,"endpoints":[{"url":"` + base + `/default"}]}`
 	nel = `{"report_to":"default","max_age":2592000,"include_subdomains":true}`
@@ -2614,6 +2622,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimRight(s.baseURL(r), "/")
+	av := s.apiVersion()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok": true,
@@ -2622,11 +2631,11 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"version": s.version,
 			"endpoints": map[string]interface{}{
 				"native": map[string]string{
-					"GET    /api/v1/pastes":          "list public pastes",
-					"POST   /api/v1/pastes":          "create paste (JSON/multipart/raw)",
-					"GET    /api/v1/pastes/{id}":     "get paste JSON",
-					"DELETE /api/v1/pastes/{id}":     "delete paste (requires token)",
-					"GET    /api/v1/pastes/{id}/raw": "get paste raw text",
+					fmt.Sprintf("GET    /api/%s/pastes", av):          "list public pastes",
+					fmt.Sprintf("POST   /api/%s/pastes", av):          "create paste (JSON/multipart/raw)",
+					fmt.Sprintf("GET    /api/%s/pastes/{id}", av):     "get paste JSON",
+					fmt.Sprintf("DELETE /api/%s/pastes/{id}", av):     "delete paste (requires token)",
+					fmt.Sprintf("GET    /api/%s/pastes/{id}/raw", av): "get paste raw text",
 				},
 				"web": map[string]string{
 					"GET  /":            "home",
@@ -2644,17 +2653,17 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 					"POST /api/api_login.php": "always returns ANONYMOUS",
 				},
 				"compat_microbin": map[string]string{
-					"POST   /api/v1/pasta":      "create paste",
-					"GET    /api/v1/pasta":      "list pastes",
-					"GET    /api/v1/pasta/{id}": "get paste",
-					"DELETE /api/v1/pasta/{id}": "delete paste",
+					fmt.Sprintf("POST   /api/%s/pasta", av):      "create paste",
+					fmt.Sprintf("GET    /api/%s/pasta", av):      "list pastes",
+					fmt.Sprintf("GET    /api/%s/pasta/{id}", av): "get paste",
+					fmt.Sprintf("DELETE /api/%s/pasta/{id}", av): "delete paste",
 				},
 				"compat_lenpaste": map[string]string{
-					"POST   /api/new":              "create paste (also /api/v1/new)",
-					"GET    /api/get":              "get paste (?id=ID) (also /api/v1/get)",
-					"DELETE /api/remove":           "delete paste (?id=ID&deleteToken=TOKEN) (also /api/v1/remove)",
-					"GET    /api/list":             "list pastes (also /api/v1/list)",
-					"GET    /api/v1/getServerInfo": "server metadata",
+					"POST   /api/new":    fmt.Sprintf("create paste (also /api/%s/new)", av),
+					"GET    /api/get":    fmt.Sprintf("get paste (?id=ID) (also /api/%s/get)", av),
+					"DELETE /api/remove": fmt.Sprintf("delete paste (?id=ID&deleteToken=TOKEN) (also /api/%s/remove)", av),
+					"GET    /api/list":   fmt.Sprintf("list pastes (also /api/%s/list)", av),
+					fmt.Sprintf("GET    /api/%s/getServerInfo", av): "server metadata",
 				},
 				"compat_stikked": map[string]string{
 					"POST /api/create":     "create paste; returns bare URL",
@@ -2675,7 +2684,7 @@ func (s *Server) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 			"examples": map[string]string{
 				"curl_raw":  "curl --data-binary @file.txt " + base + "/create",
 				"curl_file": "curl -F 'files=@code.py' " + base + "/create",
-				"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/v1/pastes",
+				"curl_json": `curl -H "Content-Type: application/json" -d '{"content":"hello"}' ` + base + "/api/" + s.apiVersion() + "/pastes",
 				"pipe":      "cat file.txt | curl --data-binary @- " + base + "/create",
 			},
 		},
@@ -2695,7 +2704,7 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 			// Server identity
 			"server":      "pastebin",
 			"version":     s.version,
-			"api_version": "v1",
+			"api_version": s.apiVersion(),
 			"base_url":    base,
 
 			// CLI update metadata (PART 32).
@@ -2731,7 +2740,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		html, err := s.renderTemplateToString(r, "home.html", data)
 		if err != nil {
 			// Fallback when templates are unavailable: minimal plain text.
-			fmt.Fprintf(w, "%s\nPOST %s/api/v1/pastes to create a paste.\n", s.liveCfg().Web.SiteTitle, s.baseURL(r))
+			fmt.Fprintf(w, "%s\nPOST %s/api/%s/pastes to create a paste.\n", s.liveCfg().Web.SiteTitle, s.baseURL(r), s.apiVersion())
 			for _, p := range pastes {
 				fmt.Fprintf(w, "%s/%s\t%s\n", s.baseURL(r), p.ID, p.Title)
 			}

@@ -52,6 +52,12 @@ var (
 // Display uses filepath.Base(os.Args[0]) per PART 32.
 const projectName = "pastebin"
 
+// apiVersion is the {api_version} route segment (PART 14) this CLI targets.
+// Centralized here rather than scattered per call site; matches the server's
+// default (config.DefaultAPIVersion) since the CLI is compiled against the
+// same project's API surface.
+const apiVersion = "v1"
+
 // Exit codes per PART 32.
 const (
 	exitSuccess    = 0
@@ -825,7 +831,7 @@ func (c *client) cmdCreate(args []string) {
 		body["content_type"] = detected
 	}
 
-	resp, err := c.postJSON("/api/v1/pastes", body)
+	resp, err := c.postJSON("/api/"+apiVersion+"/pastes", body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: create: %v\n", filepath.Base(os.Args[0]), err)
 		os.Exit(exitConnection)
@@ -917,7 +923,7 @@ func (c *client) cmdDelete(args []string) {
 
 	req, err := http.NewRequest(
 		http.MethodDelete,
-		c.url("/api/v1/pastes/"+url.PathEscape(id)+"?token="+url.QueryEscape(token)),
+		c.url("/api/"+apiVersion+"/pastes/"+url.PathEscape(id)+"?token="+url.QueryEscape(token)),
 		nil,
 	)
 	if err != nil {
@@ -967,7 +973,7 @@ func (c *client) cmdList(args []string) {
 		os.Exit(exitUsage)
 	}
 
-	resp, err := c.get(fmt.Sprintf("/api/v1/pastes?page=%d&limit=%d", *page, *limit))
+	resp, err := c.get(fmt.Sprintf("/api/%s/pastes?page=%d&limit=%d", apiVersion, *page, *limit))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: list: %v\n", filepath.Base(os.Args[0]), err)
 		os.Exit(exitConnection)

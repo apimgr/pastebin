@@ -42,7 +42,9 @@ type ResponseSpec struct {
 // Compatibility routes are documented with the "compatibility" tag; they accept the
 // same wire formats as their respective upstream services so existing scripts work
 // without modification (AI.md PART 14).
-func Routes() []Route {
+func Routes(apiVersion string) []Route {
+	apiBase := "/api/" + apiVersion
+
 	pasteSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -94,7 +96,7 @@ func Routes() []Route {
 	return []Route{
 		{
 			Method:      "GET",
-			Path:        "/api/v1/pastes",
+			Path:        apiBase + "/pastes",
 			Tag:         "pastes",
 			Summary:     "List public pastes",
 			Description: "Returns a paginated list of recent public pastes.",
@@ -109,7 +111,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "POST",
-			Path:        "/api/v1/pastes",
+			Path:        apiBase + "/pastes",
 			Tag:         "pastes",
 			Summary:     "Create paste",
 			Description: "Creates a new paste. Accepts JSON or multipart/form-data.",
@@ -127,7 +129,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/pastes/{id}",
+			Path:        apiBase + "/pastes/{id}",
 			Tag:         "pastes",
 			Summary:     "Get paste",
 			Description: "Returns paste metadata and content by ID.",
@@ -141,7 +143,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "DELETE",
-			Path:        "/api/v1/pastes/{id}",
+			Path:        apiBase + "/pastes/{id}",
 			Tag:         "pastes",
 			Summary:     "Delete paste",
 			Description: "Deletes a paste. Requires `Authorization: Bearer <token>` header or `?token=` query param (the delete token returned at creation time).",
@@ -157,7 +159,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/pastes/{id}/raw",
+			Path:        apiBase + "/pastes/{id}/raw",
 			Tag:         "pastes",
 			Summary:     "Get raw paste content",
 			Description: "Returns the raw paste text as plain text.",
@@ -171,7 +173,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/server/healthz",
+			Path:        apiBase + "/server/healthz",
 			Tag:         "server",
 			Summary:     "Health check",
 			Description: "Returns server health status and basic metrics.",
@@ -192,7 +194,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/server/version",
+			Path:        apiBase + "/server/version",
 			Tag:         "server",
 			Summary:     "Version info",
 			Description: "Returns the server version, commit ID, and build date.",
@@ -213,7 +215,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/server/swagger",
+			Path:        apiBase + "/server/swagger",
 			Tag:         "server",
 			Summary:     "OpenAPI specification",
 			Description: "Returns the OpenAPI 3.0.3 JSON specification for this API.",
@@ -223,7 +225,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "POST",
-			Path:        "/api/v1/server/graphql",
+			Path:        apiBase + "/server/graphql",
 			Tag:         "server",
 			Summary:     "GraphQL endpoint",
 			Description: "Executes a GraphQL query or mutation. The interactive GraphiQL explorer is available at /server/docs/graphql.",
@@ -312,7 +314,7 @@ func Routes() []Route {
 		// ─── microbin compatibility ──────────────────────────────────────────────
 		{
 			Method:      "POST",
-			Path:        "/api/v1/pasta",
+			Path:        apiBase + "/pasta",
 			Tag:         "compatibility",
 			Summary:     "microbin — create paste",
 			Description: "Wire-compatible with the microbin API (https://github.com/szabodanika/microbin). Accepts form fields: `content`, `title`, `syntax`, `expiry`, `burn_after_reads`, `private`.",
@@ -339,7 +341,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/pasta",
+			Path:        apiBase + "/pasta",
 			Tag:         "compatibility",
 			Summary:     "microbin — list pastes",
 			Description: "Returns a list of pastes in microbin JSON format.",
@@ -349,7 +351,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/pasta/{id}",
+			Path:        apiBase + "/pasta/{id}",
 			Tag:         "compatibility",
 			Summary:     "microbin — get paste",
 			Description: "Returns a single paste by ID in microbin JSON format.",
@@ -363,7 +365,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "DELETE",
-			Path:        "/api/v1/pasta/{id}",
+			Path:        apiBase + "/pasta/{id}",
 			Tag:         "compatibility",
 			Summary:     "microbin — delete paste",
 			Description: "Deletes a paste by ID.",
@@ -449,7 +451,7 @@ func Routes() []Route {
 		},
 		{
 			Method:      "GET",
-			Path:        "/api/v1/getServerInfo",
+			Path:        apiBase + "/getServerInfo",
 			Tag:         "compatibility",
 			Summary:     "lenpaste — server info",
 			Description: "Returns server metadata in lenpaste JSON format: title, description, admin contact, limits, and syntax list.",

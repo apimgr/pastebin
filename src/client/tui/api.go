@@ -29,6 +29,9 @@ type listResponse struct {
 	} `json:"pagination"`
 }
 
+// apiVersion is the {api_version} route segment (PART 14) this TUI targets.
+const apiVersion = "v1"
+
 // apiClient is a lightweight HTTP client used by the TUI API helpers.
 type apiClient struct {
 	server string
@@ -58,7 +61,7 @@ func (a *apiClient) get(path string) (*http.Response, error) {
 // fetchPastes retrieves a page of public pastes from the server.
 func fetchPastes(server, lang string, page, limit int) ([]PasteListItem, error) {
 	a := newAPIClient(server, lang)
-	path := fmt.Sprintf("/api/v1/pastes?page=%d&limit=%d", page, limit)
+	path := fmt.Sprintf("/api/%s/pastes?page=%d&limit=%d", apiVersion, page, limit)
 	resp, err := a.get(path)
 	if err != nil {
 		return nil, fmt.Errorf("list: %w", err)
@@ -102,7 +105,7 @@ func fetchPasteRaw(server, lang, id string) (string, error) {
 // deletePaste sends a DELETE request to remove a paste using its delete token.
 func deletePaste(server, lang, id, token string) error {
 	hc := &http.Client{Timeout: 15 * time.Second}
-	path := server + "/api/v1/pastes/" + url.PathEscape(id) + "?token=" + url.QueryEscape(token)
+	path := server + "/api/" + apiVersion + "/pastes/" + url.PathEscape(id) + "?token=" + url.QueryEscape(token)
 	req, err := http.NewRequest(http.MethodDelete, path, nil)
 	if err != nil {
 		return err

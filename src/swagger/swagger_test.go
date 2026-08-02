@@ -33,7 +33,7 @@ func TestNew(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := swagger.New(tc.title, tc.version, tc.baseURL)
+			h := swagger.New(tc.title, tc.version, tc.baseURL, "")
 			if h == nil {
 				t.Fatal("New returned nil")
 			}
@@ -46,7 +46,7 @@ func TestNew(t *testing.T) {
 // TestServeSpec_StatusAndContentType checks the HTTP status code and
 // Content-Type header returned by ServeSpec.
 func TestServeSpec_StatusAndContentType(t *testing.T) {
-	h := swagger.New("Test API", "1.0.0", "https://api.example.com")
+	h := swagger.New("Test API", "1.0.0", "https://api.example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 
@@ -64,7 +64,7 @@ func TestServeSpec_StatusAndContentType(t *testing.T) {
 
 // TestServeSpec_ValidJSON confirms the response body is valid JSON.
 func TestServeSpec_ValidJSON(t *testing.T) {
-	h := swagger.New("Test API", "1.0.0", "https://api.example.com")
+	h := swagger.New("Test API", "1.0.0", "https://api.example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 
@@ -83,7 +83,7 @@ func TestServeSpec_ValidJSON(t *testing.T) {
 // TestServeSpec_RequiredTopLevelKeys confirms "openapi" and "paths" are present
 // and that "openapi" equals "3.0.3".
 func TestServeSpec_RequiredTopLevelKeys(t *testing.T) {
-	h := swagger.New("Test API", "2.0.0", "https://api.example.com")
+	h := swagger.New("Test API", "2.0.0", "https://api.example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 
@@ -119,7 +119,7 @@ func TestServeSpec_InfoBlock(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := swagger.New(tc.title, tc.version, "https://example.com")
+			h := swagger.New(tc.title, tc.version, "https://example.com", "")
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 			rec := httptest.NewRecorder()
 			h.ServeSpec(rec, req)
@@ -146,7 +146,7 @@ func TestServeSpec_InfoBlock(t *testing.T) {
 // the servers array of the generated spec (exercises resolveBase with explicit URL).
 func TestServeSpec_BaseURLInServers(t *testing.T) {
 	const base = "https://paste.example.com"
-	h := swagger.New("API", "1.0.0", base)
+	h := swagger.New("API", "1.0.0", base, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
@@ -171,7 +171,7 @@ func TestServeSpec_BaseURLInServers(t *testing.T) {
 // TestServeSpec_BaseURLFromRequest verifies that when no baseURL is configured,
 // resolveBase derives the base URL from the incoming request host.
 func TestServeSpec_BaseURLFromRequest(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "")
+	h := swagger.New("API", "1.0.0", "", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	req.Host = "dynamic.host.example.com"
 	rec := httptest.NewRecorder()
@@ -197,7 +197,7 @@ func TestServeSpec_BaseURLFromRequest(t *testing.T) {
 // resolver is registered (PART 12 proxy-spoofing guard). The bare connection
 // info (r.TLS + r.Host) is used instead.
 func TestServeSpec_ForwardedHeadersIgnoredWithoutResolver(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "")
+	h := swagger.New("API", "1.0.0", "", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	req.Host = "internal.host"
 	req.Header.Set("X-Forwarded-Proto", "https")
@@ -221,7 +221,7 @@ func TestServeSpec_ForwardedHeadersIgnoredWithoutResolver(t *testing.T) {
 // TestServeSpec_BaseURLFromResolver verifies that a registered base-URL resolver
 // is called and its result is used as the server URL in the spec (PART 12).
 func TestServeSpec_BaseURLFromResolver(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "")
+	h := swagger.New("API", "1.0.0", "", "")
 	h.SetBaseURLResolver(func(_ *http.Request) string {
 		return "https://public.example.com"
 	})
@@ -245,7 +245,7 @@ func TestServeSpec_BaseURLFromResolver(t *testing.T) {
 // TestServeSpec_PathsNonEmpty confirms that at least one path is registered,
 // proving buildSpec exercised the Routes() list.
 func TestServeSpec_PathsNonEmpty(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
@@ -266,7 +266,7 @@ func TestServeSpec_PathsNonEmpty(t *testing.T) {
 // TestServeSpec_OperationIDPresent verifies that operationId is present on at
 // least one operation. This exercises operationID indirectly through buildSpec.
 func TestServeSpec_OperationIDPresent(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
@@ -305,7 +305,7 @@ func TestServeSpec_OperationIDPresent(t *testing.T) {
 // TestServeSpec_KnownOperationID checks that the GET /api/v1/pastes route
 // generates the expected operationId string.
 func TestServeSpec_KnownOperationID(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
@@ -332,7 +332,7 @@ func TestServeSpec_KnownOperationID(t *testing.T) {
 // TestServeSpec_ParameterStructure checks that route parameters are serialised
 // with the required fields (name, in, required, schema).
 func TestServeSpec_ParameterStructure(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
@@ -361,7 +361,7 @@ func TestServeSpec_ParameterStructure(t *testing.T) {
 
 // TestServeSpec_CacheControlHeader confirms Cache-Control: no-cache is set.
 func TestServeSpec_CacheControlHeader(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeSpec(rec, req)
@@ -376,7 +376,7 @@ func TestServeSpec_CacheControlHeader(t *testing.T) {
 
 // TestServeUI_StatusAndContentType verifies the HTTP status and Content-Type.
 func TestServeUI_StatusAndContentType(t *testing.T) {
-	h := swagger.New("Pastebin", "1.0.0", "https://example.com")
+	h := swagger.New("Pastebin", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 
@@ -395,7 +395,7 @@ func TestServeUI_StatusAndContentType(t *testing.T) {
 // TestServeUI_BodyContainsSwagger confirms the HTML body contains "swagger"
 // (case-insensitive), proving the UI page was rendered.
 func TestServeUI_BodyContainsSwagger(t *testing.T) {
-	h := swagger.New("Pastebin", "1.0.0", "https://example.com")
+	h := swagger.New("Pastebin", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 
@@ -411,7 +411,7 @@ func TestServeUI_BodyContainsSwagger(t *testing.T) {
 // HTML body.
 func TestServeUI_BodyContainsTitle(t *testing.T) {
 	const title = "SpecialPasteAPITitle"
-	h := swagger.New(title, "1.0.0", "https://example.com")
+	h := swagger.New(title, "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeUI(rec, req)
@@ -426,7 +426,7 @@ func TestServeUI_BodyContainsTitle(t *testing.T) {
 // spec URL (base + "/api/v1/server/swagger").
 func TestServeUI_BodyContainsSpecURL(t *testing.T) {
 	const base = "https://paste.example.com"
-	h := swagger.New("API", "1.0.0", base)
+	h := swagger.New("API", "1.0.0", base, "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeUI(rec, req)
@@ -441,7 +441,7 @@ func TestServeUI_BodyContainsSpecURL(t *testing.T) {
 // TestServeUI_IsValidHTML confirms the body starts with <!DOCTYPE html> and
 // contains </html>, which are the outermost document markers.
 func TestServeUI_IsValidHTML(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeUI(rec, req)
@@ -457,7 +457,7 @@ func TestServeUI_IsValidHTML(t *testing.T) {
 
 // TestServeUI_CacheControlHeader confirms Cache-Control: no-cache is set on UI.
 func TestServeUI_CacheControlHeader(t *testing.T) {
-	h := swagger.New("API", "1.0.0", "https://example.com")
+	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeUI(rec, req)
@@ -473,7 +473,7 @@ func TestServeUI_CacheControlHeader(t *testing.T) {
 // TestHandlerViaMux confirms that both routes work correctly when served
 // through a standard http.ServeMux, which is the normal runtime setup.
 func TestHandlerViaMux(t *testing.T) {
-	h := swagger.New("Mux API", "9.9.9", "https://mux.example.com")
+	h := swagger.New("Mux API", "9.9.9", "https://mux.example.com", "")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/server/swagger", h.ServeSpec)
