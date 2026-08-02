@@ -2733,6 +2733,47 @@ func TestHandleRemoveSubmitInvalidTokenSetsDataTokenError(t *testing.T) {
 	}
 }
 
+func TestHandleRemoveSubmitInvalidTokenClearsOwnerTokenCookie(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Web.SiteTitle = "Test Paste"
+	cfg.Web.Theme = "dark"
+	db := &stubDB{verifyAPITokenErr: os.ErrNotExist}
+	s := newServerWithDB(cfg, db)
+	tmpl, err := s.buildTemplates()
+	if err != nil {
+		t.Fatalf("build templates: %v", err)
+	}
+	s.templates = tmpl
+
+	// Simulate the real-world reported bug: the database was wiped, so the
+	// owner_token cookie left over from a prior session is now stale/invalid,
+	// and the browser (via app.js prefill) submits it in the form field.
+	form := url.Values{"token": {"tok_stalefromwipeddbstalefromwipeddbst"}}
+	r := httptest.NewRequest(http.MethodPost, "/remove/abc12345", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: ownerTokenCookieName, Value: "tok_stalefromwipeddbstalefromwipeddbst"})
+	r = withChiID(r, "abc12345")
+	w := httptest.NewRecorder()
+	s.handleRemoveSubmit(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200\nbody: %s", w.Code, w.Body.String())
+	}
+
+	var cleared *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == ownerTokenCookieName {
+			cleared = c
+		}
+	}
+	if cleared == nil {
+		t.Fatal("handleRemoveSubmit did not set a Set-Cookie header clearing owner_token on invalid token")
+	}
+	if cleared.Value != "" || cleared.MaxAge >= 0 {
+		t.Errorf("owner_token cookie not expired: value=%q maxAge=%d, want empty value and negative MaxAge", cleared.Value, cleared.MaxAge)
+	}
+}
+
 // ─── Server.handleQR nil templates ────────────────────────────────────────────
 
 func TestHandleQRNilTemplates(t *testing.T) {

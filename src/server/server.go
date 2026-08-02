@@ -3172,6 +3172,20 @@ func (s *Server) handleRemoveSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if err := s.db.VerifyAPIToken(incomingHash, "paste", id); err != nil {
 		s.authLog(r, "owner", "fail", "invalid_owner_token")
+		// The token (field or cookie-fallback) is confirmed invalid/stale (e.g.
+		// the database was wiped). Expire the owner_token cookie now: it is
+		// HttpOnly so app.js can never clear it itself, and without this the
+		// browser keeps silently re-submitting the same dead token on every
+		// future remove attempt, forcing the user to manually clear cookies.
+		http.SetCookie(w, &http.Cookie{
+			Name:     ownerTokenCookieName,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteStrictMode,
+		})
 		s.renderTemplate(w, r, "remove.html", map[string]interface{}{
 			"SiteTitle": s.liveCfg().Web.SiteTitle,
 			"Theme":     s.liveCfg().Web.Theme,
