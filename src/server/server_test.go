@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -2695,6 +2696,41 @@ func TestHandleRemoveSubmitBadForm(t *testing.T) {
 		return
 	}
 	// Any non-panic response is acceptable.
+}
+
+// TestHandleRemoveSubmitInvalidTokenSetsDataTokenError verifies that an
+// invalid/stale owner token submitted to the remove form (e.g. a localStorage
+// copy left over after the database was wiped) renders remove.html with
+// data-token-error="true" on the token field — the signal app.js relies on
+// to proactively clear the stale localStorage copy (AI.md "API Token Storage
+// in PWA": localStorage is never load-bearing and must be cleared on
+// revocation/invalidation).
+func TestHandleRemoveSubmitInvalidTokenSetsDataTokenError(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Web.SiteTitle = "Test Paste"
+	cfg.Web.Theme = "dark"
+	db := &stubDB{verifyAPITokenErr: os.ErrNotExist}
+	s := newServerWithDB(cfg, db)
+	tmpl, err := s.buildTemplates()
+	if err != nil {
+		t.Fatalf("build templates: %v", err)
+	}
+	s.templates = tmpl
+
+	form := url.Values{"token": {"tok_stalefromwipeddbstalefromwipeddbst"}}
+	r := httptest.NewRequest(http.MethodPost, "/remove/abc12345", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r = withChiID(r, "abc12345")
+	w := httptest.NewRecorder()
+	s.handleRemoveSubmit(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200\nbody: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `data-token-error="true"`) {
+		t.Errorf("remove.html missing data-token-error=\"true\" on invalid token; body snippet: %q", body[:min(len(body), 800)])
+	}
 }
 
 // ─── Server.handleQR nil templates ────────────────────────────────────────────

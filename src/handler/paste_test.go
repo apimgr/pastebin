@@ -169,6 +169,70 @@ func TestCreatePaste_Form(t *testing.T) {
 	}
 }
 
+// TestCreatePaste_InvalidOwnerTokenIsIgnored verifies that a stale/unknown
+// owner token submitted at create time (e.g. a localStorage copy left over
+// after the database was wiped) is silently discarded rather than trusted:
+// the create still succeeds and a brand-new, different, valid token is
+// generated and returned instead of the bogus one supplied.
+func TestCreatePaste_InvalidOwnerTokenIsIgnored(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	bogusToken := "tok_stalefromwipeddbstalefromwipeddbst"
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
+		strings.NewReader(`{"content":"stale token create"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+bogusToken)
+
+	rr := httptest.NewRecorder()
+	h.CreatePaste(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201\nbody: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, ok := resp["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("data field missing or wrong type")
+	}
+	id, _ := data["id"].(string)
+	if id == "" {
+		t.Fatal("id missing or empty in response data")
+	}
+	newToken, ok := data["owner_token"].(string)
+	if !ok || newToken == "" {
+		t.Fatal("owner_token missing or empty in response data")
+	}
+	if newToken == bogusToken {
+		t.Fatal("owner_token: server echoed back the invalid submitted token instead of minting a fresh one")
+	}
+
+	// Round-trip proof: the freshly-minted token must actually work for delete;
+	// the bogus one must not.
+	badReq := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/"+id, nil)
+	badReq.Header.Set("Authorization", "Bearer "+bogusToken)
+	badReq = withID(badReq, id)
+	badRR := httptest.NewRecorder()
+	h.DeletePaste(badRR, badReq)
+	if badRR.Code != http.StatusNotFound {
+		t.Fatalf("delete with bogus token: got status %d, want 404", badRR.Code)
+	}
+
+	goodReq := httptest.NewRequest(http.MethodDelete, "/api/v1/pastes/"+id, nil)
+	goodReq.Header.Set("Authorization", "Bearer "+newToken)
+	goodReq = withID(goodReq, id)
+	goodRR := httptest.NewRecorder()
+	h.DeletePaste(goodRR, goodReq)
+	if goodRR.Code != http.StatusOK {
+		t.Fatalf("delete with new token: got status %d, want 200\nbody: %s", goodRR.Code, goodRR.Body.String())
+	}
+}
+
 // ─── GetPaste ─────────────────────────────────────────────────────────────────
 
 // TestGetPaste creates a paste via API, then retrieves it by ID.
