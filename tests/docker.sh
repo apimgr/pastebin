@@ -208,6 +208,40 @@ printf '%s' "${DOCKER_UNLIST_RESPONSE}" | grep -q -- '"visibility"' || \
     __fail "Create paste (unlisted): field missing"
 __pass "Create paste (unlisted)"
 
+# Link paste (is_link)
+DOCKER_LINK_TARGET="https://example.com/docker-test-target"
+DOCKER_LINK_RESPONSE=$(curl -sf \
+    --header "Content-Type: application/json" \
+    --header "Accept: application/json" \
+    --data "{\"content\":\"${DOCKER_LINK_TARGET}\",\"is_link\":true}" \
+    "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (link): request failed"
+DOCKER_LINK_ID=$(printf '%s' "${DOCKER_LINK_RESPONSE}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+[[ -n "${DOCKER_LINK_ID}" ]] || __fail "Create paste (link): no ID in response: ${DOCKER_LINK_RESPONSE}"
+printf '%s' "${DOCKER_LINK_RESPONSE}" | grep -q -- '"is_link":true' || \
+    __fail "Create paste (link): is_link field missing/false in: ${DOCKER_LINK_RESPONSE}"
+__pass "Create paste (link): id=${DOCKER_LINK_ID}"
+
+DOCKER_LINK_REJECT_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    --header "Content-Type: application/json" \
+    --data '{"content":"javascript:alert(1)","is_link":true}' \
+    "${DOCKER_BASE_URL}/api/v1/pastes")
+[[ "${DOCKER_LINK_REJECT_CODE}" == "400" ]] || \
+    __fail "Create paste (link, non-http scheme) → expected 400, got ${DOCKER_LINK_REJECT_CODE}"
+__pass "Create paste (link, non-http scheme rejected)"
+
+DOCKER_LINK_LOCATION=$(curl -s -D - -o /dev/null "${DOCKER_BASE_URL}/${DOCKER_LINK_ID}" | \
+    tr -d '\r' | awk '/^[Ll]ocation:/ {print $2}')
+[[ "${DOCKER_LINK_LOCATION}" == "${DOCKER_LINK_TARGET}" ]] || \
+    __fail "Link paste view: expected Location ${DOCKER_LINK_TARGET}, got ${DOCKER_LINK_LOCATION}"
+__check_status "Link paste view → 302" GET "${DOCKER_BASE_URL}/${DOCKER_LINK_ID}" 302
+__pass "Link paste view redirects to target"
+
+DOCKER_LINK_RAW=$(curl -sf "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_LINK_ID}/raw") || \
+    __fail "Link paste raw: request failed"
+[[ "${DOCKER_LINK_RAW}" == "${DOCKER_LINK_TARGET}" ]] || \
+    __fail "Link paste raw: expected ${DOCKER_LINK_TARGET}, got ${DOCKER_LINK_RAW}"
+__pass "Link paste raw returns target URL without redirecting"
+
 # ── Retrieve paste ───────────────────────────────────────────────────────────
 __info "--- Paste retrieval ---"
 DOCKER_GET=$(curl -sf \

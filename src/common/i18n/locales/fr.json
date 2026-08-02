@@ -528,6 +528,8 @@
     "cancel": "Annuler",
     "content_label": "Contenu",
     "content_placeholder": "Collez votre code ou texte ici...",
+    "is_link_label": "Créer comme lien (redirection d'URL)",
+    "is_link_hint": "Au lieu de stocker du texte, ce paste redirige les visiteurs vers une URL que vous fournissez. La coloration syntaxique ne s'applique pas.",
     "copy": "Copier",
     "copy_code": "Copier le code",
     "create_btn": "Créer le paste",
@@ -613,6 +615,7 @@
     "sending": "Envoi…",
     "searching": "Recherche…",
     "uploading": "Téléversement…",
-    "working": "…"
+    "working": "…",
+    "content_link_label": "URL cible"
   }
 }

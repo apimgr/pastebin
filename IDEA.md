@@ -54,6 +54,7 @@ owner_token: pastebin_owner_token_rU3uW5Ze
 - Email notifications: SMTP; 7 template types (`security_alert`, `backup_complete`, `backup_failed`, `ssl_expiring`, `ssl_renewed`, `scheduler_error`, `test`); silently disabled when unconfigured
 - Security report system: `/server/security` report submission flow with optional PGP-encrypted reports, `security.txt` (RFC 9116) at `/.well-known/security.txt`, and operator PGP key at `/.well-known/pgp-key.asc`
 - Cookie consent and CCPA opt-out: consent banner (works without JavaScript) and `POST /server/privacy/ccpa` do-not-sell endpoint; preferences stored client-side, no server-side tracking
+- URL shortening: a paste may be created as a link instead of text — `is_link: true` on create, `content` holds the target URL; auto-generated short ID only (no vanity/custom slugs); accepted target schemes are `http://`/`https://` only (any other scheme, or a malformed/relative URL, is rejected with `VALIDATION_FAILED`); visiting the short URL (`GET /{id}`, web and API) issues a `302 Found` redirect to the target — target is never fetched or validated server-side beyond scheme/format, so no SSRF exposure; shares the paste table, expiry, burn-after, visibility, owner-token deletion, and view-count tracking unchanged; `language`/syntax highlighting do not apply to links
 
 **Non-goals:**
 - No user accounts, registration, or login of any kind
@@ -106,6 +107,7 @@ No user roles exist. All native API endpoints are public. The only privilege dis
 | `delete_token_hash` | Internal — used only by compat layer deletion; never returned after creation |
 | `views` | Public |
 | `created_at` | Public |
+| `is_link` | Public — when true, `content` is a redirect target (`http`/`https` only) and `GET /{id}` returns `302 Found` instead of rendering |
 
 **API token record** (owner token system, separate from compat delete tokens):
 
@@ -157,6 +159,7 @@ No user roles exist. All native API endpoints are public. The only privilege dis
 | Unauthorized service install / data purge | `Install()` and `Uninstall()` require root privilege; `Uninstall()` requires interactive `[y/N]` confirmation |
 | Self-update supply-chain attack (tampered release binary) | SHA-256 checksum verified against the release asset list before `os.Rename`; update aborted on mismatch |
 | Country-based abuse or legal/regulatory blocking requirement | Country denylist via GeoIP middleware; allowlist mode also supported; bypassed for RFC1918 and loopback |
+| Open-redirect / phishing abuse of `is_link` short URLs | Scheme allow-list (`http`/`https` only) enforced on create; same rate limiting, GeoIP, and blocklist middleware as paste creation; operator token can delete any abusive link unconditionally |
 
 ### Security decisions & exceptions
 

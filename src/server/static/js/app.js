@@ -24,6 +24,7 @@ const I18N_FALLBACK = {
     uploading: 'Uploading…',
     working: '…',
     offline: 'You are offline',
+    content_link_label: 'Target URL',
 };
 
 // loadI18nBundle parses the server-rendered <script type="application/json"
@@ -835,6 +836,33 @@ async function fetchAPI(endpoint, options) {
         forgetTokenBtn.addEventListener('click', revokeLocalToken);
     }
 })();
+
+// ─── Create form: link-mode content hint (progressive enhancement) ────────────
+
+// The is_link checkbox works without JS (server validates/redirects
+// regardless); this only swaps the content textarea's placeholder/label so
+// sighted users get a hint that a URL is expected in link mode.
+document.addEventListener('DOMContentLoaded', () => {
+    const isLinkCheckbox = document.getElementById('is_link');
+    const content = document.getElementById('content');
+    const contentLabel = document.getElementById('content-label');
+    if (!isLinkCheckbox || !content || !contentLabel) return;
+
+    const textPlaceholder = content.getAttribute('placeholder');
+    const textLabel = contentLabel.textContent;
+    const linkPlaceholder = 'https://example.com/target-page';
+    const linkLabel = t('content_link_label') || textLabel;
+
+    isLinkCheckbox.addEventListener('change', () => {
+        if (isLinkCheckbox.checked) {
+            content.setAttribute('placeholder', linkPlaceholder);
+            contentLabel.textContent = linkLabel;
+        } else {
+            content.setAttribute('placeholder', textPlaceholder);
+            contentLabel.textContent = textLabel;
+        }
+    });
+});
 
 // ─── Remove page enhancements (merged from remove.js) ─────────────────────────
 

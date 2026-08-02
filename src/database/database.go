@@ -375,6 +375,7 @@ func ensureSchema(db *sql.DB) error {
 		`ALTER TABLE pastes ADD COLUMN burn_after INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE pastes ADD COLUMN delete_token_hash TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE pastes ADD COLUMN content_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE pastes ADD COLUMN is_link INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE security_reports ADD COLUMN token_last_used DATETIME`,
 	}
 
@@ -426,7 +427,7 @@ func (s *SQLiteDB) CreatePaste(p *model.Paste) error {
 	if p.Title == "" {
 		p.Title = "Untitled"
 	}
-	if p.Language == "" {
+	if p.Language == "" && !p.IsLink {
 		p.Language = "text"
 	}
 
@@ -434,9 +435,9 @@ func (s *SQLiteDB) CreatePaste(p *model.Paste) error {
 	defer cancel()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO pastes
-			(id, title, content, language, content_type, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Title, p.Content, p.Language, p.ContentType, p.Visibility, p.ExpiresAt,
+			(id, title, content, language, content_type, visibility, is_link, expires_at, burn_after, delete_token_hash, views, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Title, p.Content, p.Language, p.ContentType, p.Visibility, p.IsLink, p.ExpiresAt,
 		p.BurnAfter, p.DeleteTokenHash, p.Views, p.CreatedAt, p.UpdatedAt,
 	)
 	return err
@@ -450,9 +451,9 @@ func (s *SQLiteDB) GetPasteByID(id string) (*model.Paste, error) {
 	ctx, cancel := dbCtx(dbReadTimeout)
 	defer cancel()
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, title, content, language, content_type, visibility, expires_at, burn_after, delete_token_hash, views, created_at, updated_at
+		`SELECT id, title, content, language, content_type, visibility, is_link, expires_at, burn_after, delete_token_hash, views, created_at, updated_at
 		 FROM pastes WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Title, &p.Content, &p.Language, &p.ContentType, &p.Visibility,
+	).Scan(&p.ID, &p.Title, &p.Content, &p.Language, &p.ContentType, &p.Visibility, &p.IsLink,
 		&expiresAt, &p.BurnAfter, &p.DeleteTokenHash, &p.Views, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {

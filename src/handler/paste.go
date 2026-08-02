@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/cache"
 	"github.com/apimgr/pastebin/src/common/httputil"
+	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/metric"
 	"github.com/apimgr/pastebin/src/model"
@@ -234,6 +236,24 @@ type CreateRequest struct {
 	BurnAfter int `json:"burn_after"`
 	// ContentType is the detected MIME type for non-text uploads; empty = plain text.
 	ContentType string `json:"content_type,omitempty"`
+	// IsLink marks this paste as a URL redirect instead of stored text/file
+	// content — Content must then be an absolute http:// or https:// URL.
+	IsLink bool `json:"is_link"`
+}
+
+// ValidateLinkTarget reports whether target is an absolute http:// or https://
+// URL suitable for a redirect-shortener paste (is_link=true). The target is
+// never fetched server-side — this is a scheme/format check only, so there is
+// no SSRF exposure.
+func ValidateLinkTarget(target string) bool {
+	u, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	return u.Host != ""
 }
 
 // createFromRequest parses the request body (JSON, multipart, urlencoded, or
@@ -282,6 +302,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		if ba, err := strconv.Atoi(r.FormValue("burn_after")); err == nil {
 			req.BurnAfter = ba
 		}
+		req.IsLink = config.IsTruthy(r.FormValue("is_link"))
 
 	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"):
 		if err := r.ParseForm(); err != nil {
@@ -295,6 +316,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		if ba, err := strconv.Atoi(r.FormValue("burn_after")); err == nil {
 			req.BurnAfter = ba
 		}
+		req.IsLink = config.IsTruthy(r.FormValue("is_link"))
 
 	default:
 		// Raw body (curl --data-binary)
@@ -303,36 +325,49 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		req.Title = r.Header.Get("X-Title")
 		req.Language = r.Header.Get("X-Language")
 		req.ExpiresIn = r.Header.Get("X-Expires-In")
+		req.IsLink = config.IsTruthy(r.Header.Get("X-Is-Link"))
 	}
 
-	// Binary uploads that arrive with ContentType already set (multipart, JSON
-	// clients) MUST carry base64 content — reject anything that will not decode,
-	// otherwise the stored paste can never be rendered or downloaded correctly.
-	if req.ContentType != "" && !strings.HasPrefix(req.ContentType, "text/") {
-		if _, err := base64.StdEncoding.DecodeString(req.Content); err != nil {
-			return nil, http.StatusBadRequest, fmt.Errorf("binary content must be base64-encoded")
+	// Links (is_link=true) store the redirect target verbatim as plain text —
+	// they never go through binary detection/base64 encoding, and language/
+	// syntax highlighting do not apply.
+	if req.IsLink {
+		req.ContentType = ""
+		req.Language = ""
+		req.Content = strings.TrimSpace(req.Content)
+		if !ValidateLinkTarget(req.Content) {
+			return nil, http.StatusBadRequest, fmt.Errorf("content must be an absolute http:// or https:// URL")
 		}
-	}
+	} else {
+		// Binary uploads that arrive with ContentType already set (multipart, JSON
+		// clients) MUST carry base64 content — reject anything that will not decode,
+		// otherwise the stored paste can never be rendered or downloaded correctly.
+		if req.ContentType != "" && !strings.HasPrefix(req.ContentType, "text/") {
+			if _, err := base64.StdEncoding.DecodeString(req.Content); err != nil {
+				return nil, http.StatusBadRequest, fmt.Errorf("binary content must be base64-encoded")
+			}
+		}
 
-	// Detect binary MIME type BEFORE any trimming so binary bytes are never
-	// modified, then base64-encode so the content round-trips safely through
-	// the TEXT DB column. Plain text pastes keep ContentType empty.
-	if req.ContentType == "" && len(req.Content) > 0 {
-		sample := []byte(req.Content)
-		if len(sample) > 512 {
-			sample = sample[:512]
+		// Detect binary MIME type BEFORE any trimming so binary bytes are never
+		// modified, then base64-encode so the content round-trips safely through
+		// the TEXT DB column. Plain text pastes keep ContentType empty.
+		if req.ContentType == "" && len(req.Content) > 0 {
+			sample := []byte(req.Content)
+			if len(sample) > 512 {
+				sample = sample[:512]
+			}
+			detected := http.DetectContentType(sample)
+			if !strings.HasPrefix(detected, "text/") {
+				req.ContentType = detected
+				req.Content = base64.StdEncoding.EncodeToString([]byte(req.Content))
+			}
 		}
-		detected := http.DetectContentType(sample)
-		if !strings.HasPrefix(detected, "text/") {
-			req.ContentType = detected
-			req.Content = base64.StdEncoding.EncodeToString([]byte(req.Content))
-		}
-	}
 
-	// Only trim trailing newlines from plain-text content; base64-encoded binary
-	// must not be modified after encoding (ContentType is set for binary uploads).
-	if req.ContentType == "" {
-		req.Content = strings.TrimRight(req.Content, "\n")
+		// Only trim trailing newlines from plain-text content; base64-encoded binary
+		// must not be modified after encoding (ContentType is set for binary uploads).
+		if req.ContentType == "" {
+			req.Content = strings.TrimRight(req.Content, "\n")
+		}
 	}
 	if strings.TrimSpace(req.Content) == "" {
 		return nil, http.StatusBadRequest, fmt.Errorf("content is required")
@@ -361,8 +396,8 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		}
 	}
 
-	// Language default
-	if req.Language == "" {
+	// Language default — links never carry a language/syntax mode.
+	if req.Language == "" && !req.IsLink {
 		req.Language = "text"
 	}
 	if req.Title == "" {
@@ -414,6 +449,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		ContentType: req.ContentType,
 		Language:    req.Language,
 		Visibility:  vis,
+		IsLink:      req.IsLink,
 		ExpiresAt:   expiresAt,
 		BurnAfter:   burn,
 		Views:       0,
@@ -444,6 +480,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 		Title:      paste.Title,
 		Language:   paste.Language,
 		Visibility: paste.Visibility,
+		IsLink:     paste.IsLink,
 		BurnAfter:  paste.BurnAfter,
 		ExpiresAt:  paste.ExpiresAt,
 		Views:      0,
@@ -517,6 +554,14 @@ func (h *PasteHandler) GetPaste(w http.ResponseWriter, r *http.Request) {
 
 	// Never return delete token hash.
 	paste.DeleteTokenHash = ""
+
+	// Links redirect instead of rendering — the raw endpoint (GetRawPaste) still
+	// returns the target URL as plain text, no redirect, for parity with other
+	// raw endpoints.
+	if paste.IsLink {
+		http.Redirect(w, r, paste.Content, http.StatusFound)
+		return
+	}
 
 	// Content negotiation: text format returns key=value summary (PART 14).
 	if httputil.GetAPIResponseFormat(r) == "text" {

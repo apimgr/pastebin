@@ -246,6 +246,109 @@ func TestGetRawPaste(t *testing.T) {
 	}
 }
 
+// ─── is_link (URL shortening) ──────────────────────────────────────────────────
+
+// TestCreateLink_JSON verifies a link paste is created with is_link echoed
+// back and language cleared.
+func TestCreateLink_JSON(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	m := createViaAPI(t, h, `{"content":"https://example.com/target","is_link":true}`)
+	data, ok := m["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("data field missing or wrong type: %v", m)
+	}
+	if data["is_link"] != true {
+		t.Errorf("is_link: got %v, want true", data["is_link"])
+	}
+	if lang, _ := data["language"].(string); lang != "" {
+		t.Errorf("language: got %q, want empty for a link", lang)
+	}
+}
+
+// TestCreateLink_RejectsNonHTTPScheme expects 400 for any non-http(s) target.
+func TestCreateLink_RejectsNonHTTPScheme(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"javascript scheme", `javascript:alert(1)`},
+		{"ftp scheme", `ftp://example.com/file`},
+		{"relative path", `/just/a/path`},
+		{"plain text", `not a url at all`},
+		{"empty", ``},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newTestHandler(t)
+			body, _ := json.Marshal(map[string]interface{}{
+				"content": tc.content,
+				"is_link": true,
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/pastes",
+				bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+
+			rr := httptest.NewRecorder()
+			h.CreatePaste(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("status: got %d, want 400\nbody: %s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+// TestGetLink_Redirects verifies GET /api/{v}/pastes/{id} issues a 302 to the
+// target URL for a link paste, instead of returning JSON.
+func TestGetLink_Redirects(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	target := "https://example.com/redirect-target"
+	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q,"is_link":true}`, target))
+	data := m["data"].(map[string]interface{})
+	id := data["id"].(string)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id, nil)
+	req.Header.Set("Accept", "application/json")
+	req = withID(req, id)
+
+	rr := httptest.NewRecorder()
+	h.GetPaste(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status: got %d, want 302\nbody: %s", rr.Code, rr.Body.String())
+	}
+	if loc := rr.Header().Get("Location"); loc != target {
+		t.Errorf("Location: got %q, want %q", loc, target)
+	}
+}
+
+// TestGetRawLink_NoRedirect verifies the raw endpoint returns the target URL
+// as plain text with no redirect, for parity with other raw endpoints.
+func TestGetRawLink_NoRedirect(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	target := "https://example.com/raw-target"
+	m := createViaAPI(t, h, fmt.Sprintf(`{"content":%q,"is_link":true}`, target))
+	data := m["data"].(map[string]interface{})
+	id := data["id"].(string)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id+"/raw", nil)
+	req = withID(req, id)
+
+	rr := httptest.NewRecorder()
+	h.GetRawPaste(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 (no redirect)\nbody: %s", rr.Code, rr.Body.String())
+	}
+	if body := rr.Body.String(); body != target {
+		t.Errorf("body: got %q, want %q", body, target)
+	}
+}
+
 // ─── DeletePaste ──────────────────────────────────────────────────────────────
 
 // TestDeletePaste creates a paste, extracts its delete token, and deletes it.
@@ -527,6 +630,36 @@ func TestDetectLanguage(t *testing.T) {
 			got := handler.DetectLanguage(tc.filename)
 			if got != tc.want {
 				t.Errorf("DetectLanguage(%q): got %q, want %q", tc.filename, got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── ValidateLinkTarget unit tests ─────────────────────────────────────────────
+
+// TestValidateLinkTarget verifies only absolute http/https URLs with a host
+// are accepted as link-paste redirect targets.
+func TestValidateLinkTarget(t *testing.T) {
+	cases := []struct {
+		target string
+		want   bool
+	}{
+		{"https://example.com/path", true},
+		{"http://example.com", true},
+		{"https://example.com:8443/path?q=1#frag", true},
+		{"javascript:alert(1)", false},
+		{"ftp://example.com/file", false},
+		{"/relative/path", false},
+		{"example.com", false},
+		{"", false},
+		{"   ", false},
+		{"file:///etc/passwd", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.target, func(t *testing.T) {
+			got := handler.ValidateLinkTarget(tc.target)
+			if got != tc.want {
+				t.Errorf("ValidateLinkTarget(%q): got %v, want %v", tc.target, got, tc.want)
 			}
 		})
 	}

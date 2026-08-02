@@ -528,6 +528,8 @@
     "cancel": "キャンセル",
     "content_label": "内容",
     "content_placeholder": "ここにコードまたはテキストを貼り付け...",
+    "is_link_label": "リンクとして作成（URLリダイレクト）",
+    "is_link_hint": "テキストを保存する代わりに、このペーストは指定したURLに訪問者をリダイレクトします。言語/構文ハイライトは適用されません。",
     "copy": "コピー",
     "copy_code": "コードをコピー",
     "create_btn": "ペースト作成",
@@ -613,6 +615,7 @@
     "sending": "送信中…",
     "searching": "検索中…",
     "uploading": "アップロード中…",
-    "working": "…"
+    "working": "…",
+    "content_link_label": "対象URL"
   }
 }

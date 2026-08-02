@@ -15,9 +15,10 @@ POST https://pste.us/api/v1/paste
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `content` | string | required | Paste body text |
+| `content` | string | required | Paste body text, or (when `is_link` is `true`) the `http://`/`https://` redirect target URL |
 | `title` | string | `""` | Optional title |
-| `language` | string | `text` | Chroma language identifier |
+| `language` | string | `text` | Chroma language identifier; ignored when `is_link` is `true` |
+| `is_link` | boolean | `false` | Create as a link paste — `content` must be an absolute `http://` or `https://` URL |
 | `visibility` | string | `public` | `public` or `unlisted` |
 | `expires_in` | string | `never` | `1h`, `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `18m`, `2y`, `never`, or seconds |
 | `burn_after` | integer | `0` | Delete after N views; `0` = disabled; max `9999` |
@@ -49,6 +50,7 @@ GET https://pste.us/api/v1/paste/{id}
   "title": "My Paste",
   "content": "Hello, World!",
   "language": "text",
+  "is_link": false,
   "is_public": true,
   "burn_after": 0,
   "expires_at": null,
@@ -56,6 +58,25 @@ GET https://pste.us/api/v1/paste/{id}
   "created_at": "2025-01-01T00:00:00Z"
 }
 ```
+
+If the paste is a link (`is_link: true`), the frontend and API view routes (`GET /{id}` and `GET /api/v1/paste/{id}`) respond with a `302 Found` redirect to the target URL instead of the JSON body above. Use the `/raw` endpoint to retrieve the target URL as plain text without redirecting.
+
+## Link Pastes
+
+Create a paste that redirects to a URL instead of rendering text:
+
+```bash
+curl -X POST https://pste.us/api/v1/paste \
+  --header "Content-Type: application/json" \
+  --data '{"content":"https://example.com/some/long/path","is_link":true}'
+```
+
+- Only `http://` and `https://` target URLs are accepted; anything else is rejected with `400 VALIDATION_FAILED`.
+- Short IDs are auto-generated — there is no custom/vanity slug support.
+- The target URL is never fetched server-side.
+- `GET /{id}` (web and API) issues a `302 Found` redirect to the target.
+- `GET /api/v1/paste/{id}/raw` returns the target URL as plain text, without redirecting.
+- Expiry, burn-after-read, visibility, and owner-token deletion all work identically to text pastes.
 
 ## Delete Paste
 

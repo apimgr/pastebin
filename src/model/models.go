@@ -16,10 +16,11 @@ const (
 type Paste struct {
 	ID              string     `json:"id"`
 	Title           string     `json:"title"`
-	Content         string     `json:"content,omitempty"`      // omitted in list views
+	Content         string     `json:"content,omitempty"`      // omitted in list views; redirect target URL when IsLink
 	ContentType     string     `json:"content_type,omitempty"` // detected MIME type; empty = plain text
 	Language        string     `json:"language"`
 	Visibility      int        `json:"visibility"` // 0=public, 1=unlisted
+	IsLink          bool       `json:"is_link"`    // true = content is a redirect target (http/https only); GET /{id} issues 302 instead of rendering
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
 	BurnAfter       int        `json:"burn_after"` // 0=disabled, 1-9999 views then delete
 	DeleteTokenHash string     `json:"-"`          // SHA-256(delete_token), never in JSON
@@ -46,6 +47,7 @@ type CreateResponse struct {
 	Title      string     `json:"title"`
 	Language   string     `json:"language"`
 	Visibility int        `json:"visibility"`
+	IsLink     bool       `json:"is_link"`
 	BurnAfter  int        `json:"burn_after"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	Views      int        `json:"views"`

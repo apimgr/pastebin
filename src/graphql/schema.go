@@ -14,8 +14,10 @@ type Paste {
   title: String!
   """Paste body text."""
   content: String!
-  """Chroma syntax-highlighting language."""
+  """Chroma syntax-highlighting language; meaningless when is_link is true."""
   language: String!
+  """If true, content is a redirect target URL rather than paste text; fetching this paste's view route issues a 302 redirect."""
+  is_link: Boolean!
   """Whether the paste is visible in public listings."""
   is_public: Boolean!
   """ISO-8601 creation timestamp."""
@@ -55,6 +57,7 @@ func pasteFields() []map[string]interface{} {
 		{"name": "title", "type": map[string]interface{}{"name": "String", "kind": "SCALAR"}},
 		{"name": "content", "type": map[string]interface{}{"name": "String", "kind": "SCALAR"}},
 		{"name": "language", "type": map[string]interface{}{"name": "String", "kind": "SCALAR"}},
+		{"name": "is_link", "type": map[string]interface{}{"name": "Boolean", "kind": "SCALAR"}},
 		{"name": "is_public", "type": map[string]interface{}{"name": "Boolean", "kind": "SCALAR"}},
 		{"name": "created_at", "type": map[string]interface{}{"name": "String", "kind": "SCALAR"}},
 		{"name": "expires_at", "type": map[string]interface{}{"name": "String", "kind": "SCALAR"}},

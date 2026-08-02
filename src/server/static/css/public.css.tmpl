@@ -1358,6 +1358,32 @@ main {
     }
 }
 
+.form-group-checkbox {
+    margin-bottom: var(--space-5);
+}
+
+.form-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+}
+
+.form-checkbox {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--color-accent-primary);
+}
+
+/* Link-mode paste: language/syntax highlighting does not apply, so the
+   language field is hidden (pure CSS, no JS required) once the "create as
+   link" checkbox is checked. */
+.paste-form:has(#is_link:checked) #language-group {
+    display: none;
+}
+
 /* Pagination */
 .pagination {
     display: flex;

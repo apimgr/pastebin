@@ -776,6 +776,7 @@ func (c *client) cmdCreate(args []string) {
 	burn := fs.Int("burn", 0, "delete after N views (0 = disabled)")
 	unlisted := fs.Bool("unlisted", false, "create as unlisted (not shown in recent)")
 	title := fs.String("title", "", "paste title")
+	asLink := fs.Bool("link", false, "create as a link — content/arg must be an absolute http:// or https:// URL; server issues a 302 redirect instead of rendering")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: create: %v\n", filepath.Base(os.Args[0]), err)
 		os.Exit(exitUsage)
@@ -785,17 +786,23 @@ func (c *client) cmdCreate(args []string) {
 	var err error
 
 	if fs.NArg() > 0 {
-		content, err = os.ReadFile(fs.Arg(0))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: read file: %v\n", filepath.Base(os.Args[0]), err)
-			os.Exit(exitGeneral)
-		}
-		// Auto-detect language from extension if not set.
-		if *lang == "text" {
-			*lang = detectLang(fs.Arg(0))
-		}
-		if *title == "" {
-			*title = fs.Arg(0)
+		if *asLink {
+			// Link mode: the positional arg is the target URL itself, not a
+			// file path — never read it off disk.
+			content = []byte(fs.Arg(0))
+		} else {
+			content, err = os.ReadFile(fs.Arg(0))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: read file: %v\n", filepath.Base(os.Args[0]), err)
+				os.Exit(exitGeneral)
+			}
+			// Auto-detect language from extension if not set.
+			if *lang == "text" {
+				*lang = detectLang(fs.Arg(0))
+			}
+			if *title == "" {
+				*title = fs.Arg(0)
+			}
 		}
 	} else {
 		content, err = io.ReadAll(os.Stdin)
@@ -819,16 +826,24 @@ func (c *client) cmdCreate(args []string) {
 		"visibility": vis,
 	}
 
-	// Binary files (images, archives, etc.) cannot travel as raw bytes inside a
-	// JSON string — invalid UTF-8 gets replaced and corrupts the data. Detect
-	// the MIME type, base64-encode, and tell the server via content_type.
-	sample := content
-	if len(sample) > 512 {
-		sample = sample[:512]
-	}
-	if detected := http.DetectContentType(sample); !strings.HasPrefix(detected, "text/") {
-		body["content"] = base64.StdEncoding.EncodeToString(content)
-		body["content_type"] = detected
+	if *asLink {
+		// Links carry no language/syntax mode and are never base64-encoded —
+		// content is always the plain target URL string.
+		body["is_link"] = true
+		delete(body, "language")
+	} else {
+		// Binary files (images, archives, etc.) cannot travel as raw bytes inside
+		// a JSON string — invalid UTF-8 gets replaced and corrupts the data.
+		// Detect the MIME type, base64-encode, and tell the server via
+		// content_type.
+		sample := content
+		if len(sample) > 512 {
+			sample = sample[:512]
+		}
+		if detected := http.DetectContentType(sample); !strings.HasPrefix(detected, "text/") {
+			body["content"] = base64.StdEncoding.EncodeToString(content)
+			body["content_type"] = detected
+		}
 	}
 
 	resp, err := c.postJSON("/api/"+apiVersion+"/pastes", body)
@@ -1304,6 +1319,8 @@ CREATE FLAGS
     --burn <n>           Delete after N views; 0 = disabled (default: 0)
     --unlisted           Create as unlisted (not shown in recent pastes)
     --title <title>      Paste title (optional)
+    --link                Create as a link — arg/stdin must be an http:// or
+                          https:// URL; visiting the paste 302-redirects there
 
 LIST FLAGS
     --limit <n>          Number of pastes per page (default: 20)

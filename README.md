@@ -21,6 +21,7 @@ uses it as the default server; use `--server <url>` to target your own instance.
 - Expiry options: `1h`, `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `18m`, `2y`, `never`, or custom seconds
 - Burn after N reads — paste deleted once view count reaches threshold
 - Public and unlisted visibility
+- Link pastes — `is_link: true` shortens an `http://`/`https://` URL; visiting the paste 302-redirects to the target (`/{id}/raw` returns the target URL as text instead)
 - Delete token — cryptographically random, returned once at creation, stored as SHA-256 hash
 - Raw paste view at `/raw/{id}` and `/{id}/raw`
 - Download at `/dl/{id}`

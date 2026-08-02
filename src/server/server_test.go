@@ -2969,6 +2969,30 @@ func TestHandleViewPaste(t *testing.T) {
 			t.Errorf("html paste nil template status = %d, want 500", w.Code)
 		}
 	})
+
+	t.Run("link paste redirects regardless of client type", func(t *testing.T) {
+		target := "https://example.com/shortened-target"
+		db := &stubDB{
+			getPasteByIDFn: func(id string) (*model.Paste, error) {
+				return &model.Paste{ID: id, Content: target, IsLink: true}, nil
+			},
+		}
+		for _, ua := range []string{"Mozilla/5.0", "curl/7.88.1", ""} {
+			s := newServerWithPasteHandler(&config.Config{}, db)
+			r := withChiID(httptest.NewRequest(http.MethodGet, "/testid", nil), "testid")
+			if ua != "" {
+				r.Header.Set("User-Agent", ua)
+			}
+			w := httptest.NewRecorder()
+			s.handleViewPaste(w, r)
+			if w.Code != http.StatusFound {
+				t.Errorf("UA %q: status = %d, want 302", ua, w.Code)
+			}
+			if loc := w.Header().Get("Location"); loc != target {
+				t.Errorf("UA %q: Location = %q, want %q", ua, loc, target)
+			}
+		}
+	})
 }
 
 // ─── handleEmbed tests ───────────────────────────────────────────────────────

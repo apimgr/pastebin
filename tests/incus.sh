@@ -195,6 +195,29 @@ INCUS_RAW=$(__vm "curl -sf ${INCUS_BASE}/api/v1/pastes/${INCUS_PASTE_ID}/raw")
 [[ "${INCUS_RAW}" == "hello from incus test" ]] || __fail "Raw paste: unexpected content: ${INCUS_RAW}"
 __pass "Get raw paste"
 
+__info "--- Link paste (is_link) ---"
+INCUS_LINK_TARGET="https://example.com/incus-test-target"
+INCUS_LINK_DATA="{\\\"content\\\":\\\"${INCUS_LINK_TARGET}\\\",\\\"is_link\\\":true}"
+INCUS_LINK_RESPONSE=$(__vm "curl -sf --header 'Content-Type: application/json' \
+    --header 'Accept: application/json' --data '${INCUS_LINK_DATA}' \
+    ${INCUS_BASE}/api/v1/pastes")
+INCUS_LINK_ID=$(printf '%s' "${INCUS_LINK_RESPONSE}" | grep -o -- '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+[[ -n "${INCUS_LINK_ID}" ]] || __fail "Create paste (link) failed: ${INCUS_LINK_RESPONSE}"
+printf '%s' "${INCUS_LINK_RESPONSE}" | grep -q -- '"is_link":true' || \
+    __fail "Create paste (link): is_link field missing/false in: ${INCUS_LINK_RESPONSE}"
+__pass "Create paste (link): id=${INCUS_LINK_ID}"
+
+INCUS_LINK_LOCATION=$(__vm "curl -s -D - -o /dev/null ${INCUS_BASE}/${INCUS_LINK_ID}" | tr -d '\r' | awk '/^[Ll]ocation:/ {print $2}')
+[[ "${INCUS_LINK_LOCATION}" == "${INCUS_LINK_TARGET}" ]] || \
+    __fail "Link paste view: expected Location ${INCUS_LINK_TARGET}, got ${INCUS_LINK_LOCATION}"
+__check_status "Link paste view -> 302" GET "${INCUS_BASE}/${INCUS_LINK_ID}" 302
+__pass "Link paste view redirects to target"
+
+INCUS_LINK_RAW=$(__vm "curl -sf ${INCUS_BASE}/api/v1/pastes/${INCUS_LINK_ID}/raw")
+[[ "${INCUS_LINK_RAW}" == "${INCUS_LINK_TARGET}" ]] || \
+    __fail "Link paste raw: expected ${INCUS_LINK_TARGET}, got ${INCUS_LINK_RAW}"
+__pass "Link paste raw returns target URL without redirecting"
+
 __info "--- Paste deletion ---"
 __check_status "Delete with no token -> 401" DELETE "${INCUS_BASE}/api/v1/pastes/${INCUS_PASTE_ID}" 401
 if [[ -n "${INCUS_OWNER_TOKEN}" ]]; then

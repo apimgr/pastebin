@@ -2920,6 +2920,13 @@ func (s *Server) handleViewPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Links redirect instead of rendering, for every client type — the raw route
+	// (/raw/{id}) still returns the target URL as plain text, no redirect.
+	if paste.IsLink {
+		http.Redirect(w, r, paste.Content, http.StatusFound)
+		return
+	}
+
 	// Content negotiation per PART 16: CLI tools get raw text, browsers get HTML.
 	switch detectClientType(r) {
 	case "text":
