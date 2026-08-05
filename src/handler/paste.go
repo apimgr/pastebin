@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -498,7 +499,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 	if err := h.db.CreateAPIToken(tokenHashHex, tokenPrefix, "paste", pasteID, expiresAt); err != nil {
 		// Non-fatal: paste is already created; log and continue.
 		// The owner token won't work for deletion, but the paste itself is intact.
-		fmt.Printf("warning: create api_token for paste %s: %v\n", pasteID, err)
+		log.Printf("warning: create api_token for paste %s: %v", pasteID, err)
 	} else {
 		h.refreshActiveTokenGauge()
 	}
