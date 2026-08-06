@@ -2053,6 +2053,12 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.cacheStore != nil {
 		defer s.cacheStore.Close()
 	}
+	if s.notifier != nil {
+		// Cap at 10s so an in-flight webhook retry ladder can't stall shutdown;
+		// any goroutine still running past that continues in the background
+		// with its own request timeout and simply won't block the process exit.
+		defer s.notifier.Shutdown(10 * time.Second)
+	}
 
 	// Start Tor hidden service (non-fatal if Tor binary not found).
 	if s.torManager != nil {

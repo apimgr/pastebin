@@ -310,3 +310,61 @@ func TestDeliverCancelStopsRetries(t *testing.T) {
 	cancel()
 	d.deliver(ctx, testMsg(), Target{Transport: "generic", URL: srv.URL, Secret: "x"})
 }
+
+// TestShutdownCancelsDispatchRetries verifies that Shutdown aborts an
+// in-flight Dispatch retry ladder instead of leaving it to run to exhaustion
+// in the background.
+func TestShutdownCancelsDispatchRetries(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	firstCall := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 {
+			close(firstCall)
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	d := New(testMeta(), srv.Client())
+	// A sleep that blocks until ctx is cancelled, then reports cancellation,
+	// simulates a real backoff wait that Shutdown must be able to interrupt.
+	d.sleep = func(ctx context.Context, _ time.Duration) bool {
+		<-ctx.Done()
+		return false
+	}
+
+	d.Dispatch(testMsg(), Target{Transport: "generic", URL: srv.URL, Secret: "x"})
+
+	// Wait for the initial (pre-backoff) attempt to actually reach the server
+	// before shutting down, so Shutdown races the blocked backoff sleep, not
+	// the delivery goroutine's startup.
+	select {
+	case <-firstCall:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial delivery attempt never reached the server")
+	}
+
+	if ok := d.Shutdown(2 * time.Second); !ok {
+		t.Fatal("Shutdown did not complete within timeout")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1 (only the initial attempt before the blocked backoff)", calls)
+	}
+}
+
+// TestShutdownIsIdempotentWithNoDispatches verifies Shutdown returns true
+// immediately when nothing was ever dispatched.
+func TestShutdownIsIdempotentWithNoDispatches(t *testing.T) {
+	d := New(testMeta(), nil)
+	if ok := d.Shutdown(time.Second); !ok {
+		t.Fatal("Shutdown with no in-flight deliveries should complete immediately")
+	}
+}

@@ -70,6 +70,13 @@ type Dispatcher struct {
 	client *http.Client
 	sleep  func(context.Context, time.Duration) bool
 
+	// ctx is cancelled by Shutdown so in-flight retry ladders (which can span
+	// up to 24h per PART 17) abort promptly instead of outliving the server
+	// process indefinitely.
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
 	mu       sync.Mutex
 	lastFail map[string]time.Time
 }
@@ -80,10 +87,13 @@ func New(meta Meta, client *http.Client) *Dispatcher {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Dispatcher{
 		meta:     meta,
 		client:   client,
 		sleep:    sleepCtx,
+		ctx:      ctx,
+		cancel:   cancel,
 		lastFail: make(map[string]time.Time),
 	}
 }
@@ -98,7 +108,31 @@ func (d *Dispatcher) Dispatch(msg Message, targets ...Target) {
 		if strings.TrimSpace(tgt.URL) == "" {
 			continue
 		}
-		go d.deliver(context.Background(), msg, tgt)
+		d.wg.Add(1)
+		go func(tgt Target) {
+			defer d.wg.Done()
+			d.deliver(d.ctx, msg, tgt)
+		}(tgt)
+	}
+}
+
+// Shutdown cancels every in-flight delivery's context and waits (up to
+// timeout) for their goroutines to exit, so a server shutdown doesn't leak
+// retry-ladder goroutines. It returns false if timeout elapsed first.
+func (d *Dispatcher) Shutdown(timeout time.Duration) bool {
+	d.cancel()
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case <-done:
+		return true
+	case <-t.C:
+		return false
 	}
 }
 
