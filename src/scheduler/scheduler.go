@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -21,8 +22,11 @@ const (
 	shutdownDrainTimeout = 30 * time.Second
 )
 
-// TaskFunc is the function executed by a scheduled task.
-type TaskFunc func() error
+// TaskFunc is the function executed by a scheduled task. ctx is cancelled when
+// the scheduler is stopped, giving well-behaved tasks (e.g. network downloads)
+// a way to abort promptly instead of holding their slot until they return on
+// their own (PART 18 shutdown behavior).
+type TaskFunc func(ctx context.Context) error
 
 // Outcome describes the result of a single task execution. It is passed to the
 // notifier registered via SetNotifier so the caller can emit audit-log entries
@@ -80,6 +84,11 @@ type Scheduler struct {
 	running  bool
 	notifier NotifyFunc
 
+	// ctx is cancelled when Stop is called, so in-flight TaskFunc invocations
+	// can observe shutdown and abort promptly (PART 18).
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+
 	// wg tracks in-flight task goroutines so Stop can drain them (PART 18).
 	wg sync.WaitGroup
 }
@@ -88,12 +97,15 @@ type Scheduler struct {
 // db may be nil — in that case state is not persisted (useful for tests).
 func New(db database.DB) *Scheduler {
 	loc := time.Local
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
 		db:            db,
 		catchUpWindow: defaultCatchUpWindow,
 		loc:           loc,
 		tasks:         make(map[string]*taskEntry),
 		stop:          make(chan struct{}),
+		ctx:           ctx,
+		ctxCancel:     cancel,
 	}
 }
 
@@ -168,6 +180,7 @@ func (s *Scheduler) Start() {
 	}
 	s.running = true
 	s.stop = make(chan struct{})
+	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
 	s.mu.Unlock()
 
 	// Load persistent state and compute initial nextRun values.
@@ -200,7 +213,15 @@ func (s *Scheduler) Stop() {
 	}
 	s.running = false
 	close(s.stop)
+	cancel := s.ctxCancel
 	s.mu.Unlock()
+
+	// Cancel the shared task context so well-behaved in-flight TaskFunc
+	// invocations can abort promptly instead of holding their slot until they
+	// return on their own.
+	if cancel != nil {
+		cancel()
+	}
 
 	// Wait for running tasks to complete (max 30 seconds). On timeout, mark the
 	// still-running tasks for retry on next start instead of blocking shutdown.
@@ -351,8 +372,15 @@ func (s *Scheduler) execute(e *taskEntry) error {
 	start := time.Now()
 	log.Printf("scheduler: running %s", e.id)
 
+	s.mu.Lock()
+	ctx := s.ctx
+	s.mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	metric.SchedulerTasksRunning.WithLabelValues(e.id).Inc()
-	taskErr := e.fn()
+	taskErr := e.fn(ctx)
 	metric.SchedulerTasksRunning.WithLabelValues(e.id).Dec()
 
 	finished := time.Now()

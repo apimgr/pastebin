@@ -5,6 +5,7 @@
 package task
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -29,7 +30,7 @@ func TestBlocklistUpdate_MkdirFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := BlocklistUpdate(dir)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Error("expected error when MkdirAll fails, got nil")
 	}
 }
@@ -44,7 +45,7 @@ func TestCVEUpdate_MkdirFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := CVEUpdate(dir)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Error("expected error when MkdirAll fails, got nil")
 	}
 }
@@ -62,7 +63,7 @@ func TestCVEUpdate_CountsFiles(t *testing.T) {
 		}
 	}
 	fn := CVEUpdate(dir)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("CVEUpdate with files: %v", err)
 	}
 }
@@ -98,7 +99,7 @@ func TestSSLRenewal_DERCertFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := SSLRenewal(dir, "example.com")
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with DER cert file: %v", err)
 	}
 }
@@ -120,7 +121,7 @@ func TestSSLRenewal_UnreadableFile(t *testing.T) {
 	}
 	fn := SSLRenewal(dir, "example.com")
 	// The walker logs the error and returns nil (graceful skip).
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal should gracefully skip unreadable file, got: %v", err)
 	}
 }
@@ -155,7 +156,7 @@ func TestSSLRenewal_ExpiredCert(t *testing.T) {
 	}
 	fn := SSLRenewal(dir, "example.com")
 	// An expired cert triggers the WARNING log branch; no error returned.
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with expired cert: %v", err)
 	}
 }
@@ -179,7 +180,7 @@ func TestBackupDaily_MkdirFails(t *testing.T) {
 		AppVersion:  "v1.0.0",
 	}
 	fn := BackupDaily(taskCfg)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Error("expected error when BackupDir is a file, got nil")
 	}
 }
@@ -217,7 +218,7 @@ func TestBackupDaily_RetentionAppliedWithMultipleExistingBackups(t *testing.T) {
 		Retention:   BackupRetention{MaxBackups: 1},
 	}
 	fn := BackupDaily(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupDaily with pre-existing backups: %v", err)
 	}
 }
@@ -240,7 +241,7 @@ func TestBackupHourly_MkdirFails(t *testing.T) {
 		AppVersion:  "v1.0.0",
 	}
 	fn := BackupHourly(cfg)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Error("expected error when BackupDir is a file, got nil")
 	}
 }
@@ -264,7 +265,7 @@ func TestBackupHourly_BackupFails(t *testing.T) {
 		AppVersion:  "v1.0.0",
 	}
 	fn := BackupHourly(cfg)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Error("expected error when backup dir cannot be created, got nil")
 	}
 }

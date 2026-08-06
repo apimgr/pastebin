@@ -1,6 +1,7 @@
 package task_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -23,7 +24,7 @@ import (
 func TestBlocklistUpdate_CreatesDir(t *testing.T) {
 	dir := t.TempDir()
 	fn := task.BlocklistUpdate(dir)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BlocklistUpdate error: %v", err)
 	}
 	expected := filepath.Join(dir, "security", "blocklists")
@@ -45,7 +46,7 @@ func TestBlocklistUpdate_CountsFiles(t *testing.T) {
 		}
 	}
 	fn := task.BlocklistUpdate(dir)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BlocklistUpdate error: %v", err)
 	}
 }
@@ -55,7 +56,7 @@ func TestBlocklistUpdate_CountsFiles(t *testing.T) {
 func TestCVEUpdate_CreatesDir(t *testing.T) {
 	dir := t.TempDir()
 	fn := task.CVEUpdate(dir)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("CVEUpdate error: %v", err)
 	}
 	expected := filepath.Join(dir, "security", "cve")
@@ -80,7 +81,7 @@ func (s *stubRotator) RotateCheck() error {
 func TestLogRotation_CallsRotateCheck(t *testing.T) {
 	rot := &stubRotator{}
 	fn := task.LogRotation(rot)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("LogRotation error: %v", err)
 	}
 	if rot.calls != 1 {
@@ -91,7 +92,7 @@ func TestLogRotation_CallsRotateCheck(t *testing.T) {
 func TestLogRotation_WrapsError(t *testing.T) {
 	rot := &stubRotator{err: errors.New("disk full")}
 	fn := task.LogRotation(rot)
-	err := fn()
+	err := fn(context.Background())
 	if err == nil {
 		t.Fatal("expected error from LogRotation, got nil")
 	}
@@ -105,7 +106,7 @@ func TestLogRotation_WrapsError(t *testing.T) {
 
 func TestLogRotation_NilRotator(t *testing.T) {
 	fn := task.LogRotation(nil)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Errorf("LogRotation(nil) should be a no-op, got %v", err)
 	}
 }
@@ -116,7 +117,7 @@ func TestSSLRenewal_NoDir(t *testing.T) {
 	// When certRoot does not exist, SSLRenewal returns nil (graceful no-op).
 	dir := t.TempDir()
 	fn := task.SSLRenewal(dir, "example.com")
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with no cert dir should return nil, got: %v", err)
 	}
 }
@@ -134,7 +135,7 @@ func TestSSLRenewal_WithNonCertFile(t *testing.T) {
 	}
 
 	fn := task.SSLRenewal(dir, "example.com")
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with non-cert file: %v", err)
 	}
 }
@@ -152,7 +153,7 @@ func TestSSLRenewal_WithInvalidPEMFile(t *testing.T) {
 	}
 
 	fn := task.SSLRenewal(dir, "example.com")
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with invalid pem: %v", err)
 	}
 }
@@ -191,7 +192,7 @@ func TestSSLRenewal_WithValidCert(t *testing.T) {
 	}
 
 	fn := task.SSLRenewal(dir, "example.com")
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with valid cert: %v", err)
 	}
 }
@@ -209,7 +210,7 @@ func TestSSLRenewal_WithExpiringSoonCert(t *testing.T) {
 	}
 
 	fn := task.SSLRenewal(dir, "example.com")
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("SSLRenewal with expiring cert: %v", err)
 	}
 }
@@ -218,21 +219,21 @@ func TestSSLRenewal_WithExpiringSoonCert(t *testing.T) {
 
 func TestTorHealth_NilFunc(t *testing.T) {
 	fn := task.TorHealth(nil, nil)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("TorHealth(nil) should return nil, got: %v", err)
 	}
 }
 
 func TestTorHealth_Running(t *testing.T) {
 	fn := task.TorHealth(func() bool { return true }, nil)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("TorHealth running=true should return nil, got: %v", err)
 	}
 }
 
 func TestTorHealth_NotRunning_NoRestart(t *testing.T) {
 	fn := task.TorHealth(func() bool { return false }, nil)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("TorHealth running=false should return nil, got: %v", err)
 	}
 }
@@ -244,7 +245,7 @@ func TestTorHealth_RestartRecovers(t *testing.T) {
 		func() bool { return running },
 		func() error { restarted = true; running = true; return nil },
 	)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("TorHealth restart should return nil, got: %v", err)
 	}
 	if !restarted {
@@ -257,7 +258,7 @@ func TestTorHealth_RestartStillDown(t *testing.T) {
 		func() bool { return false },
 		func() error { return nil },
 	)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("TorHealth should not error when restart no-ops, got: %v", err)
 	}
 }
@@ -267,7 +268,7 @@ func TestTorHealth_RestartError(t *testing.T) {
 		func() bool { return false },
 		func() error { return errTorRestart },
 	)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Fatal("expected error when restart fails")
 	}
 }
@@ -303,7 +304,7 @@ func TestBackupDaily_CreatesBackup(t *testing.T) {
 		Retention:   task.BackupRetention{MaxBackups: 3},
 	}
 	fn := task.BackupDaily(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupDaily error: %v", err)
 	}
 
@@ -341,7 +342,7 @@ func TestBackupDaily_WithEncryption(t *testing.T) {
 		Retention:   task.BackupRetention{MaxBackups: 2},
 	}
 	fn := task.BackupDaily(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupDaily with encryption error: %v", err)
 	}
 
@@ -382,7 +383,7 @@ func TestBackupDaily_WithRetentionAndMultipleRuns(t *testing.T) {
 		},
 	}
 	fn := task.BackupDaily(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupDaily with full retention error: %v", err)
 	}
 }
@@ -411,7 +412,7 @@ func TestBackupHourly_CreatesRollingBackup(t *testing.T) {
 		AppVersion:  "v1.0.0",
 	}
 	fn := task.BackupHourly(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupHourly error: %v", err)
 	}
 
@@ -445,7 +446,7 @@ func TestBackupHourly_WithEncryption(t *testing.T) {
 		Password:    "secretpass",
 	}
 	fn := task.BackupHourly(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupHourly with encryption error: %v", err)
 	}
 

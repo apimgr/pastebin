@@ -5,6 +5,7 @@ package scheduler
 // starting a real goroutine loop.
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -39,7 +40,7 @@ func TestTick_SkipsNotYetDueTasks(t *testing.T) {
 		schedule: sched,
 		enabled:  true,
 		nextRun:  time.Now().Add(1 * time.Hour),
-		fn:       func() error { atomic.AddInt32(&called, 1); return nil },
+		fn:       func(ctx context.Context) error { atomic.AddInt32(&called, 1); return nil },
 	}
 	s.tick()
 	if atomic.LoadInt32(&called) != 0 {
@@ -63,7 +64,7 @@ func TestTick_ExecutesDueTask(t *testing.T) {
 		schedule: sched,
 		enabled:  true,
 		nextRun:  time.Now().Add(-1 * time.Second),
-		fn: func() error {
+		fn: func(ctx context.Context) error {
 			close(done)
 			return nil
 		},
@@ -92,7 +93,7 @@ func TestTick_SkipsDisabledTasks(t *testing.T) {
 		schedule: sched,
 		enabled:  false,
 		nextRun:  time.Now().Add(-1 * time.Second),
-		fn:       func() error { atomic.AddInt32(&called, 1); return nil },
+		fn:       func(ctx context.Context) error { atomic.AddInt32(&called, 1); return nil },
 	}
 	s.tick()
 	time.Sleep(50 * time.Millisecond)
@@ -129,7 +130,7 @@ func TestRunMissed_ExecutesMissedTask(t *testing.T) {
 		schedule: sched,
 		enabled:  true,
 		nextRun:  time.Now().Add(-30 * time.Minute),
-		fn: func() error {
+		fn: func(ctx context.Context) error {
 			close(done)
 			return nil
 		},
@@ -159,7 +160,7 @@ func TestRunMissed_SkipsOutsideCatchUpWindow(t *testing.T) {
 		schedule: sched,
 		enabled:  true,
 		nextRun:  time.Now().Add(-2 * time.Hour),
-		fn:       func() error { atomic.AddInt32(&called, 1); return nil },
+		fn:       func(ctx context.Context) error { atomic.AddInt32(&called, 1); return nil },
 	}
 	s.runMissed()
 	time.Sleep(50 * time.Millisecond)
@@ -182,7 +183,7 @@ func failEntry(t *testing.T, id string, errMsg string, retryOnFail bool, base ti
 		schedule:    sched,
 		enabled:     true,
 		nextRun:     time.Now(),
-		fn:          func() error { return errors.New(errMsg) },
+		fn:          func(ctx context.Context) error { return errors.New(errMsg) },
 		retryOnFail: retryOnFail,
 		retryBase:   base,
 		retryMax:    maxRetries,
@@ -267,7 +268,7 @@ func TestExecute_SuccessResetsRetryAttempt(t *testing.T) {
 	}
 
 	// Swap in a succeeding function and re-run.
-	e.fn = func() error { return nil }
+	e.fn = func(ctx context.Context) error { return nil }
 	before := time.Now()
 	_ = s.execute(e)
 	if e.retryAttempt != 0 {
@@ -298,7 +299,7 @@ func TestExecute_NotifierFiresWithOutcome(t *testing.T) {
 	// failure, will retry
 	_ = s.execute(e)
 
-	e.fn = func() error { return nil }
+	e.fn = func(ctx context.Context) error { return nil }
 	// success
 	_ = s.execute(e)
 
@@ -337,7 +338,7 @@ func TestStop_DrainsRunningTask(t *testing.T) {
 		schedule: sched,
 		enabled:  true,
 		nextRun:  time.Now().Add(-1 * time.Second),
-		fn: func() error {
+		fn: func(ctx context.Context) error {
 			<-release
 			atomic.AddInt32(&finished, 1)
 			return nil

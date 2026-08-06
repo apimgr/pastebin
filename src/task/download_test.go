@@ -1,6 +1,7 @@
 package task_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,7 +21,7 @@ func TestBlocklistUpdate_DownloadsSource(t *testing.T) {
 
 	dir := t.TempDir()
 	fn := task.BlocklistUpdate(dir, task.Source{Name: "firehol_level1.txt", URL: srv.URL})
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BlocklistUpdate error: %v", err)
 	}
 
@@ -46,7 +47,7 @@ func TestCVEUpdate_DownloadsSource(t *testing.T) {
 
 	dir := t.TempDir()
 	fn := task.CVEUpdate(dir, task.Source{Name: "nvd.json", URL: srv.URL})
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("CVEUpdate error: %v", err)
 	}
 
@@ -78,7 +79,7 @@ func TestBlocklistUpdate_GracefulDegradationOnFailure(t *testing.T) {
 	}
 
 	fn := task.BlocklistUpdate(dir, task.Source{Name: "firehol_level1.txt", URL: srv.URL})
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("expected graceful degradation (nil error), got %v", err)
 	}
 
@@ -99,7 +100,7 @@ func TestBlocklistUpdate_SkipsEmptySource(t *testing.T) {
 		task.Source{Name: "", URL: "http://example.invalid"},
 		task.Source{Name: "x.txt", URL: ""},
 	)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BlocklistUpdate error: %v", err)
 	}
 	// No .last_updated because nothing was updated.
@@ -118,7 +119,7 @@ func TestBlocklistUpdate_EmptyBodyIsError(t *testing.T) {
 
 	dir := t.TempDir()
 	fn := task.BlocklistUpdate(dir, task.Source{Name: "firehol_level1.txt", URL: srv.URL})
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("expected graceful degradation, got %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "security", "blocklists", "firehol_level1.txt")); !os.IsNotExist(err) {

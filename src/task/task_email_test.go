@@ -5,6 +5,7 @@
 package task
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -336,7 +337,7 @@ func TestSSLRenewalWithEmail_SendsExpiringAt3Days(t *testing.T) {
 		Mailer:        m,
 		SendExpiring:  true,
 	}
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(m.calls) == 0 {
@@ -371,7 +372,7 @@ func TestSSLRenewalWithEmail_ExpiringEmailSendError(t *testing.T) {
 		Mailer:        m,
 		SendExpiring:  true,
 	}
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatalf("SSLRenewalWithEmail should return nil even when email send fails: %v", err)
 	}
 }
@@ -398,7 +399,7 @@ func TestSSLRenewalWithEmail_NoEmailAt14Days(t *testing.T) {
 		Mailer:        m,
 		SendExpiring:  true,
 	}
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(m.calls) != 0 {
@@ -456,7 +457,7 @@ func TestSSLRenewalWithEmail_SendsRenewed(t *testing.T) {
 		Mailer:        m,
 		SendRenewed:   true,
 	}
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatalf("first run error: %v", err)
 	}
 	if len(m.calls) != 0 {
@@ -468,7 +469,7 @@ func TestSSLRenewalWithEmail_SendsRenewed(t *testing.T) {
 	if err := os.WriteFile(certPath, makeCert(key, renewed), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatalf("second run error: %v", err)
 	}
 	found := false
@@ -527,7 +528,7 @@ func TestSSLRenewalWithEmail_RenewedEmailSendError(t *testing.T) {
 		Mailer:        mOk,
 		SendRenewed:   true,
 	}
-	if err := SSLRenewalWithEmail(cfgFirst)(); err != nil {
+	if err := SSLRenewalWithEmail(cfgFirst)(context.Background()); err != nil {
 		t.Fatalf("first run error: %v", err)
 	}
 
@@ -543,7 +544,7 @@ func TestSSLRenewalWithEmail_RenewedEmailSendError(t *testing.T) {
 		Mailer:        mErr,
 		SendRenewed:   true,
 	}
-	if err := SSLRenewalWithEmail(cfgSecond)(); err != nil {
+	if err := SSLRenewalWithEmail(cfgSecond)(context.Background()); err != nil {
 		t.Fatalf("SSLRenewalWithEmail must return nil even when ssl_renewed email fails: %v", err)
 	}
 }
@@ -570,10 +571,10 @@ func TestSSLRenewalWithEmail_CertNotRenewed(t *testing.T) {
 		SendRenewed:   true,
 	}
 	// Two runs with the same cert — second run should not send ssl_renewed.
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := SSLRenewalWithEmail(cfg)(); err != nil {
+	if err := SSLRenewalWithEmail(cfg)(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range m.calls {
@@ -638,7 +639,7 @@ func TestBackupHourly_SendsFailedEmail(t *testing.T) {
 		SendOnFailed:  true,
 	}
 	fn := BackupHourly(cfg)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Fatal("expected error when backup dir cannot be created, got nil")
 	}
 	// MkdirAll fails → error returned before backupSendFailed is reached.
@@ -671,7 +672,7 @@ func TestBackupHourly_SendsFailedEmailOnBackupError(t *testing.T) {
 		SendOnFailed:  true,
 	}
 	fn := BackupHourly(cfg)
-	err := fn()
+	err := fn(context.Background())
 	if err == nil {
 		// maintenance.Backup may succeed even with missing dirs (it packs nothing);
 		// only assert the email behaviour — if no error, no email expected.
@@ -720,7 +721,7 @@ func TestBackupDaily_SendsCompleteEmail(t *testing.T) {
 		Retention:      BackupRetention{MaxBackups: 1},
 	}
 	fn := BackupDaily(cfg)
-	if err := fn(); err != nil {
+	if err := fn(context.Background()); err != nil {
 		t.Fatalf("BackupDaily error: %v", err)
 	}
 	found := false
@@ -758,7 +759,7 @@ func TestBackupDaily_SendsFailedEmail(t *testing.T) {
 		SendOnFailed:  true,
 	}
 	fn := BackupDaily(cfg)
-	if err := fn(); err == nil {
+	if err := fn(context.Background()); err == nil {
 		t.Fatal("expected error when BackupDir is a file, got nil")
 	}
 	// MkdirAll fails immediately → no backup_failed email (same as BackupHourly).
@@ -825,7 +826,7 @@ func TestSecurityFetchTask_ReaddirFails(t *testing.T) {
 	}
 	defer os.Chmod(blDir, 0o750)
 	fn := BlocklistUpdate(dir2)
-	err := fn()
+	err := fn(context.Background())
 	if err == nil {
 		t.Error("expected error when ReadDir fails, got nil")
 	}

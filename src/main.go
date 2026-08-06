@@ -889,7 +889,7 @@ Examples:
 	}
 
 	// Project-specific: expire and burn-after pastes every 10 minutes.
-	logSchedErr(sched.Register("expire-pastes", "Expire Pastes", "@every 10m", true, func() error {
+	logSchedErr(sched.Register("expire-pastes", "Expire Pastes", "@every 10m", true, func(ctx context.Context) error {
 		n, err := db.DeleteExpiredPastes()
 		if err != nil {
 			return err
@@ -985,7 +985,7 @@ Examples:
 		task.BlocklistUpdate(dataDir, blocklistSources(cfg)...)))
 	logSchedErr(sched.Register("cve_update", "CVE Update", "0 5 * * *", true,
 		task.CVEUpdate(dataDir, cveSources(cfg)...)))
-	logSchedErr(sched.Register("token_cleanup", "Token Cleanup", "@every 15m", true, func() error {
+	logSchedErr(sched.Register("token_cleanup", "Token Cleanup", "@every 15m", true, func(ctx context.Context) error {
 		n, err := db.DeleteExpiredAPITokens()
 		if err != nil {
 			return err
@@ -1025,11 +1025,11 @@ Examples:
 	// Public IP refresh (startup step 16, AI.md:10593): runs at startup and
 	// every 12h; the schedule is hardcoded per spec, not operator-configurable.
 	config.RefreshPublicIP()
-	logSchedErr(sched.Register("public_ip_refresh", "Public IP Refresh", "@every 12h", true, func() error {
+	logSchedErr(sched.Register("public_ip_refresh", "Public IP Refresh", "@every 12h", true, func(ctx context.Context) error {
 		config.RefreshPublicIP()
 		return nil
 	}))
-	logSchedErr(sched.Register("healthcheck_self", "Health Check", "@every 5m", true, func() error {
+	logSchedErr(sched.Register("healthcheck_self", "Health Check", "@every 5m", true, func(ctx context.Context) error {
 		if err := db.Ping(); err != nil {
 			return fmt.Errorf("healthcheck_self: database ping failed: %w", err)
 		}
@@ -1056,7 +1056,7 @@ Examples:
 	srv.SetLogManager(logMgr)
 
 	// Weekly GeoIP database refresh (Sunday 03:00).
-	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func() error {
+	logSchedErr(sched.Register("geoip_update", "GeoIP Update", "0 3 * * 0", srv.GeoIPEnabled(), func(ctx context.Context) error {
 		if err := srv.UpdateGeoIP(); err != nil {
 			return err
 		}

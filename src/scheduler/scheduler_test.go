@@ -5,6 +5,7 @@ package scheduler_test
 // The database is mocked so no external dependencies are needed.
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -177,16 +178,16 @@ func (m *mockDB) UpsertSecurityKeypair(kp *database.SecurityKeypair) error  { re
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 // nopTask returns a TaskFunc that does nothing and succeeds.
-func nopTask() scheduler.TaskFunc { return func() error { return nil } }
+func nopTask() scheduler.TaskFunc { return func(ctx context.Context) error { return nil } }
 
 // errTask returns a TaskFunc that always fails with the provided message.
 func errTask(msg string) scheduler.TaskFunc {
-	return func() error { return errors.New(msg) }
+	return func(ctx context.Context) error { return errors.New(msg) }
 }
 
 // countTask returns a TaskFunc that increments *n each time it is called.
 func countTask(n *int64) scheduler.TaskFunc {
-	return func() error {
+	return func(ctx context.Context) error {
 		atomic.AddInt64(n, 1)
 		return nil
 	}
@@ -623,7 +624,7 @@ func TestScheduler_RunNow_AlreadyRunning(t *testing.T) {
 	gate := make(chan struct{})
 	started := make(chan struct{}, 1)
 
-	if err := s.Register("concurrent", "Concurrent", "* * * * *", true, func() error {
+	if err := s.Register("concurrent", "Concurrent", "* * * * *", true, func(ctx context.Context) error {
 		started <- struct{}{}
 		<-gate
 		return nil

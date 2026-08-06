@@ -1,6 +1,7 @@
 // Package task provides the bodies for the built-in PART 18 scheduler tasks.
-// Each exported function returns a TaskFunc (func() error) ready to pass to
-// scheduler.Register. The closures capture only the paths they need, so callers
+// Each exported function returns a TaskFunc (func(ctx context.Context) error)
+// ready to pass to scheduler.Register. The closures capture only the paths
+// they need, so callers
 // in main.go can construct them once and register them directly.
 package task
 
@@ -108,14 +109,14 @@ type SSLRenewalConfig struct {
 // Notifications matrix, AI.md:26824-26827) when a Mailer and OperatorEmail
 // are provided. Actual ACME renewal is delegated to autocert; this task
 // provides visibility and alerting only.
-func SSLRenewal(configDir, fqdn string) func() error {
+func SSLRenewal(configDir, fqdn string) func(ctx context.Context) error {
 	return SSLRenewalWithEmail(SSLRenewalConfig{ConfigDir: configDir, FQDN: fqdn})
 }
 
 // SSLRenewalWithEmail is the full SSLRenewal implementation that also sends
 // ssl_expiring emails at the PART 17 thresholds (30/14/7/3/1 days).
-func SSLRenewalWithEmail(cfg SSLRenewalConfig) func() error {
-	return func() error {
+func SSLRenewalWithEmail(cfg SSLRenewalConfig) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		certRoot := filepath.Join(cfg.ConfigDir, "ssl", "letsencrypt", cfg.FQDN)
 		if _, err := os.Stat(certRoot); os.IsNotExist(err) {
 			return nil
@@ -238,7 +239,7 @@ type Source struct {
 // kept — GeoIP/blocklist data is a risk signal, never a hard gate, so the task
 // degrades gracefully (PART 18/19, AI.md:9135). With no sources configured the
 // task only ensures the directory exists.
-func BlocklistUpdate(dataDir string, sources ...Source) func() error {
+func BlocklistUpdate(dataDir string, sources ...Source) func(ctx context.Context) error {
 	return securityFetchTask("blocklist_update",
 		filepath.Join(dataDir, "security", "blocklists"), sources)
 }
@@ -247,26 +248,29 @@ func BlocklistUpdate(dataDir string, sources ...Source) func() error {
 // {dataDir}/security/cve/. Behaves identically to BlocklistUpdate: each
 // configured source is downloaded atomically with graceful degradation, and
 // with no sources configured the task only ensures the directory exists.
-func CVEUpdate(dataDir string, sources ...Source) func() error {
+func CVEUpdate(dataDir string, sources ...Source) func(ctx context.Context) error {
 	return securityFetchTask("cve_update",
 		filepath.Join(dataDir, "security", "cve"), sources)
 }
 
 // securityFetchTask builds the common download-with-graceful-degradation body
 // shared by BlocklistUpdate and CVEUpdate.
-func securityFetchTask(name, dir string, sources []Source) func() error {
-	return func() error {
+func securityFetchTask(name, dir string, sources []Source) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("%s: mkdir %s: %w", name, dir, err)
 		}
 
 		updated := 0
 		for _, src := range sources {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			if src.Name == "" || src.URL == "" {
 				continue
 			}
 			dst := filepath.Join(dir, filepath.Base(src.Name))
-			if err := downloadFile(src.URL, dst); err != nil {
+			if err := downloadFile(ctx, src.URL, dst); err != nil {
 				log.Printf("%s: %s: %v (keeping existing copy)", name, src.Name, err)
 				continue
 			}
@@ -292,10 +296,15 @@ func securityFetchTask(name, dir string, sources []Source) func() error {
 
 // downloadFile fetches url and writes the body to dst atomically (temp file in
 // the same directory, then rename). An empty body or non-2xx status is treated
-// as an error and dst is left untouched.
-func downloadFile(url, dst string) error {
+// as an error and dst is left untouched. ctx bounds the request so a scheduler
+// shutdown aborts an in-flight download instead of holding the task's slot.
+func downloadFile(ctx context.Context, url, dst string) error {
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("build request %s: %w", url, err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("get %s: %w", url, err)
 	}
@@ -342,8 +351,8 @@ type LogRotator interface {
 // LogRotation returns the PART 18 log_rotation task. Size and age limits come
 // from each log's rotate/keep policy in server.logs, applied by the rotator
 // (the logging manager owns the per-file writers and their policies).
-func LogRotation(rotator LogRotator) func() error {
-	return func() error {
+func LogRotation(rotator LogRotator) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		if rotator == nil {
 			return nil
 		}
@@ -363,11 +372,11 @@ func LogRotation(rotator LogRotator) func() error {
 //
 // If any verification step fails the failed file is deleted, existing backups
 // are preserved, and an error is returned for the scheduler to log.
-func BackupDaily(cfg BackupConfig) func() error {
+func BackupDaily(cfg BackupConfig) func(ctx context.Context) error {
 	if cfg.Retention.MaxBackups < 1 {
 		cfg.Retention.MaxBackups = 1
 	}
-	return func() error {
+	return func(ctx context.Context) error {
 		if err := os.MkdirAll(cfg.BackupDir, 0o750); err != nil {
 			return fmt.Errorf("backup_daily: mkdir: %w", err)
 		}
@@ -477,8 +486,8 @@ func BackupDaily(cfg BackupConfig) func() error {
 
 // BackupHourly returns a task that replaces the rolling hourly incremental
 // ({project}-hourly.tar.gz[.enc]) with a fresh snapshot, then verifies it.
-func BackupHourly(cfg BackupConfig) func() error {
-	return func() error {
+func BackupHourly(cfg BackupConfig) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		if err := os.MkdirAll(cfg.BackupDir, 0o750); err != nil {
 			return fmt.Errorf("backup_hourly: mkdir: %w", err)
 		}
@@ -737,14 +746,14 @@ func applyRetention(cfg BackupConfig) error {
 // update_installed email is sent before the process restarts. deferDays delays
 // eligibility: a release must be at least that many days old before the task
 // acts on it. A nil mailer or empty operatorEmail silently skips email.
-func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool, deferDays int, notifyAvailable, notifyInstalled bool, mailer Mailer) func() error {
-	return func() error {
+func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool, deferDays int, notifyAvailable, notifyInstalled bool, mailer Mailer) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		if branch == "" {
 			branch = "stable"
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		rel, err := updater.CheckForUpdate(ctx, currentVersion, branch)
+		rel, err := updater.CheckForUpdate(checkCtx, currentVersion, branch)
 		if err != nil {
 			return fmt.Errorf("update_check: %w", err)
 		}
@@ -766,7 +775,7 @@ func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool,
 			return nil
 		}
 		log.Printf("update_check: auto_install enabled — installing %s", rel.TagName)
-		installCtx, installCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		installCtx, installCancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer installCancel()
 		if err := updater.DoUpdate(installCtx, rel); err != nil {
 			return fmt.Errorf("update_check: auto-install failed: %w", err)
@@ -810,8 +819,8 @@ func updateSendInstalled(mailer Mailer, operatorEmail string, notify bool, curre
 	}
 }
 
-func TorHealth(torRunning func() bool, torRestart func() error) func() error {
-	return func() error {
+func TorHealth(torRunning func() bool, torRestart func() error) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
 		if torRunning == nil {
 			return nil
 		}
