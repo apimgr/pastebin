@@ -167,6 +167,7 @@ func (h *Handler) renderUI(r *http.Request) string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + h.title + ` — GraphQL</title>
+    <link rel="stylesheet" href="` + prefix + `/static/css/common.css">
     <link rel="stylesheet" href="` + prefix + `/static/css/components.css">
   </head>
   <body class="graphql-page">

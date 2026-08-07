@@ -266,6 +266,7 @@ func (h *Handler) renderUI(r *http.Request, specURL string) string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + h.title + ` — API Docs</title>
+    <link rel="stylesheet" href="` + assetPrefix + `/static/css/common.css">
     <link rel="stylesheet" href="` + assetPrefix + `/static/css/components.css">
   </head>
   <body class="swagger-page">
