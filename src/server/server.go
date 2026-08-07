@@ -442,7 +442,13 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.compatHandler = handler.NewCompatHandler(s.pasteHandler, db, version)
 	s.swaggerHandler = swagger.New(cfg.Web.SiteTitle+" API", version, cfg.Server.BaseURL, cfg.Server.APIVersion)
 	s.swaggerHandler.SetBaseURLResolver(s.baseURL)
+	s.swaggerHandler.SetAssetPrefixResolver(s.assetPrefix)
+	s.swaggerHandler.SetThemeResolver(s.themeFromRequest)
+	s.swaggerHandler.SetCSRFTokenResolver(s.csrfTokenFromRequest)
 	s.graphqlHandler = graphql.New(db, cfg.Web.SiteTitle)
+	s.graphqlHandler.SetAssetPrefixResolver(s.assetPrefix)
+	s.graphqlHandler.SetThemeResolver(s.themeFromRequest)
+	s.graphqlHandler.SetCSRFTokenResolver(s.csrfTokenFromRequest)
 	s.metricsCollector = metric.NewWithOptions(metric.Options{
 		Version:         version,
 		Commit:          commitID,
@@ -1784,6 +1790,17 @@ func (s *Server) generateCSRFToken() (string, error) {
 	sig := mac.Sum(nil)
 	token := base64.RawURLEncoding.EncodeToString(nonce) + "." + base64.RawURLEncoding.EncodeToString(sig)
 	return token, nil
+}
+
+// csrfTokenFromRequest returns the CSRF token resolved by csrfMiddleware for
+// this request (from context), or "" if the middleware never ran. Used by
+// both HTML page-data injection and the Swagger/GraphiQL viewer resolvers so
+// every no-JS form (including the theme toggle) carries a valid token.
+func (s *Server) csrfTokenFromRequest(r *http.Request) string {
+	if tok, ok := r.Context().Value(csrfTokenKey).(string); ok {
+		return tok
+	}
+	return ""
 }
 
 // validateCSRFToken reports whether token is a valid HMAC-signed CSRF token (constant-time).
@@ -4006,11 +4023,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject the next mode in the cycle so the no-JS toggle form can advance it (AI.md 21588)
 	data["NextTheme"] = nextTheme(theme)
 	// Inject CSRF token for forms — templates access it as .CSRFToken
-	if tok, ok := r.Context().Value(csrfTokenKey).(string); ok && tok != "" {
-		data["CSRFToken"] = tok
-	} else {
-		data["CSRFToken"] = ""
-	}
+	data["CSRFToken"] = s.csrfTokenFromRequest(r)
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
@@ -4221,11 +4234,7 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	theme := s.themeFromRequest(r)
 	data["Theme"] = theme
 	data["NextTheme"] = nextTheme(theme)
-	if tok, ok := r.Context().Value(csrfTokenKey).(string); ok && tok != "" {
-		data["CSRFToken"] = tok
-	} else {
-		data["CSRFToken"] = ""
-	}
+	data["CSRFToken"] = s.csrfTokenFromRequest(r)
 	data["Version"] = s.version
 	data["BuildDate"] = s.buildDate
 	data["CommitID"] = s.commitID

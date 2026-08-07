@@ -12,6 +12,16 @@ import (
 type Handler struct {
 	resolver *Resolver
 	title    string
+	// assetPrefixFn resolves the {baseurl} path prefix (PART 12) for
+	// static asset links (CSS/JS); returns "" when unset.
+	assetPrefixFn func(*http.Request) string
+	// themeFn resolves the project-wide theme (dark/light/auto) for the
+	// current request so the viewer renders class="theme-{mode}" in sync
+	// with the rest of the site; returns "dark" when unset.
+	themeFn func(*http.Request) string
+	// csrfTokenFn resolves the CSRF token bound to the request's csrf_token
+	// cookie, used by the no-JS theme-toggle POST form; returns "" when unset.
+	csrfTokenFn func(*http.Request) string
 }
 
 // New creates a Handler using the given database and site title.
@@ -20,6 +30,54 @@ func New(db DB, title string) *Handler {
 		resolver: NewResolver(db),
 		title:    title,
 	}
+}
+
+// SetAssetPrefixResolver registers the {baseurl} path-prefix resolver used to
+// build the CSS/JS asset links emitted by the UI (PART 12 baseurl resolution).
+func (h *Handler) SetAssetPrefixResolver(fn func(*http.Request) string) {
+	h.assetPrefixFn = fn
+}
+
+// assetPrefix returns the resolved baseurl path prefix, or "" when unset.
+func (h *Handler) assetPrefix(r *http.Request) string {
+	if h.assetPrefixFn == nil {
+		return ""
+	}
+	return h.assetPrefixFn(r)
+}
+
+// SetThemeResolver registers the project-wide theme resolver (reads the same
+// `theme` cookie the rest of the site uses) so the GraphiQL viewer stays
+// synchronized with the site-wide theme toggle instead of keeping its own
+// independent state.
+func (h *Handler) SetThemeResolver(fn func(*http.Request) string) {
+	h.themeFn = fn
+}
+
+// theme returns the resolved theme mode ("dark", "light", or "auto"),
+// defaulting to "dark" when no resolver is registered.
+func (h *Handler) theme(r *http.Request) string {
+	if h.themeFn == nil {
+		return "dark"
+	}
+	if t := h.themeFn(r); t != "" {
+		return t
+	}
+	return "dark"
+}
+
+// SetCSRFTokenResolver registers the CSRF token resolver used by the no-JS
+// theme-toggle POST form (double-submit cookie pattern, PART 16).
+func (h *Handler) SetCSRFTokenResolver(fn func(*http.Request) string) {
+	h.csrfTokenFn = fn
+}
+
+// csrfToken returns the resolved CSRF token, or "" when unset.
+func (h *Handler) csrfToken(r *http.Request) string {
+	if h.csrfTokenFn == nil {
+		return ""
+	}
+	return h.csrfTokenFn(r)
 }
 
 // ServeHTTP dispatches GET (GraphiQL UI) and POST (GraphQL query) requests.
@@ -93,29 +151,34 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Write(buf.Bytes())
 }
 
-// renderUI returns a self-contained HTML page with an interactive query editor.
-// No external CDN assets are loaded.
+// renderUI returns the GraphiQL viewer shell. Component styling lives in
+// the shared static/css/components.css stylesheet and behaviour in the
+// site's single JS file (static/js/app.js) — PART 16 forbids inline
+// <style>/<script> and inline event-handler attributes, and the CSP ships
+// script-src 'self' only. The theme class and toggle form mirror the
+// project-wide mechanism (server-rendered `theme` cookie + no-JS POST to
+// /theme) so this viewer never keeps independent theme state.
 func (h *Handler) renderUI(r *http.Request) string {
+	prefix := h.assetPrefix(r)
+	theme := h.theme(r)
 	return `<!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en" dir="ltr" class="theme-` + theme + `">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + h.title + ` — GraphQL</title>
-    <style>
-` + CSS() + `
-    </style>
+    <link rel="stylesheet" href="` + prefix + `/static/css/components.css">
   </head>
-  <body>
+  <body class="graphql-page">
     <header>
       <h1>` + h.title + ` GraphQL API</h1>
-      <button class="theme-btn" onclick="toggleTheme()">Toggle theme</button>
+      <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="` + h.csrfToken(r) + `"><input type="hidden" name="theme" value="` + nextTheme(theme) + `"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
     </header>
-    <div class="graphiql-container">
+    <div class="graphiql-container" id="graphiql">
       <div class="pane">
         <div class="pane-header">
           <span>Query</span>
-          <button class="execute-button" onclick="runQuery()">&#9654; Run</button>
+          <button class="execute-button" type="button" data-action="run-graphql-query">&#9654; Run</button>
         </div>
         <textarea id="query" spellcheck="false" autocomplete="off" placeholder="# Enter GraphQL query here&#10;{&#10;  pastes(page: 1, limit: 10) {&#10;    total page limit&#10;    pastes { id title language created_at }&#10;  }&#10;}">{ pastes(page: 1, limit: 5) { total page limit pastes { id title language created_at } } }</textarea>
         <div class="vars-pane">
@@ -132,59 +195,7 @@ func (h *Handler) renderUI(r *http.Request) string {
         <pre>` + escapeHTML(SchemaSDL) + `</pre>
       </div>
     </div>
-    <script>
-(function() {
-  function toggleTheme() {
-    var cur = document.documentElement.getAttribute('data-theme');
-    document.documentElement.setAttribute('data-theme', cur === 'light' ? 'dark' : 'light');
-    try { localStorage.setItem('graphql-theme', document.documentElement.getAttribute('data-theme')); } catch(e) {}
-  }
-  window.toggleTheme = toggleTheme;
-
-  try {
-    var saved = localStorage.getItem('graphql-theme');
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-  } catch(e) {}
-
-  function runQuery() {
-    var query = document.getElementById('query').value;
-    var varsRaw = document.getElementById('vars').value.trim();
-    var variables = {};
-    if (varsRaw) {
-      try { variables = JSON.parse(varsRaw); }
-      catch(e) {
-        showResult({errors: [{message: 'Invalid variables JSON: ' + e.message}]}, true);
-        return;
-      }
-    }
-    var result = document.getElementById('result');
-    result.textContent = 'Running…';
-    result.className = 'result-window';
-    fetch('/api/graphql', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({query: query, variables: variables})
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) { showResult(data, !!data.errors); })
-    .catch(function(e) { showResult({errors: [{message: String(e)}]}, true); });
-  }
-  window.runQuery = runQuery;
-
-  function showResult(data, isError) {
-    var result = document.getElementById('result');
-    result.textContent = JSON.stringify(data, null, 2);
-    result.className = 'result-window' + (isError ? ' error' : '');
-  }
-
-  document.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      runQuery();
-    }
-  });
-})();
-    </script>
+    <script src="` + prefix + `/static/js/app.js"></script>
   </body>
 </html>
 `

@@ -22,6 +22,16 @@ type Handler struct {
 	baseURL string
 	// dynamic resolver; used when baseURL is empty
 	baseURLFn func(*http.Request) string
+	// assetPrefixFn resolves the {baseurl} path prefix (PART 12) for
+	// static asset links (CSS/JS); returns "" when unset.
+	assetPrefixFn func(*http.Request) string
+	// themeFn resolves the project-wide theme (dark/light/auto) for the
+	// current request so the viewer renders class="theme-{mode}" in sync
+	// with the rest of the site; returns "dark" when unset.
+	themeFn func(*http.Request) string
+	// csrfTokenFn resolves the CSRF token bound to the request's csrf_token
+	// cookie, used by the no-JS theme-toggle POST form; returns "" when unset.
+	csrfTokenFn func(*http.Request) string
 }
 
 // New creates a Handler. baseURL can be left empty to auto-detect from the request.
@@ -39,6 +49,54 @@ func New(title, version, baseURL, apiVersion string) *Handler {
 // the PART 12 trusted-proxy rules (e.g. Server.baseURL).
 func (h *Handler) SetBaseURLResolver(fn func(*http.Request) string) {
 	h.baseURLFn = fn
+}
+
+// SetAssetPrefixResolver registers the {baseurl} path-prefix resolver used to
+// build the CSS/JS asset links emitted by the UI (PART 12 baseurl resolution).
+func (h *Handler) SetAssetPrefixResolver(fn func(*http.Request) string) {
+	h.assetPrefixFn = fn
+}
+
+// assetPrefix returns the resolved baseurl path prefix, or "" when unset.
+func (h *Handler) assetPrefix(r *http.Request) string {
+	if h.assetPrefixFn == nil {
+		return ""
+	}
+	return h.assetPrefixFn(r)
+}
+
+// SetThemeResolver registers the project-wide theme resolver (reads the same
+// `theme` cookie the rest of the site uses) so the Swagger UI viewer stays
+// synchronized with the site-wide theme toggle instead of keeping its own
+// independent state.
+func (h *Handler) SetThemeResolver(fn func(*http.Request) string) {
+	h.themeFn = fn
+}
+
+// theme returns the resolved theme mode ("dark", "light", or "auto"),
+// defaulting to "dark" when no resolver is registered.
+func (h *Handler) theme(r *http.Request) string {
+	if h.themeFn == nil {
+		return "dark"
+	}
+	if t := h.themeFn(r); t != "" {
+		return t
+	}
+	return "dark"
+}
+
+// SetCSRFTokenResolver registers the CSRF token resolver used by the no-JS
+// theme-toggle POST form (double-submit cookie pattern, PART 16).
+func (h *Handler) SetCSRFTokenResolver(fn func(*http.Request) string) {
+	h.csrfTokenFn = fn
+}
+
+// csrfToken returns the resolved CSRF token, or "" when unset.
+func (h *Handler) csrfToken(r *http.Request) string {
+	if h.csrfTokenFn == nil {
+		return ""
+	}
+	return h.csrfTokenFn(r)
 }
 
 // ServeSpec writes the OpenAPI 3.0.3 JSON specification.
@@ -59,14 +117,18 @@ func (h *Handler) ServeSpec(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
-// ServeUI writes the self-contained HTML Swagger viewer.
+// ServeUI writes the HTML Swagger viewer shell. Styling loads from the
+// shared components.css stylesheet and interactivity from the site's single
+// JS file (PART 16 — no inline <style>/<script>); the CSP ships
+// script-src 'self' only, so the viewer's rendering script must live in
+// static/js/app.js.
 func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
 	base := h.resolveBase(r)
 	specURL := base + "/api/" + h.apiVersion + "/server/swagger"
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, h.renderUI(specURL))
+	fmt.Fprint(w, h.renderUI(r, specURL))
 }
 
 // resolveBase returns the effective base URL for the current request.
@@ -188,164 +250,36 @@ func operationID(method, path string) string {
 	return out
 }
 
-// renderUI returns a self-contained HTML page that fetches the JSON spec from
-// specURL and renders it as interactive documentation. No CDN assets are used.
-func (h *Handler) renderUI(specURL string) string {
+// renderUI returns the Swagger UI viewer shell. Component styling lives in
+// the shared static/css/components.css stylesheet and behaviour in the
+// site's single JS file (static/js/app.js) — PART 16 forbids inline
+// <style>/<script> and inline event-handler attributes, and the CSP ships
+// script-src 'self' only. The theme class and toggle form mirror the
+// project-wide mechanism (server-rendered `theme` cookie + no-JS POST to
+// /theme) so this viewer never keeps independent theme state.
+func (h *Handler) renderUI(r *http.Request, specURL string) string {
+	assetPrefix := h.assetPrefix(r)
+	theme := h.theme(r)
 	return `<!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en" dir="ltr" class="theme-` + theme + `">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + h.title + ` — API Docs</title>
-    <style>
-` + CSS() + `
-    </style>
+    <link rel="stylesheet" href="` + assetPrefix + `/static/css/components.css">
   </head>
-  <body>
+  <body class="swagger-page">
     <header>
       <div>
-        <span style="font-size:1.15rem;font-weight:600;color:var(--accent-purple)">` + h.title + `</span>
+        <h1>` + h.title + `</h1>
         <span class="version">v` + h.version + `</span>
       </div>
-      <button class="theme-btn" onclick="toggleTheme()">Toggle theme</button>
+      <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="` + h.csrfToken(r) + `"><input type="hidden" name="theme" value="` + nextTheme(theme) + `"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
     </header>
-    <main class="swagger-ui" id="app">
-      <p style="color:var(--text-muted);margin-top:2rem">Loading API specification…</p>
+    <main class="swagger-ui" id="app" data-spec-url="` + specURL + `">
+      <p class="loading-message">Loading API specification…</p>
     </main>
-    <script>
-(function() {
-  var specURL = ` + "`" + specURL + "`" + `;
-
-  function toggleTheme() {
-    var cur = document.documentElement.getAttribute('data-theme');
-    document.documentElement.setAttribute('data-theme', cur === 'light' ? 'dark' : 'light');
-    try { localStorage.setItem('theme', document.documentElement.getAttribute('data-theme')); } catch(e) {}
-  }
-  window.toggleTheme = toggleTheme;
-
-  try {
-    var saved = localStorage.getItem('theme');
-    if (saved) document.documentElement.setAttribute('data-theme', saved);
-  } catch(e) {}
-
-  function esc(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function statusClass(code) {
-    if (code >= 200 && code < 300) return 'status-2xx';
-    if (code >= 400 && code < 500) return 'status-4xx';
-    return 'status-5xx';
-  }
-
-  function schemaSnippet(schema) {
-    if (!schema) return '';
-    try { return JSON.stringify(schema, null, 2); } catch(e) { return ''; }
-  }
-
-  function renderParam(p) {
-    return '<tr>' +
-      '<td><span class="param-name">' + esc(p.name) + '</span> <span class="param-in">(' + esc(p.in) + ')</span></td>' +
-      '<td>' + (p.required ? '<span class="param-req">required</span>' : '<span style="color:var(--text-muted)">optional</span>') + '</td>' +
-      '<td>' + esc(p.description || '') + '</td>' +
-      '<td><code style="font-size:0.8rem;color:var(--accent-yellow)">' + esc((p.schema && p.schema.type) || '') + '</code></td>' +
-      '</tr>';
-  }
-
-  function renderResponse(code, resp) {
-    var sc = statusClass(parseInt(code));
-    var schema = '';
-    if (resp.content) {
-      var ct = Object.keys(resp.content)[0];
-      if (ct && resp.content[ct] && resp.content[ct].schema) {
-        schema = '<div class="body-schema">' + esc(schemaSnippet(resp.content[ct].schema)) + '</div>';
-      }
-    }
-    return '<div class="response-block">' +
-      '<span class="status-code ' + sc + '">' + esc(code) + '</span>' +
-      '<div><div>' + esc(resp.description || '') + '</div>' + schema + '</div>' +
-      '</div>';
-  }
-
-  function renderOp(method, path, op, idx) {
-    var id = 'op-' + idx;
-    var params = (op.parameters || []).map(renderParam).join('');
-    var paramSection = params ? '<div class="section-title">Parameters</div><table class="param-table"><thead><tr><th>Name</th><th>Required</th><th>Description</th><th>Type</th></tr></thead><tbody>' + params + '</tbody></table>' : '';
-
-    var bodySection = '';
-    if (op.requestBody && op.requestBody.content) {
-      var ct = Object.keys(op.requestBody.content)[0];
-      var schema = ct && op.requestBody.content[ct] && op.requestBody.content[ct].schema ? op.requestBody.content[ct].schema : null;
-      bodySection = '<div class="section-title">Request Body</div>';
-      if (op.requestBody.description) bodySection += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.4rem">' + esc(op.requestBody.description) + '</p>';
-      if (schema) bodySection += '<div class="body-schema">' + esc(schemaSnippet(schema)) + '</div>';
-    }
-
-    var responses = op.responses || {};
-    var respSection = '<div class="section-title">Responses</div>' +
-      Object.keys(responses).sort().map(function(c) { return renderResponse(c, responses[c]); }).join('');
-
-    return '<div class="opblock" id="' + id + '">' +
-      '<div class="opblock-summary" onclick="toggleOp(\'' + id + '\')">' +
-      '<span class="method method-' + method.toLowerCase() + '">' + esc(method) + '</span>' +
-      '<span class="opblock-path">' + esc(path) + '</span>' +
-      '<span class="opblock-summary-desc">' + esc(op.summary || '') + '</span>' +
-      '</div>' +
-      '<div class="opblock-body">' +
-      (op.description ? '<p style="color:var(--text-muted);margin-bottom:0.75rem;font-size:0.9rem">' + esc(op.description) + '</p>' : '') +
-      paramSection + bodySection + respSection +
-      '</div></div>';
-  }
-
-  function toggleOp(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.toggle('open');
-  }
-  window.toggleOp = toggleOp;
-
-  function render(spec) {
-    var tags = {};
-    var paths = spec.paths || {};
-    Object.keys(paths).forEach(function(path) {
-      var item = paths[path];
-      Object.keys(item).forEach(function(method) {
-        var op = item[method];
-        var tag = (op.tags && op.tags[0]) || 'other';
-        if (!tags[tag]) tags[tag] = [];
-        tags[tag].push({ method: method.toUpperCase(), path: path, op: op });
-      });
-    });
-
-    var info = spec.info || {};
-    var servers = (spec.servers || []).map(function(s) {
-      return '<code>' + esc(s.url) + '</code>' + (s.description ? ' <span style="color:var(--text-muted)">— ' + esc(s.description) + '</span>' : '');
-    }).join(', ');
-
-    var html = '<div class="info-block"><strong style="color:var(--text)">' + esc(info.title || '') + '</strong>' +
-      (info.description ? '<p>' + esc(info.description) + '</p>' : '') + '</div>';
-    if (servers) html += '<div class="servers"><strong>Server:</strong> ' + servers + '</div>';
-
-    var idx = 0;
-    Object.keys(tags).sort().forEach(function(tag) {
-      html += '<div class="tag-section"><div class="tag-label">' + esc(tag) + '</div>';
-      tags[tag].forEach(function(item) {
-        html += renderOp(item.method, item.path, item.op, idx++);
-      });
-      html += '</div>';
-    });
-
-    html += '<footer>OpenAPI 3.0.3 · <a href="' + esc(specURL) + '" style="color:var(--accent-cyan)">JSON spec</a></footer>';
-    document.getElementById('app').innerHTML = html;
-  }
-
-  fetch(specURL)
-    .then(function(r) { return r.json(); })
-    .then(render)
-    .catch(function(e) {
-      document.getElementById('app').innerHTML = '<p style="color:var(--accent-red);margin-top:2rem">Failed to load spec: ' + esc(String(e)) + '</p>';
-    });
-})();
-    </script>
+    <script src="` + assetPrefix + `/static/js/app.js"></script>
   </body>
 </html>
 `

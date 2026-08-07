@@ -925,3 +925,211 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 })();
+
+// ─── Swagger UI viewer ─────────────────────────────────────────────────────
+// Presence-gated: no-ops on every page except /server/docs/swagger. Moved out
+// of src/swagger/swagger.go's HTML string builder — the CSP ships
+// script-src 'self' only (no inline scripts) and PART 16 requires all JS to
+// live in this single file.
+(function () {
+    const app = document.getElementById('app');
+    if (!app || !app.classList.contains('swagger-ui')) {
+        return;
+    }
+    const specURL = app.dataset.specUrl;
+
+    // Theming is server-rendered (class="theme-{mode}" on <html>, from the
+    // project-wide `theme` cookie) and the toggle is a no-JS POST form to
+    // /theme — see src/swagger/swagger.go renderUI. No client-side theme
+    // state is kept here.
+
+    function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function statusClass(code) {
+        if (code >= 200 && code < 300) return 'status-2xx';
+        if (code >= 400 && code < 500) return 'status-4xx';
+        return 'status-5xx';
+    }
+
+    function schemaSnippet(schema) {
+        if (!schema) return '';
+        try {
+            return JSON.stringify(schema, null, 2);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function renderParam(p) {
+        return '<tr>' +
+            '<td><span class="param-name">' + esc(p.name) + '</span> <span class="param-in">(' + esc(p.in) + ')</span></td>' +
+            '<td>' + (p.required ? '<span class="param-req">required</span>' : '<span class="param-optional">optional</span>') + '</td>' +
+            '<td>' + esc(p.description || '') + '</td>' +
+            '<td><code class="param-type">' + esc((p.schema && p.schema.type) || '') + '</code></td>' +
+            '</tr>';
+    }
+
+    function renderResponse(code, resp) {
+        const sc = statusClass(parseInt(code, 10));
+        let schema = '';
+        if (resp.content) {
+            const ct = Object.keys(resp.content)[0];
+            if (ct && resp.content[ct] && resp.content[ct].schema) {
+                schema = '<div class="body-schema">' + esc(schemaSnippet(resp.content[ct].schema)) + '</div>';
+            }
+        }
+        return '<div class="response-block">' +
+            '<span class="status-code ' + sc + '">' + esc(code) + '</span>' +
+            '<div><div>' + esc(resp.description || '') + '</div>' + schema + '</div>' +
+            '</div>';
+    }
+
+    function renderOp(method, path, op, idx) {
+        const id = 'op-' + idx;
+        const params = (op.parameters || []).map(renderParam).join('');
+        const paramSection = params ? '<div class="section-title">Parameters</div><table class="param-table"><thead><tr><th>Name</th><th>Required</th><th>Description</th><th>Type</th></tr></thead><tbody>' + params + '</tbody></table>' : '';
+
+        let bodySection = '';
+        if (op.requestBody && op.requestBody.content) {
+            const ct = Object.keys(op.requestBody.content)[0];
+            const schema = ct && op.requestBody.content[ct] && op.requestBody.content[ct].schema ? op.requestBody.content[ct].schema : null;
+            bodySection = '<div class="section-title">Request Body</div>';
+            if (op.requestBody.description) {
+                bodySection += '<p class="body-desc">' + esc(op.requestBody.description) + '</p>';
+            }
+            if (schema) {
+                bodySection += '<div class="body-schema">' + esc(schemaSnippet(schema)) + '</div>';
+            }
+        }
+
+        const responses = op.responses || {};
+        const respSection = '<div class="section-title">Responses</div>' +
+            Object.keys(responses).sort().map(function (c) { return renderResponse(c, responses[c]); }).join('');
+
+        return '<div class="opblock" id="' + id + '">' +
+            '<div class="opblock-summary" data-action="toggle-opblock" data-target="' + id + '">' +
+            '<span class="method method-' + method.toLowerCase() + '">' + esc(method) + '</span>' +
+            '<span class="opblock-path">' + esc(path) + '</span>' +
+            '<span class="opblock-summary-desc">' + esc(op.summary || '') + '</span>' +
+            '</div>' +
+            '<div class="opblock-body">' +
+            (op.description ? '<p class="op-desc">' + esc(op.description) + '</p>' : '') +
+            paramSection + bodySection + respSection +
+            '</div></div>';
+    }
+
+    // Event delegation for opblock expand/collapse — avoids per-row
+    // addEventListener calls and inline onclick attributes (PART 16).
+    app.addEventListener('click', function (e) {
+        const summary = e.target.closest('[data-action="toggle-opblock"]');
+        if (!summary) return;
+        const block = document.getElementById(summary.dataset.target);
+        if (block) {
+            block.classList.toggle('open');
+        }
+    });
+
+    function render(spec) {
+        const tags = {};
+        const paths = spec.paths || {};
+        Object.keys(paths).forEach(function (path) {
+            const item = paths[path];
+            Object.keys(item).forEach(function (method) {
+                const op = item[method];
+                const tag = (op.tags && op.tags[0]) || 'other';
+                if (!tags[tag]) tags[tag] = [];
+                tags[tag].push({ method: method.toUpperCase(), path: path, op: op });
+            });
+        });
+
+        const info = spec.info || {};
+        const servers = (spec.servers || []).map(function (s) {
+            return '<code>' + esc(s.url) + '</code>' + (s.description ? ' <span class="server-desc">— ' + esc(s.description) + '</span>' : '');
+        }).join(', ');
+
+        let html = '<div class="info-block"><strong>' + esc(info.title || '') + '</strong>' +
+            (info.description ? '<p>' + esc(info.description) + '</p>' : '') + '</div>';
+        if (servers) html += '<div class="servers"><strong>Server:</strong> ' + servers + '</div>';
+
+        let idx = 0;
+        Object.keys(tags).sort().forEach(function (tag) {
+            html += '<div class="tag-section"><div class="tag-label">' + esc(tag) + '</div>';
+            tags[tag].forEach(function (item) {
+                html += renderOp(item.method, item.path, item.op, idx++);
+            });
+            html += '</div>';
+        });
+
+        html += '<footer>OpenAPI 3.0.3 · <a href="' + esc(specURL) + '">JSON spec</a></footer>';
+        app.innerHTML = html;
+    }
+
+    fetch(specURL)
+        .then(function (r) { return r.json(); })
+        .then(render)
+        .catch(function (e) {
+            app.innerHTML = '<p class="error-message">Failed to load spec: ' + esc(String(e)) + '</p>';
+        });
+})();
+
+// ─── GraphiQL viewer ────────────────────────────────────────────────────────
+// Presence-gated: no-ops on every page except /server/docs/graphql. Moved out
+// of src/graphql/graphql.go's HTML string builder for the same CSP/PART 16
+// reasons as the Swagger UI viewer above.
+(function () {
+    const container = document.getElementById('graphiql');
+    if (!container) {
+        return;
+    }
+    const queryField = document.getElementById('query');
+    const varsField = document.getElementById('vars');
+    const result = document.getElementById('result');
+
+    // Theming is server-rendered (class="theme-{mode}" on <html>, from the
+    // project-wide `theme` cookie) and the toggle is a no-JS POST form to
+    // /theme — see src/graphql/graphql.go renderUI. No client-side theme
+    // state is kept here.
+
+    function showResult(data, isError) {
+        result.textContent = JSON.stringify(data, null, 2);
+        result.className = 'result-window' + (isError ? ' error' : '');
+    }
+
+    function runQuery() {
+        const query = queryField.value;
+        const varsRaw = varsField.value.trim();
+        let variables = {};
+        if (varsRaw) {
+            try {
+                variables = JSON.parse(varsRaw);
+            } catch (e) {
+                showResult({ errors: [{ message: 'Invalid variables JSON: ' + e.message }] }, true);
+                return;
+            }
+        }
+        result.textContent = 'Running…';
+        result.className = 'result-window';
+        fetch('/api/graphql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: query, variables: variables }),
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) { showResult(data, !!data.errors); })
+            .catch(function (e) { showResult({ errors: [{ message: String(e) }] }, true); });
+    }
+
+    const runBtn = document.querySelector('[data-action="run-graphql-query"]');
+    if (runBtn) {
+        runBtn.addEventListener('click', runQuery);
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            runQuery();
+        }
+    });
+})();
