@@ -112,6 +112,20 @@
     --transition-fast: 150ms ease;
     --transition-base: 200ms ease;
     --transition-slow: 300ms ease;
+
+    /* Spec-exact aliases (AI.md PART 16, CSS Variable Reference §21415) —
+       every component is required to be themeable through these exact
+       property names; they resolve to the same tokens defined above. */
+    --color-bg: {{.Dark.Background}};
+    --color-bg-card: {{.Dark.Surface}};
+    --color-bg-active: {{.Dark.Border}};
+    --color-code-bg: rgba(255, 255, 255, 0.1);
+    --color-text: {{.Dark.Foreground}};
+    --color-primary: {{.Dark.Primary}};
+    --color-primary-bg: var(--color-accent-tint);
+    --color-success-bg: var(--color-success-tint);
+    --color-warning-bg: var(--color-warning-tint);
+    --color-error-bg: var(--color-error-tint);
 }
 
 /* Auto Theme (PART 16, AI.md 23298): pure CSS — when the server renders
@@ -151,6 +165,18 @@
         --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
 
         --color-surface-blur: rgba(255, 255, 255, 0.9);
+
+        /* Spec-exact aliases (AI.md PART 16, CSS Variable Reference §21415) */
+        --color-bg: {{.Light.Background}};
+        --color-bg-card: {{.Light.Surface}};
+        --color-bg-active: {{.Light.Border}};
+        --color-code-bg: rgba(0, 0, 0, 0.05);
+        --color-text: {{.Light.Foreground}};
+        --color-primary: {{.Light.Primary}};
+        --color-primary-bg: var(--color-accent-tint);
+        --color-success-bg: var(--color-success-tint);
+        --color-warning-bg: var(--color-warning-tint);
+        --color-error-bg: var(--color-error-tint);
     }
 }
 
@@ -189,6 +215,18 @@ html.theme-light {
     --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
 
     --color-surface-blur: rgba(255, 255, 255, 0.9);
+
+    /* Spec-exact aliases (AI.md PART 16, CSS Variable Reference §21415) */
+    --color-bg: {{.Light.Background}};
+    --color-bg-card: {{.Light.Surface}};
+    --color-bg-active: {{.Light.Border}};
+    --color-code-bg: rgba(0, 0, 0, 0.05);
+    --color-text: {{.Light.Foreground}};
+    --color-primary: {{.Light.Primary}};
+    --color-primary-bg: var(--color-accent-tint);
+    --color-success-bg: var(--color-success-tint);
+    --color-warning-bg: var(--color-warning-tint);
+    --color-error-bg: var(--color-error-tint);
 }
 
 /* ============================================

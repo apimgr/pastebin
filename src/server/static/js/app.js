@@ -49,16 +49,22 @@ function t(key) {
 
 // ─── Toast Notifications ─────────────────────────────────────────────────────
 
-// showToast displays a transient notification in the #toast-container element.
-// type: 'info' | 'success' | 'warning' | 'error'
-function showToast(message, type) {
-    var toastType = type || 'info';
+// getToastContainer returns the #toast-container element, creating it if missing.
+function getToastContainer() {
     var container = document.getElementById('toast-container');
     if (!container) {
         container = document.createElement('div');
         container.id = 'toast-container';
         document.body.appendChild(container);
     }
+    return container;
+}
+
+// showToast displays a transient notification in the #toast-container element.
+// type: 'info' | 'success' | 'warning' | 'error'
+function showToast(message, type) {
+    var toastType = type || 'info';
+    var container = getToastContainer();
     var toast = document.createElement('div');
     toast.className = 'toast toast--' + toastType;
     toast.setAttribute('role', 'status');
@@ -104,12 +110,14 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// showUpdateBanner injects an update-available banner into the DOM using CSS classes.
+// showUpdateBanner injects an update-available banner into the #toast-container,
+// so it shares the project's single fixed-position notification slot rather than
+// pinning its own element to the viewport.
 function showUpdateBanner(registration) {
     if (document.getElementById('sw-update-banner')) return;
     const banner = document.createElement('div');
     banner.id = 'sw-update-banner';
-    banner.className = 'sw-update-banner';
+    banner.className = 'toast toast--info sw-update-banner';
     banner.setAttribute('role', 'status');
     banner.setAttribute('aria-live', 'polite');
 
@@ -130,7 +138,7 @@ function showUpdateBanner(registration) {
     banner.appendChild(msg);
     banner.appendChild(applyBtn);
     banner.appendChild(dismissBtn);
-    document.body.appendChild(banner);
+    getToastContainer().appendChild(banner);
     window.__swRegistration = registration;
 }
 
@@ -144,15 +152,23 @@ function applyUpdate() {
 
 // ─── Offline Detection ───────────────────────────────────────────────────────
 
-// Toggle the #offline-indicator element based on network connectivity.
+// Toggle a persistent #offline-indicator entry inside #toast-container based on
+// network connectivity, so it shares the single fixed-position notification slot
+// rather than pinning its own element to the viewport.
 function updateOfflineIndicator() {
-    const indicator = document.getElementById('offline-indicator');
-    if (!indicator) return;
+    const existing = document.getElementById('offline-indicator');
     if (navigator.onLine) {
-        indicator.hidden = true;
-    } else {
-        indicator.hidden = false;
+        if (existing) existing.remove();
+        return;
     }
+    if (existing) return;
+    const indicator = document.createElement('div');
+    indicator.id = 'offline-indicator';
+    indicator.className = 'toast toast--warning';
+    indicator.setAttribute('role', 'status');
+    indicator.setAttribute('aria-live', 'polite');
+    indicator.textContent = t('offline');
+    getToastContainer().appendChild(indicator);
 }
 
 window.addEventListener('online', updateOfflineIndicator);

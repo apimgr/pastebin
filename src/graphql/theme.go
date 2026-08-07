@@ -85,9 +85,14 @@ header h1 { font-size: 1rem; color: var(--accent-purple); font-weight: 600; }
 
 .graphiql-container {
   display: flex;
+  flex-direction: column;
   flex: 1;
   overflow: hidden;
   gap: 0;
+}
+
+@media (min-width: 700px) {
+  .graphiql-container { flex-direction: row; }
 }
 
 .pane {
@@ -160,12 +165,7 @@ textarea, .result-window {
 }
 
 .schema-panel {
-  width: 260px;
-  flex-shrink: 0;
-  border-left: 1px solid var(--border);
-  overflow-y: auto;
-  padding: 0.75rem;
-  font-size: 0.8rem;
+  display: none;
 }
 
 .schema-panel h3 {
@@ -183,9 +183,16 @@ textarea, .result-window {
   font-size: 0.78rem;
 }
 
-@media (max-width: 700px) {
-  .schema-panel { display: none; }
-  .graphiql-container { flex-direction: column; }
+@media (min-width: 700px) {
+  .schema-panel {
+    display: block;
+    width: 260px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 0.75rem;
+    font-size: 0.8rem;
+  }
 }
 `
 }

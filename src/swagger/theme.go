@@ -74,9 +74,6 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 
 header h1 { font-size: 1.15rem; color: var(--accent-purple); font-weight: 600; }

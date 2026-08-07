@@ -408,52 +408,36 @@
 
 /* ============================================
    Offline Indicator (PART 16)
+   Rendered as a persistent entry inside #toast-container (the project's single
+   fixed-position notification slot) rather than pinning its own element.
    ============================================ */
 #offline-indicator {
-    position: fixed;
-    bottom: var(--space-4);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: var(--space-2) var(--space-5);
-    background: var(--color-warning);
-    color: var(--color-text-inverse);
-    border-radius: var(--radius-full);
-    font-size: var(--font-size-sm);
     font-weight: 600;
-    z-index: 9000;
-    box-shadow: var(--shadow-md);
 }
 
 /* ============================================
    SW Update Banner (PART 16)
+   Rendered inside #toast-container (see Offline Indicator above) using the
+   .toast base class for positioning/stacking; this class supplies only the
+   layout needed for its label + action buttons.
    ============================================ */
 .sw-update-banner {
-    position: fixed;
-    bottom: var(--space-4);
-    right: var(--space-4);
-    background: var(--accent, var(--color-accent-primary));
-    color: var(--color-on-accent);
-    padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-lg);
     display: flex;
     gap: var(--space-2);
     align-items: center;
-    font-size: var(--font-size-sm);
-    z-index: 9999;
-    box-shadow: var(--shadow-lg);
 }
 
 .sw-update-banner__btn-apply {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--color-info);
     border: none;
-    color: inherit;
+    color: var(--color-text-inverse);
     padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-sm);
     cursor: pointer;
 }
 
 .sw-update-banner__btn-apply:hover {
-    background: rgba(255, 255, 255, 0.35);
+    filter: brightness(1.1);
 }
 
 .sw-update-banner__btn-dismiss {
