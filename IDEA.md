@@ -18,6 +18,7 @@ maintainer_name: apimgr
 maintainer_email: git-admin@casjaysdev.pro
 api_version: v1
 owner_token: pastebin_owner_token_rU3uW5Ze
+tagline: Drop-in replacement for pastebin.com, hastebin, dpaste, microbin, and more
 
 ## Business logic
 
@@ -64,6 +65,30 @@ owner_token: pastebin_owner_token_rU3uW5Ze
 - No paid tiers, no rate-limited access tiers, no feature gating
 - No cluster mode, no horizontal scaling, no node election — single instance only
 
+### Features
+
+- **Anonymous paste creation** — web form, JSON API, raw body (curl pipe), or multipart file upload; no account required
+- **Server-side syntax highlighting** — Chroma-rendered, auto-detected from file extension or manually selected
+- **Expiry options** — `1h`, `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `18m`, `2y`, `never` (default), or a custom duration in seconds
+- **Burn after N reads** — paste is permanently deleted once its view count reaches a user-set threshold (1–9999)
+- **Visibility control** — public (listed in recent pastes) or unlisted (URL-only)
+- **Owner token deletion** — a `tok_`-prefixed token returned once at creation; reusable across pastes by the same caller; required to delete a paste before natural expiry
+- **URL shortening** — a paste whose entire content is exactly one `http`/`https` URL auto-becomes a redirecting short link (`GET /{id}` → `302 Found`); `/raw` and `/dl` always return the literal stored URL text
+- **Raw view, file download, and embeds** — `/raw`, `/dl/{id}`, iframe-embeddable view at `/emb/{id}` with copy-ready HTML/Markdown snippets, QR code page at `/qr/{id}` and PNG at `/qr/{id}/image`
+- **View count tracking** with automatic background cleanup of expired and burned pastes
+- **Full web frontend** — server-rendered Go templates, dark/light/auto theme, PWA, mobile-first, fully usable without JavaScript
+- **CLI client** (`pastebin-cli`) — full API access from the terminal
+- **OpenAPI/Swagger docs** and a **read-only GraphQL query interface** (create/delete remain REST-only)
+- **Drop-in compatibility layer** for pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, the curl-upload family (0x0.st, sprunge.us, ix.io), and termbin/fiche (raw-TCP, enabled by default) — see Compat targets below
+- **i18n** — 7 locales (en, es, fr, de, zh, ar, ja), automatic selection via `Accept-Language`, RTL layout for Arabic, fallback to English
+- **Tor hidden service** — auto-enabled when the `tor` binary is present; persistent v3 `.onion` address
+- **GeoIP country blocking** — allowlist or denylist, fail-open when the database is unavailable
+- **Prometheus metrics** at `/metrics` — internal-only, never exposed publicly
+- **Built-in task scheduler** — no external cron; expiry/burn cleanup, backups, SSL renewal, GeoIP/blocklist/CVE updates, health checks
+- **Encrypted backup and restore** — AES-256-GCM + Argon2id, manifest-verified before extraction
+- **Self-update** — checksum-verified binary swap from GitHub Releases
+- **Service lifecycle management** — install/uninstall/start/stop/restart across systemd, launchd, and Windows SCM
+
 ### Compat targets
 
 The server must be 100% wire-compatible with the following services — existing scripts, CLIs, and API integrations targeting these services must work without modification:
@@ -80,6 +105,74 @@ The server must be 100% wire-compatible with the following services — existing
 | **termbin / fiche** (raw-TCP) | Plain-TCP listener (enabled by default; disable via `server.termbin.enabled: false` / `TERMBIN_ENABLED=false`, default port `9999`): client connects, streams content, half-closes the write side; server stores the paste and responds with `{base}/{id}\n`, then closes. Max payload `server.termbin.max_size` (default 32768 bytes); idle/read timeout `server.termbin.timeout` (default `5s`). Wire-compatible with the `termbin.com` netcat workflow (`echo text \| nc host 9999`) and the fiche server protocol |
 
 Compatibility is wire-level only: URL paths, request/response field names, HTTP status codes, and content types must match. Internal implementation details (storage, ID format, auth mechanism, delete convention) do not need to match. Compat-created pastes use each target's own deletion convention — not the native owner token system — and the two systems must never be mixed.
+
+### API Endpoints
+
+Native endpoints (all under `/api/{api_version}/`, `api_version: v1`):
+
+- `POST /api/v1/pastes` — create a paste
+  ```bash
+  curl -X POST https://pste.us/api/v1/pastes \
+    -H "Content-Type: application/json" \
+    -d '{"content":"hello world","title":"my paste","language":"text","expiry":"1d"}'
+  ```
+- `GET /api/v1/pastes/{id}` — retrieve paste metadata + content
+  ```bash
+  curl https://pste.us/api/v1/pastes/{id}
+  ```
+- `DELETE /api/v1/pastes/{id}` — delete a paste (requires `owner_token` or the operator `server.token`)
+  ```bash
+  curl -X DELETE https://pste.us/api/v1/pastes/{id} \
+    -H "Authorization: Bearer tok_..."
+  ```
+- `GET /api/v1/pastes` — list recent public pastes (paginated)
+- `GET /api/v1/scheduler/*` — scheduler management (operator-token gated; the sole runtime-config exception, see Non-goals)
+
+Web/native routes:
+
+- `GET /` — home (create form, recent pastes)
+- `POST /create` — create a paste from the web form
+- `GET /{id}` — view paste, or `302 Found` to the target if `is_link`
+- `GET /{id}/raw`, `GET /raw/{id}`, `GET /view/raw/{id}` — raw content (never redirects, even for links)
+- `GET /dl/{id}` — download as file
+- `GET /emb/{id}` — embeddable iframe view
+- `GET /qr/{id}`, `GET /qr/{id}/image` — QR code page / PNG
+- `GET /recent` — browse recent public pastes
+- `GET /server/docs/swagger`, `GET /server/docs/graphql` — API documentation UIs
+
+Compat routes (see Compat targets table above for full protocol detail): `POST /api/create` (stikked), `GET /view/{id}`, `GET /api/paste/{id}` (stikked), `POST /documents`, `GET /documents/{key}` (hastebin), `POST /api/`, `POST /api/v2/` (dpaste), `POST /` (curl-upload dispatcher: 0x0.st/sprunge.us/ix.io), raw-TCP port `9999` (termbin/fiche, default).
+
+### FAQ
+
+**Do I need an account to create a paste?**
+No. Pastebin is fully anonymous — no registration, no login.
+
+**How long are pastes stored?**
+Until the expiry you choose at creation (`1h` up to `2y`), or forever if you pick `never` (the default).
+
+**What's the maximum paste size?**
+Enforced at the HTTP body layer before the request is read into memory; see `server.yml` for the configured limit.
+
+**Can I delete a paste I created?**
+Yes — save the `owner_token` returned at creation and use it to delete the paste before it expires. Losing the token means the paste can't be deleted early.
+
+**What's "burn after N reads"?**
+An optional setting that permanently deletes the paste once its view count reaches a threshold you set (1–9999).
+
+**Can I embed a paste on my website?**
+Yes — `/emb/{id}` is iframe-embeddable, and the paste view page provides copy-ready HTML/Markdown embed snippets.
+
+**Can I use this from the command line?**
+Yes — pipe content to the create endpoint with `curl`, or use the `pastebin-cli` client for full API access.
+
+**Does it work with my existing pastebin.com/hastebin/dpaste scripts?**
+Yes — the compat layer is wire-compatible with pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, the curl-upload family, and termbin/fiche; existing scripts work unmodified.
+
+**Is there a rate limit?**
+Yes, per-endpoint and IP-based; configurable in `server.yml`.
+
+**Can I access it over Tor?**
+Yes, when the `tor` binary is present the server auto-enables a persistent `.onion` hidden service address, shown on `/server/help`.
 
 ### Roles & permissions
 
