@@ -115,7 +115,9 @@
     "main_navigation": "メインナビゲーション",
     "api": "API",
     "create": "作成",
-    "recent": "最近"
+    "recent": "最近",
+    "graphql": "GraphQL",
+    "swagger": "Swagger"
   },
   "health": {
     "title": "システム状態",

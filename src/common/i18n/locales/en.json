@@ -115,7 +115,9 @@
     "status": "Status",
     "skip_to_content": "Skip to main content",
     "skip_to_navigation": "Skip to navigation",
-    "main_navigation": "Main navigation"
+    "main_navigation": "Main navigation",
+    "graphql": "GraphQL",
+    "swagger": "Swagger"
   },
   "footer": {
     "about": "About",

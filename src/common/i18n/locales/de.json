@@ -115,7 +115,9 @@
     "main_navigation": "Hauptnavigation",
     "api": "API",
     "create": "Erstellen",
-    "recent": "Neueste"
+    "recent": "Neueste",
+    "graphql": "GraphQL",
+    "swagger": "Swagger"
   },
   "health": {
     "title": "Systemstatus",

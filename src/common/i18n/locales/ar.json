@@ -115,7 +115,9 @@
     "status": "الحالة",
     "skip_to_content": "انتقل إلى المحتوى الرئيسي",
     "skip_to_navigation": "انتقل إلى التنقل",
-    "main_navigation": "التنقل الرئيسي"
+    "main_navigation": "التنقل الرئيسي",
+    "graphql": "GraphQL",
+    "swagger": "Swagger"
   },
   "footer": {
     "about": "حول",

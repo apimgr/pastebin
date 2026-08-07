@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/apimgr/pastebin/src/common/i18n"
 )
 
 // Handler handles both the GraphQL POST API and the GraphiQL browser UI.
@@ -161,8 +163,10 @@ func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 func (h *Handler) renderUI(r *http.Request) string {
 	prefix := h.assetPrefix(r)
 	theme := h.theme(r)
+	lang := i18n.LangFromRequest(r)
+	t := func(key string) string { return i18n.Translate(lang, key) }
 	return `<!DOCTYPE html>
-<html lang="en" dir="ltr" class="theme-` + theme + `">
+<html lang="` + lang + `" dir="ltr" class="theme-` + theme + `">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -171,9 +175,21 @@ func (h *Handler) renderUI(r *http.Request) string {
     <link rel="stylesheet" href="` + prefix + `/static/css/components.css">
   </head>
   <body class="graphql-page">
-    <header>
-      <h1>` + h.title + ` GraphQL API</h1>
-      <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="` + h.csrfToken(r) + `"><input type="hidden" name="theme" value="` + nextTheme(theme) + `"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
+    <a href="#graphiql" class="skip-link">` + t("nav.skip_to_content") + `</a>
+    <header class="header">
+      <nav class="nav" aria-label="` + t("nav.main_navigation") + `">
+        <a href="` + prefix + `/" class="nav-brand">
+          <div class="nav-brand-icon">📋</div>
+          <span>` + h.title + ` GraphQL API</span>
+        </a>
+        <div class="nav-links">
+          <a href="` + prefix + `/" class="nav-link">` + t("nav.home") + `</a>
+          <a href="` + prefix + `/create" class="nav-link">` + t("nav.create") + `</a>
+          <a href="` + prefix + `/recent" class="nav-link">` + t("nav.recent") + `</a>
+          <a href="` + prefix + `/server/docs/swagger" class="nav-link">` + t("nav.swagger") + `</a>
+          <form class="theme-toggle" method="post" action="/theme"><input type="hidden" name="csrf_token" value="` + h.csrfToken(r) + `"><input type="hidden" name="theme" value="` + nextTheme(theme) + `"><button type="submit" class="theme-button" data-theme-toggle aria-label="Toggle theme">🌙</button></form>
+        </div>
+      </nav>
     </header>
     <div class="graphiql-container" id="graphiql">
       <div class="pane">
@@ -196,6 +212,22 @@ func (h *Handler) renderUI(r *http.Request) string {
         <pre>` + escapeHTML(SchemaSDL) + `</pre>
       </div>
     </div>
+    <footer class="footer">
+      <div class="footer-content">
+        <nav class="footer-links" aria-label="Footer">
+          <a href="` + prefix + `/server/about" class="footer-link">` + t("footer.about") + `</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href="` + prefix + `/server/privacy" class="footer-link">` + t("footer.privacy") + `</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href="` + prefix + `/server/contact" class="footer-link">` + t("footer.contact") + `</a>
+          <span class="footer-sep" aria-hidden="true">·</span>
+          <a href="` + prefix + `/server/help" class="footer-link">` + t("footer.help") + `</a>
+        </nav>
+        <div class="footer-made">
+          <a href="https://github.com/apimgr/pastebin" target="_blank" rel="noopener noreferrer" class="footer-repo">` + t("footer.made_with") + ` Go</a> ❤️
+        </div>
+      </div>
+    </footer>
     <script src="` + prefix + `/static/js/app.js"></script>
   </body>
 </html>
