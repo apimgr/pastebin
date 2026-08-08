@@ -23,6 +23,7 @@ services:
     image: ghcr.io/apimgr/pastebin:latest
     pull_policy: always
     container_name: pastebin-test
+    hostname: pastebin
     restart: "no"
     logging: *default-logging
     environment:

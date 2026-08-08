@@ -14,6 +14,7 @@ services:
   pastebin:
     image: ghcr.io/apimgr/pastebin:latest
     container_name: pastebin-app
+    hostname: pastebin
     restart: always
     pull_policy: always
     logging: *default-logging

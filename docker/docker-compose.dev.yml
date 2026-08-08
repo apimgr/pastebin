@@ -3,7 +3,7 @@
 # FOR HUMAN USE ONLY - AI must never use this file directly.
 # Use temp dir workflow: cp docker/docker-compose.dev.yml $TEMP_DIR/docker-compose.yml
 
-name: pastebin
+name: pastebin-dev
 
 x-logging: &default-logging
   options:
@@ -16,6 +16,7 @@ services:
     image: ghcr.io/apimgr/pastebin:devel
     pull_policy: always
     container_name: pastebin-app
+    hostname: pastebin
     restart: always
     logging: *default-logging
     environment:
@@ -25,14 +26,14 @@ services:
       TZ: America/New_York
       TERMBIN_ENABLED: true
     ports:
-      - '172.17.0.1:64580:80'
-      # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
+      # Development: accessible from all interfaces, no 172.17.0.1 bind
+      - '64580:80'
       - '9999:9999'
     volumes:
       # TEMP DIR WORKFLOW: ./volumes/ resolves to $TEMP_DIR/volumes/
       # NEVER run from project directory — always use temp dir workflow
-      - './volumes/config:/config:z'
-      - './volumes/data:/data:z'
+      - './volumes/config:/config'
+      - './volumes/data:/data'
     healthcheck:
       test: /usr/local/bin/pastebin --status
       interval: 10s
@@ -40,9 +41,9 @@ services:
       retries: 3
       start_period: 90s
     networks:
-      - pastebin
+      - pastebin-dev
 
 networks:
-  pastebin:
-    name: pastebin
+  pastebin-dev:
+    name: pastebin-dev
     external: false
