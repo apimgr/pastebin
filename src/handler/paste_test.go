@@ -310,6 +310,46 @@ func TestGetRawPaste(t *testing.T) {
 	}
 }
 
+// TestGetRawPaste_ActiveContentForcesDownload verifies that a paste whose
+// content_type would render as active content in a browser is served with
+// Content-Disposition: attachment, even when the stored media type is
+// disguised with trailing whitespace or non-canonical casing (which the
+// allow-list check must not let bypass the download-forcing).
+func TestGetRawPaste_ActiveContentForcesDownload(t *testing.T) {
+	cases := []struct {
+		name        string
+		contentType string
+	}{
+		{"canonical", "text/html"},
+		{"trailing space", "text/html "},
+		{"with params", "text/html; charset=utf-8"},
+		{"svg", "image/svg+xml"},
+		{"xhtml", "application/xhtml+xml"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newTestHandler(t)
+
+			body := `{"content":"PGh0bWw+PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0PjwvaHRtbD4=","content_type":"` + tc.contentType + `"}`
+			m := createViaAPI(t, h, body)
+			data, ok := m["data"].(map[string]interface{})
+			if !ok {
+				t.Fatalf("data field missing: %v", m)
+			}
+			id := data["id"].(string)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes/"+id+"/raw", nil)
+			req = withID(req, id)
+			rr := httptest.NewRecorder()
+			h.GetRawPaste(rr, req)
+
+			if cd := rr.Header().Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
+				t.Errorf("Content-Disposition: got %q, want attachment (active content must not render inline)", cd)
+			}
+		})
+	}
+}
+
 // ─── is_link (URL shortening, auto-detected from content) ─────────────────────
 
 // TestCreateLink_JSON verifies a paste whose entire content is a single

@@ -45,7 +45,7 @@ jobs:
           mkdir -p "/tmp/${{ gitea.repository_owner }}"
           COVDIR=$(mktemp -d "/tmp/${{ gitea.repository_owner }}/$(basename "${{ gitea.repository }}")-XXXXXX")
           echo "COVDIR=$COVDIR" >> "$GITEA_ENV"
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          go test -buildvcs=false -cover -coverprofile="$COVDIR/coverage.out" ./...
       - name: Enforce coverage threshold
         run: |
           THRESHOLD=60
@@ -130,7 +130,7 @@ jobs:
           REPO_NAME=$(basename "$GITEA_REPOSITORY")
           mkdir -p "/tmp/$GITEA_REPOSITORY_OWNER"
           COVDIR=$(mktemp -d "/tmp/$GITEA_REPOSITORY_OWNER/${REPO_NAME}-XXXXXX")
-          go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+          go test -buildvcs=false -cover -coverprofile="$COVDIR/coverage.out" ./...
           go tool cover -html="$COVDIR/coverage.out" -o "$COVDIR/coverage.html"
           PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
           echo "Total coverage: $PCT%"

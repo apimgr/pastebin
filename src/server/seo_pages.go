@@ -97,9 +97,9 @@ func (s *Server) handleLLMs(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(&b, "- GET /server/healthz - Health check (no auth)\n")
 	fmt.Fprintf(&b, "- GET /server/about - Server information (no auth)\n")
 	fmt.Fprintf(&b, "- GET /api/%s/pastes - List public pastes (no auth)\n", apiVersion)
-	fmt.Fprintf(&b, "- POST /api/%s/pastes - Create a paste (returns id + delete token)\n", apiVersion)
+	fmt.Fprintf(&b, "- POST /api/%s/pastes - Create a paste (returns id + owner token)\n", apiVersion)
 	fmt.Fprintf(&b, "- GET /api/%s/pastes/{id} - Fetch a paste (no auth)\n", apiVersion)
-	fmt.Fprintf(&b, "- DELETE /api/%s/pastes/{id} - Delete a paste (delete token or owner auth)\n\n", apiVersion)
+	fmt.Fprintf(&b, "- DELETE /api/%s/pastes/{id} - Delete a paste (owner token or operator auth)\n\n", apiVersion)
 
 	fmt.Fprintf(&b, "## Capabilities\n")
 	fmt.Fprintf(&b, "- Create, fetch, list, and delete public pastes\n")

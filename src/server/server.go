@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	// blank import side-effect: registers pprof handlers on DefaultServeMux
@@ -3040,10 +3041,21 @@ type pasteContentClass struct {
 // correctly. Binary pastes are stored as base64 (ContentType is set for all
 // non-text uploads). Active types must NEVER be rendered inline — download only.
 func classifyPasteContent(paste *model.Paste) pasteContentClass {
+	// Canonicalize the media type so case, whitespace, or trailing parameters
+	// cannot smuggle an active type past the classification check; an
+	// unparseable-but-present value fails closed as active (download only).
 	fileCT := paste.ContentType
+	ctParseErr := false
+	if fileCT != "" {
+		if mt, _, err := mime.ParseMediaType(fileCT); err == nil {
+			fileCT = mt
+		} else {
+			ctParseErr = true
+		}
+	}
 
 	// Active content: can execute scripts in a browser — force download only.
-	isActiveContent := fileCT == "text/html" || fileCT == "application/xhtml+xml" ||
+	isActiveContent := ctParseErr || fileCT == "text/html" || fileCT == "application/xhtml+xml" ||
 		fileCT == "image/svg+xml" || fileCT == "text/xml" || fileCT == "application/xml" ||
 		fileCT == "application/javascript" || fileCT == "text/javascript"
 
@@ -3261,6 +3273,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if filename == "" || filename == "Untitled" {
 		filename = id
 	}
+	filename = sanitizeAttachmentFilename(filename, id)
 
 	// Binary pastes are stored as base64; decode to raw bytes before sending.
 	var body []byte
@@ -3279,9 +3292,30 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		ct = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"; filename*=UTF-8''`+url.PathEscape(filename))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(body) //nolint:errcheck
+}
+
+// sanitizeAttachmentFilename strips characters that could break the quoted
+// Content-Disposition filename parameter (double-quote, backslash, path
+// separators, and control characters) and caps the length. Falls back to id
+// when nothing usable remains.
+func sanitizeAttachmentFilename(name, id string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == '"' || r == '\\' || r == '/' || r == '\n' || r == '\r' {
+			return '_'
+		}
+		return r
+	}, name)
+	cleaned = strings.TrimSpace(cleaned)
+	if len(cleaned) > 200 {
+		cleaned = cleaned[:200]
+	}
+	if cleaned == "" {
+		return id
+	}
+	return cleaned
 }
 
 // handleURLRedirect redirects to the paste content if it is a URL; otherwise

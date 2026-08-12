@@ -47,7 +47,8 @@ type ServerConfig struct {
 	Mode    string `yaml:"mode"`
 	// APIVersion is the API route prefix segment (default v1): /api/{api_version}/.
 	APIVersion string `yaml:"api_version"`
-	BaseURL    string `yaml:"base_url"` // override for URL generation
+	// BaseURL overrides URL generation.
+	BaseURL string `yaml:"base_url"`
 	// Branding holds the site title/tagline/description (PART 12/16).
 	Branding BrandingConfig `yaml:"branding"`
 	// SEO holds search-engine metadata such as keywords (PART 12/16).
@@ -456,10 +457,13 @@ type TermbinConfig struct {
 // LimitsConfig controls HTTP server timeouts and body size limits (PART 12).
 type LimitsConfig struct {
 	// MaxBodySize is the maximum request body in bytes. Accepts "10MB", "1MiB", or plain integer.
-	MaxBodySize  int64  `yaml:"max_body_size"`
-	ReadTimeout  string `yaml:"read_timeout"`  // e.g. "30s"
-	WriteTimeout string `yaml:"write_timeout"` // e.g. "30s"
-	IdleTimeout  string `yaml:"idle_timeout"`  // e.g. "120s"
+	MaxBodySize int64 `yaml:"max_body_size"`
+	// ReadTimeout is the request read timeout, e.g. "30s".
+	ReadTimeout string `yaml:"read_timeout"`
+	// WriteTimeout is the response write timeout, e.g. "30s".
+	WriteTimeout string `yaml:"write_timeout"`
+	// IdleTimeout is the keep-alive idle timeout, e.g. "120s".
+	IdleTimeout string `yaml:"idle_timeout"`
 }
 
 // TrustedProxiesConfig lists additional proxy IPs/CIDRs/DNS names beyond the
@@ -508,7 +512,7 @@ type CacheConfig struct {
 	PoolSize      int  `yaml:"pool_size"`
 	MinIdle       int  `yaml:"min_idle"`
 	// Timeout is the dial/read/write timeout for remote drivers.
-	Timeout string `yaml:"timeout"` // e.g. "5s"
+	Timeout string `yaml:"timeout"`
 	// Prefix is prepended to every key to avoid namespace collisions.
 	Prefix string `yaml:"prefix"`
 	// TTL is the default time-to-live. e.g. "1h", "30m".
@@ -675,17 +679,24 @@ type AuditEventCategories struct {
 
 // DatabaseConfig selects and configures the storage backend.
 type DatabaseConfig struct {
-	Type string `yaml:"type"` // only "sqlite" for now
-	Path string `yaml:"path"` // path to the SQLite database file
+	// Type selects the storage backend; only "sqlite" is currently supported.
+	Type string `yaml:"type"`
+	// Path is the SQLite database file path.
+	Path string `yaml:"path"`
 }
 
 // PasteConfig controls paste-specific behaviour.
 type PasteConfig struct {
-	MaxSizeBytes    int64  `yaml:"max_size_bytes"`   // max paste size (default 10 MiB)
-	DefaultExpiry   string `yaml:"default_expiry"`   // "never" or expiry code
-	DefaultLanguage string `yaml:"default_language"` // "text"
-	MaxBurnAfter    int    `yaml:"max_burn_after"`   // cap on burn_after (default 9999)
-	AllowUnlisted   bool   `yaml:"allow_unlisted"`   // allow unlisted pastes (default true)
+	// MaxSizeBytes is the max paste size (default 10 MiB).
+	MaxSizeBytes int64 `yaml:"max_size_bytes"`
+	// DefaultExpiry is "never" or an expiry code.
+	DefaultExpiry string `yaml:"default_expiry"`
+	// DefaultLanguage is the fallback syntax language (default "text").
+	DefaultLanguage string `yaml:"default_language"`
+	// MaxBurnAfter caps burn_after (default 9999).
+	MaxBurnAfter int `yaml:"max_burn_after"`
+	// AllowUnlisted allows unlisted pastes (default true).
+	AllowUnlisted bool `yaml:"allow_unlisted"`
 }
 
 // RateLimitEndpoint configures the per-IP request quota for one endpoint class (PART 12).
@@ -709,12 +720,13 @@ type RateLimitConfig struct {
 
 // WebConfig holds web-UI settings.
 type WebConfig struct {
-	SiteTitle string         `yaml:"site_title"`
-	Theme     string         `yaml:"theme"` // "dark" | "light" | "auto"
-	Robots    RobotsConfig   `yaml:"robots"`
-	Security  SecurityConfig `yaml:"security"`
-	HSTS      HSTSConfig     `yaml:"hsts"`
-	CSP       CSPConfig      `yaml:"csp"`
+	SiteTitle string `yaml:"site_title"`
+	// Theme is the default site theme: "dark", "light", or "auto".
+	Theme    string         `yaml:"theme"`
+	Robots   RobotsConfig   `yaml:"robots"`
+	Security SecurityConfig `yaml:"security"`
+	HSTS     HSTSConfig     `yaml:"hsts"`
+	CSP      CSPConfig      `yaml:"csp"`
 	// Headers controls which advanced security headers are emitted.
 	Headers HeadersConfig `yaml:"headers"`
 	// CSRF controls double-submit cookie CSRF protection (PART 16).
@@ -811,11 +823,12 @@ type NotificationsConfig struct {
 
 // EmailConfig holds SMTP and sender settings for outbound email.
 type EmailConfig struct {
-	Enabled     bool              `yaml:"enabled"`
-	SMTP        SMTPConfig        `yaml:"smtp"`
-	From        EmailFrom         `yaml:"from"`
-	ReplyTo     string            `yaml:"reply_to"`
-	TemplateDir string            `yaml:"template_dir"` // custom override dir; empty = use embedded defaults
+	Enabled bool       `yaml:"enabled"`
+	SMTP    SMTPConfig `yaml:"smtp"`
+	From    EmailFrom  `yaml:"from"`
+	ReplyTo string     `yaml:"reply_to"`
+	// TemplateDir is a custom override dir; empty = use embedded defaults.
+	TemplateDir string            `yaml:"template_dir"`
 	Events      EmailEventsConfig `yaml:"events"`
 }
 
@@ -838,8 +851,9 @@ type EmailEventsConfig struct {
 // SMTPConfig holds connection settings for the outbound SMTP server.
 type SMTPConfig struct {
 	// Host is the SMTP server hostname or IP. Empty = auto-detect on first run.
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"` // default 587
+	Host string `yaml:"host"`
+	// Port is the SMTP server port (default 587).
+	Port     int    `yaml:"port"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	// TLS controls connection security: "auto", "starttls", "tls", "none"
@@ -1146,16 +1160,20 @@ type SchedulerTask struct {
 
 // HSTSConfig controls Strict-Transport-Security emission.
 type HSTSConfig struct {
-	Enabled           bool  `yaml:"enabled"`
-	MaxAgeSeconds     int64 `yaml:"max_age_seconds"`    // default 63072000 (2 years)
-	IncludeSubdomains bool  `yaml:"include_subdomains"` // default true
-	Preload           bool  `yaml:"preload"`            // default true
+	Enabled bool `yaml:"enabled"`
+	// MaxAgeSeconds is the HSTS max-age (default 63072000, 2 years).
+	MaxAgeSeconds int64 `yaml:"max_age_seconds"`
+	// IncludeSubdomains sets the includeSubDomains directive (default true).
+	IncludeSubdomains bool `yaml:"include_subdomains"`
+	// Preload sets the preload directive (default true).
+	Preload bool `yaml:"preload"`
 }
 
 // CSPConfig controls Content-Security-Policy emission.
 type CSPConfig struct {
-	Enabled           bool   `yaml:"enabled"`
-	Mode              string `yaml:"mode"` // enforce | report-only
+	Enabled bool `yaml:"enabled"`
+	// Mode is "enforce" or "report-only".
+	Mode              string `yaml:"mode"`
 	ScriptSrcExtra    string `yaml:"script_src_extra"`
 	StyleSrcExtra     string `yaml:"style_src_extra"`
 	ImgSrcExtra       string `yaml:"img_src_extra"`

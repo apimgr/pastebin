@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -657,10 +658,22 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 		detected = http.DetectContentType(body[:min512(len(body))])
 	}
 
-	// Strip parameters for the allow-list check (e.g. "text/plain; charset=utf-8" → "text/plain").
-	baseType := detected
-	if idx := strings.IndexByte(detected, ';'); idx >= 0 {
-		baseType = strings.TrimSpace(detected[:idx])
+	// Canonicalize the media type before the allow-list check so that
+	// case, surrounding whitespace, or trailing parameters cannot smuggle an
+	// active type past the check (e.g. "TEXT/HTML", "text/html ").
+	// mime.ParseMediaType lowercases the base type and trims whitespace;
+	// unparseable values fail closed as a forced download.
+	baseType, params, err := mime.ParseMediaType(detected)
+	served := detected
+	if err != nil {
+		baseType = ""
+		served = "application/octet-stream"
+		w.Header().Set("Content-Disposition", "attachment")
+	} else {
+		served = mime.FormatMediaType(baseType, params)
+		if served == "" {
+			served = baseType
+		}
 	}
 
 	// Active content types must be served as downloads to prevent browser execution.
@@ -668,7 +681,7 @@ func (h *PasteHandler) GetRawPaste(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", "attachment")
 	}
 
-	w.Header().Set("Content-Type", detected)
+	w.Header().Set("Content-Type", served)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Write(body) //nolint:errcheck
 }

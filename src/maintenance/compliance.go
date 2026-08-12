@@ -23,10 +23,12 @@ type ComplianceOptions struct {
 // standardRequirement is one row of AI.md's Compliance Requirements Matrix,
 // covering only the standards for which the matrix gives quantified values.
 type standardRequirement struct {
-	name               string
-	retentionYears     int
-	breachNotifyHours  int // 0 = not specified by this standard
-	sessionTimeoutMins int // 0 = not specified by this standard
+	name           string
+	retentionYears int
+	// breachNotifyHours is 0 when this standard does not specify a value.
+	breachNotifyHours int
+	// sessionTimeoutMins is 0 when this standard does not specify a value.
+	sessionTimeoutMins int
 	rightToErasure     bool
 	dataPortability    bool
 }

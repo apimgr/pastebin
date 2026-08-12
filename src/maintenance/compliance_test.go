@@ -56,7 +56,8 @@ func TestStrictestRetention_Empty(t *testing.T) {
 func TestStrictestBreachNotification(t *testing.T) {
 	got := strictestBreachNotification([]standardRequirement{
 		{breachNotifyHours: 72},
-		{breachNotifyHours: 0}, // SOC2: not specified, must be ignored
+		// SOC2: not specified, must be ignored
+		{breachNotifyHours: 0},
 		{breachNotifyHours: 60 * 24},
 	})
 	if got != 72 {

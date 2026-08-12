@@ -394,7 +394,7 @@ pipeline {
                         -v ${GO_BUILD:-$HOME/.cache/go-build}:/usr/local/share/go/cache \
                         -w /app \
                         casjaysdev/go:latest \
-                        go test -v -cover ./...
+                        go test -buildvcs=false -v -cover ./...
                 '''
             }
         }

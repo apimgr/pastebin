@@ -22,7 +22,7 @@ uses it as the default server; use `--server <url>` to target your own instance.
 - Burn after N reads — paste deleted once view count reaches threshold
 - Public and unlisted visibility
 - Link pastes — auto-detected when content is exactly one `http://`/`https://` URL and nothing else; visiting the paste 302-redirects to the target (`/{id}/raw` returns the target URL as text instead)
-- Delete token — cryptographically random, returned once at creation, stored as SHA-256 hash
+- Owner token — cryptographically random `tok_...` value returned once at creation (as `owner_token`), stored only as a SHA-256 hash, required to delete a paste
 - Raw paste view at `/raw/{id}` and `/{id}/raw`
 - Download at `/dl/{id}`
 - Embedded view at `/emb/{id}` (iframe-embeddable)
@@ -34,7 +34,18 @@ uses it as the default server; use `--server <url>` to target your own instance.
 - CLI client (`pastebin-cli`)
 - OpenAPI/Swagger docs at `/api/v1/server/swagger`
 - GraphQL at `/api/v1/server/graphql` (GraphiQL UI at `/server/docs/graphql`, read-only queries)
-- Full route compatibility with pastebin.com, microbin, and lenpaste
+- Full route compatibility with pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, the curl-upload family (sprunge/0x0/ix.io), and termbin/fiche (raw TCP, opt-in)
+- Built-in scheduler for expiry cleanup, backups, security-database updates, and self-update checks (no external cron)
+- Backup and restore with optional AES-256-GCM encryption (Argon2id key derivation)
+- Self-update with SHA-256 checksum verification (stable/beta/daily channels)
+- Prometheus metrics endpoint (`/metrics`, internal-only)
+- GeoIP country allow/deny (advisory) with auto-downloaded, scheduler-updated databases
+- Rate limiting per read/write/health class
+- Tor hidden-service support (auto-enabled when the `tor` binary is present)
+- Internationalization: English, Spanish, Chinese, French, Arabic (RTL), German, Japanese
+- Operator email notifications with SMTP auto-detection (no email attempted without working SMTP)
+- Cookie-consent banner and privacy/terms pages
+- Cross-platform service management (systemd, OpenRC, SysVinit, runit, launchd, rc.d, Windows Service)
 - Single self-contained static binary with embedded SQLite
 
 ## Production
@@ -101,7 +112,7 @@ pastebin-cli create myfile.go --lang go --expiry 1d
 pastebin-cli get abc12345
 
 # Delete paste
-pastebin-cli delete abc12345 <delete-token>
+pastebin-cli delete abc12345 <owner-token>
 
 # List recent pastes
 pastebin-cli list --limit 20
@@ -158,31 +169,31 @@ API documentation available at `https://pste.us/api/v1/server/swagger` when runn
 | Endpoint | Description |
 |----------|-------------|
 | `GET /server/healthz` | Health check |
-| `POST /api/v1/paste` | Create a paste |
-| `GET /api/v1/paste/{id}` | Get a paste |
-| `DELETE /api/v1/paste/{id}` | Delete a paste |
+| `POST /api/v1/pastes` | Create a paste |
+| `GET /api/v1/pastes/{id}` | Get a paste |
+| `DELETE /api/v1/pastes/{id}` | Delete a paste |
 | `GET /api/v1/pastes` | List recent pastes |
 
 ### Examples
 
 ```bash
 # Create a paste
-curl -X POST https://pste.us/api/v1/paste \
+curl -X POST https://pste.us/api/v1/pastes \
   -H 'Content-Type: application/json' \
   -d '{"content":"Hello","language":"text","expires_in":"1d"}'
 
 # Get a paste
-curl https://pste.us/api/v1/paste/{id}
+curl https://pste.us/api/v1/pastes/{id}
 
 # Delete a paste
-curl -X DELETE https://pste.us/api/v1/paste/{id} \
-  -H 'Authorization: Bearer <delete-token>'
+curl -X DELETE https://pste.us/api/v1/pastes/{id} \
+  -H 'Authorization: Bearer <owner-token>'
 
 # List recent pastes
 curl https://pste.us/api/v1/pastes
 
 # Pipe to paste (raw body)
-cat file.txt | curl -X POST https://pste.us/api/v1/paste \
+cat file.txt | curl -X POST https://pste.us/api/v1/pastes \
   --data-binary @- -H 'Content-Type: text/plain'
 ```
 

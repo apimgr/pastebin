@@ -30,7 +30,7 @@ test:
   script:
     - mkdir -p "/tmp/$CI_PROJECT_NAMESPACE"
     - COVDIR=$(mktemp -d "/tmp/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME-XXXXXX")
-    - go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+    - go test -buildvcs=false -cover -coverprofile="$COVDIR/coverage.out" ./...
     - |
       THRESHOLD=60
       PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
@@ -157,7 +157,7 @@ coverage:
   script:
     - mkdir -p "/tmp/$CI_PROJECT_NAMESPACE"
     - COVDIR=$(mktemp -d "/tmp/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME-XXXXXX")
-    - go test -cover -coverprofile="$COVDIR/coverage.out" ./...
+    - go test -buildvcs=false -cover -coverprofile="$COVDIR/coverage.out" ./...
     - go tool cover -html="$COVDIR/coverage.out" -o "$COVDIR/coverage.html"
     - |
       PCT=$(go tool cover -func="$COVDIR/coverage.out" | awk '/^total:/ {gsub("%","",$3); print int($3)}')
