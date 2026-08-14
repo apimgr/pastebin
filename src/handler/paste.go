@@ -58,6 +58,24 @@ type PasteHandler struct {
 	// cache is the optional read-through cache for individual pastes (PART 9).
 	// nil in unit tests and until the server layer injects it via SetCache.
 	cache cache.Cache
+	// maxSizeBytes is the configured maximum paste size (server.yml
+	// paste.max_size_bytes), enforced in createFromRequest. Zero (unset, as in
+	// unit tests that never call SetMaxSize) falls back to the 10MiB default
+	// via maxSize().
+	maxSizeBytes int64
+}
+
+// defaultMaxSizeBytes mirrors config.go's Paste.MaxSizeBytes default so
+// createFromRequest has a sane limit even before SetMaxSize is called.
+const defaultMaxSizeBytes int64 = 10 << 20
+
+// maxSize returns the configured maximum paste size, falling back to
+// defaultMaxSizeBytes when unset.
+func (h *PasteHandler) maxSize() int64 {
+	if h.maxSizeBytes > 0 {
+		return h.maxSizeBytes
+	}
+	return defaultMaxSizeBytes
 }
 
 // NewPasteHandler constructs a PasteHandler.
@@ -81,6 +99,16 @@ func (h *PasteHandler) SetBaseURLResolver(fn func(*http.Request) string) {
 // field is treated as "no cache configured" everywhere it is used.
 func (h *PasteHandler) SetCache(c cache.Cache) {
 	h.cache = c
+}
+
+// SetMaxSize injects the server's configured maximum paste size
+// (server.yml paste.max_size_bytes) so createFromRequest enforces the
+// operator-configured limit instead of a hardcoded default. n <= 0 is
+// ignored (maxSize() keeps falling back to defaultMaxSizeBytes).
+func (h *PasteHandler) SetMaxSize(n int64) {
+	if n > 0 {
+		h.maxSizeBytes = n
+	}
 }
 
 // pasteCacheKey returns the cache key for a paste ID, following AI.md PART 9's
@@ -287,21 +315,29 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 
 	ct := r.Header.Get("Content-Type")
 
+	limit := h.maxSize()
+
 	switch {
 	case strings.HasPrefix(ct, "application/json"):
-		dec := json.NewDecoder(io.LimitReader(r.Body, 10<<20))
-		if err := dec.Decode(&req); err != nil {
+		raw, tooLarge := readLimited(r.Body, limit)
+		if tooLarge {
+			return nil, http.StatusRequestEntityTooLarge, fmt.Errorf("paste exceeds maximum size of %d bytes", limit)
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("invalid JSON")
 		}
 
 	case strings.HasPrefix(ct, "multipart/form-data"):
-		if err := r.ParseMultipartForm(10 << 20); err != nil {
+		if err := r.ParseMultipartForm(limit); err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("failed to parse form")
 		}
 		file, header, err := r.FormFile("files")
 		if err == nil {
 			defer file.Close()
-			raw, _ := io.ReadAll(io.LimitReader(file, 10<<20))
+			raw, tooLarge := readLimited(file, limit)
+			if tooLarge {
+				return nil, http.StatusRequestEntityTooLarge, fmt.Errorf("paste exceeds maximum size of %d bytes", limit)
+			}
 			// Detect the MIME type from the actual file bytes before storage.
 			detectedCT := http.DetectContentType(raw[:min512(len(raw))])
 			// Non-text binary data (images, executables, archives, etc.) is
@@ -341,7 +377,10 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 
 	default:
 		// Raw body (curl --data-binary)
-		raw, _ := io.ReadAll(io.LimitReader(r.Body, 10<<20))
+		raw, tooLarge := readLimited(r.Body, limit)
+		if tooLarge {
+			return nil, http.StatusRequestEntityTooLarge, fmt.Errorf("paste exceeds maximum size of %d bytes", limit)
+		}
 		req.Content = string(raw)
 		req.Title = r.Header.Get("X-Title")
 		req.Language = r.Header.Get("X-Language")
@@ -694,6 +733,18 @@ func min512(n int) int {
 	return n
 }
 
+// readLimited reads r up to limit bytes and reports whether the stream had
+// more data beyond that (i.e. the caller's payload exceeds the configured
+// paste.max_size_bytes). It reads limit+1 bytes so an exact-limit-sized body
+// is never mistaken for an oversized one.
+func readLimited(r io.Reader, limit int64) (data []byte, tooLarge bool) {
+	raw, _ := io.ReadAll(io.LimitReader(r, limit+1))
+	if int64(len(raw)) > limit {
+		return raw[:limit], true
+	}
+	return raw, false
+}
+
 // ─── List ─────────────────────────────────────────────────────────────────────
 
 // ListPastes returns paginated public pastes as JSON.
@@ -947,6 +998,8 @@ func httpErrCode(status int) string {
 		return "CONFLICT"
 	case http.StatusGone:
 		return "GONE"
+	case http.StatusRequestEntityTooLarge:
+		return "PAYLOAD_TOO_LARGE"
 	case http.StatusTooManyRequests:
 		return "RATE_LIMITED"
 	case http.StatusServiceUnavailable:
@@ -973,6 +1026,8 @@ func mapAPIErrorCodeToHTTPStatus(code string) int {
 		return http.StatusConflict
 	case "GONE":
 		return http.StatusGone
+	case "PAYLOAD_TOO_LARGE":
+		return http.StatusRequestEntityTooLarge
 	case "RATE_LIMITED":
 		return http.StatusTooManyRequests
 	case "MAINTENANCE":

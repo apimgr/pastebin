@@ -33,10 +33,6 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// maxCompatBody caps raw request bodies accepted by compatibility upload
-// handlers (hastebin, 0x0.st) at 10 MiB.
-const maxCompatBody = 10 << 20
-
 // CompatHandler handles compatibility routes.
 type CompatHandler struct {
 	ph      *PasteHandler
@@ -643,7 +639,7 @@ func (c *CompatHandler) StikkedJSON(w http.ResponseWriter, r *http.Request) {
 // The request body is the raw paste content. Responds {"key":"<id>"} on success;
 // raw retrieval is served by the native GET /raw/{id} route.
 func (c *CompatHandler) HastebinCreate(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCompatBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, c.ph.maxSize()))
 	if err != nil || strings.TrimSpace(string(body)) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "no content"})
 		return
@@ -748,7 +744,7 @@ func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
 func (c *CompatHandler) RootUpload(w http.ResponseWriter, r *http.Request) {
 	if file, _, err := r.FormFile("file"); err == nil {
 		defer file.Close()
-		body, _ := io.ReadAll(io.LimitReader(file, maxCompatBody))
+		body, _ := io.ReadAll(io.LimitReader(file, c.ph.maxSize()))
 		c.curlRespond(w, r, string(body), r.FormValue("expires"), true)
 		return
 	}
