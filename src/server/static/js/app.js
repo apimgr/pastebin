@@ -436,6 +436,21 @@ async function fetchAPI(endpoint, options) {
         } catch (e) {
             // ignore
         }
+        // Mirror into the server-readable cookie_consent cookie so requests
+        // rendered server-side (e.g. the no-JS footer fallback) see the same
+        // choice a JS-enabled visitor already made (AI.md 16934, 25598).
+        try {
+            var cookieState = {
+                essential: true,
+                preferences: !!consent.preferences,
+                analytics: !!consent.analytics,
+                timestamp: consent.timestamp || nowSeconds()
+            };
+            document.cookie = 'cookie_consent=' + encodeURIComponent(JSON.stringify(cookieState)) +
+                '; path=/; max-age=31536000; samesite=lax';
+        } catch (e) {
+            // ignore
+        }
         applyConsent(consent);
     }
 

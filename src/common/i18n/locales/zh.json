@@ -278,6 +278,7 @@
     "accept": "接受",
     "decline": "拒绝",
     "manage_preferences": "管理偏好",
+    "save_preferences": "保存偏好",
     "blocked_content": "由于 Cookie 偏好，外部内容被阻止。",
     "essential_description": "网站运行所必需。无法禁用。",
     "preference_description": "记住您的设置，如主题（浅色/深色）、语言和界面偏好。",

@@ -278,6 +278,7 @@
     "accept": "同意する",
     "decline": "拒否する",
     "manage_preferences": "設定を管理",
+    "save_preferences": "設定を保存",
     "blocked_content": "クッキー設定により外部コンテンツがブロックされました。",
     "essential_description": "サイトの動作に必要です。無効にできません。",
     "preference_description": "テーマ、言語などの設定を記憶します。",

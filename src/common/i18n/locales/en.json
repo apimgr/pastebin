@@ -381,6 +381,7 @@
     "accept": "Accept",
     "decline": "Decline",
     "manage_preferences": "Manage preferences",
+    "save_preferences": "Save preferences",
     "blocked_content": "External content blocked due to cookie preferences.",
     "essential_description": "Required for the site to function. Cannot be disabled.",
     "preference_description": "Remember your settings like theme (light/dark), language, and interface preferences. Disabling will reset defaults on each visit.",

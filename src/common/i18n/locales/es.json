@@ -278,6 +278,7 @@
     "accept": "Acepto",
     "decline": "Rechazar",
     "manage_preferences": "Gestionar preferencias",
+    "save_preferences": "Guardar preferencias",
     "blocked_content": "Contenido externo bloqueado debido a las preferencias de cookies.",
     "essential_description": "Necesarias para el funcionamiento del sitio. No se pueden desactivar.",
     "preference_description": "Recordar su configuración como tema (claro/oscuro), idioma y preferencias de interfaz. Desactivarlas restablecerá los valores predeterminados en cada visita.",

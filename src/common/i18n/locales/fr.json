@@ -278,6 +278,7 @@
     "accept": "Accepter",
     "decline": "Refuser",
     "manage_preferences": "Gérer les préférences",
+    "save_preferences": "Enregistrer les préférences",
     "blocked_content": "Contenu externe bloqué en raison des préférences de cookies.",
     "essential_description": "Nécessaires au fonctionnement du site. Ne peuvent pas être désactivés.",
     "preference_description": "Mémorisez vos paramètres comme le thème (clair/sombre), la langue et les préférences d'interface.",

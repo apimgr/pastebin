@@ -675,6 +675,12 @@ func (s *Server) buildTemplates() (map[string]*template.Template, error) {
 		"consentConfig": func() template.JS {
 			return renderConsentConfig(s.liveCfg())
 		},
+		// consentInfo exposes the same consent configuration as plain Go values
+		// (rather than a JSON literal) for the no-JS <noscript> consent form
+		// (AI.md 25598), which cannot execute app.js to read pb-consent-data.
+		"consentInfo": func() consentClientConfig {
+			return buildConsentClientConfig(s.liveCfg())
+		},
 		"fmtTime": fmtUserTime,
 		"fmtDate": fmtUserDate,
 	}
@@ -1026,6 +1032,10 @@ func (s *Server) setupRoutes() {
 	// CCPA "Do Not Sell" opt-out toggle — sets/clears the ccpa_opt_out cookie
 	// (PART 31). Only meaningful when server.privacy.data.sold is true.
 	r.Post("/server/privacy/ccpa", s.handleCCPAOptOut)
+	// Cookie-consent endpoint — persists the `cookie_consent` cookie server-side
+	// and redirects back so the no-JS <noscript> banner/preferences form works
+	// (AI.md 25598), not just the JS-driven banner in app.js.
+	r.Post("/server/consent", s.handleConsentSet)
 	// Theme preference endpoint — persists the `theme` cookie and redirects back
 	// so the no-JS <noscript> toggle form works (AI.md 21588, 23294, 24084).
 	r.Post("/theme", s.handleThemeSet)
@@ -3634,6 +3644,76 @@ func (s *Server) handleCCPAOptOut(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/server/privacy#ccpa-opt-out", http.StatusSeeOther)
 }
 
+// consentState mirrors the JSON persisted in the server-readable cookie_consent
+// cookie (AI.md 16919-16936): the granular categories a visitor has consented
+// to, plus when. Essential is always true — it cannot be declined.
+type consentState struct {
+	Essential   bool  `json:"essential"`
+	Preferences bool  `json:"preferences"`
+	Analytics   bool  `json:"analytics"`
+	Timestamp   int64 `json:"timestamp"`
+}
+
+// hasConsentCookie reports whether the visitor already recorded a cookie
+// consent choice, so the no-JS fallback form (AI.md 25598) can hide once a
+// decision exists, matching the JS banner's own dismiss behavior.
+func hasConsentCookie(r *http.Request) bool {
+	c, err := r.Cookie("cookie_consent")
+	return err == nil && strings.TrimSpace(c.Value) != ""
+}
+
+// handleConsentSet persists the visitor's cookie-consent choice in the
+// server-readable cookie_consent cookie and redirects back to the originating
+// page (AI.md 25598), giving no-JS visitors a working consent banner via the
+// <noscript> form that POSTs here. `choice` is "accept", "decline", or "save"
+// (granular selection from the preferences form); anything else is rejected.
+func (s *Server) handleConsentSet(w http.ResponseWriter, r *http.Request) {
+	cfg := s.liveCfg()
+	analyticsConfigured := cfg.Server.Tracking.Enabled()
+	state := consentState{Essential: true, Timestamp: time.Now().Unix()}
+	switch strings.TrimSpace(r.PostFormValue("choice")) {
+	case "accept":
+		state.Preferences = true
+		state.Analytics = analyticsConfigured
+	case "decline":
+		// Essential only — Preferences/Analytics stay false.
+	case "save":
+		state.Preferences = strings.TrimSpace(r.PostFormValue("preferences")) != ""
+		state.Analytics = analyticsConfigured && strings.TrimSpace(r.PostFormValue("analytics")) != ""
+	default:
+		http.Error(w, "invalid choice", http.StatusBadRequest)
+		return
+	}
+	b, err := json.Marshal(state)
+	if err != nil {
+		b = []byte(`{"essential":true}`)
+	}
+	secure := r.TLS != nil
+	if cfg.Web.CSRF.Secure == "true" {
+		secure = true
+	} else if cfg.Web.CSRF.Secure == "false" {
+		secure = false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "cookie_consent",
+		Value:    string(b),
+		Path:     "/",
+		MaxAge:   365 * 24 * 60 * 60,
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	// Return to the referring page so the visitor lands back where they were;
+	// fall back to the site root when no same-origin referer is present.
+	dest := "/"
+	if ref := r.Header.Get("Referer"); ref != "" {
+		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {
+			dest = u.RequestURI()
+		}
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
+}
+
 // validThemes is the closed set of theme modes the server will render as a
 // class on <html> (AI.md 23294: theme-light, theme-dark, theme-auto).
 var validThemes = map[string]bool{"light": true, "dark": true, "auto": true}
@@ -4059,6 +4139,10 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	data["Theme"] = theme
 	// Inject the next mode in the cycle so the no-JS toggle form can advance it (AI.md 21588)
 	data["NextTheme"] = nextTheme(theme)
+	// Inject whether the visitor already has a recorded cookie_consent choice so
+	// the footer's no-JS consent form only renders while a decision is still
+	// outstanding, matching the JS banner's own show/hide behavior (AI.md 25598).
+	data["HasConsented"] = hasConsentCookie(r)
 	// Inject CSRF token for forms — templates access it as .CSRFToken
 	data["CSRFToken"] = s.csrfTokenFromRequest(r)
 	// Inject build metadata for the footer — templates access them as .Version and .BuildDate

@@ -36,4 +36,26 @@
 <template id="pb-tracking-snippet">{{trackingScript}}</template>
 {{end}}
 <script type="application/json" id="pb-consent-data">{{consentConfig}}</script>
+{{if not .HasConsented}}
+{{$c := consentInfo}}
+<noscript>
+<form class="cookie-banner cookie-banner-bottom" method="post" action="{{.AssetPrefix}}/server/consent">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <p class="cookie-message">{{$c.Message}} <a href="{{$c.PolicyURL}}" class="policy-link">{{$c.PolicyText}}</a></p>
+    {{if $c.ShowPreferences}}
+    <p class="cookie-category">
+        <label><input type="checkbox" name="preferences" value="1"{{if $c.DefaultPreferences}} checked{{end}}> {{$c.Descriptions.Preferences}}</label>
+    </p>
+    {{if $c.AnalyticsConfigured}}
+    <p class="cookie-category">
+        <label><input type="checkbox" name="analytics" value="1"{{if $c.DefaultAnalytics}} checked{{end}}> {{$c.Descriptions.Analytics}}</label>
+    </p>
+    {{end}}
+    <button type="submit" name="choice" value="save" class="btn btn-secondary">{{t .Lang "cookie_consent.save_preferences"}}</button>
+    {{end}}
+    <button type="submit" name="choice" value="accept" class="btn btn-primary">{{$c.AcceptText}}</button>
+    <button type="submit" name="choice" value="decline" class="btn btn-secondary">{{$c.DeclineText}}</button>
+</form>
+</noscript>
+{{end}}
 {{end}}
