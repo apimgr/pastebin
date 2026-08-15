@@ -233,6 +233,94 @@ func TestRootUpload_ZeroXMultipartFile(t *testing.T) {
 	}
 }
 
+func TestRootUpload_ExceedsConfiguredMaxSize(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	h.ph.SetMaxSize(8)
+
+	form := url.Values{"sprunge": {"this body is way over eight bytes"}}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.RootUpload(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rr.Code)
+	}
+}
+
+// ─── compat create endpoints honor paste.max_size_bytes ───────────────────────
+//
+// createFromRequest (the native create path) enforces server.yml's
+// paste.max_size_bytes via SetMaxSize/maxSize(); these compat routes must
+// enforce the exact same configured limit rather than falling back to Go's
+// stdlib ParseForm default, so a small (or large) operator-configured limit
+// applies uniformly across every third-party-compatible API surface.
+
+func TestPastebinPost_ExceedsConfiguredMaxSize(t *testing.T) {
+	ch, _ := newCompatHandler(t)
+	ch.ph.SetMaxSize(8)
+
+	form := url.Values{
+		"api_option":     {"paste"},
+		"api_paste_code": {"this content is definitely over eight bytes"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/api_post.php",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rr := httptest.NewRecorder()
+	ch.PastebinPost(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestLenCreate_ExceedsConfiguredMaxSize(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	h.ph.SetMaxSize(8)
+
+	form := url.Values{"body": {"this content is definitely over eight bytes"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/new", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.LenCreate(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestStikkedCreate_ExceedsConfiguredMaxSize(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	h.ph.SetMaxSize(8)
+
+	form := url.Values{"text": {"this content is definitely over eight bytes"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.StikkedCreate(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDpasteCreate_ExceedsConfiguredMaxSize(t *testing.T) {
+	h, _ := newCompatHandler(t)
+	h.ph.SetMaxSize(8)
+
+	form := url.Values{"content": {"this content is definitely over eight bytes"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.DpasteCreate(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413\nbody: %s", rr.Code, rr.Body.String())
+	}
+}
+
 // ─── termbin / fiche (raw TCP) ────────────────────────────────────────────────
 
 // termbinRoundTrip drives TermbinServe over an in-memory socket pair: it writes

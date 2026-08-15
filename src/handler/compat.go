@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -32,6 +33,35 @@ import (
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
 )
+
+// errCompatBodyTooLarge is returned by parseFormLimited when the request body
+// exceeds the configured paste.max_size_bytes limit.
+var errCompatBodyTooLarge = errors.New("request body exceeds maximum paste size")
+
+// parseFormLimited wraps r.Body with http.MaxBytesReader (bounded by the
+// configured paste.max_size_bytes, the same limit createFromRequest
+// enforces) before calling r.ParseForm(), so form-encoded compat create
+// endpoints honor the operator's configured size instead of falling back to
+// Go stdlib's own hardcoded default. Returns errCompatBodyTooLarge when the
+// limit is exceeded so callers can respond with a 413 in their protocol's
+// own error format.
+func (c *CompatHandler) parseFormLimited(w http.ResponseWriter, r *http.Request) error {
+	r.Body = http.MaxBytesReader(w, r.Body, c.ph.maxSize())
+	if err := r.ParseForm(); err != nil {
+		if isMaxBytesErr(err) {
+			return errCompatBodyTooLarge
+		}
+		return err
+	}
+	return nil
+}
+
+// isMaxBytesErr reports whether err (or one it wraps) is the overflow error
+// http.MaxBytesReader produces once the configured size limit is exceeded.
+func isMaxBytesErr(err error) bool {
+	var tooLarge *http.MaxBytesError
+	return errors.As(err, &tooLarge)
+}
 
 // CompatHandler handles compatibility routes.
 type CompatHandler struct {
@@ -66,7 +96,11 @@ func NewCompatHandler(ph *PasteHandler, db database.DB, version string) *CompatH
 //	api_option=delete       — delete paste by api_paste_key using api_user_key as token
 //	api_option=userdetails  — return stub XML user record
 func (c *CompatHandler) PastebinPost(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+	if err := c.parseFormLimited(w, r); err != nil {
+		if errors.Is(err, errCompatBodyTooLarge) {
+			http.Error(w, "Bad API request, paste exceeds the maximum allowed size.", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "Bad Request | invalid form", http.StatusBadRequest)
 		return
 	}
@@ -304,7 +338,11 @@ func (c *CompatHandler) MicrobinList(w http.ResponseWriter, r *http.Request) {
 //	oneUse         — "true" maps to burn_after=1
 //	createTokenHash — ignored (public instance)
 func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+	if err := c.parseFormLimited(w, r); err != nil {
+		if errors.Is(err, errCompatBodyTooLarge) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "body exceeds maximum paste size"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid form"})
 		return
 	}
@@ -578,7 +616,12 @@ func (c *CompatHandler) LenServerInfo(w http.ResponseWriter, r *http.Request) {
 // Responds with a plain-text view URL, or "Error: <msg>" on failure.
 func (c *CompatHandler) StikkedCreate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if err := r.ParseForm(); err != nil {
+	if err := c.parseFormLimited(w, r); err != nil {
+		if errors.Is(err, errCompatBodyTooLarge) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			fmt.Fprint(w, "Error: paste exceeds the maximum allowed size.")
+			return
+		}
 		fmt.Fprint(w, "Error: invalid form")
 		return
 	}
@@ -685,7 +728,11 @@ func (c *CompatHandler) HastebinGet(w http.ResponseWriter, r *http.Request) {
 //
 // The native GET /{id}/raw route serves raw content for dpaste clients.
 func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+	if err := c.parseFormLimited(w, r); err != nil {
+		if errors.Is(err, errCompatBodyTooLarge) {
+			http.Error(w, "content exceeds the maximum allowed size", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
@@ -742,10 +789,27 @@ func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
 //	sprunge: form field "sprunge"
 //	ix.io:   form field "f:1"
 func (c *CompatHandler) RootUpload(w http.ResponseWriter, r *http.Request) {
+	// Bound the whole request body (multipart or urlencoded) to the
+	// configured paste.max_size_bytes before any field is read, so a large
+	// "file" part can't spool unbounded data to disk and the sprunge/ix.io
+	// text fields honor the same limit as every other create path.
+	r.Body = http.MaxBytesReader(w, r.Body, c.ph.maxSize())
+	// Explicitly parse the form first: for a urlencoded body (sprunge/f:1),
+	// r.FormFile below would call ParseMultipartForm, which short-circuits
+	// on a non-multipart Content-Type via ErrNotMultipart *before* checking
+	// the error from this same ParseForm call it makes internally, silently
+	// discarding a MaxBytesError. Capturing it here first avoids that.
+	if err := r.ParseForm(); err != nil && isMaxBytesErr(err) {
+		http.Error(w, "content exceeds the maximum allowed size", http.StatusRequestEntityTooLarge)
+		return
+	}
 	if file, _, err := r.FormFile("file"); err == nil {
 		defer file.Close()
 		body, _ := io.ReadAll(io.LimitReader(file, c.ph.maxSize()))
 		c.curlRespond(w, r, string(body), r.FormValue("expires"), true)
+		return
+	} else if isMaxBytesErr(err) {
+		http.Error(w, "content exceeds the maximum allowed size", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if v := r.FormValue("sprunge"); strings.TrimSpace(v) != "" {
