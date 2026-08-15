@@ -531,6 +531,8 @@
     "cancel": "Abbrechen",
     "content_label": "Inhalt",
     "content_placeholder": "Code oder Text hier einfügen...",
+    "max_size_hint": "Maximale Größe: {size}",
+    "max_size_unlimited": "Unbegrenzt",
     "copy": "Kopieren",
     "copy_code": "Code kopieren",
     "create_btn": "Paste erstellen",

@@ -139,7 +139,8 @@ first run). All settings can be overridden via CLI flags.
 | `DB_PATH` | `{data_dir}/db/server.db` | SQLite database path |
 | `SITE_TITLE` | `Pastebin` | Site title shown in the web UI |
 | `THEME` | `dark` | UI theme: `dark`, `light`, or `auto` |
-| `MAX_SIZE_BYTES` | `10485760` (10 MiB) | Maximum paste size in bytes |
+| `MAX_SIZE` | `10mb` | Maximum paste size; accepts `kb`/`mb`/`gb`/`tb` suffixes, a bare number (defaults to MB), or `0`/negative for unlimited |
+| `MAX_SIZE_BYTES` | unset | Deprecated alias for `MAX_SIZE` in raw bytes |
 | `NO_COLOR` | unset | Set to any value to disable ANSI color output |
 | `_DAEMON_CHILD` | unset | Internal: set by `--daemon` to mark the child process |
 

@@ -531,6 +531,8 @@
     "cancel": "キャンセル",
     "content_label": "内容",
     "content_placeholder": "ここにコードまたはテキストを貼り付け...",
+    "max_size_hint": "最大サイズ: {size}",
+    "max_size_unlimited": "無制限",
     "copy": "コピー",
     "copy_code": "コードをコピー",
     "create_btn": "ペースト作成",

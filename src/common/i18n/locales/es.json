@@ -531,6 +531,8 @@
     "cancel": "Cancelar",
     "content_label": "Contenido",
     "content_placeholder": "Pega tu código o texto aquí...",
+    "max_size_hint": "Tamaño máximo: {size}",
+    "max_size_unlimited": "Ilimitado",
     "copy": "Copiar",
     "copy_code": "Copiar código",
     "create_btn": "Crear paste",

@@ -170,7 +170,8 @@ they are read individually (no `.env` file is ever loaded).
 | `SITE_TITLE` | Site title shown in the web UI |
 | `APPLICATION_NAME` | Application name (About/Help pages) |
 | `APPLICATION_TAGLINE` | Application tagline |
-| `MAX_SIZE_BYTES` | Maximum paste size in bytes |
+| `MAX_SIZE` | Maximum paste size; accepts `kb`/`mb`/`gb`/`tb` suffixes (e.g. `100kb`, `20mb`, `1gb`), a bare number defaulting to MB (`5` = `5mb`), or `0`/negative for unlimited (default `10mb`) |
+| `MAX_SIZE_BYTES` | Deprecated alias for `MAX_SIZE` in raw bytes |
 | `THEME` | Default theme (`dark`, `light`, or `auto`) |
 | `NO_COLOR` | Disable all ANSI color output when set |
 

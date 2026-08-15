@@ -218,7 +218,7 @@ cat file.txt | nc {{.TermbinHost}} {{.TermbinPort}}</pre></div>
                     <h3>How long are pastes kept?</h3>
                     <p>Until their expiry elapses (see the expiry table above) or their burn-after view count is reached. Pastes set to <code>never</code> are kept until deleted.</p>
                     <h3>Is there a size limit?</h3>
-                    <p>Yes. The server enforces a maximum paste size; oversized content is rejected with a <code>413</code> response.</p>
+                    <p>Yes. The server enforces a maximum paste size of <strong>{{.MaxPasteSize}}</strong>; oversized content is rejected with a <code>413</code> response.</p>
                     <h3>Can I use it from scripts?</h3>
                     <p>Yes — pipe to <code>curl --data-binary @-</code>, use the JSON API, or point existing <code>pastebin.com</code> scripts at this server.</p>
 

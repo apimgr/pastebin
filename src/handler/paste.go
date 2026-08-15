@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -59,10 +60,14 @@ type PasteHandler struct {
 	// nil in unit tests and until the server layer injects it via SetCache.
 	cache cache.Cache
 	// maxSizeBytes is the configured maximum paste size (server.yml
-	// paste.max_size_bytes), enforced in createFromRequest. Zero (unset, as in
-	// unit tests that never call SetMaxSize) falls back to the 10MiB default
-	// via maxSize().
+	// paste.max_size), enforced in createFromRequest. Only meaningful once
+	// maxSizeSet is true; zero means the operator explicitly configured no
+	// limit ("0" or a negative paste.max_size). Unit tests that never call
+	// SetMaxSize fall back to the 10MiB default via maxSize().
 	maxSizeBytes int64
+	// maxSizeSet reports whether SetMaxSize has been called, distinguishing
+	// "operator configured unlimited (0)" from "never configured".
+	maxSizeSet bool
 }
 
 // defaultMaxSizeBytes mirrors config.go's Paste.MaxSizeBytes default so
@@ -70,12 +75,24 @@ type PasteHandler struct {
 const defaultMaxSizeBytes int64 = 10 << 20
 
 // maxSize returns the configured maximum paste size, falling back to
-// defaultMaxSizeBytes when unset.
+// defaultMaxSizeBytes when SetMaxSize was never called. A return value of
+// 0 means the operator configured an unlimited paste size.
 func (h *PasteHandler) maxSize() int64 {
-	if h.maxSizeBytes > 0 {
+	if h.maxSizeSet {
 		return h.maxSizeBytes
 	}
 	return defaultMaxSizeBytes
+}
+
+// effectiveReadLimit returns maxSize(), substituting a very large (but
+// overflow-safe) bound for the "unlimited" (0) case so io.LimitReader /
+// http.MaxBytesReader call sites never misread 0 as "allow zero bytes".
+func (h *PasteHandler) effectiveReadLimit() int64 {
+	n := h.maxSize()
+	if n <= 0 {
+		return math.MaxInt64 - 1
+	}
+	return n
 }
 
 // NewPasteHandler constructs a PasteHandler.
@@ -102,13 +119,15 @@ func (h *PasteHandler) SetCache(c cache.Cache) {
 }
 
 // SetMaxSize injects the server's configured maximum paste size
-// (server.yml paste.max_size_bytes) so createFromRequest enforces the
-// operator-configured limit instead of a hardcoded default. n <= 0 is
-// ignored (maxSize() keeps falling back to defaultMaxSizeBytes).
+// (server.yml paste.max_size) so createFromRequest enforces the
+// operator-configured limit instead of a hardcoded default. n <= 0 configures
+// an unlimited paste size (maxSize() then returns 0).
 func (h *PasteHandler) SetMaxSize(n int64) {
-	if n > 0 {
-		h.maxSizeBytes = n
+	if n < 0 {
+		n = 0
 	}
+	h.maxSizeBytes = n
+	h.maxSizeSet = true
 }
 
 // pasteCacheKey returns the cache key for a paste ID, following AI.md PART 9's
@@ -315,7 +334,7 @@ func (h *PasteHandler) createFromRequest(r *http.Request) (*model.CreateResponse
 
 	ct := r.Header.Get("Content-Type")
 
-	limit := h.maxSize()
+	limit := h.effectiveReadLimit()
 
 	switch {
 	case strings.HasPrefix(ct, "application/json"):
@@ -735,7 +754,7 @@ func min512(n int) int {
 
 // readLimited reads r up to limit bytes and reports whether the stream had
 // more data beyond that (i.e. the caller's payload exceeds the configured
-// paste.max_size_bytes). It reads limit+1 bytes so an exact-limit-sized body
+// paste.max_size). It reads limit+1 bytes so an exact-limit-sized body
 // is never mistaken for an oversized one.
 func readLimited(r io.Reader, limit int64) (data []byte, tooLarge bool) {
 	raw, _ := io.ReadAll(io.LimitReader(r, limit+1))

@@ -72,7 +72,7 @@ func TestSaveAndLoad(t *testing.T) {
 	orig := config.DefaultConfig()
 	orig.Server.Port = "12345"
 	orig.Web.SiteTitle = "RoundTripTest"
-	orig.Paste.MaxSizeBytes = 5 << 20
+	orig.Paste.MaxSize = "5mb"
 
 	if err := config.Save(path, orig); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -181,7 +181,8 @@ func TestLoadEnv_SITE_TITLE(t *testing.T) {
 	}
 }
 
-// TestLoadEnv_MAX_SIZE_BYTES verifies that $MAX_SIZE_BYTES overrides the config file value.
+// TestLoadEnv_MAX_SIZE_BYTES verifies that the deprecated $MAX_SIZE_BYTES raw-byte
+// alias still overrides the config file value.
 func TestLoadEnv_MAX_SIZE_BYTES(t *testing.T) {
 	t.Setenv("MAX_SIZE_BYTES", "5242880")
 
@@ -192,6 +193,24 @@ func TestLoadEnv_MAX_SIZE_BYTES(t *testing.T) {
 	}
 	if cfg.Paste.MaxSizeBytes != 5242880 {
 		t.Errorf("MaxSizeBytes: got %d, want 5242880", cfg.Paste.MaxSizeBytes)
+	}
+}
+
+// TestLoadEnv_MAX_SIZE verifies that $MAX_SIZE accepts a human-readable size
+// string and overrides the config file value.
+func TestLoadEnv_MAX_SIZE(t *testing.T) {
+	t.Setenv("MAX_SIZE", "5mb")
+
+	path := tempConfigPath(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Paste.MaxSize != "5mb" {
+		t.Errorf("MaxSize: got %q, want %q", cfg.Paste.MaxSize, "5mb")
+	}
+	if cfg.Paste.MaxSizeBytes != 5<<20 {
+		t.Errorf("MaxSizeBytes: got %d, want %d", cfg.Paste.MaxSizeBytes, 5<<20)
 	}
 }
 
@@ -432,21 +451,42 @@ func TestValidate(t *testing.T) {
 		}
 	})
 
-	t.Run("max_size_zero_gets_defaulted", func(t *testing.T) {
+	t.Run("max_size_zero_means_unlimited", func(t *testing.T) {
 		cfg := fresh()
-		cfg.Paste.MaxSizeBytes = 0
+		cfg.Paste.MaxSize = "0"
 		config.Validate(cfg)
-		if cfg.Paste.MaxSizeBytes != 10<<20 {
-			t.Errorf("expected default 10MiB after zero, got %d", cfg.Paste.MaxSizeBytes)
+		if cfg.Paste.MaxSizeBytes != 0 {
+			t.Errorf("expected 0 (unlimited) for zero, got %d", cfg.Paste.MaxSizeBytes)
+		}
+		if cfg.Paste.MaxSize != "0" {
+			t.Errorf("expected MaxSize left as %q, got %q", "0", cfg.Paste.MaxSize)
 		}
 	})
 
-	t.Run("max_size_negative_gets_defaulted", func(t *testing.T) {
+	t.Run("max_size_negative_means_unlimited", func(t *testing.T) {
 		cfg := fresh()
-		cfg.Paste.MaxSizeBytes = -1
+		cfg.Paste.MaxSize = "-1"
+		config.Validate(cfg)
+		if cfg.Paste.MaxSizeBytes != 0 {
+			t.Errorf("expected 0 (unlimited) for negative, got %d", cfg.Paste.MaxSizeBytes)
+		}
+	})
+
+	t.Run("max_size_bare_number_defaults_to_mb", func(t *testing.T) {
+		cfg := fresh()
+		cfg.Paste.MaxSize = "5"
+		config.Validate(cfg)
+		if cfg.Paste.MaxSizeBytes != 5<<20 {
+			t.Errorf("expected 5MiB for bare %q, got %d", "5", cfg.Paste.MaxSizeBytes)
+		}
+	})
+
+	t.Run("max_size_invalid_gets_defaulted", func(t *testing.T) {
+		cfg := fresh()
+		cfg.Paste.MaxSize = "not-a-size"
 		config.Validate(cfg)
 		if cfg.Paste.MaxSizeBytes != 10<<20 {
-			t.Errorf("expected default 10MiB after negative, got %d", cfg.Paste.MaxSizeBytes)
+			t.Errorf("expected default 10MiB after invalid, got %d", cfg.Paste.MaxSizeBytes)
 		}
 	})
 

@@ -35,18 +35,18 @@ import (
 )
 
 // errCompatBodyTooLarge is returned by parseFormLimited when the request body
-// exceeds the configured paste.max_size_bytes limit.
+// exceeds the configured paste.max_size limit.
 var errCompatBodyTooLarge = errors.New("request body exceeds maximum paste size")
 
 // parseFormLimited wraps r.Body with http.MaxBytesReader (bounded by the
-// configured paste.max_size_bytes, the same limit createFromRequest
+// configured paste.max_size, the same limit createFromRequest
 // enforces) before calling r.ParseForm(), so form-encoded compat create
 // endpoints honor the operator's configured size instead of falling back to
 // Go stdlib's own hardcoded default. Returns errCompatBodyTooLarge when the
 // limit is exceeded so callers can respond with a 413 in their protocol's
 // own error format.
 func (c *CompatHandler) parseFormLimited(w http.ResponseWriter, r *http.Request) error {
-	r.Body = http.MaxBytesReader(w, r.Body, c.ph.maxSize())
+	r.Body = http.MaxBytesReader(w, r.Body, c.ph.effectiveReadLimit())
 	if err := r.ParseForm(); err != nil {
 		if isMaxBytesErr(err) {
 			return errCompatBodyTooLarge
@@ -682,7 +682,7 @@ func (c *CompatHandler) StikkedJSON(w http.ResponseWriter, r *http.Request) {
 // The request body is the raw paste content. Responds {"key":"<id>"} on success;
 // raw retrieval is served by the native GET /raw/{id} route.
 func (c *CompatHandler) HastebinCreate(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, c.ph.maxSize()))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, c.ph.effectiveReadLimit()))
 	if err != nil || strings.TrimSpace(string(body)) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "no content"})
 		return
@@ -790,10 +790,10 @@ func (c *CompatHandler) DpasteCreate(w http.ResponseWriter, r *http.Request) {
 //	ix.io:   form field "f:1"
 func (c *CompatHandler) RootUpload(w http.ResponseWriter, r *http.Request) {
 	// Bound the whole request body (multipart or urlencoded) to the
-	// configured paste.max_size_bytes before any field is read, so a large
+	// configured paste.max_size before any field is read, so a large
 	// "file" part can't spool unbounded data to disk and the sprunge/ix.io
 	// text fields honor the same limit as every other create path.
-	r.Body = http.MaxBytesReader(w, r.Body, c.ph.maxSize())
+	r.Body = http.MaxBytesReader(w, r.Body, c.ph.effectiveReadLimit())
 	// Explicitly parse the form first: for a urlencoded body (sprunge/f:1),
 	// r.FormFile below would call ParseMultipartForm, which short-circuits
 	// on a non-multipart Content-Type via ErrNotMultipart *before* checking
@@ -805,7 +805,7 @@ func (c *CompatHandler) RootUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if file, _, err := r.FormFile("file"); err == nil {
 		defer file.Close()
-		body, _ := io.ReadAll(io.LimitReader(file, c.ph.maxSize()))
+		body, _ := io.ReadAll(io.LimitReader(file, c.ph.effectiveReadLimit()))
 		c.curlRespond(w, r, string(body), r.FormValue("expires"), true)
 		return
 	} else if isMaxBytesErr(err) {

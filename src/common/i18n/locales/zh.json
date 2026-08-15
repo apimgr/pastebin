@@ -531,6 +531,8 @@
     "cancel": "取消",
     "content_label": "内容",
     "content_placeholder": "在此粘贴代码或文本...",
+    "max_size_hint": "最大大小：{size}",
+    "max_size_unlimited": "无限制",
     "copy": "复制",
     "copy_code": "复制代码",
     "create_btn": "创建粘贴",

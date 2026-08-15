@@ -248,10 +248,10 @@ func TestRootUpload_ExceedsConfiguredMaxSize(t *testing.T) {
 	}
 }
 
-// ─── compat create endpoints honor paste.max_size_bytes ───────────────────────
+// ─── compat create endpoints honor paste.max_size ──────────────────────────────
 //
 // createFromRequest (the native create path) enforces server.yml's
-// paste.max_size_bytes via SetMaxSize/maxSize(); these compat routes must
+// paste.max_size via SetMaxSize/maxSize(); these compat routes must
 // enforce the exact same configured limit rather than falling back to Go's
 // stdlib ParseForm default, so a small (or large) operator-configured limit
 // applies uniformly across every third-party-compatible API surface.

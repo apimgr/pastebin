@@ -551,7 +551,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	}
 	// Wire the cache driver into the paste read path (PART 9) now that it's ready.
 	s.pasteHandler.SetCache(s.cacheStore)
-	// Wire the configured max paste size (server.yml paste.max_size_bytes) into
+	// Wire the configured max paste size (server.yml paste.max_size) into
 	// the create path so the operator-set limit is actually enforced.
 	s.pasteHandler.SetMaxSize(cfg.Paste.MaxSizeBytes)
 
@@ -659,6 +659,9 @@ func (s *Server) buildTemplates() (map[string]*template.Template, error) {
 	funcMap := template.FuncMap{
 		"t": func(lang, key string) string {
 			return i18n.Translate(lang, key)
+		},
+		"tf": func(lang, key string, args ...interface{}) string {
+			return i18n.TranslateFormat(lang, key, args...)
 		},
 		"i18njs": func(lang string) template.JS {
 			return template.JS(i18n.JSBundle(lang))
@@ -4115,6 +4118,19 @@ func (s *Server) handleSchedulerHistory(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "data": history})
 }
 
+// maxPasteSizeDisplay renders the operator-configured paste.max_size as a
+// human-readable string for templates. Zero or negative (server.yml
+// paste.max_size <= 0) means the operator configured an unlimited paste size,
+// shown via the translated "paste.max_size_unlimited" i18n key rather than a
+// misleading "0 B" (config.FormatSize only formats positive byte counts).
+func (s *Server) maxPasteSizeDisplay(lang string) string {
+	bytes := s.liveCfg().Paste.MaxSizeBytes
+	if bytes <= 0 {
+		return i18n.Translate(lang, "paste.max_size_unlimited")
+	}
+	return config.FormatSize(bytes)
+}
+
 // ─── Template helpers ─────────────────────────────────────────────────────────
 
 func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
@@ -4164,6 +4180,11 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	if _, ok := data["SEOMeta"]; !ok {
 		data["SEOMeta"] = s.seoMetaTags(r)
 	}
+	// Inject the operator-configured max paste size as a human-readable string
+	// so create/help pages can display the actual limit (server.yml paste.max_size)
+	if _, ok := data["MaxPasteSize"]; !ok {
+		data["MaxPasteSize"] = s.maxPasteSizeDisplay(lang)
+	}
 	// Inject sanitized operator footer branding rendered above the default footer (PART 16)
 	s.injectFooterData(data)
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
@@ -4202,6 +4223,11 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	}
 	if _, ok := data["AssetPrefix"]; !ok {
 		data["AssetPrefix"] = s.assetPrefix(r)
+	}
+	// Inject the operator-configured max paste size as a human-readable string
+	// so create/help pages can display the actual limit (server.yml paste.max_size)
+	if _, ok := data["MaxPasteSize"]; !ok {
+		data["MaxPasteSize"] = s.maxPasteSizeDisplay(lang)
 	}
 	s.injectFooterData(data)
 	s.injectTorData(data)

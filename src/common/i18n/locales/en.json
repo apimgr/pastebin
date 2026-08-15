@@ -161,6 +161,8 @@
     "burn_after_label": "Burn after views (0 = off)",
     "content_label": "Content",
     "content_placeholder": "Paste your code or text here...",
+    "max_size_hint": "Maximum size: {size}",
+    "max_size_unlimited": "Unlimited",
     "create_new": "Create New Paste",
     "create_btn": "Create Paste",
     "create_desc": "Share code or text with syntax highlighting",

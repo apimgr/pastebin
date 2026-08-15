@@ -687,8 +687,16 @@ type DatabaseConfig struct {
 
 // PasteConfig controls paste-specific behaviour.
 type PasteConfig struct {
-	// MaxSizeBytes is the max paste size (default 10 MiB).
-	MaxSizeBytes int64 `yaml:"max_size_bytes"`
+	// MaxSize is the max paste size as a human-readable value ("10mb",
+	// "100kb", "1gb", "1tb", or a bare number defaulting to megabytes, e.g.
+	// "5" == "5mb"; default "10mb") so operators never have to hand-convert a
+	// size to raw bytes. Zero or negative means unlimited. Parsed via
+	// ParseSize into MaxSizeBytes below by Validate() — read MaxSizeBytes for
+	// the resolved byte count, never MaxSize directly.
+	MaxSize string `yaml:"max_size"`
+	// MaxSizeBytes is MaxSize resolved to a byte count; zero means unlimited.
+	// Computed at load/validation time, never serialized to server.yml.
+	MaxSizeBytes int64 `yaml:"-"`
 	// DefaultExpiry is "never" or an expiry code.
 	DefaultExpiry string `yaml:"default_expiry"`
 	// DefaultLanguage is the fallback syntax language (default "text").
@@ -1522,6 +1530,7 @@ func DefaultConfig() *Config {
 		},
 		Paste: PasteConfig{
 			// 10 MiB
+			MaxSize:         "10mb",
 			MaxSizeBytes:    10 << 20,
 			DefaultExpiry:   "never",
 			DefaultLanguage: "text",
@@ -2200,8 +2209,23 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("THEME"); v != "" {
 		c.Web.Theme = v
 	}
-	if v := os.Getenv("MAX_SIZE_BYTES"); v != "" {
+	// MAX_SIZE accepts a human-readable size ("100kb", "20mb", "1gb", "1tb", or
+	// a bare number defaulting to megabytes); zero or negative means
+	// unlimited. MAX_SIZE_BYTES is kept as a deprecated alias for raw-byte
+	// overrides.
+	if v := os.Getenv("MAX_SIZE"); v != "" {
+		if n, err := ParseSize(v, c.Paste.MaxSizeBytes); err == nil {
+			c.Paste.MaxSize = v
+			c.Paste.MaxSizeBytes = n
+		} else {
+			log.Printf("[config] WARNING: invalid MAX_SIZE %q, keeping %s", v, c.Paste.MaxSize)
+		}
+	} else if v := os.Getenv("MAX_SIZE_BYTES"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			if n < 0 {
+				n = 0
+			}
+			c.Paste.MaxSize = fmt.Sprintf("%d", n)
 			c.Paste.MaxSizeBytes = n
 		}
 	}
@@ -2389,11 +2413,15 @@ func Validate(cfg *Config) {
 		cfg.RateLimit.GlobalBurst = d.RateLimit.GlobalBurst
 	}
 
-	// Paste size must be positive.
-	if cfg.Paste.MaxSizeBytes <= 0 {
-		log.Printf("[config] WARNING: paste.max_size_bytes <= 0, using default %d",
-			d.Paste.MaxSizeBytes)
+	// Paste size must be a valid human-readable size ("10mb", "1gb", ...); zero
+	// or negative is allowed and means unlimited.
+	if n, err := ParseSize(cfg.Paste.MaxSize, d.Paste.MaxSizeBytes); err != nil {
+		log.Printf("[config] WARNING: invalid paste.max_size %q, using default %s",
+			cfg.Paste.MaxSize, d.Paste.MaxSize)
+		cfg.Paste.MaxSize = d.Paste.MaxSize
 		cfg.Paste.MaxSizeBytes = d.Paste.MaxSizeBytes
+	} else {
+		cfg.Paste.MaxSizeBytes = n
 	}
 
 	// Cache TTL and timeout must be parseable.
