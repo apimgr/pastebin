@@ -2,6 +2,7 @@ package tor
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -121,11 +122,9 @@ func TestEnsureTorDirs_PermissionsAre0700(t *testing.T) {
 	}
 }
 
-// ─── saveKey error path ───────────────────────────────────────────────────────
-
-// TestSaveKey_UnwritableParent verifies saveKey returns an error when the
-// parent directory is not writable (chmod 000 applied to grandparent).
-func TestSaveKey_UnwritableParent(t *testing.T) {
+// TestEnsureTorDirs_MkdirError verifies ensureTorDirs returns an error when
+// the parent directory cannot be written to.
+func TestEnsureTorDirs_MkdirError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission enforcement differs on Windows")
 	}
@@ -139,74 +138,10 @@ func TestSaveKey_UnwritableParent(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(locked, 0o700) })
 
-	keyPath := filepath.Join(locked, "sub", "key")
-	err := saveKey(keyPath, fakeKey("test-key"))
-	if err == nil {
-		t.Error("expected error writing key into unwritable directory")
-	}
-}
-
-// TestSaveKey_OverwritesExistingKey verifies that saveKey overwrites an
-// already-existing key file without error.
-func TestSaveKey_OverwritesExistingKey(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "key")
-
-	if err := saveKey(path, fakeKey("first-key")); err != nil {
-		t.Fatalf("first saveKey: %v", err)
-	}
-	if err := saveKey(path, fakeKey("second-key")); err != nil {
-		t.Fatalf("second saveKey: %v", err)
-	}
-
-	got, _ := os.ReadFile(path)
-	if string(got) != "second-key" {
-		t.Errorf("expected 'second-key', got %q", got)
-	}
-}
-
-// TestSaveKey_FilePermissions verifies the key file is written with 0600
-// permissions (owner read/write only).
-func TestSaveKey_FilePermissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission bits not enforced on Windows")
-	}
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "key")
-	if err := saveKey(path, fakeKey("key-data")); err != nil {
-		t.Fatalf("saveKey: %v", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("key file perm = %o; want 0600", info.Mode().Perm())
-	}
-}
-
-// ─── writeIfChanged error path ────────────────────────────────────────────────
-
-// TestWriteIfChanged_UnwritablePath verifies writeIfChanged returns an error
-// when the target path is inside a non-writable directory.
-func TestWriteIfChanged_UnwritablePath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission enforcement differs on Windows")
-	}
-	if os.Getuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-	tmp := t.TempDir()
-	locked := filepath.Join(tmp, "locked")
-	if err := os.Mkdir(locked, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(locked, 0o700) })
-
-	path := filepath.Join(locked, "torrc")
-	err := writeIfChanged(path, []byte("content"), 0o600)
-	if err == nil {
-		t.Error("expected error writing to unwritable path")
+	configDir := filepath.Join(locked, "config")
+	dataDir := filepath.Join(tmp, "data")
+	if err := ensureTorDirs(configDir, dataDir); err == nil {
+		t.Error("expected error when config dir parent is unwritable")
 	}
 }
 
@@ -220,7 +155,7 @@ func TestGetTorConfig_UseNetwork(t *testing.T) {
 		BandwidthRate:  "1 MB",
 		BandwidthBurst: "2 MB",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 1234)
 	if !strings.Contains(out, "SocksPort auto") {
 		t.Errorf("expected 'SocksPort auto' when UseNetwork=true, got:\n%s", out)
 	}
@@ -234,7 +169,7 @@ func TestGetTorConfig_UnlimitedBandwidth(t *testing.T) {
 		BandwidthBurst:      "2 MB",
 		MaxMonthlyBandwidth: "unlimited",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 1234)
 	if strings.Contains(out, "AccountingMax") {
 		t.Errorf("expected no AccountingMax when MaxMonthlyBandwidth='unlimited', got:\n%s", out)
 	}
@@ -247,7 +182,7 @@ func TestGetTorConfig_EmptyBandwidth(t *testing.T) {
 		BandwidthRate:  "1 MB",
 		BandwidthBurst: "2 MB",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 1234)
 	if strings.Contains(out, "AccountingMax") {
 		t.Errorf("expected no AccountingMax when MaxMonthlyBandwidth='', got:\n%s", out)
 	}
@@ -257,7 +192,7 @@ func TestGetTorConfig_EmptyBandwidth(t *testing.T) {
 // relay and exit traffic.
 func TestGetTorConfig_ExitPolicyPresent(t *testing.T) {
 	cfg := &Config{BandwidthRate: "512 KB", BandwidthBurst: "1 MB"}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 1234)
 	for _, required := range []string{"ORPort 0", "DirPort 0", "ExitRelay 0", "ExitPolicy reject *:*"} {
 		if !strings.Contains(out, required) {
 			t.Errorf("missing %q in torrc:\n%s", required, out)
@@ -269,7 +204,7 @@ func TestGetTorConfig_ExitPolicyPresent(t *testing.T) {
 // BandwidthBurst appear verbatim in the config output.
 func TestGetTorConfig_BandwidthValuesPresent(t *testing.T) {
 	cfg := &Config{BandwidthRate: "2 MB", BandwidthBurst: "4 MB"}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 1234)
 	if !strings.Contains(out, "BandwidthRate 2 MB") {
 		t.Errorf("expected 'BandwidthRate 2 MB' in config, got:\n%s", out)
 	}
@@ -282,7 +217,7 @@ func TestGetTorConfig_BandwidthValuesPresent(t *testing.T) {
 // and debugger-attachment directives are present.
 func TestGetTorConfig_StartupOptimizationFlags(t *testing.T) {
 	cfg := &Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB"}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 1234)
 	for _, flag := range []string{
 		"FetchDirInfoEarly 1",
 		"FetchDirInfoExtraEarly 1",
@@ -294,11 +229,39 @@ func TestGetTorConfig_StartupOptimizationFlags(t *testing.T) {
 	}
 }
 
+// TestGetTorConfig_HiddenServiceHardening verifies the PROXY-protocol export
+// and single-hop / vanguards directives required for the new backend
+// architecture are present.
+func TestGetTorConfig_HiddenServiceHardening(t *testing.T) {
+	cfg := &Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB"}
+	out := getTorConfig(cfg, 1234)
+	for _, want := range []string{
+		"HiddenServiceExportCircuitID haproxy",
+		"VanguardsLiteEnabled 1",
+		"HiddenServiceSingleHopMode 0",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in torrc, got:\n%s", want, out)
+		}
+	}
+}
+
+// TestGetTorConfig_BackendPortVaries verifies the generated HiddenServicePort
+// line always targets the caller-supplied loopback backend port, never the
+// clearnet server port.
+func TestGetTorConfig_BackendPortVaries(t *testing.T) {
+	cfg := &Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB", VirtualPort: 80}
+	out := getTorConfig(cfg, 55123)
+	if !strings.Contains(out, "HiddenServicePort 80 127.0.0.1:55123") {
+		t.Errorf("expected backend port 55123 wired into HiddenServicePort line, got:\n%s", out)
+	}
+}
+
 // ─── Manager state after Close ────────────────────────────────────────────────
 
 // TestManager_DoubleClose verifies that calling Close twice does not panic.
 func TestManager_DoubleClose(t *testing.T) {
-	m := NewManager(context.Background(), 9000, Config{})
+	m := NewManager(context.Background(), 9000, Config{}, http.NewServeMux())
 	m.Close()
 	m.Close()
 }
@@ -306,7 +269,7 @@ func TestManager_DoubleClose(t *testing.T) {
 // TestManager_GetHTTPClient_UseTorNoSvc verifies that requesting a Tor client
 // when no service is running returns a direct client with a non-zero timeout.
 func TestManager_GetHTTPClient_UseTorNoSvc(t *testing.T) {
-	m := NewManager(context.Background(), 9000, Config{})
+	m := NewManager(context.Background(), 9000, Config{}, http.NewServeMux())
 	c := m.GetHTTPClient(true)
 	if c == nil {
 		t.Fatal("GetHTTPClient returned nil")
@@ -319,7 +282,7 @@ func TestManager_GetHTTPClient_UseTorNoSvc(t *testing.T) {
 // TestManager_GetHTTPClient_DirectTimeout verifies the direct client uses
 // a 30-second timeout exactly.
 func TestManager_GetHTTPClient_DirectTimeout(t *testing.T) {
-	m := NewManager(context.Background(), 9000, Config{})
+	m := NewManager(context.Background(), 9000, Config{}, http.NewServeMux())
 	c := m.GetHTTPClient(false)
 	if c.Timeout.Seconds() != 30 {
 		t.Errorf("direct client timeout = %v; want 30s", c.Timeout)
@@ -333,7 +296,7 @@ func TestManager_GetHTTPClient_DirectTimeout(t *testing.T) {
 // wakes on ctx.Done() and returns without touching the service.
 func TestManager_Monitor_ExitsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := NewManager(ctx, 9000, Config{})
+	m := NewManager(ctx, 9000, Config{}, http.NewServeMux())
 
 	done := make(chan struct{})
 	go func() {
@@ -347,5 +310,77 @@ func TestManager_Monitor_ExitsOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Error("Monitor did not exit after context cancellation within 2 seconds")
+	}
+}
+
+// ─── migrateLegacyKey additional branches ─────────────────────────────────────
+
+// TestMigrateLegacyKey_NativeSizeWrongHeader verifies a 96-byte file that does
+// not carry the correct native header is left untouched and an error is
+// returned rather than the file being reinterpreted or overwritten.
+func TestMigrateLegacyKey_NativeSizeWrongHeader(t *testing.T) {
+	siteDir := t.TempDir()
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
+
+	bogus := make([]byte, nativeKeyFileLen)
+	for i := range bogus {
+		bogus[i] = 0xAA
+	}
+	if err := os.WriteFile(keyPath, bogus, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := migrateLegacyKey(siteDir); err == nil {
+		t.Error("expected error for a native-length file with an incorrect header")
+	}
+
+	got, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(bogus) {
+		t.Error("migrateLegacyKey must not modify a file it cannot recognize")
+	}
+}
+
+// ─── RegenerateAddress / ApplyKeys without a real Tor process ─────────────────
+
+// TestRegenerateAddress_NoKeyFileToRemove verifies RegenerateAddress succeeds
+// (no error) when no hidden-service identity exists yet, and — since no Tor
+// binary is configured — reports an empty address rather than starting Tor.
+func TestRegenerateAddress_NoKeyFileToRemove(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := Config{
+		Binary:  "/nonexistent/tor",
+		DataDir: tmp,
+	}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
+	addr, err := m.RegenerateAddress()
+	if err != nil {
+		t.Fatalf("RegenerateAddress error: %v", err)
+	}
+	if addr != "" {
+		t.Errorf("RegenerateAddress address = %q; want empty (no Tor binary)", addr)
+	}
+}
+
+// TestApplyKeys_InvalidLength verifies ApplyKeys rejects key data that is not
+// exactly the native 96-byte secret-key file size.
+func TestApplyKeys_InvalidLength(t *testing.T) {
+	m := NewManager(context.Background(), 8080, Config{DataDir: t.TempDir()}, http.NewServeMux())
+	_, err := m.ApplyKeys([]byte("too short"))
+	if err == nil {
+		t.Error("expected error for key data of the wrong length")
+	}
+}
+
+// TestApplyKeys_InvalidHeader verifies ApplyKeys rejects 96-byte key data
+// that does not carry Tor's native secret-key header.
+func TestApplyKeys_InvalidHeader(t *testing.T) {
+	m := NewManager(context.Background(), 8080, Config{DataDir: t.TempDir()}, http.NewServeMux())
+	bogus := make([]byte, nativeKeyFileLen)
+	_, err := m.ApplyKeys(bogus)
+	if err == nil {
+		t.Error("expected error for key data with an invalid header")
 	}
 }

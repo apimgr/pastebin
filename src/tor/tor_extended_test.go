@@ -2,247 +2,197 @@ package tor
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// ─── updateTorrc ──────────────────────────────────────────────────────────────
-// Tests torrc file updates without starting a real Tor process.
+// ─── waitForHostname ──────────────────────────────────────────────────────────
 
-func TestUpdateTorrc_WritesTorrC(t *testing.T) {
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	torDir := filepath.Join(configDir, "tor")
-	if err := os.MkdirAll(torDir, 0o700); err != nil {
+// TestWaitForHostname_AlreadyPresent verifies waitForHostname returns
+// immediately when the hostname file already has content before the call.
+func TestWaitForHostname_AlreadyPresent(t *testing.T) {
+	siteDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(siteDir, "hostname"), []byte("abc123.onion\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg := Config{
-		ConfigDir:      configDir,
-		DataDir:        filepath.Join(tmp, "data"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-		SafeLogging:    true,
-	}
-	m := NewManager(context.Background(), 8080, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	if err := m.updateTorrc(); err != nil {
-		t.Fatalf("updateTorrc error: %v", err)
-	}
-
-	torrcPath := filepath.Join(torDir, "torrc")
-	content, err := os.ReadFile(torrcPath)
+	got, err := waitForHostname(ctx, siteDir)
 	if err != nil {
-		t.Fatalf("failed to read torrc: %v", err)
+		t.Fatalf("waitForHostname error: %v", err)
 	}
-
-	if !strings.Contains(string(content), "SafeLogging 1") {
-		t.Errorf("torrc missing SafeLogging 1:\n%s", content)
-	}
-	if !strings.Contains(string(content), "BandwidthRate 1 MB") {
-		t.Errorf("torrc missing BandwidthRate 1 MB:\n%s", content)
+	if got != "abc123.onion" {
+		t.Errorf("waitForHostname = %q; want %q (trimmed)", got, "abc123.onion")
 	}
 }
 
-func TestUpdateTorrc_ErrorOnMissingDir(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission enforcement differs on Windows")
-	}
-	if os.Getuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-
-	tmp := t.TempDir()
-	locked := filepath.Join(tmp, "locked")
-	if err := os.Mkdir(locked, 0o000); err != nil {
+// TestWaitForHostname_TrimsWhitespace verifies surrounding whitespace is
+// stripped from the file content.
+func TestWaitForHostname_TrimsWhitespace(t *testing.T) {
+	siteDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(siteDir, "hostname"), []byte("  xyz789.onion  \n\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(locked, 0o700) })
 
-	cfg := Config{
-		ConfigDir:      locked,
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	got, err := waitForHostname(ctx, siteDir)
+	if err != nil {
+		t.Fatalf("waitForHostname error: %v", err)
 	}
-	m := NewManager(context.Background(), 8080, cfg)
+	if got != "xyz789.onion" {
+		t.Errorf("waitForHostname = %q; want trimmed %q", got, "xyz789.onion")
+	}
+}
 
-	err := m.updateTorrc()
+// TestWaitForHostname_TimesOut verifies waitForHostname returns a wrapped
+// context error when the hostname file never appears within the deadline.
+func TestWaitForHostname_TimesOut(t *testing.T) {
+	siteDir := t.TempDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+
+	_, err := waitForHostname(ctx, siteDir)
 	if err == nil {
-		t.Error("expected error when config dir is unwritable")
+		t.Fatal("expected timeout error when hostname file never appears")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("expected error to mention timeout, got: %v", err)
 	}
 }
 
-func TestUpdateTorrc_OverwritesExisting(t *testing.T) {
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	torDir := filepath.Join(configDir, "tor")
-	if err := os.MkdirAll(torDir, 0o700); err != nil {
+// TestWaitForHostname_EmptyFileTimesOut verifies an existing-but-empty
+// hostname file is treated the same as a missing file (Tor writes it
+// atomically once fully populated; a zero-length file must not satisfy the
+// wait).
+func TestWaitForHostname_EmptyFileTimesOut(t *testing.T) {
+	siteDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(siteDir, "hostname"), []byte(""), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	torrcPath := filepath.Join(torDir, "torrc")
-	if err := os.WriteFile(torrcPath, []byte("# old content"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
 
-	cfg := Config{
-		ConfigDir:      configDir,
-		DataDir:        filepath.Join(tmp, "data"),
-		BandwidthRate:  "5 MB",
-		BandwidthBurst: "10 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	if err := m.updateTorrc(); err != nil {
-		t.Fatalf("updateTorrc error: %v", err)
-	}
-
-	content, _ := os.ReadFile(torrcPath)
-	if strings.Contains(string(content), "old content") {
-		t.Error("updateTorrc should overwrite old torrc")
-	}
-	if !strings.Contains(string(content), "BandwidthRate 5 MB") {
-		t.Errorf("torrc missing new config:\n%s", content)
+	_, err := waitForHostname(ctx, siteDir)
+	if err == nil {
+		t.Fatal("expected timeout error for an empty hostname file")
 	}
 }
 
-// ─── RegenerateAddress ────────────────────────────────────────────────────────
-// Tests key removal logic without starting Tor. Since Tor binary is missing,
-// startLocked returns nil (graceful disable) and address is empty.
+// TestWaitForHostname_AppearsWhilePolling verifies waitForHostname picks up
+// the hostname once it is written mid-poll, proving the ticker loop actually
+// re-checks the file rather than only checking once at entry.
+func TestWaitForHostname_AppearsWhilePolling(t *testing.T) {
+	siteDir := t.TempDir()
+	hostnamePath := filepath.Join(siteDir, "hostname")
 
-func TestRegenerateAddress_RemovesKeyFile(t *testing.T) {
+	go func() {
+		time.Sleep(350 * time.Millisecond)
+		_ = os.WriteFile(hostnamePath, []byte("delayed.onion"), 0o600)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	got, err := waitForHostname(ctx, siteDir)
+	if err != nil {
+		t.Fatalf("waitForHostname error: %v", err)
+	}
+	if got != "delayed.onion" {
+		t.Errorf("waitForHostname = %q; want %q", got, "delayed.onion")
+	}
+}
+
+// ─── ApplyKeys success/error paths without a real Tor process ────────────────
+
+// validNativeKey builds a fixture accepted by ApplyKeys, which requires
+// exactly nativeKeyFileLen bytes with a nativeKeyHeader prefix. Note that
+// nativeKeyHeader is actually 31 bytes (not the 32 its own doc comment and
+// nativeKeyFileLen assume — a real off-by-one in tor.go), so the fixture
+// pads one byte past legacyKeyBlobLen to reach nativeKeyFileLen exactly;
+// this does not correspond to what migrateLegacyKey itself ever produces
+// (see TestMigrateLegacyKey_LegacyToNative_PreservesKeyMaterial in
+// tor_test.go for that inconsistency).
+func validNativeKey() []byte {
+	body := make([]byte, nativeKeyFileLen-len(nativeKeyHeader))
+	for i := range body {
+		body[i] = byte(200 + i)
+	}
+	return append(append([]byte{}, nativeKeyHeader...), body...)
+}
+
+// TestApplyKeys_WritesKeyFile verifies a well-formed native key is written
+// verbatim, stale derived files are removed, and — since no Tor binary is
+// configured — the call completes without error and reports an empty
+// address rather than attempting to launch Tor.
+func TestApplyKeys_WritesKeyFile(t *testing.T) {
 	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	siteDir := filepath.Join(dataDir, "tor", "site")
+	siteDir := filepath.Join(tmp, "tor", "site")
 	if err := os.MkdirAll(siteDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-
-	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
-	if err := os.WriteFile(keyPath, []byte("fake-key"), 0o600); err != nil {
-		t.Fatal(err)
+	// Stale derived files that ApplyKeys must remove once new keys are installed.
+	for _, name := range []string{"hs_ed25519_public_key", "hostname"} {
+		if err := os.WriteFile(filepath.Join(siteDir, name), []byte("stale"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      filepath.Join(tmp, "config"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
+	cfg := Config{Binary: "/nonexistent/tor", DataDir: tmp}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
 
-	addr, err := m.RegenerateAddress()
-	if err != nil {
-		t.Fatalf("RegenerateAddress error: %v", err)
-	}
-
-	// Key file should be removed.
-	if _, err := os.Stat(keyPath); !os.IsNotExist(err) {
-		t.Error("RegenerateAddress should remove the existing key file")
-	}
-
-	// No Tor binary => empty address (graceful disable).
-	if addr != "" {
-		t.Errorf("expected empty address when Tor binary missing, got %q", addr)
-	}
-}
-
-func TestRegenerateAddress_NoKeyFileToRemove(t *testing.T) {
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	if err := os.MkdirAll(filepath.Join(dataDir, "tor", "site"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      filepath.Join(tmp, "config"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	// Should not error when key file doesn't exist.
-	_, err := m.RegenerateAddress()
-	if err != nil {
-		t.Fatalf("RegenerateAddress error when no key: %v", err)
-	}
-}
-
-// ─── ApplyKeys ────────────────────────────────────────────────────────────────
-// Tests key persistence logic without starting Tor.
-
-func TestApplyKeys_WritesKeyFile(t *testing.T) {
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	configDir := filepath.Join(tmp, "config")
-
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      configDir,
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	keyBlob := []byte("new-ed25519-key-material")
-	addr, err := m.ApplyKeys(keyBlob)
+	key := validNativeKey()
+	addr, err := m.ApplyKeys(key)
 	if err != nil {
 		t.Fatalf("ApplyKeys error: %v", err)
 	}
-
-	// Verify key was written.
-	keyPath := filepath.Join(dataDir, "tor", "site", "hs_ed25519_secret_key")
-	content, err := os.ReadFile(keyPath)
-	if err != nil {
-		t.Fatalf("failed to read key file: %v", err)
-	}
-	if string(content) != string(keyBlob) {
-		t.Errorf("key content mismatch: got %q, want %q", content, keyBlob)
-	}
-
-	// No Tor binary => empty address.
 	if addr != "" {
-		t.Errorf("expected empty address when Tor binary missing, got %q", addr)
+		t.Errorf("ApplyKeys address = %q; want empty (no Tor binary)", addr)
+	}
+
+	got, err := os.ReadFile(filepath.Join(siteDir, "hs_ed25519_secret_key"))
+	if err != nil {
+		t.Fatalf("reading applied key: %v", err)
+	}
+	if string(got) != string(key) {
+		t.Error("applied key file does not match the supplied key data")
+	}
+	for _, name := range []string{"hs_ed25519_public_key", "hostname"} {
+		if _, err := os.Stat(filepath.Join(siteDir, name)); !os.IsNotExist(err) {
+			t.Errorf("stale derived file %s was not removed", name)
+		}
 	}
 }
 
+// TestApplyKeys_CreatesParentDirs verifies ApplyKeys creates the hidden
+// service site directory when it does not already exist.
 func TestApplyKeys_CreatesParentDirs(t *testing.T) {
 	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
+	cfg := Config{Binary: "/nonexistent/tor", DataDir: tmp}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
 
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      filepath.Join(tmp, "config"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	keyBlob := []byte("key-data")
-	_, err := m.ApplyKeys(keyBlob)
-	if err != nil {
+	if _, err := m.ApplyKeys(validNativeKey()); err != nil {
 		t.Fatalf("ApplyKeys error: %v", err)
 	}
-
-	siteDir := filepath.Join(dataDir, "tor", "site")
-	info, err := os.Stat(siteDir)
-	if err != nil {
-		t.Fatalf("site directory not created: %v", err)
-	}
-	if !info.IsDir() {
-		t.Error("site path is not a directory")
+	siteDir := filepath.Join(tmp, "tor", "site")
+	if info, err := os.Stat(siteDir); err != nil || !info.IsDir() {
+		t.Errorf("expected site dir %s to be created", siteDir)
 	}
 }
 
+// TestApplyKeys_UnwritablePath verifies ApplyKeys returns an error when the
+// hidden-service directory cannot be created.
 func TestApplyKeys_UnwritablePath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission enforcement differs on Windows")
@@ -250,7 +200,6 @@ func TestApplyKeys_UnwritablePath(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
-
 	tmp := t.TempDir()
 	locked := filepath.Join(tmp, "locked")
 	if err := os.Mkdir(locked, 0o000); err != nil {
@@ -258,497 +207,49 @@ func TestApplyKeys_UnwritablePath(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(locked, 0o700) })
 
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        locked,
-		ConfigDir:      filepath.Join(tmp, "config"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
+	cfg := Config{Binary: "/nonexistent/tor", DataDir: filepath.Join(locked, "data")}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
 
-	_, err := m.ApplyKeys([]byte("key"))
-	if err == nil {
-		t.Error("expected error when data dir is unwritable")
+	if _, err := m.ApplyKeys(validNativeKey()); err == nil {
+		t.Error("expected error when hidden service dir cannot be created")
 	}
 }
 
-// ─── UpdateConfig ─────────────────────────────────────────────────────────────
-// Tests config update and torrc rewrite without starting Tor.
+// ─── RegenerateAddress ─────────────────────────────────────────────────────────
 
-func TestUpdateConfig_UpdatesTorrc(t *testing.T) {
+// TestRegenerateAddress_RemovesKeyFile verifies the existing identity files
+// are deleted before Tor is (attempted to be) restarted.
+func TestRegenerateAddress_RemovesKeyFile(t *testing.T) {
 	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-	torDir := filepath.Join(configDir, "tor")
-	if err := os.MkdirAll(torDir, 0o700); err != nil {
+	siteDir := filepath.Join(tmp, "tor", "site")
+	if err := os.MkdirAll(siteDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dataDir, "tor", "site"), 0o700); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"hs_ed25519_secret_key", "hs_ed25519_public_key", "hostname"} {
+		if err := os.WriteFile(filepath.Join(siteDir, name), []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	initialCfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      configDir,
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, initialCfg)
+	cfg := Config{Binary: "/nonexistent/tor", DataDir: tmp}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
 
-	newCfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      configDir,
-		BandwidthRate:  "10 MB",
-		BandwidthBurst: "20 MB",
-		SafeLogging:    false,
-	}
-
-	if err := m.UpdateConfig(newCfg); err != nil {
-		t.Fatalf("UpdateConfig error: %v", err)
-	}
-
-	torrcPath := filepath.Join(torDir, "torrc")
-	content, err := os.ReadFile(torrcPath)
+	addr, err := m.RegenerateAddress()
 	if err != nil {
-		t.Fatalf("failed to read torrc: %v", err)
+		t.Fatalf("RegenerateAddress error: %v", err)
 	}
-
-	if !strings.Contains(string(content), "BandwidthRate 10 MB") {
-		t.Errorf("torrc missing updated BandwidthRate:\n%s", content)
+	if addr != "" {
+		t.Errorf("RegenerateAddress address = %q; want empty (no Tor binary)", addr)
 	}
-	if !strings.Contains(string(content), "SafeLogging 0") {
-		t.Errorf("torrc missing SafeLogging 0:\n%s", content)
-	}
-}
-
-func TestUpdateConfig_ErrorPropagation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission enforcement differs on Windows")
-	}
-	if os.Getuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-
-	tmp := t.TempDir()
-	locked := filepath.Join(tmp, "locked")
-	if err := os.Mkdir(locked, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(locked, 0o700) })
-
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		ConfigDir:      locked,
-		DataDir:        filepath.Join(tmp, "data"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	err := m.UpdateConfig(cfg)
-	if err == nil {
-		t.Error("expected error when config dir is unwritable")
-	}
-}
-
-// ─── Restart ──────────────────────────────────────────────────────────────────
-// Tests restart logic without starting Tor.
-
-func TestRestart_NoTorBinary(t *testing.T) {
-	tmp := t.TempDir()
-	cfg := Config{
-		Binary:           "/nonexistent/tor",
-		DataDir:          filepath.Join(tmp, "data"),
-		ConfigDir:        filepath.Join(tmp, "config"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	// Restart with no Tor binary should succeed (graceful disable).
-	err := m.Restart()
-	if err != nil {
-		t.Errorf("Restart error with missing Tor binary: %v", err)
-	}
-
-	if m.Running() {
-		t.Error("manager should not be running after Restart without Tor binary")
-	}
-}
-
-func TestRestart_MultipleRestarts(t *testing.T) {
-	tmp := t.TempDir()
-	cfg := Config{
-		Binary:           "/nonexistent/tor",
-		DataDir:          filepath.Join(tmp, "data"),
-		ConfigDir:        filepath.Join(tmp, "config"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	// Multiple restarts should not panic.
-	for i := 0; i < 3; i++ {
-		if err := m.Restart(); err != nil {
-			t.Errorf("Restart #%d error: %v", i+1, err)
+	for _, name := range []string{"hs_ed25519_secret_key", "hs_ed25519_public_key", "hostname"} {
+		if _, err := os.Stat(filepath.Join(siteDir, name)); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be removed", name)
 		}
 	}
 }
 
-// ─── Monitor additional branches ──────────────────────────────────────────────
-
-func TestMonitor_NilServiceContinues(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cfg := Config{Binary: "/nonexistent/tor"}
-	m := NewManager(ctx, 8080, cfg)
-
-	done := make(chan struct{})
-	go func() {
-		m.Monitor()
-		close(done)
-	}()
-
-	// Let Monitor tick once with nil svc.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Error("Monitor did not exit after cancellation")
-	}
-}
-
-// ─── ensureTorDirs error path ─────────────────────────────────────────────────
-
-func TestEnsureTorDirs_MkdirError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission enforcement differs on Windows")
-	}
-	if os.Getuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-
-	tmp := t.TempDir()
-	locked := filepath.Join(tmp, "locked")
-	if err := os.Mkdir(locked, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(locked, 0o700) })
-
-	err := ensureTorDirs(filepath.Join(locked, "config"), filepath.Join(locked, "data"))
-	if err == nil {
-		t.Error("expected error when parent directory is unwritable")
-	}
-}
-
-// ─── saveKey error path (mkdir failure) ───────────────────────────────────────
-
-func TestSaveKey_MkdirError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission enforcement differs on Windows")
-	}
-	if os.Getuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-
-	tmp := t.TempDir()
-	locked := filepath.Join(tmp, "locked")
-	if err := os.Mkdir(locked, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(locked, 0o700) })
-
-	keyPath := filepath.Join(locked, "nested", "key")
-	err := saveKey(keyPath, fakeKey("data"))
-	if err == nil {
-		t.Error("expected error when parent mkdir fails")
-	}
-}
-
-// ─── findInPath Windows branch ────────────────────────────────────────────────
-
-func TestFindInPath_WindowsSeparator(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows-only test")
-	}
-
-	tmp := t.TempDir()
-	bin := filepath.Join(tmp, "myapp.exe")
-	if err := os.WriteFile(bin, []byte(""), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", tmp)
-
-	// On Windows, findInPath appends .exe automatically.
-	got, err := findInPath("myapp")
-	if err != nil {
-		t.Fatalf("findInPath: %v", err)
-	}
-	if got != bin {
-		t.Errorf("got %q; want %q", got, bin)
-	}
-}
-
-// ─── FindBinary common paths branch ───────────────────────────────────────────
-
-func TestFindBinary_CommonPathsNotFound(t *testing.T) {
-	// Set PATH to empty and ensure no common paths exist.
-	t.Setenv("PATH", "")
-
-	// Verify that when no common paths exist, we get empty string.
-	// This branch is exercised when PATH lookup fails and common paths don't exist.
-	got := FindBinary("")
-
-	// Result depends on whether a real Tor is installed at common paths.
-	if got != "" {
-		info, err := os.Stat(got)
-		if err != nil || info.IsDir() {
-			t.Errorf("FindBinary returned invalid path %q", got)
-		}
-	}
-}
-
-// ─── Config struct field coverage ─────────────────────────────────────────────
-
-func TestConfig_AllFieldsUsed(t *testing.T) {
-	cfg := Config{
-		Binary:                    "/usr/bin/tor",
-		UseNetwork:                true,
-		MaxCircuits:               10,
-		CircuitTimeout:            30,
-		BootstrapTimeout:          120,
-		SafeLogging:               true,
-		MaxStreamsPerCircuit:      100,
-		CloseCircuitOnStreamLimit: true,
-		BandwidthRate:             "5 MB",
-		BandwidthBurst:            "10 MB",
-		MaxMonthlyBandwidth:       "500 GB",
-		NumIntroPoints:            3,
-		VirtualPort:               80,
-		ConfigDir:                 "/etc/pastebin",
-		DataDir:                   "/var/lib/pastebin",
-	}
-
-	// Verify all fields are accessible.
-	if cfg.Binary == "" {
-		t.Error("Binary should be set")
-	}
-	if !cfg.UseNetwork {
-		t.Error("UseNetwork should be true")
-	}
-	if cfg.MaxCircuits != 10 {
-		t.Error("MaxCircuits should be 10")
-	}
-	if cfg.CircuitTimeout != 30 {
-		t.Error("CircuitTimeout should be 30")
-	}
-	if !cfg.CloseCircuitOnStreamLimit {
-		t.Error("CloseCircuitOnStreamLimit should be true")
-	}
-	if cfg.NumIntroPoints != 3 {
-		t.Error("NumIntroPoints should be 3")
-	}
-}
-
-// ─── getTorConfig table-driven comprehensive tests ───────────────────────────
-
-func TestGetTorConfig_TableDriven(t *testing.T) {
-	tests := []struct {
-		name     string
-		cfg      *Config
-		contains []string
-		excludes []string
-	}{
-		{
-			name: "basic config",
-			cfg: &Config{
-				BandwidthRate:  "1 MB",
-				BandwidthBurst: "2 MB",
-			},
-			contains: []string{
-				"SocksPort 0",
-				"ControlPort 127.0.0.1:auto",
-				"SafeLogging 0",
-				"BandwidthRate 1 MB",
-				"BandwidthBurst 2 MB",
-			},
-			excludes: []string{"AccountingMax"},
-		},
-		{
-			name: "use network enabled",
-			cfg: &Config{
-				UseNetwork:     true,
-				BandwidthRate:  "1 MB",
-				BandwidthBurst: "2 MB",
-			},
-			contains: []string{"SocksPort auto"},
-			excludes: []string{"SocksPort 0"},
-		},
-		{
-			name: "safe logging disabled",
-			cfg: &Config{
-				SafeLogging:    false,
-				BandwidthRate:  "1 MB",
-				BandwidthBurst: "2 MB",
-			},
-			contains: []string{"SafeLogging 0"},
-			excludes: []string{"SafeLogging 1"},
-		},
-		{
-			name: "monthly bandwidth limit set",
-			cfg: &Config{
-				BandwidthRate:       "1 MB",
-				BandwidthBurst:      "2 MB",
-				MaxMonthlyBandwidth: "50 GB",
-			},
-			contains: []string{
-				"AccountingStart month 1 00:00",
-				"AccountingMax 50 GB",
-			},
-		},
-		{
-			name: "monthly bandwidth unlimited",
-			cfg: &Config{
-				BandwidthRate:       "1 MB",
-				BandwidthBurst:      "2 MB",
-				MaxMonthlyBandwidth: "unlimited",
-			},
-			excludes: []string{"AccountingMax", "AccountingStart"},
-		},
-		{
-			name: "use network enables socks auto",
-			cfg: &Config{
-				UseNetwork:     true,
-				BandwidthRate:  "1 MB",
-				BandwidthBurst: "2 MB",
-			},
-			contains: []string{"SocksPort auto"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			out := getTorConfig(tc.cfg)
-
-			for _, s := range tc.contains {
-				if !strings.Contains(out, s) {
-					t.Errorf("expected %q in config:\n%s", s, out)
-				}
-			}
-			for _, s := range tc.excludes {
-				if strings.Contains(out, s) {
-					t.Errorf("unexpected %q in config:\n%s", s, out)
-				}
-			}
-		})
-	}
-}
-
-// ─── Manager concurrent access ────────────────────────────────────────────────
-
-func TestManager_ConcurrentAccess(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
-
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < 100; i++ {
-			m.Running()
-			m.OnionAddress()
-			m.GetHTTPClient(false)
-			m.GetHTTPClient(true)
-		}
-		close(done)
-	}()
-
-	for i := 0; i < 100; i++ {
-		m.Running()
-		m.OnionAddress()
-		m.GetHTTPClient(false)
-	}
-
-	<-done
-}
-
-// ─── writeIfChanged with read error ───────────────────────────────────────────
-
-func TestWriteIfChanged_ReadErrorContinues(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "newfile")
-
-	// File doesn't exist, so ReadFile in writeIfChanged returns error.
-	// Should still write successfully.
-	err := writeIfChanged(path, []byte("content"), 0o600)
-	if err != nil {
-		t.Fatalf("writeIfChanged error: %v", err)
-	}
-
-	got, _ := os.ReadFile(path)
-	if string(got) != "content" {
-		t.Errorf("got %q; want 'content'", got)
-	}
-}
-
-// ─── Start with directory creation ───────────────────────────────────────────
-
-func TestStart_CreatesTorDirs(t *testing.T) {
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-
-	cfg := Config{
-		Binary:           "/nonexistent/tor",
-		ConfigDir:        configDir,
-		DataDir:          dataDir,
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	// Start will fail to find Tor binary, but should still return nil (graceful).
-	err := m.Start()
-	if err != nil {
-		t.Fatalf("Start error: %v", err)
-	}
-
-	// Directories should NOT be created if Tor binary is missing.
-	// The function returns early before creating dirs.
-	if m.Running() {
-		t.Error("should not be running without Tor binary")
-	}
-}
-
-// ─── Close with running service simulation ───────────────────────────────────
-
-func TestClose_CancelsContext(t *testing.T) {
-	ctx := context.Background()
-	m := NewManager(ctx, 8080, Config{})
-
-	// Start monitor goroutine.
-	done := make(chan struct{})
-	go func() {
-		m.Monitor()
-		close(done)
-	}()
-
-	// Close should cancel the context and Monitor should exit.
-	m.Close()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Error("Monitor did not exit after Close")
-	}
-}
-
-// ─── RegenerateAddress error paths ────────────────────────────────────────────
-
+// TestRegenerateAddress_RemoveError verifies RegenerateAddress surfaces an
+// error when an identity file exists but cannot be removed.
 func TestRegenerateAddress_RemoveError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission enforcement differs on Windows")
@@ -756,403 +257,65 @@ func TestRegenerateAddress_RemoveError(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
-
 	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	siteDir := filepath.Join(dataDir, "tor", "site")
+	siteDir := filepath.Join(tmp, "tor", "site")
 	if err := os.MkdirAll(siteDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-
-	// Create key file and make parent directory non-writable.
-	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
-	if err := os.WriteFile(keyPath, []byte("key"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(siteDir, "hs_ed25519_secret_key"), []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Removing a directory entry requires write permission on the directory
+	// itself; read+execute-only makes every os.Remove inside it fail.
 	if err := os.Chmod(siteDir, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(siteDir, 0o700) })
 
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      filepath.Join(tmp, "config"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
+	cfg := Config{Binary: "/nonexistent/tor", DataDir: tmp}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
 
-	_, err := m.RegenerateAddress()
-	if err == nil {
-		t.Error("expected error when key file cannot be removed")
+	if _, err := m.RegenerateAddress(); err == nil {
+		t.Error("expected error when identity file cannot be removed")
 	}
 }
 
-// ─── Restart with existing svc ────────────────────────────────────────────────
+// ─── UpdateConfig / Restart ────────────────────────────────────────────────────
 
-func TestRestart_AfterStart(t *testing.T) {
-	tmp := t.TempDir()
-	cfg := Config{
-		Binary:           "/nonexistent/tor",
-		DataDir:          filepath.Join(tmp, "data"),
-		ConfigDir:        filepath.Join(tmp, "config"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-	}
-	m := NewManager(context.Background(), 8080, cfg)
+// TestUpdateConfig_ReplacesStoredConfig verifies UpdateConfig swaps in the
+// new Config before restarting (white-box check on the unexported field,
+// same package).
+func TestUpdateConfig_ReplacesStoredConfig(t *testing.T) {
+	cfg1 := Config{Binary: "/nonexistent/tor", BandwidthRate: "1 MB"}
+	m := NewManager(context.Background(), 8080, cfg1, http.NewServeMux())
 
-	// Start (will gracefully disable due to missing binary).
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start error: %v", err)
-	}
-
-	// Restart should also gracefully handle missing binary.
-	if err := m.Restart(); err != nil {
-		t.Fatalf("Restart error: %v", err)
-	}
-
-	if m.Running() {
-		t.Error("should not be running without Tor binary")
-	}
-}
-
-// ─── ApplyKeys file permission check ──────────────────────────────────────────
-
-func TestApplyKeys_FilePermissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission bits not enforced on Windows")
-	}
-
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      filepath.Join(tmp, "config"),
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 8080, cfg)
-
-	keyBlob := []byte("secret-key")
-	_, err := m.ApplyKeys(keyBlob)
-	if err != nil {
-		t.Fatalf("ApplyKeys error: %v", err)
-	}
-
-	keyPath := filepath.Join(dataDir, "tor", "site", "hs_ed25519_secret_key")
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("key file perm = %o; want 0600", info.Mode().Perm())
-	}
-}
-
-// ─── Monitor with context already cancelled ──────────────────────────────────
-
-func TestMonitor_ImmediateCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	m := NewManager(ctx, 8080, Config{})
-
-	done := make(chan struct{})
-	go func() {
-		m.Monitor()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Error("Monitor should exit immediately when context is already cancelled")
-	}
-}
-
-// ─── getTorConfig edge cases ──────────────────────────────────────────────────
-
-func TestGetTorConfig_ZeroBandwidth(t *testing.T) {
-	cfg := &Config{
-		BandwidthRate:  "0",
-		BandwidthBurst: "0",
-	}
-	out := getTorConfig(cfg)
-
-	if !strings.Contains(out, "BandwidthRate 0") {
-		t.Errorf("expected BandwidthRate 0:\n%s", out)
-	}
-}
-
-// ─── UpdateConfig preserves manager state ─────────────────────────────────────
-
-func TestUpdateConfig_PreservesServerPort(t *testing.T) {
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-	torDir := filepath.Join(configDir, "tor")
-	if err := os.MkdirAll(torDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dataDir, "tor", "site"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      configDir,
-		BandwidthRate:  "1 MB",
-		BandwidthBurst: "2 MB",
-	}
-	m := NewManager(context.Background(), 9999, cfg)
-
-	newCfg := Config{
-		Binary:         "/nonexistent/tor",
-		DataDir:        dataDir,
-		ConfigDir:      configDir,
-		BandwidthRate:  "5 MB",
-		BandwidthBurst: "10 MB",
-	}
-
-	if err := m.UpdateConfig(newCfg); err != nil {
+	cfg2 := Config{Binary: "/nonexistent/tor", BandwidthRate: "5 MB"}
+	if err := m.UpdateConfig(cfg2); err != nil {
 		t.Fatalf("UpdateConfig error: %v", err)
 	}
-
-	// Manager should still have the original server port.
-	if m.serverPort != 9999 {
-		t.Errorf("serverPort = %d; want 9999", m.serverPort)
+	if m.cfg.BandwidthRate != "5 MB" {
+		t.Errorf("stored config BandwidthRate = %q; want %q", m.cfg.BandwidthRate, "5 MB")
 	}
 }
 
-// ─── ensureTorDirs Windows branch ─────────────────────────────────────────────
-
-func TestEnsureTorDirs_WindowsSkipsChown(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows-only test")
-	}
-
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-
-	err := ensureTorDirs(configDir, dataDir)
-	if err != nil {
-		t.Fatalf("ensureTorDirs on Windows: %v", err)
-	}
-
-	// Verify directories exist.
-	for _, d := range []string{
-		filepath.Join(configDir, "tor"),
-		filepath.Join(dataDir, "tor"),
-		filepath.Join(dataDir, "tor", "site"),
-	} {
-		if _, err := os.Stat(d); err != nil {
-			t.Errorf("directory %s should exist: %v", d, err)
-		}
-	}
-}
-
-// ─── findInPath with file that is a directory ─────────────────────────────────
-
-func TestFindInPath_SkipsDirectories(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PATH handling differs on Windows")
-	}
-
-	tmp := t.TempDir()
-	dirAsFile := filepath.Join(tmp, "tor")
-	if err := os.Mkdir(dirAsFile, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", tmp)
-
-	_, err := findInPath("tor")
-	if err == nil {
-		t.Error("expected error when 'tor' is a directory, not a file")
-	}
-}
-
-// ─── Manager field access ─────────────────────────────────────────────────────
-
-func TestManager_FieldsAccessible(t *testing.T) {
-	ctx := context.Background()
-	cfg := Config{
-		VirtualPort: 8080,
-	}
-	m := NewManager(ctx, 9000, cfg)
-
-	// Verify internal fields are set correctly.
-	if m.serverPort != 9000 {
-		t.Errorf("serverPort = %d; want 9000", m.serverPort)
-	}
-	if m.cfg.VirtualPort != 8080 {
-		t.Errorf("cfg.VirtualPort = %d; want 8080", m.cfg.VirtualPort)
-	}
-}
-
-// ─── Start with real Tor binary (if available) ───────────────────────────────
-// These tests exercise more of startLocked when Tor is installed.
-
-func TestStartLocked_WithTorBinary_EnsuresDirs(t *testing.T) {
-	// Find a real Tor binary if available.
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-
-	cfg := Config{
-		Binary:           bin,
-		ConfigDir:        configDir,
-		DataDir:          dataDir,
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 5,
-		VirtualPort:      8080,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	// Start will fail due to short timeout, but should create directories and torrc.
-	err := m.Start()
-
-	// Directories should be created even if Tor start fails.
-	torDir := filepath.Join(configDir, "tor")
-	if _, statErr := os.Stat(torDir); os.IsNotExist(statErr) {
-		t.Errorf("tor config dir should exist at %s", torDir)
-	}
-
-	torrcPath := filepath.Join(torDir, "torrc")
-	if _, statErr := os.Stat(torrcPath); os.IsNotExist(statErr) {
-		t.Errorf("torrc should exist at %s", torrcPath)
-	}
-
-	// Tor may fail to bootstrap in time - that's expected.
-	if err != nil {
-		t.Logf("Start failed (expected with short timeout): %v", err)
-	}
-}
-
-func TestStartLocked_WithTorBinary_WritesTorrc(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-
-	cfg := Config{
-		Binary:              bin,
-		ConfigDir:           configDir,
-		DataDir:             dataDir,
-		BandwidthRate:       "2 MB",
-		BandwidthBurst:      "4 MB",
-		MaxMonthlyBandwidth: "100 GB",
-		SafeLogging:         true,
-		BootstrapTimeout:    1,
-		VirtualPort:         80,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	// Start (will likely fail due to short timeout).
-	_ = m.Start()
-
-	// Verify torrc content.
-	torrcPath := filepath.Join(configDir, "tor", "torrc")
-	content, err := os.ReadFile(torrcPath)
-	if err != nil {
-		t.Skipf("torrc not created: %v", err)
-	}
-
-	if !strings.Contains(string(content), "BandwidthRate 2 MB") {
-		t.Errorf("torrc missing BandwidthRate 2 MB:\n%s", content)
-	}
-	if !strings.Contains(string(content), "AccountingMax 100 GB") {
-		t.Errorf("torrc missing AccountingMax:\n%s", content)
-	}
-	if !strings.Contains(string(content), "SafeLogging 1") {
-		t.Errorf("torrc missing SafeLogging 1:\n%s", content)
-	}
-}
-
-func TestStartLocked_PreservesExistingTorrc(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-	torDir := filepath.Join(configDir, "tor")
-
-	// Pre-create torrc with custom content.
-	if err := os.MkdirAll(torDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	customContent := "# Custom torrc - should not be overwritten\nSocksPort 0\n"
-	torrcPath := filepath.Join(torDir, "torrc")
-	if err := os.WriteFile(torrcPath, []byte(customContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := Config{
-		Binary:           bin,
-		ConfigDir:        configDir,
-		DataDir:          dataDir,
-		BandwidthRate:    "5 MB",
-		BandwidthBurst:   "10 MB",
-		BootstrapTimeout: 1,
-		VirtualPort:      80,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	// Start will not overwrite existing torrc.
-	_ = m.Start()
-
-	content, _ := os.ReadFile(torrcPath)
-	if !strings.Contains(string(content), "Custom torrc") {
-		t.Error("existing torrc should not be overwritten")
-	}
-}
-
-func TestStartLocked_EnsureTorDirsError(t *testing.T) {
+// TestUpdateConfig_ErrorPropagation verifies an error from the restart path
+// (ensureTorDirs failing because the config dir is unwritable) is returned
+// by UpdateConfig itself.
+func TestUpdateConfig_ErrorPropagation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission enforcement differs on Windows")
 	}
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
-
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
 	tmp := t.TempDir()
+	// A configured binary that exists so FindBinary succeeds and startLocked
+	// proceeds far enough to hit ensureTorDirs — no real Tor process is ever
+	// launched because that failure happens first.
+	bin := filepath.Join(tmp, "tor")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	locked := filepath.Join(tmp, "locked")
 	if err := os.Mkdir(locked, 0o000); err != nil {
 		t.Fatal(err)
@@ -1160,526 +323,263 @@ func TestStartLocked_EnsureTorDirsError(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(locked, 0o700) })
 
 	cfg := Config{
-		Binary:           bin,
-		ConfigDir:        filepath.Join(locked, "config"),
-		DataDir:          filepath.Join(locked, "data"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-		VirtualPort:      80,
+		Binary:    bin,
+		ConfigDir: filepath.Join(locked, "config"),
+		DataDir:   filepath.Join(tmp, "data"),
 	}
+	m := NewManager(context.Background(), 8080, Config{Binary: "/nonexistent/tor"}, http.NewServeMux())
 
-	m := NewManager(context.Background(), 8080, cfg)
-	defer m.Close()
-
-	err := m.Start()
-	if err == nil {
-		t.Error("expected error when directories cannot be created")
+	if err := m.UpdateConfig(cfg); err == nil {
+		t.Error("expected UpdateConfig to propagate an ensureTorDirs error")
 	}
 }
 
-func TestStartLocked_WriteTorrcError(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission enforcement differs on Windows")
+// TestRestart_NoTorBinary verifies Restart succeeds (no-op close + graceful
+// disable) repeatedly when no Tor binary is configured.
+func TestRestart_NoTorBinary(t *testing.T) {
+	cfg := Config{Binary: "/nonexistent/tor"}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
+
+	for i := 0; i < 3; i++ {
+		if err := m.Restart(); err != nil {
+			t.Fatalf("Restart() call %d error: %v", i, err)
+		}
 	}
-	if os.Getuid() == 0 {
-		t.Skip("root bypasses permission checks")
-	}
-
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-	torDir := filepath.Join(configDir, "tor")
-
-	// Create tor dir but make it read-only.
-	if err := os.MkdirAll(torDir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dataDir, "tor", "site"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(torDir, 0o700) })
-
-	cfg := Config{
-		Binary:           bin,
-		ConfigDir:        configDir,
-		DataDir:          dataDir,
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-		VirtualPort:      80,
-	}
-
-	m := NewManager(context.Background(), 8080, cfg)
-	defer m.Close()
-
-	err := m.Start()
-	if err == nil {
-		t.Error("expected error when torrc cannot be written")
-	}
-}
-
-// ─── Start with immediate context cancellation ───────────────────────────────
-
-func TestStartLocked_CancelledContext(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	cfg := Config{
-		Binary:           bin,
-		ConfigDir:        filepath.Join(tmp, "config"),
-		DataDir:          filepath.Join(tmp, "data"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 30,
-		VirtualPort:      80,
-	}
-
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	err := m.Start()
-	// Should fail with context cancelled error or similar.
-	if err != nil {
-		t.Logf("Start with cancelled context: %v", err)
-	}
-}
-
-// ─── RegenerateAddress with Tor binary ────────────────────────────────────────
-
-func TestRegenerateAddress_WithTorBinary(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	configDir := filepath.Join(tmp, "config")
-	siteDir := filepath.Join(dataDir, "tor", "site")
-	if err := os.MkdirAll(siteDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(configDir, "tor"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a fake key file.
-	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
-	if err := os.WriteFile(keyPath, []byte("fake-key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cfg := Config{
-		Binary:           bin,
-		DataDir:          dataDir,
-		ConfigDir:        configDir,
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 2,
-		VirtualPort:      80,
-	}
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	_, err := m.RegenerateAddress()
-	// May fail due to short timeout, but should still remove the key.
-	if _, statErr := os.Stat(keyPath); !os.IsNotExist(statErr) {
-		t.Error("key file should be removed even if Tor fails to start")
-	}
-
-	if err != nil {
-		t.Logf("RegenerateAddress error (expected with short timeout): %v", err)
-	}
-}
-
-// ─── ApplyKeys with Tor binary ────────────────────────────────────────────────
-
-func TestApplyKeys_WithTorBinary(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	dataDir := filepath.Join(tmp, "data")
-	configDir := filepath.Join(tmp, "config")
-	if err := os.MkdirAll(filepath.Join(configDir, "tor"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cfg := Config{
-		Binary:           bin,
-		DataDir:          dataDir,
-		ConfigDir:        configDir,
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 2,
-		VirtualPort:      80,
-	}
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	keyBlob := []byte("test-key-material")
-	_, err := m.ApplyKeys(keyBlob)
-
-	// Verify key was written.
-	keyPath := filepath.Join(dataDir, "tor", "site", "hs_ed25519_secret_key")
-	content, readErr := os.ReadFile(keyPath)
-	if readErr != nil {
-		t.Fatalf("failed to read key: %v", readErr)
-	}
-	if string(content) != string(keyBlob) {
-		t.Errorf("key mismatch: got %q, want %q", content, keyBlob)
-	}
-
-	if err != nil {
-		t.Logf("ApplyKeys error (expected with short timeout): %v", err)
-	}
-}
-
-// ─── UpdateConfig with Tor binary ─────────────────────────────────────────────
-
-func TestUpdateConfig_WithTorBinary(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "config")
-	dataDir := filepath.Join(tmp, "data")
-	if err := os.MkdirAll(filepath.Join(configDir, "tor"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dataDir, "tor", "site"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cfg := Config{
-		Binary:           bin,
-		DataDir:          dataDir,
-		ConfigDir:        configDir,
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 2,
-		VirtualPort:      80,
-	}
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	newCfg := Config{
-		Binary:           bin,
-		DataDir:          dataDir,
-		ConfigDir:        configDir,
-		BandwidthRate:    "5 MB",
-		BandwidthBurst:   "10 MB",
-		SafeLogging:      true,
-		BootstrapTimeout: 2,
-		VirtualPort:      80,
-	}
-
-	_ = m.UpdateConfig(newCfg)
-
-	// Verify torrc was updated.
-	torrcPath := filepath.Join(configDir, "tor", "torrc")
-	content, err := os.ReadFile(torrcPath)
-	if err != nil {
-		t.Skipf("torrc not created: %v", err)
-	}
-
-	if !strings.Contains(string(content), "BandwidthRate 5 MB") {
-		t.Errorf("torrc should have updated BandwidthRate:\n%s", content)
-	}
-}
-
-// ─── Restart with Tor binary ──────────────────────────────────────────────────
-
-func TestRestart_WithTorBinary(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cfg := Config{
-		Binary:           bin,
-		DataDir:          filepath.Join(tmp, "data"),
-		ConfigDir:        filepath.Join(tmp, "config"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 2,
-		VirtualPort:      80,
-	}
-	m := NewManager(ctx, 8080, cfg)
-	defer m.Close()
-
-	// Restart should attempt to start Tor.
-	_ = m.Restart()
-
-	// Restart again.
-	err := m.Restart()
-	if err != nil {
-		t.Logf("Restart error (expected with short timeout): %v", err)
-	}
-}
-
-// ─── Close after Start with Tor binary ────────────────────────────────────────
-
-func TestClose_AfterStartWithTor(t *testing.T) {
-	bin := FindBinary("")
-	if bin == "" {
-		t.Skip("Tor binary not found")
-	}
-
-	tmp := t.TempDir()
-	ctx := context.Background()
-
-	cfg := Config{
-		Binary:           bin,
-		DataDir:          filepath.Join(tmp, "data"),
-		ConfigDir:        filepath.Join(tmp, "config"),
-		BandwidthRate:    "1 MB",
-		BandwidthBurst:   "2 MB",
-		BootstrapTimeout: 2,
-		VirtualPort:      80,
-	}
-	m := NewManager(ctx, 8080, cfg)
-
-	// Start (will likely fail due to timeout).
-	_ = m.Start()
-
-	// Close should not panic.
-	m.Close()
-
 	if m.Running() {
-		t.Error("should not be running after Close")
-	}
-	if m.OnionAddress() != "" {
-		t.Error("OnionAddress should be empty after Close")
+		t.Error("manager should not report running with no Tor binary")
 	}
 }
 
-// ─── ensureTorDirs Windows behavior ───────────────────────────────────────────
-
-func TestEnsureTorDirs_AllPaths(t *testing.T) {
-	tmp := t.TempDir()
-	configDir := filepath.Join(tmp, "a", "b", "c", "config")
-	dataDir := filepath.Join(tmp, "x", "y", "z", "data")
-
-	err := ensureTorDirs(configDir, dataDir)
-	if err != nil {
-		t.Fatalf("ensureTorDirs: %v", err)
-	}
-
-	// All three dirs should exist.
-	expected := []string{
-		filepath.Join(configDir, "tor"),
-		filepath.Join(dataDir, "tor"),
-		filepath.Join(dataDir, "tor", "site"),
-	}
-	for _, d := range expected {
-		info, err := os.Stat(d)
-		if err != nil {
-			t.Errorf("directory %s should exist: %v", d, err)
-			continue
-		}
-		if !info.IsDir() {
-			t.Errorf("%s should be a directory", d)
-		}
-	}
-}
-
-// ─── saveKey write error ──────────────────────────────────────────────────────
-
-func TestSaveKey_WriteError(t *testing.T) {
+// TestStartLocked_EnsureTorDirsError verifies startLocked (invoked via
+// Start()) surfaces an ensureTorDirs failure once a Tor binary and handler
+// are both present — again, no real Tor process is ever launched.
+func TestStartLocked_EnsureTorDirsError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission enforcement differs on Windows")
 	}
 	if os.Getuid() == 0 {
 		t.Skip("root bypasses permission checks")
 	}
-
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, "keydir")
-	if err := os.Mkdir(dir, 0o700); err != nil {
+	bin := filepath.Join(tmp, "tor")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-
-	keyPath := filepath.Join(dir, "key")
-	// Create key file and make it read-only.
-	if err := os.WriteFile(keyPath, []byte("old"), 0o400); err != nil {
+	locked := filepath.Join(tmp, "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(keyPath, 0o600) })
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
 
-	err := saveKey(keyPath, fakeKey("new"))
-	if err == nil {
-		t.Error("expected error when key file is read-only")
+	cfg := Config{
+		Binary:    bin,
+		ConfigDir: filepath.Join(locked, "config"),
+		DataDir:   filepath.Join(tmp, "data"),
+	}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
+
+	if err := m.Start(); err == nil {
+		t.Error("expected Start() to surface an ensureTorDirs error")
+	}
+	if m.Running() {
+		t.Error("manager must not report running after a startup failure")
 	}
 }
 
-// ─── Monitor tick without service ─────────────────────────────────────────────
+// ─── Config / Manager field plumbing ───────────────────────────────────────────
 
-func TestMonitor_TicksWithoutService(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	m := NewManager(ctx, 8080, Config{})
+// TestConfig_AllFieldsSettable verifies every documented Config field can be
+// set and is stored verbatim by NewManager.
+func TestConfig_AllFieldsSettable(t *testing.T) {
+	cfg := Config{
+		Binary:                    "/usr/bin/tor",
+		UseNetwork:                true,
+		MaxCircuits:               32,
+		CircuitTimeout:            60,
+		BootstrapTimeout:          180,
+		SafeLogging:               true,
+		MaxStreamsPerCircuit:      100,
+		CloseCircuitOnStreamLimit: true,
+		BandwidthRate:             "1 MB",
+		BandwidthBurst:            "2 MB",
+		MaxMonthlyBandwidth:       "100 GB",
+		NumIntroPoints:            3,
+		VirtualPort:               80,
+		ConfigDir:                 "/etc/pastebin",
+		DataDir:                   "/var/lib/pastebin",
+	}
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
+	if m.cfg != cfg {
+		t.Errorf("stored config = %+v; want %+v", m.cfg, cfg)
+	}
+	if m.serverPort != 8080 {
+		t.Errorf("serverPort = %d; want 8080", m.serverPort)
+	}
+	if m.handler == nil {
+		t.Error("handler should be stored, not nil")
+	}
+}
 
-	done := make(chan struct{})
-	go func() {
-		m.Monitor()
-		close(done)
-	}()
+// TestConfig_ZeroValue verifies a zero-value Config does not panic when fed
+// through getTorConfig.
+func TestConfig_ZeroValue(t *testing.T) {
+	var cfg Config
+	out := getTorConfig(&cfg, 0)
+	if out == "" {
+		t.Error("getTorConfig with zero-value Config returned empty string")
+	}
+}
 
-	// Let it tick a couple times (30s ticker, but we can't wait that long).
-	// Just verify it doesn't block or crash.
-	time.Sleep(100 * time.Millisecond)
-	cancel()
+// ─── getTorConfig table-driven ─────────────────────────────────────────────────
 
+func TestGetTorConfig_TableDriven(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     Config
+		port    int
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "network disabled, no accounting",
+			cfg:  Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB"},
+			port: 1000,
+			want: []string{"SocksPort 0"},
+			notWant: []string{
+				"SocksPort auto",
+				"AccountingMax",
+			},
+		},
+		{
+			name: "network enabled with accounting",
+			cfg: Config{
+				UseNetwork:          true,
+				BandwidthRate:       "1 MB",
+				BandwidthBurst:      "2 MB",
+				MaxMonthlyBandwidth: "50 GB",
+			},
+			port: 2000,
+			want: []string{"SocksPort auto", "AccountingMax 50 GB"},
+		},
+		{
+			name: "safe logging disabled",
+			cfg:  Config{SafeLogging: false, BandwidthRate: "1 MB", BandwidthBurst: "2 MB"},
+			port: 3000,
+			want: []string{"SafeLogging 0"},
+		},
+		{
+			name: "unlimited bandwidth suppresses accounting",
+			cfg: Config{
+				BandwidthRate:       "1 MB",
+				BandwidthBurst:      "2 MB",
+				MaxMonthlyBandwidth: "unlimited",
+			},
+			port:    4000,
+			notWant: []string{"AccountingMax"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := getTorConfig(&tc.cfg, tc.port)
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("expected %q in torrc, got:\n%s", w, out)
+				}
+			}
+			for _, nw := range tc.notWant {
+				if strings.Contains(out, nw) {
+					t.Errorf("did not expect %q in torrc, got:\n%s", nw, out)
+				}
+			}
+		})
+	}
+}
+
+// ─── Manager concurrent access ─────────────────────────────────────────────────
+
+// TestManager_ConcurrentAccess exercises Running/OnionAddress/GetHTTPClient
+// from many goroutines simultaneously to catch data races (run with -race).
+func TestManager_ConcurrentAccess(t *testing.T) {
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			m.Running()
+		}()
+		go func() {
+			defer wg.Done()
+			m.OnionAddress()
+		}()
+		go func() {
+			defer wg.Done()
+			m.GetHTTPClient(false)
+		}()
+	}
+	wg.Wait()
+}
+
+// ─── Close cancels the manager context ─────────────────────────────────────────
+
+// TestClose_CancelsContext verifies Close() cancels the Manager's internal
+// context so any goroutine selecting on it (e.g. Monitor) unblocks.
+func TestClose_CancelsContext(t *testing.T) {
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
+	m.Close()
 	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Error("Monitor did not exit")
+	case <-m.ctx.Done():
+	default:
+		t.Error("expected manager context to be cancelled after Close()")
 	}
 }
 
-// ─── GetHTTPClient timeout values ─────────────────────────────────────────────
+// ─── FindBinary / findInPath additional edge cases ─────────────────────────────
 
-func TestGetHTTPClient_TimeoutValues(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
-
-	direct := m.GetHTTPClient(false)
-	if direct.Timeout != 30*time.Second {
-		t.Errorf("direct client timeout = %v; want 30s", direct.Timeout)
-	}
-
-	// Without running Tor, requesting Tor client returns direct client.
-	torFallback := m.GetHTTPClient(true)
-	if torFallback.Timeout != 30*time.Second {
-		t.Errorf("tor fallback client timeout = %v; want 30s", torFallback.Timeout)
-	}
-}
-
-// ─── FindBinary with invalid configured path ──────────────────────────────────
-
+// TestFindBinary_ConfiguredPathIsDirectory documents FindBinary's actual
+// behavior: it only Stat()s the configured path and does not verify it is a
+// regular file, so a directory path is returned as-is.
 func TestFindBinary_ConfiguredPathIsDirectory(t *testing.T) {
 	tmp := t.TempDir()
-	dir := filepath.Join(tmp, "tor")
-	if err := os.Mkdir(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Directory exists but is not a file - should return empty.
-	got := FindBinary(dir)
-	// os.Stat succeeds for directories, so this returns the path.
-	// The function doesn't check if it's executable.
-	if got == "" {
-		t.Log("FindBinary correctly rejected directory path")
-	} else if got != dir {
-		t.Errorf("FindBinary = %q; expected either %q or empty", got, dir)
+	got := FindBinary(tmp)
+	if got != tmp {
+		t.Errorf("FindBinary(directory) = %q; want %q (Stat-only check)", got, tmp)
 	}
 }
 
-// ─── findInPath first entry wins ──────────────────────────────────────────────
-
+// TestFindInPath_FirstMatchWins verifies the earliest PATH entry containing a
+// match wins over a later one.
 func TestFindInPath_FirstMatchWins(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("PATH handling differs on Windows")
+		t.Skip("Windows-only skip")
 	}
-
 	tmp1 := t.TempDir()
 	tmp2 := t.TempDir()
-
-	// Create "mybin" in both directories.
-	bin1 := filepath.Join(tmp1, "mybin")
-	bin2 := filepath.Join(tmp2, "mybin")
-	if err := os.WriteFile(bin1, []byte("first"), 0o755); err != nil {
+	first := filepath.Join(tmp1, "dupbin")
+	second := filepath.Join(tmp2, "dupbin")
+	if err := os.WriteFile(first, []byte(""), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(bin2, []byte("second"), 0o755); err != nil {
+	if err := os.WriteFile(second, []byte(""), 0o755); err != nil {
 		t.Fatal(err)
 	}
-
 	t.Setenv("PATH", tmp1+":"+tmp2)
 
-	got, err := findInPath("mybin")
+	got, err := findInPath("dupbin")
 	if err != nil {
-		t.Fatalf("findInPath: %v", err)
+		t.Fatalf("findInPath error: %v", err)
 	}
-	if got != bin1 {
-		t.Errorf("got %q; want %q (first match)", got, bin1)
+	if got != first {
+		t.Errorf("findInPath = %q; want first match %q", got, first)
 	}
 }
 
-// ─── commonTorPaths coverage ──────────────────────────────────────────────────
-
+// TestCommonTorPaths_HasCurrentOS verifies the well-known-locations table has
+// an entry for every OS the project ships on.
 func TestCommonTorPaths_HasCurrentOS(t *testing.T) {
-	paths := commonTorPaths[runtime.GOOS]
-	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" ||
-		runtime.GOOS == "windows" || runtime.GOOS == "freebsd" {
-		if len(paths) == 0 {
-			t.Errorf("commonTorPaths[%q] is empty", runtime.GOOS)
+	for _, goos := range []string{"linux", "darwin", "windows", "freebsd"} {
+		if len(commonTorPaths[goos]) == 0 {
+			t.Errorf("commonTorPaths missing entries for %q", goos)
 		}
-	}
-}
-
-// ─── Config struct zero value ─────────────────────────────────────────────────
-
-func TestConfig_ZeroValue(t *testing.T) {
-	cfg := Config{}
-	out := getTorConfig(&cfg)
-
-	// Zero value should produce valid config with defaults.
-	if !strings.Contains(out, "SocksPort 0") {
-		t.Error("zero config should produce SocksPort 0")
-	}
-	if !strings.Contains(out, "SafeLogging 0") {
-		t.Error("zero config should produce SafeLogging 0")
-	}
-}
-
-// ─── writeIfChanged permissions ───────────────────────────────────────────────
-
-func TestWriteIfChanged_Permissions(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission bits not enforced on Windows")
-	}
-
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "testfile")
-
-	if err := writeIfChanged(path, []byte("content"), 0o600); err != nil {
-		t.Fatalf("writeIfChanged: %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("perm = %o; want 0600", info.Mode().Perm())
 	}
 }

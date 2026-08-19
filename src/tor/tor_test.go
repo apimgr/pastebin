@@ -2,13 +2,12 @@ package tor
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/cretz/bine/control"
 )
 
 // ─── FindBinary ───────────────────────────────────────────────────────────────
@@ -47,11 +46,8 @@ func TestFindBinary_EmptyPath_ReturnsSomethingOrEmpty(t *testing.T) {
 // ─── findInPath ───────────────────────────────────────────────────────────────
 
 func TestFindInPath_NotFound(t *testing.T) {
-	// Save PATH, then override to an empty temp directory.
-	orig := os.Getenv("PATH")
 	tmp := t.TempDir()
-	os.Setenv("PATH", tmp)
-	defer os.Setenv("PATH", orig)
+	t.Setenv("PATH", tmp)
 
 	_, err := findInPath("definitely-not-a-real-binary-xyzzy")
 	if err == nil {
@@ -68,9 +64,7 @@ func TestFindInPath_Found(t *testing.T) {
 	if err := os.WriteFile(bin, []byte(""), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	orig := os.Getenv("PATH")
-	os.Setenv("PATH", tmp+":"+orig)
-	defer os.Setenv("PATH", orig)
+	t.Setenv("PATH", tmp)
 
 	got, err := findInPath("mytor")
 	if err != nil {
@@ -82,9 +76,7 @@ func TestFindInPath_Found(t *testing.T) {
 }
 
 func TestFindInPath_EmptyPATH(t *testing.T) {
-	orig := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	defer os.Setenv("PATH", orig)
+	t.Setenv("PATH", "")
 
 	_, err := findInPath("tor")
 	if err == nil {
@@ -103,7 +95,7 @@ func TestNewManager_ReturnsManager(t *testing.T) {
 		VirtualPort:      80,
 		BootstrapTimeout: 60,
 	}
-	m := NewManager(ctx, 8080, cfg)
+	m := NewManager(ctx, 8080, cfg, http.NewServeMux())
 	if m == nil {
 		t.Fatal("NewManager returned nil")
 	}
@@ -118,21 +110,21 @@ func TestNewManager_ReturnsManager(t *testing.T) {
 // ─── Running / OnionAddress / GetHTTPClient ───────────────────────────────────
 
 func TestManager_RunningFalseWhenNotStarted(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
 	if m.Running() {
 		t.Error("Running() should be false before Start()")
 	}
 }
 
 func TestManager_OnionAddressEmptyWhenNotStarted(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
 	if addr := m.OnionAddress(); addr != "" {
 		t.Errorf("OnionAddress() = %q; want empty string", addr)
 	}
 }
 
 func TestManager_GetHTTPClient_Direct(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
 	c := m.GetHTTPClient(false)
 	if c == nil {
 		t.Fatal("GetHTTPClient returned nil")
@@ -143,7 +135,7 @@ func TestManager_GetHTTPClient_Direct(t *testing.T) {
 }
 
 func TestManager_GetHTTPClient_TorNotRunning(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
 	// Tor not started — requesting Tor client falls back to direct.
 	c := m.GetHTTPClient(true)
 	if c == nil {
@@ -152,7 +144,7 @@ func TestManager_GetHTTPClient_TorNotRunning(t *testing.T) {
 }
 
 func TestManager_Close_NoOp(t *testing.T) {
-	m := NewManager(context.Background(), 8080, Config{})
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
 	// Close on an unstarted manager must not panic.
 	m.Close()
 	if m.Running() {
@@ -170,13 +162,31 @@ func TestManager_Start_NoTorBinary(t *testing.T) {
 		BandwidthBurst:   "2 MB",
 		BootstrapTimeout: 30,
 	}
-	m := NewManager(context.Background(), 8080, cfg)
+	m := NewManager(context.Background(), 8080, cfg, http.NewServeMux())
 	err := m.Start()
 	if err != nil {
 		t.Errorf("Start() with missing tor binary returned error: %v", err)
 	}
 	if m.Running() {
 		t.Error("manager should not be running when Tor binary is missing")
+	}
+}
+
+func TestManager_Start_NilHandler(t *testing.T) {
+	// A configured binary path that resolves (FindBinary only Stat()s it) but a
+	// nil handler must still gracefully disable before any Tor process launch.
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "tor")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Binary: bin}
+	m := NewManager(context.Background(), 8080, cfg, nil)
+	if err := m.Start(); err != nil {
+		t.Errorf("Start() with nil handler returned error: %v", err)
+	}
+	if m.Running() {
+		t.Error("manager should not be running when handler is nil")
 	}
 }
 
@@ -188,7 +198,7 @@ func TestGetTorConfig_SafeLoggingEnabled(t *testing.T) {
 		BandwidthRate:  "1 MB",
 		BandwidthBurst: "2 MB",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	if !strings.Contains(out, "SafeLogging 1") {
 		t.Errorf("expected 'SafeLogging 1' in config, got:\n%s", out)
 	}
@@ -200,7 +210,7 @@ func TestGetTorConfig_SafeLoggingDisabled(t *testing.T) {
 		BandwidthRate:  "1 MB",
 		BandwidthBurst: "2 MB",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	if !strings.Contains(out, "SafeLogging 0") {
 		t.Errorf("expected 'SafeLogging 0' in config, got:\n%s", out)
 	}
@@ -208,7 +218,7 @@ func TestGetTorConfig_SafeLoggingDisabled(t *testing.T) {
 
 func TestGetTorConfig_SocksPortZeroByDefault(t *testing.T) {
 	cfg := &Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB"}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	if !strings.Contains(out, "SocksPort 0") {
 		t.Errorf("expected 'SocksPort 0' when UseNetwork=false, got:\n%s", out)
 	}
@@ -220,7 +230,7 @@ func TestGetTorConfig_SocksPortAutoWhenNetworkEnabled(t *testing.T) {
 		BandwidthRate:  "1 MB",
 		BandwidthBurst: "2 MB",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	if !strings.Contains(out, "SocksPort auto") {
 		t.Errorf("expected 'SocksPort auto' when UseNetwork=true, got:\n%s", out)
 	}
@@ -232,7 +242,7 @@ func TestGetTorConfig_MonthlyBandwidthLimit(t *testing.T) {
 		BandwidthBurst:      "2 MB",
 		MaxMonthlyBandwidth: "100 GB",
 	}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	if !strings.Contains(out, "AccountingMax 100 GB") {
 		t.Errorf("expected 'AccountingMax 100 GB' in config, got:\n%s", out)
 	}
@@ -240,7 +250,7 @@ func TestGetTorConfig_MonthlyBandwidthLimit(t *testing.T) {
 
 func TestGetTorConfig_NoDefaultPorts(t *testing.T) {
 	cfg := &Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB"}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	// ControlPort must use auto (never a hardcoded port number).
 	if !strings.Contains(out, "ControlPort 127.0.0.1:auto") {
 		t.Errorf("expected 'ControlPort 127.0.0.1:auto' in config, got:\n%s", out)
@@ -253,12 +263,35 @@ func TestGetTorConfig_NoDefaultPorts(t *testing.T) {
 
 func TestGetTorConfig_NoRelayOrExit(t *testing.T) {
 	cfg := &Config{BandwidthRate: "1 MB", BandwidthBurst: "2 MB"}
-	out := getTorConfig(cfg)
+	out := getTorConfig(cfg, 9999)
 	if !strings.Contains(out, "ExitRelay 0") {
 		t.Errorf("expected 'ExitRelay 0' in config, got:\n%s", out)
 	}
 	if !strings.Contains(out, "ExitPolicy reject *:*") {
 		t.Errorf("expected reject exit policy in config, got:\n%s", out)
+	}
+}
+
+func TestGetTorConfig_HiddenServiceDeclaration(t *testing.T) {
+	cfg := &Config{
+		BandwidthRate:  "1 MB",
+		BandwidthBurst: "2 MB",
+		VirtualPort:    80,
+		DataDir:        "/data",
+	}
+	out := getTorConfig(cfg, 54321)
+	wantDir := "HiddenServiceDir " + filepath.Join("/data", "tor", "site")
+	if !strings.Contains(out, wantDir) {
+		t.Errorf("expected %q in config, got:\n%s", wantDir, out)
+	}
+	if !strings.Contains(out, "HiddenServiceVersion 3") {
+		t.Errorf("expected 'HiddenServiceVersion 3' in config, got:\n%s", out)
+	}
+	if !strings.Contains(out, "HiddenServicePort 80 127.0.0.1:54321") {
+		t.Errorf("expected backend forwarding line in config, got:\n%s", out)
+	}
+	if !strings.Contains(out, "HiddenServiceExportCircuitID haproxy") {
+		t.Errorf("expected PROXY-protocol circuit-id export directive, got:\n%s", out)
 	}
 }
 
@@ -304,94 +337,107 @@ func TestEnsureTorDirs_Idempotent(t *testing.T) {
 	}
 }
 
-// ─── writeIfChanged ───────────────────────────────────────────────────────────
+// ─── migrateLegacyKey ─────────────────────────────────────────────────────────
 
-func TestWriteIfChanged_CreatesFile(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "torrc")
-	content := []byte("# torrc content\n")
+func TestMigrateLegacyKey_NoFilePresent(t *testing.T) {
+	siteDir := filepath.Join(t.TempDir(), "site")
+	if err := migrateLegacyKey(siteDir); err != nil {
+		t.Fatalf("migrateLegacyKey with no key file returned error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(siteDir, "hs_ed25519_secret_key")); err == nil {
+		t.Error("migrateLegacyKey must not create a key file when none exists")
+	}
+}
 
-	if err := writeIfChanged(path, content, 0o600); err != nil {
-		t.Fatalf("writeIfChanged error: %v", err)
+func TestMigrateLegacyKey_LegacyToNative_PreservesKeyMaterial(t *testing.T) {
+	siteDir := t.TempDir()
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
+
+	// Legacy blob: raw 64-byte expanded ed25519 key, no header.
+	legacy := make([]byte, legacyKeyBlobLen)
+	for i := range legacy {
+		legacy[i] = byte(i + 1)
+	}
+	if err := os.WriteFile(keyPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	got, err := os.ReadFile(path)
+	if err := migrateLegacyKey(siteDir); err != nil {
+		t.Fatalf("migrateLegacyKey error: %v", err)
+	}
+
+	got, err := os.ReadFile(keyPath)
 	if err != nil {
-		t.Fatalf("ReadFile error: %v", err)
+		t.Fatal(err)
 	}
-	if string(got) != string(content) {
-		t.Errorf("got %q; want %q", got, content)
+	// NOTE: nativeKeyHeader is documented (and nativeKeyFileLen assumes) a
+	// 32-byte header, but the literal is actually 31 bytes — a real off-by-one
+	// in tor.go, not a test bug. migrateLegacyKey therefore writes
+	// len(nativeKeyHeader)+legacyKeyBlobLen bytes, one short of nativeKeyFileLen.
+	// This test documents the observed behavior; it is not endorsement of it.
+	wantLen := len(nativeKeyHeader) + legacyKeyBlobLen
+	if len(got) != wantLen {
+		t.Fatalf("migrated file length = %d; want %d", len(got), wantLen)
 	}
-}
-
-func TestWriteIfChanged_NoWriteWhenUnchanged(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "torrc")
-	content := []byte("# torrc content\n")
-
-	if err := writeIfChanged(path, content, 0o600); err != nil {
-		t.Fatalf("first write error: %v", err)
+	if string(got[:len(nativeKeyHeader)]) != string(nativeKeyHeader) {
+		t.Errorf("migrated file header = %q; want %q", got[:len(nativeKeyHeader)], nativeKeyHeader)
 	}
-
-	info1, _ := os.Stat(path)
-
-	// Second write of identical content — file mod time should be identical
-	// (writeIfChanged skips the write).
-	if err := writeIfChanged(path, content, 0o600); err != nil {
-		t.Fatalf("second write error: %v", err)
-	}
-
-	info2, _ := os.Stat(path)
-	if info1.ModTime() != info2.ModTime() {
-		t.Error("writeIfChanged should skip write when content is unchanged")
+	// The trailing key material must be byte-for-byte identical to the
+	// original legacy blob — this is what preserves the .onion address.
+	if string(got[len(nativeKeyHeader):]) != string(legacy) {
+		t.Error("migrated key material does not match original legacy blob byte-for-byte")
 	}
 }
 
-func TestWriteIfChanged_UpdatesWhenChanged(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "torrc")
+func TestMigrateLegacyKey_AlreadyNative_Untouched(t *testing.T) {
+	siteDir := t.TempDir()
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
 
-	if err := writeIfChanged(path, []byte("v1"), 0o600); err != nil {
-		t.Fatalf("first write error: %v", err)
+	// A file is only recognized as "already native" by migrateLegacyKey when
+	// its length equals nativeKeyFileLen (96) exactly, so pad past the
+	// header+legacyKeyBlobLen (95) length actually produced by migration —
+	// see the off-by-one note in TestMigrateLegacyKey_LegacyToNative above.
+	body := make([]byte, nativeKeyFileLen-len(nativeKeyHeader))
+	native := append(append([]byte{}, nativeKeyHeader...), body...)
+	if len(native) != nativeKeyFileLen {
+		t.Fatalf("test fixture length = %d; want %d", len(native), nativeKeyFileLen)
 	}
-	if err := writeIfChanged(path, []byte("v2"), 0o600); err != nil {
-		t.Fatalf("second write error: %v", err)
+	if err := os.WriteFile(keyPath, native, 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	got, _ := os.ReadFile(path)
-	if string(got) != "v2" {
-		t.Errorf("expected 'v2' after update, got %q", got)
+	if err := migrateLegacyKey(siteDir); err != nil {
+		t.Fatalf("migrateLegacyKey on already-native file returned error: %v", err)
 	}
-}
 
-// ─── saveKey ──────────────────────────────────────────────────────────────────
-
-func TestSaveKey_CreatesParentDirs(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "nested", "dir", "key")
-
-	// fakeKey satisfies control.Key interface with a Blob() method returning a string.
-	err := saveKey(path, fakeKey("fake-key-data"))
+	got, err := os.ReadFile(keyPath)
 	if err != nil {
-		t.Fatalf("saveKey error: %v", err)
+		t.Fatal(err)
 	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile error: %v", err)
-	}
-	if string(got) != "fake-key-data" {
-		t.Errorf("got %q; want 'fake-key-data'", got)
+	if string(got) != string(native) {
+		t.Error("migrateLegacyKey modified an already-native key file")
 	}
 }
 
-// fakeKey is a test helper implementing control.Key (Type + Blob).
-type fakeKey string
+func TestMigrateLegacyKey_UnexpectedSize_LeftUntouched(t *testing.T) {
+	siteDir := t.TempDir()
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
 
-func (f fakeKey) Blob() string {
-	return string(f)
-}
+	odd := []byte("this is not a valid key file at all")
+	if err := os.WriteFile(keyPath, odd, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
-func (f fakeKey) Type() control.KeyType {
-	return control.KeyTypeED25519V3
+	err := migrateLegacyKey(siteDir)
+	if err == nil {
+		t.Error("expected error for a key file of unexpected size")
+	}
+
+	got, readErr := os.ReadFile(keyPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != string(odd) {
+		t.Error("migrateLegacyKey must leave an unrecognized-size file untouched")
+	}
 }

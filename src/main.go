@@ -8,9 +8,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 	// Embed the IANA timezone database so time.LoadLocation works in CGO_ENABLED=0 static binaries.
@@ -35,6 +37,7 @@ import (
 	"github.com/apimgr/pastebin/src/service"
 	"github.com/apimgr/pastebin/src/shell"
 	"github.com/apimgr/pastebin/src/task"
+	"github.com/apimgr/pastebin/src/tor"
 	"github.com/apimgr/pastebin/src/updater"
 )
 
@@ -87,6 +90,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		showHelp    bool
 		daemonFlag  bool
 		debugFlag   bool
+		i2pFlag     bool
 	)
 
 	// Subcommands that take optional secondary positional arguments.
@@ -114,6 +118,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&showStatus, "status", false, "Show server status and health")
 	fs.BoolVar(&daemonFlag, "daemon", false, "Run as daemon (detach from terminal)")
 	fs.BoolVar(&debugFlag, "debug", false, "Enable debug mode")
+	fs.BoolVar(&i2pFlag, "i2p", false, "Enable the optional I2P eepsite (opt-in; PART 31.2)")
 	fs.StringVar(&portFlag, "port", "", "Listen port")
 	fs.StringVar(&addressFlag, "address", "", "Listen address")
 	fs.StringVar(&modeFlag, "mode", "", "Application mode (production|development)")
@@ -528,6 +533,15 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// ── Tor hidden service operations (AI.md PART 31.1) ─────────────────────────
+	// Bare positional subcommand: "{project_name} tor {status|validate|restart|
+	// regenerate|vanity start|vanity apply|import-keys <path>}". Tor is
+	// configured via server.yml and CLI only — there is no REST API for it.
+
+	if len(positional) > 0 && positional[0] == "tor" {
+		return runTorCommand(binaryName, positional[1:], stdout, stderr)
+	}
+
 	// ── Update ────────────────────────────────────────────────────────────────
 
 	if updateCmd != "" {
@@ -780,6 +794,11 @@ Examples:
 	}
 	if baseurlFlag != "" {
 		cfg.Server.BaseURL = baseurlFlag
+	}
+	// Priority order for I2P: (1) --i2p CLI flag, (2) I2P_ENABLED env var
+	// (applied in config.Load), (3) server.yml, (4) default false (PART 31.2).
+	if i2pFlag {
+		cfg.Server.I2P.Enabled = true
 	}
 	// Reconcile the application mode into the config so the health/version response
 	// (PART 13) and CSP report-only logic report the mode the server actually runs in.
@@ -1250,6 +1269,270 @@ Examples:
 	return 0
 }
 
+// runTorCommand implements the "{project_name} tor <subcommand>" surface
+// (AI.md PART 31.1). Tor is configured via server.yml and CLI only — there
+// is no REST API for it. Each subcommand resolves paths/config the same way
+// --maintenance does (independent of the later server-startup path
+// resolution), builds a short-lived tor.Manager, and exits.
+func runTorCommand(binaryName string, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintf(stderr, "%s: tor: requires a subcommand\n", binaryName)
+		fmt.Fprintf(stderr, "Usage: %s tor {status|validate|restart|regenerate|vanity {start|apply}|import-keys <path>}\n", binaryName)
+		return 2
+	}
+
+	tcConfigDir := path.GetConfigDir(appName)
+	tcDataDir := path.GetDataDir(appName)
+	tcCfg, _ := config.Load(filepath.Join(tcConfigDir, "server.yml"))
+	torCfg := tor.Config{
+		Binary:                    tcCfg.Server.Tor.Binary,
+		UseNetwork:                tcCfg.Server.Tor.UseNetwork,
+		MaxCircuits:               tcCfg.Server.Tor.MaxCircuits,
+		CircuitTimeout:            tcCfg.Server.Tor.CircuitTimeout,
+		BootstrapTimeout:          tcCfg.Server.Tor.BootstrapTimeout,
+		SafeLogging:               tcCfg.Server.Tor.SafeLogging,
+		MaxStreamsPerCircuit:      tcCfg.Server.Tor.MaxStreamsPerCircuit,
+		CloseCircuitOnStreamLimit: tcCfg.Server.Tor.CloseCircuitOnStreamLimit,
+		BandwidthRate:             tcCfg.Server.Tor.BandwidthRate,
+		BandwidthBurst:            tcCfg.Server.Tor.BandwidthBurst,
+		MaxMonthlyBandwidth:       tcCfg.Server.Tor.MaxMonthlyBandwidth,
+		NumIntroPoints:            tcCfg.Server.Tor.NumIntroPoints,
+		VirtualPort:               tcCfg.Server.Tor.VirtualPort,
+		ConfigDir:                 tcConfigDir,
+		DataDir:                   tcDataDir,
+	}
+
+	sub := args[0]
+	switch sub {
+	case "status":
+		bin := tor.FindBinary(torCfg.Binary)
+		if bin == "" {
+			fmt.Fprintf(stdout, "Tor Hidden Service: disabled (tor binary not found)\n")
+			return 0
+		}
+		mgr := tor.NewManager(context.Background(), 0, torCfg, http.NotFoundHandler())
+		if err := mgr.Start(); err != nil {
+			fmt.Fprintf(stderr, "%s: tor status: %v\n", binaryName, err)
+			return 1
+		}
+		defer mgr.Close()
+		if !mgr.Running() {
+			fmt.Fprintf(stdout, "Tor Hidden Service: not running\n")
+			return 0
+		}
+		fmt.Fprintf(stdout, "Tor Hidden Service: Connected\n")
+		fmt.Fprintf(stdout, "  Address: %s\n", mgr.OnionAddress())
+		return 0
+
+	case "validate":
+		return validateTorConfig(binaryName, torCfg, stdout, stderr)
+
+	case "restart":
+		mgr := tor.NewManager(context.Background(), 0, torCfg, http.NotFoundHandler())
+		if err := mgr.Restart(); err != nil {
+			fmt.Fprintf(stderr, "%s: tor restart: %v\n", binaryName, err)
+			return 1
+		}
+		defer mgr.Close()
+		fmt.Fprintf(stdout, "Tor restarted.\n")
+		if addr := mgr.OnionAddress(); addr != "" {
+			fmt.Fprintf(stdout, "  Address: %s\n", addr)
+		}
+		return 0
+
+	case "regenerate":
+		mgr := tor.NewManager(context.Background(), 0, torCfg, http.NotFoundHandler())
+		addr, err := mgr.RegenerateAddress()
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: tor regenerate: %v\n", binaryName, err)
+			return 1
+		}
+		defer mgr.Close()
+		fmt.Fprintf(stdout, "New .onion address generated.\n")
+		if addr != "" {
+			fmt.Fprintf(stdout, "  Address: %s\n", addr)
+		}
+		return 0
+
+	case "vanity":
+		if len(args) < 2 {
+			fmt.Fprintf(stderr, "%s: tor vanity: requires {start|apply}\n", binaryName)
+			return 2
+		}
+		return runTorVanity(binaryName, args[1], args[2:], tcDataDir, torCfg, stdout, stderr)
+
+	case "import-keys":
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			fmt.Fprintf(stderr, "%s: tor import-keys requires a path argument\n", binaryName)
+			fmt.Fprintf(stderr, "Usage: %s tor import-keys <path>\n", binaryName)
+			return 2
+		}
+		keyData, err := os.ReadFile(args[1])
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: tor import-keys: %v\n", binaryName, err)
+			return 1
+		}
+		mgr := tor.NewManager(context.Background(), 0, torCfg, http.NotFoundHandler())
+		addr, err := mgr.ApplyKeys(keyData)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: tor import-keys: %v\n", binaryName, err)
+			return 1
+		}
+		defer mgr.Close()
+		fmt.Fprintf(stdout, "Keys imported, Tor restarted.\n")
+		if addr != "" {
+			fmt.Fprintf(stdout, "  Address: %s\n", addr)
+		}
+		return 0
+
+	default:
+		fmt.Fprintf(stderr, "%s: tor: unknown subcommand %q\n", binaryName, sub)
+		fmt.Fprintf(stderr, "Usage: %s tor {status|validate|restart|regenerate|vanity {start|apply}|import-keys <path>}\n", binaryName)
+		return 2
+	}
+}
+
+// validateTorConfig checks the Tor configuration and directory state without
+// starting a Tor process: binary presence, directory writability, and the
+// virtual port range. Does not touch the network or any running instance.
+func validateTorConfig(binaryName string, cfg tor.Config, stdout, stderr io.Writer) int {
+	ok := true
+	bin := tor.FindBinary(cfg.Binary)
+	if bin == "" {
+		fmt.Fprintf(stdout, "  [WARN] tor binary not found (hidden service will be disabled, not an error)\n")
+	} else {
+		fmt.Fprintf(stdout, "  [OK]   tor binary: %s\n", bin)
+	}
+	if cfg.VirtualPort <= 0 || cfg.VirtualPort > 65535 {
+		fmt.Fprintf(stdout, "  [FAIL] virtual_port %d out of range 1-65535\n", cfg.VirtualPort)
+		ok = false
+	} else {
+		fmt.Fprintf(stdout, "  [OK]   virtual_port: %d\n", cfg.VirtualPort)
+	}
+	for _, dir := range []string{filepath.Join(cfg.ConfigDir, "tor"), filepath.Join(cfg.DataDir, "tor")} {
+		if err := path.EnsureDir(dir); err != nil {
+			fmt.Fprintf(stdout, "  [FAIL] %s: %v\n", dir, err)
+			ok = false
+			continue
+		}
+		fmt.Fprintf(stdout, "  [OK]   %s writable\n", dir)
+	}
+	if !ok {
+		fmt.Fprintf(stderr, "%s: tor validate: configuration invalid\n", binaryName)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Tor configuration valid.\n")
+	return 0
+}
+
+// runTorVanity implements "tor vanity {start|apply}". Vanity address search
+// shells out to mkp224o (https://github.com/cathugger/mkp224o), a
+// widely-used dedicated v3 onion vanity-address generator — this project
+// does not reimplement brute-force ed25519 key search. "start" launches a
+// detached background search; "apply" installs the first match it finds via
+// Manager.ApplyKeys and restarts Tor.
+func runTorVanity(binaryName, action string, rest []string, dataDir string, torCfg tor.Config, stdout, stderr io.Writer) int {
+	vanityDir := filepath.Join(dataDir, "tor", "vanity")
+	switch action {
+	case "start":
+		bin, err := exec.LookPath("mkp224o")
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: tor vanity start: mkp224o not found in PATH\n", binaryName)
+			fmt.Fprintf(stderr, "Install mkp224o (https://github.com/cathugger/mkp224o) to search for vanity .onion addresses.\n")
+			return 1
+		}
+		prefix := ""
+		if len(rest) > 0 {
+			prefix = rest[0]
+		}
+		return startTorVanitySearch(binaryName, bin, prefix, vanityDir, stdout, stderr)
+
+	case "apply":
+		entries, err := os.ReadDir(vanityDir)
+		if err != nil || len(entries) == 0 {
+			fmt.Fprintf(stderr, "%s: tor vanity apply: no vanity search results found in %s\n", binaryName, vanityDir)
+			fmt.Fprintf(stderr, "Run '%s tor vanity start <prefix>' first.\n", binaryName)
+			return 1
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+		var keyPath string
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			candidate := filepath.Join(vanityDir, e.Name(), "hs_ed25519_secret_key")
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				keyPath = candidate
+				break
+			}
+		}
+		if keyPath == "" {
+			fmt.Fprintf(stderr, "%s: tor vanity apply: no completed match yet in %s\n", binaryName, vanityDir)
+			return 1
+		}
+		keyData, err := os.ReadFile(keyPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: tor vanity apply: %v\n", binaryName, err)
+			return 1
+		}
+		mgr := tor.NewManager(context.Background(), 0, torCfg, http.NotFoundHandler())
+		addr, err := mgr.ApplyKeys(keyData)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: tor vanity apply: %v\n", binaryName, err)
+			return 1
+		}
+		defer mgr.Close()
+		_ = os.RemoveAll(filepath.Dir(keyPath))
+		fmt.Fprintf(stdout, "Vanity address applied, Tor restarted.\n")
+		if addr != "" {
+			fmt.Fprintf(stdout, "  Address: %s\n", addr)
+		}
+		return 0
+
+	default:
+		fmt.Fprintf(stderr, "%s: tor vanity: unknown subcommand %q\n", binaryName, action)
+		return 2
+	}
+}
+
+// startTorVanitySearch launches mkp224o as a detached background process
+// searching for the given prefix, writing matches under vanityDir. Returns
+// immediately — the search continues after this process exits.
+func startTorVanitySearch(binaryName, mkp224oBin, prefix, vanityDir string, stdout, stderr io.Writer) int {
+	if prefix == "" {
+		fmt.Fprintf(stderr, "%s: tor vanity start requires a prefix argument\n", binaryName)
+		fmt.Fprintf(stderr, "Usage: %s tor vanity start <prefix>\n", binaryName)
+		return 2
+	}
+	if err := path.EnsureDir(vanityDir); err != nil {
+		fmt.Fprintf(stderr, "%s: tor vanity start: %v\n", binaryName, err)
+		return 1
+	}
+	logPath := filepath.Join(vanityDir, prefix+".log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: tor vanity start: %v\n", binaryName, err)
+		return 1
+	}
+	defer logFile.Close()
+	// -d: output directory, -n 1: stop after the first match, -q: quiet.
+	cmd := exec.Command(mkp224oBin, "-d", vanityDir, "-n", "1", "-q", prefix)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(stderr, "%s: tor vanity start: %v\n", binaryName, err)
+		return 1
+	}
+	pid := cmd.Process.Pid
+	// Detach — the search continues in the background after this CLI
+	// invocation exits; we do not wait for it here.
+	_ = cmd.Process.Release()
+	fmt.Fprintf(stdout, "Vanity search started for prefix %q (pid %d).\n", prefix, pid)
+	fmt.Fprintf(stdout, "Results will appear under %s\n", vanityDir)
+	fmt.Fprintf(stdout, "Run '%s tor vanity apply' once a match is found.\n", binaryName)
+	return 0
+}
+
 // normalizeArgs expands short flags (-h → --help, -v → --version) to their
 // long form. --flag=value forms need no pre-processing — stdlib flag.Parse
 // accepts both "--flag value" and "--flag=value" natively. Single-dash
@@ -1313,6 +1596,7 @@ Server Configuration:
       --baseurl PATH                URL path prefix (default: /)
       --daemon                      Run as daemon (detach from terminal)
       --debug                       Enable debug mode
+      --i2p                         Enable the optional I2P eepsite (opt-in)
       --color {auto|yes|no}         Color output (default: auto)
       --lang CODE                   Language for output (default: auto)
 

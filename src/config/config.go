@@ -72,6 +72,7 @@ type ServerConfig struct {
 	Metrics       MetricsConfig       `yaml:"metrics"`
 	GeoIP         GeoIPConfig         `yaml:"geoip"`
 	Tor           TorConfig           `yaml:"tor"`
+	I2P           I2PConfig           `yaml:"i2p"`
 	Logging       LoggingConfig       `yaml:"logs"`
 	Notifications NotificationsConfig `yaml:"notifications"`
 	TLS           TLSConfig           `yaml:"tls"`
@@ -556,6 +557,46 @@ type TorConfig struct {
 	// Shown on Tor responses instead of any clearnet contact email (PART 12/31).
 	// When empty, no contact email is disclosed on Tor responses.
 	ContactEmail string `yaml:"contact_email"`
+}
+
+// I2PConfig configures the optional, opt-in I2P eepsite (PART 31.2).
+// Disabled by default — unlike Tor, no provider is contacted and no port
+// is allocated unless Enabled is explicitly set true.
+type I2PConfig struct {
+	// Enabled opts into the I2P eepsite; default false (unlike Tor, which
+	// auto-enables whenever the tor binary is found).
+	Enabled bool `yaml:"enabled"`
+
+	// Binary is the i2pd binary path; empty = auto-detect. When found, the
+	// app spawns/manages a dedicated i2pd process (Model A). When absent,
+	// the app falls back to an external SAM bridge (Model B).
+	Binary string `yaml:"binary"`
+
+	// SAMAddress is the SAMv3 bridge address used only for Model B.
+	SAMAddress string `yaml:"sam_address"`
+
+	// VirtualPort is the port the eepsite listens on (what users connect to).
+	VirtualPort int `yaml:"virtual_port"`
+
+	// Tunnel settings (privacy vs latency trade-off).
+	InboundLength    int `yaml:"inbound_length"`
+	OutboundLength   int `yaml:"outbound_length"`
+	InboundQuantity  int `yaml:"inbound_quantity"`
+	OutboundQuantity int `yaml:"outbound_quantity"`
+
+	// SignatureType is the SAM/destination signature type (7 = EdDSA-SHA512-Ed25519).
+	SignatureType int `yaml:"signature_type"`
+
+	// BootstrapTimeout waits for the destination + tunnels to become ready.
+	// Duration string (e.g. "5m"), parsed at startup.
+	BootstrapTimeout string `yaml:"bootstrap_timeout"`
+
+	// B32Address is the .b32.i2p address derived from the persisted
+	// destination key. Set automatically on first successful I2P bootstrap
+	// (PART 31.2, mirroring tor.onion_address's PART 12 behavior) — enables
+	// priority-0 FQDN/request detection for .b32.i2p Host headers exactly
+	// like tor.onion_address does for .onion.
+	B32Address string `yaml:"b32_address"`
 }
 
 // GeoIPConfig configures GeoIP detection and country blocking.
@@ -1275,6 +1316,18 @@ func DefaultConfig() *Config {
 				MaxMonthlyBandwidth:       "100 GB",
 				NumIntroPoints:            3,
 				VirtualPort:               80,
+			},
+			I2P: I2PConfig{
+				Enabled:          false,
+				Binary:           "",
+				SAMAddress:       "127.0.0.1:7656",
+				VirtualPort:      80,
+				InboundLength:    3,
+				OutboundLength:   3,
+				InboundQuantity:  5,
+				OutboundQuantity: 5,
+				SignatureType:    7,
+				BootstrapTimeout: "5m",
 			},
 			Logging: LoggingConfig{
 				Level: "info",
@@ -2257,6 +2310,11 @@ func (c *Config) loadEnv() {
 			c.Server.Termbin.Enabled = b
 		}
 	}
+	if v := os.Getenv("I2P_ENABLED"); v != "" {
+		if b, err := ParseBool(v, c.Server.I2P.Enabled); err == nil {
+			c.Server.I2P.Enabled = b
+		}
+	}
 	if v := os.Getenv("TERMBIN_PORT"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.Server.Termbin.Port = n
@@ -2665,6 +2723,25 @@ func SetOnionAddress(path, addr string) error {
 		cfg = DefaultConfig()
 	}
 	cfg.Server.Tor.OnionAddress = addr
+	return Save(path, cfg)
+}
+
+// SetB32Address loads the config at path, sets server.i2p.b32_address to
+// the given value, and saves the file back (PART 31.2, mirroring
+// SetOnionAddress's PART 12 behavior). Creates the file and parent dirs if
+// absent.
+func SetB32Address(path, addr string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	cfg, err := Load(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	if cfg == nil {
+		cfg = DefaultConfig()
+	}
+	cfg.Server.I2P.B32Address = addr
 	return Save(path, cfg)
 }
 

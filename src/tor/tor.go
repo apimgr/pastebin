@@ -3,14 +3,21 @@
 // and stops the process. The hidden service is auto-enabled whenever a Tor
 // binary is found in PATH or common install locations; there is no enable flag.
 //
-// Uses github.com/cretz/bine (CGO_ENABLED=0 compatible) with ADD_ONION to
-// create v3 hidden services without modifying any system Tor installation.
+// Uses github.com/cretz/bine (CGO_ENABLED=0 compatible) to launch and control
+// a dedicated Tor process. The v3 hidden service itself is declared in torrc
+// via HiddenServiceDir/HiddenServicePort — Tor generates and persists the
+// ed25519 identity key and .onion hostname under HiddenServiceDir itself.
+// Tor is configured to export the circuit ID as a HAProxy PROXY-protocol v1
+// header on the hidden-service backend connection (HiddenServiceExportCircuitID
+// haproxy); the backend listener parses it via github.com/pires/go-proxyproto.
 package tor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,8 +26,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cretz/bine/control"
 	binettor "github.com/cretz/bine/tor"
+	"github.com/pires/go-proxyproto"
+)
+
+// nativeKeyHeader is the fixed 32-byte header Tor prepends to a native
+// on-disk ed25519 hidden-service secret-key file.
+var nativeKeyHeader = []byte("== ed25519v1-secret: type0 ==\x00\x00")
+
+const (
+	// nativeKeyFileLen is the total size of a native-format secret-key file:
+	// 32-byte header + 64-byte expanded ed25519 private key.
+	nativeKeyFileLen = 32 + 64
+	// legacyKeyBlobLen is the size of the raw 64-byte expanded ed25519 private
+	// key as previously persisted (no header) via the bine ADD_ONION blob.
+	legacyKeyBlobLen = 64
 )
 
 // commonTorPaths lists well-known Tor binary locations per OS.
@@ -102,11 +122,12 @@ type Config struct {
 
 // service holds a running Tor instance.
 type service struct {
-	t          *binettor.Tor
-	serviceID  string
-	key        *control.ED25519Key
-	serverPort int
-	dialer     *binettor.Dialer
+	t             *binettor.Tor
+	onionAddress  string
+	serverPort    int
+	dialer        *binettor.Dialer
+	backendLn     net.Listener
+	backendServer *http.Server
 }
 
 // Manager owns the Tor process lifecycle.
@@ -115,16 +136,21 @@ type Manager struct {
 	svc        *service
 	cfg        Config
 	serverPort int
+	handler    http.Handler
 	ctx        context.Context
 	cancel     context.CancelFunc
 }
 
-// NewManager returns a Manager. Call Start() to launch Tor.
-func NewManager(ctx context.Context, serverPort int, cfg Config) *Manager {
+// NewManager returns a Manager. Call Start() to launch Tor. handler is the
+// server's own HTTP router — the hidden-service backend listener serves it
+// directly so every existing Tor-detection/privacy middleware applies
+// identically regardless of which listener a request arrived on.
+func NewManager(ctx context.Context, serverPort int, cfg Config, handler http.Handler) *Manager {
 	child, cancel := context.WithCancel(ctx)
 	return &Manager{
 		cfg:        cfg,
 		serverPort: serverPort,
+		handler:    handler,
 		ctx:        child,
 		cancel:     cancel,
 	}
@@ -145,11 +171,11 @@ func (m *Manager) startLocked() error {
 		return nil
 	}
 
-	// The hidden service forwards to the server's real HTTP listener; without a
-	// valid target port there is nothing to forward to. Skip rather than point the
-	// onion at a guessed port (PART 31: server port is always runtime-detected).
-	if m.serverPort <= 0 {
-		log.Printf("Tor: server HTTP port unknown, hidden service disabled")
+	// The hidden service forwards to a dedicated backend listener that serves
+	// the same router as the clearnet server; without a handler there is
+	// nothing to forward to.
+	if m.handler == nil {
+		log.Printf("Tor: no HTTP handler configured, hidden service disabled")
 		return nil
 	}
 
@@ -157,13 +183,34 @@ func (m *Manager) startLocked() error {
 		return fmt.Errorf("tor dirs: %w", err)
 	}
 
+	siteDir := filepath.Join(m.cfg.DataDir, "tor", "site")
+	if err := migrateLegacyKey(siteDir); err != nil {
+		log.Printf("Tor: warning: key migration: %v", err)
+	}
+
+	// Dedicated loopback backend listener — Tor forwards hidden-service
+	// connections here (never the clearnet port). Tor prepends a HAProxy
+	// PROXY-protocol v1 header carrying the circuit ID (HiddenServiceExportCircuitID
+	// haproxy), so the listener is wrapped to parse it.
+	rawLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("tor backend listen: %w", err)
+	}
+	backendPort := rawLn.Addr().(*net.TCPAddr).Port
+	backendLn := &proxyproto.Listener{Listener: rawLn}
+	backendServer := &http.Server{Handler: m.handler}
+	go func() {
+		if serveErr := backendServer.Serve(backendLn); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.Printf("Tor: backend server error: %v", serveErr)
+		}
+	}()
+
 	torrcPath := filepath.Join(m.cfg.ConfigDir, "tor", "torrc")
 	torDataDir := filepath.Join(m.cfg.DataDir, "tor")
-	// Create torrc only when absent — never overwrite an existing operator-customised file.
-	if _, err := os.Stat(torrcPath); os.IsNotExist(err) {
-		if writeErr := os.WriteFile(torrcPath, []byte(getTorConfig(&m.cfg)), 0o600); writeErr != nil {
-			return fmt.Errorf("write torrc: %w", writeErr)
-		}
+	// torrc is fully-derived state and is regenerated on every startup.
+	if writeErr := os.WriteFile(torrcPath, []byte(getTorConfig(&m.cfg, backendPort)), 0o600); writeErr != nil {
+		_ = backendServer.Close()
+		return fmt.Errorf("write torrc: %w", writeErr)
 	}
 
 	conf := &binettor.StartConf{
@@ -176,6 +223,7 @@ func (m *Manager) startLocked() error {
 	log.Printf("Starting Tor hidden service...")
 	t, err := binettor.Start(m.ctx, conf)
 	if err != nil {
+		_ = backendServer.Close()
 		return fmt.Errorf("start tor: %w", err)
 	}
 
@@ -190,51 +238,27 @@ func (m *Manager) startLocked() error {
 	if err := t.EnableNetwork(dialCtx, true); err != nil {
 		slow.Stop()
 		t.Close()
+		_ = backendServer.Close()
 		return fmt.Errorf("tor bootstrap: %w", err)
 	}
 	slow.Stop()
 
-	// Load or generate ed25519 key for persistent .onion address.
-	keyPath := filepath.Join(m.cfg.DataDir, "tor", "site", "hs_ed25519_secret_key")
-	var privKey *control.ED25519Key
-	if keyData, err := os.ReadFile(keyPath); err == nil && len(keyData) > 0 {
-		if k, err := control.ED25519KeyFromBlob(string(keyData)); err == nil {
-			privKey = k
-		}
-	}
-
-	addReq := &control.AddOnionRequest{
-		Ports: []*control.KeyVal{
-			control.NewKeyVal(
-				fmt.Sprintf("%d", m.cfg.VirtualPort),
-				fmt.Sprintf("127.0.0.1:%d", m.serverPort),
-			),
-		},
-	}
-	if privKey != nil {
-		addReq.Key = privKey
-	} else {
-		addReq.Key = control.GenKey(control.KeyAlgoED25519V3)
-	}
-
-	resp, err := t.Control.AddOnion(addReq)
+	// Tor publishes the hidden service and writes the hostname file itself
+	// (HiddenServiceDir); wait for it to appear rather than parsing an
+	// ADD_ONION response.
+	onion, err := waitForHostname(dialCtx, siteDir)
 	if err != nil {
 		t.Close()
-		return fmt.Errorf("add_onion: %w", err)
-	}
-
-	// Persist key for stable .onion address across restarts.
-	if privKey == nil && resp.Key != nil {
-		if err := saveKey(keyPath, resp.Key); err != nil {
-			log.Printf("Tor: warning: could not save onion key: %v", err)
-		}
+		_ = backendServer.Close()
+		return fmt.Errorf("tor hostname: %w", err)
 	}
 
 	svc := &service{
-		t:          t,
-		serviceID:  resp.ServiceID,
-		key:        privKey,
-		serverPort: m.serverPort,
+		t:             t,
+		onionAddress:  onion,
+		serverPort:    m.serverPort,
+		backendLn:     backendLn,
+		backendServer: backendServer,
 	}
 
 	// Outbound dialer for optional Tor-routed HTTP clients (server-wide setting).
@@ -247,19 +271,87 @@ func (m *Manager) startLocked() error {
 	}
 
 	m.svc = svc
-	log.Printf("Tor: %s.onion:%d → 127.0.0.1:%d", resp.ServiceID, m.cfg.VirtualPort, m.serverPort)
+	log.Printf("Tor: %s:%d → 127.0.0.1:%d", onion, m.cfg.VirtualPort, backendPort)
 	return nil
 }
 
-// Close shuts down the Tor process.
+// waitForHostname polls the hidden service's hostname file (written by Tor
+// itself once the descriptor is published) until it appears or ctx expires.
+func waitForHostname(ctx context.Context, siteDir string) (string, error) {
+	hostnamePath := filepath.Join(siteDir, "hostname")
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if data, err := os.ReadFile(hostnamePath); err == nil {
+			if host := strings.TrimSpace(string(data)); host != "" {
+				return host, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("timed out waiting for hostname file: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// migrateLegacyKey converts a pre-migration secret-key file (raw 64-byte
+// expanded ed25519 key, as previously persisted via the bine ADD_ONION blob
+// format with no header) into Tor's native on-disk format (32-byte header +
+// the same 64-byte key), preserving the exact private key material so the
+// resulting .onion address is identical to the pre-migration address.
+//
+// Files already in native format (96 bytes, correct header) are left
+// untouched. Files of any other size are left untouched and logged — Tor
+// will fail loudly on an unrecognized file rather than the app silently
+// generating a new identity.
+func migrateLegacyKey(siteDir string) error {
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
+	data, err := os.ReadFile(keyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read secret key: %w", err)
+	}
+	switch len(data) {
+	case nativeKeyFileLen:
+		if strings.HasPrefix(string(data), string(nativeKeyHeader)) {
+			// Already native format; nothing to do.
+			return nil
+		}
+		return fmt.Errorf("secret key file has unexpected header, leaving untouched: %s", keyPath)
+	case legacyKeyBlobLen:
+		native := append(append([]byte{}, nativeKeyHeader...), data...)
+		if err := os.WriteFile(keyPath, native, 0o600); err != nil {
+			return fmt.Errorf("write migrated secret key: %w", err)
+		}
+		log.Printf("Tor: migrated legacy hidden-service key to native format (%s)", keyPath)
+		return nil
+	default:
+		return fmt.Errorf("secret key file has unexpected size %d, leaving untouched: %s", len(data), keyPath)
+	}
+}
+
+// Close shuts down the Tor process and its backend listener.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cancel()
-	if m.svc != nil {
-		_ = m.svc.t.Close()
-		m.svc = nil
+	m.closeSvcLocked()
+}
+
+func (m *Manager) closeSvcLocked() {
+	if m.svc == nil {
+		return
 	}
+	if m.svc.backendServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = m.svc.backendServer.Shutdown(shutdownCtx)
+		cancel()
+	}
+	_ = m.svc.t.Close()
+	m.svc = nil
 }
 
 // Running returns true when Tor is active.
@@ -274,7 +366,7 @@ func (m *Manager) OnionAddress() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.svc != nil {
-		return m.svc.serviceID + ".onion"
+		return m.svc.onionAddress
 	}
 	return ""
 }
@@ -299,10 +391,7 @@ func (m *Manager) GetHTTPClient(useTor bool) *http.Client {
 func (m *Manager) Restart() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.svc != nil {
-		_ = m.svc.t.Close()
-		m.svc = nil
-	}
+	m.closeSvcLocked()
 	return m.startLocked()
 }
 
@@ -312,55 +401,62 @@ func (m *Manager) UpdateConfig(cfg Config) error {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.mu.Unlock()
-	if err := m.updateTorrc(); err != nil {
-		return err
-	}
 	return m.Restart()
 }
 
-// RegenerateAddress removes the existing hidden-service key so that Start()
-// generates a fresh .onion address, and returns the new address on success.
+// RegenerateAddress deletes the existing hidden-service identity (secret key,
+// public key, and hostname) so that Start() has Tor generate a fresh native
+// .onion address, and returns the new address on success.
 func (m *Manager) RegenerateAddress() (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	keyPath := filepath.Join(m.cfg.DataDir, "tor", "site", "hs_ed25519_secret_key")
-	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("remove onion key: %w", err)
+	siteDir := filepath.Join(m.cfg.DataDir, "tor", "site")
+	for _, name := range []string{"hs_ed25519_secret_key", "hs_ed25519_public_key", "hostname"} {
+		if err := os.Remove(filepath.Join(siteDir, name)); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("remove %s: %w", name, err)
+		}
 	}
-	if m.svc != nil {
-		_ = m.svc.t.Close()
-		m.svc = nil
-	}
+	m.closeSvcLocked()
 	if err := m.startLocked(); err != nil {
 		return "", err
 	}
 	if m.svc != nil {
-		return m.svc.serviceID + ".onion", nil
+		return m.svc.onionAddress, nil
 	}
 	return "", nil
 }
 
-// ApplyKeys persists new hidden-service key material to disk, restarts Tor so
-// the new .onion address becomes active, and returns the new address on success.
-func (m *Manager) ApplyKeys(keyBlob []byte) (string, error) {
+// ApplyKeys installs new hidden-service key material and restarts Tor so the
+// resulting .onion address becomes active, returning it on success. keyData
+// must be Tor's native on-disk secret-key format (32-byte
+// "== ed25519v1-secret: type0 ==" header + 64-byte expanded ed25519 private
+// key) — the same bytes produced by vanity-address tools such as mkp224o.
+func (m *Manager) ApplyKeys(keyData []byte) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	keyPath := filepath.Join(m.cfg.DataDir, "tor", "site", "hs_ed25519_secret_key")
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+	if len(keyData) != nativeKeyFileLen || !strings.HasPrefix(string(keyData), string(nativeKeyHeader)) {
+		return "", fmt.Errorf("applykeys: expected %d-byte native ed25519 secret key file with valid header", nativeKeyFileLen)
+	}
+	siteDir := filepath.Join(m.cfg.DataDir, "tor", "site")
+	if err := os.MkdirAll(siteDir, 0o700); err != nil {
 		return "", fmt.Errorf("applykeys mkdir: %w", err)
 	}
-	if err := os.WriteFile(keyPath, keyBlob, 0o600); err != nil {
+	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
+	if err := os.WriteFile(keyPath, keyData, 0o600); err != nil {
 		return "", fmt.Errorf("applykeys write: %w", err)
 	}
-	if m.svc != nil {
-		_ = m.svc.t.Close()
-		m.svc = nil
+	// Remove any stale derived files so Tor regenerates them from the new key.
+	for _, name := range []string{"hs_ed25519_public_key", "hostname"} {
+		if err := os.Remove(filepath.Join(siteDir, name)); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("remove stale %s: %w", name, err)
+		}
 	}
+	m.closeSvcLocked()
 	if err := m.startLocked(); err != nil {
 		return "", err
 	}
 	if m.svc != nil {
-		return m.svc.serviceID + ".onion", nil
+		return m.svc.onionAddress, nil
 	}
 	return "", nil
 }
@@ -389,8 +485,7 @@ func (m *Manager) Monitor() {
 				// if the live service is still the one we sampled, to avoid a
 				// double Close() and clobbering a concurrent restart.
 				if m.svc == svc {
-					_ = svc.t.Close()
-					m.svc = nil
+					m.closeSvcLocked()
 					if err := m.startLocked(); err != nil {
 						log.Printf("Tor: restart failed: %v", err)
 					}
@@ -426,36 +521,12 @@ func ensureTorDirs(configDir, dataDir string) error {
 	return nil
 }
 
-// updateTorrc overwrites the torrc with fresh generated content and restarts
-// Tor so the new configuration takes effect. Callers use this for config
-// changes after initial startup (initial startup uses create-only semantics).
-func (m *Manager) updateTorrc() error {
-	torrcPath := filepath.Join(m.cfg.ConfigDir, "tor", "torrc")
-	if err := writeIfChanged(torrcPath, []byte(getTorConfig(&m.cfg)), 0o600); err != nil {
-		return fmt.Errorf("updateTorrc write: %w", err)
-	}
-	return nil
-}
-
-// writeIfChanged writes content to path only if it differs or doesn't exist.
-func writeIfChanged(path string, content []byte, perm os.FileMode) error {
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(content) {
-		return nil
-	}
-	return os.WriteFile(path, content, perm)
-}
-
-// saveKey persists the hidden service key for address stability.
-func saveKey(path string, key control.Key) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(key.Blob()), 0o600)
-}
-
-// getTorConfig generates torrc content from the given Config.
-// The hidden service is created via ADD_ONION, not torrc HiddenServiceDir.
-func getTorConfig(cfg *Config) string {
+// getTorConfig generates torrc content from the given Config. The hidden
+// service is declared via HiddenServiceDir/HiddenServicePort — Tor itself
+// generates and persists the ed25519 identity and .onion hostname under
+// HiddenServiceDir. backendPort is the dedicated loopback port the hidden
+// service forwards to (never the clearnet server port).
+func getTorConfig(cfg *Config, backendPort int) string {
 	socksLine := "SocksPort 0"
 	if cfg.UseNetwork {
 		socksLine = "SocksPort auto"
@@ -469,6 +540,7 @@ func getTorConfig(cfg *Config) string {
 		accounting = fmt.Sprintf("\n# Monthly bandwidth limit\nAccountingStart month 1 00:00\nAccountingMax %s", cfg.MaxMonthlyBandwidth)
 	}
 	return fmt.Sprintf(`# Tor configuration — managed by pastebin server binary
+# Regenerated on every startup; this file is fully-derived state.
 # NEVER uses default ports 9050/9051 — runtime auto-ports only
 
 # SOCKS (0 = hidden service only, auto = outbound enabled)
@@ -476,6 +548,15 @@ func getTorConfig(cfg *Config) string {
 
 # Control port — localhost only, runtime port selection
 ControlPort 127.0.0.1:auto
+
+# Hidden service — Tor generates/persists the v3 identity and .onion
+# hostname under HiddenServiceDir; forwards to a dedicated loopback backend.
+HiddenServiceDir %s
+HiddenServiceVersion 3
+HiddenServicePort %d 127.0.0.1:%d
+HiddenServiceExportCircuitID haproxy
+VanguardsLiteEnabled 1
+HiddenServiceSingleHopMode 0
 
 # Security
 SafeLogging %s
@@ -498,5 +579,5 @@ DirPort 0
 FetchDirInfoEarly 1
 FetchDirInfoExtraEarly 1
 DisableDebuggerAttachment 1
-`, socksLine, safeLog, cfg.BandwidthRate, cfg.BandwidthBurst, accounting)
+`, socksLine, filepath.Join(cfg.DataDir, "tor", "site"), cfg.VirtualPort, backendPort, safeLog, cfg.BandwidthRate, cfg.BandwidthBurst, accounting)
 }

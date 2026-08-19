@@ -64,6 +64,7 @@ This software includes the following third-party libraries:
 | github.com/munnerz/goautoneg | v0.0.0-20191010083416-a7dc8b61c822 | BSD-3-Clause | 2011 The Go Authors |
 | github.com/ncruces/go-strftime | v0.1.9 | MIT | 2022 Nuno Cruces |
 | github.com/oschwald/maxminddb-golang | v1.13.1 | ISC | 2015 Gregory J. Oswald |
+| github.com/pires/go-proxyproto | v0.15.0 | Apache-2.0 | 2016 Paulo Pires |
 | github.com/prometheus/client_golang | v1.23.2 | Apache-2.0 | 2012-2015 The Prometheus Authors |
 | github.com/prometheus/client_model | v0.6.2 | Apache-2.0 | 2012-2015 The Prometheus Authors |
 | github.com/prometheus/common | v0.66.1 | Apache-2.0 | 2015 The Prometheus Authors |

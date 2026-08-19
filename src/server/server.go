@@ -42,6 +42,7 @@ import (
 	"github.com/apimgr/pastebin/src/graphql"
 	"github.com/apimgr/pastebin/src/handler"
 	"github.com/apimgr/pastebin/src/health"
+	"github.com/apimgr/pastebin/src/i2p"
 	"github.com/apimgr/pastebin/src/logging"
 	"github.com/apimgr/pastebin/src/metric"
 	"github.com/apimgr/pastebin/src/mode"
@@ -147,11 +148,20 @@ type BuildInfo struct {
 // FeaturesInfo reports which optional features are active.
 type FeaturesInfo struct {
 	Tor   TorInfo `json:"tor"`
+	I2P   I2PInfo `json:"i2p"`
 	GeoIP bool    `json:"geoip"`
 }
 
 // TorInfo reports Tor hidden service status.
 type TorInfo struct {
+	Enabled  bool   `json:"enabled"`
+	Running  bool   `json:"running"`
+	Status   string `json:"status"`
+	Hostname string `json:"hostname"`
+}
+
+// I2PInfo reports I2P eepsite status.
+type I2PInfo struct {
 	Enabled  bool   `json:"enabled"`
 	Running  bool   `json:"running"`
 	Status   string `json:"status"`
@@ -165,6 +175,7 @@ type ChecksInfo struct {
 	Disk      string `json:"disk"`
 	Scheduler string `json:"scheduler"`
 	Tor       string `json:"tor,omitempty"`
+	I2P       string `json:"i2p,omitempty"`
 	// Config is an APP-SPECIFIC check (AI.md:17202 "Add your checks here").
 	Config string `json:"config"`
 }
@@ -202,6 +213,7 @@ type Server struct {
 	metricsCollector *metric.Collector
 	geoipDB          *geoip.DB
 	torManager       *tor.Manager
+	i2pManager       *i2p.Manager
 	readLimiter      *rateLimiter
 	writeLimiter     *rateLimiter
 	healthLimiter    *rateLimiter
@@ -511,7 +523,7 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		portField = portField[:i]
 	}
 	serverPort, _ := strconv.Atoi(strings.TrimSpace(portField))
-	s.torManager = tor.NewManager(context.Background(), serverPort, torCfg)
+	s.torManager = tor.NewManager(context.Background(), serverPort, torCfg, s.router)
 
 	// Report Tor state into the tor_* metrics at scrape time.
 	s.metricsCollector.SetTorProvider(func() (enabled, running bool) {
@@ -885,6 +897,22 @@ func (s *Server) TorOnionAddress() string {
 		return ""
 	}
 	return s.torManager.OnionAddress()
+}
+
+// I2PRunning reports whether the I2P eepsite is currently running.
+func (s *Server) I2PRunning() bool {
+	if s.i2pManager == nil {
+		return false
+	}
+	return s.i2pManager.Running()
+}
+
+// I2PAddress returns the .b32.i2p address, or empty string if not running.
+func (s *Server) I2PAddress() string {
+	if s.i2pManager == nil {
+		return ""
+	}
+	return s.i2pManager.Address()
 }
 
 // maybeReadRateLimit wraps h with the read (GET/HEAD) rate limiter if enabled (PART 12).
@@ -2105,6 +2133,39 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		defer s.torManager.Close()
 	}
 
+	// Start I2P eepsite (opt-in; disabled unless server.i2p.enabled is set).
+	// Constructed here rather than in New() because it depends on s.logDir,
+	// which main only populates via SetLogDir() after New() returns.
+	i2pCfg := s.liveCfg().Server.I2P
+	if i2pCfg.Enabled {
+		bootstrapTimeout := 5 * time.Minute
+		if d, err := time.ParseDuration(i2pCfg.BootstrapTimeout); err == nil && d > 0 {
+			bootstrapTimeout = d
+		}
+		s.i2pManager = i2p.NewManager(context.Background(), i2p.Config{
+			Enabled:          i2pCfg.Enabled,
+			Binary:           i2pCfg.Binary,
+			SAMAddress:       i2pCfg.SAMAddress,
+			VirtualPort:      i2pCfg.VirtualPort,
+			InboundLength:    i2pCfg.InboundLength,
+			OutboundLength:   i2pCfg.OutboundLength,
+			InboundQuantity:  i2pCfg.InboundQuantity,
+			OutboundQuantity: i2pCfg.OutboundQuantity,
+			SignatureType:    i2pCfg.SignatureType,
+			BootstrapTimeout: bootstrapTimeout,
+			ConfigDir:        s.configDir,
+			DataDir:          s.dataDir,
+			LogDir:           s.logDir,
+		}, s.router)
+		if err := s.i2pManager.Start(); err != nil {
+			log.Printf("i2p: start failed: %v", err)
+		} else if s.i2pManager.Running() {
+			go s.i2pManager.Monitor()
+			s.persistB32Address()
+		}
+		defer s.i2pManager.Close()
+	}
+
 	cfg := s.liveCfg()
 
 	// PART 15: "Server validates credentials on startup and before
@@ -2453,10 +2514,20 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		}
 	}
 
+	// I2P health check — report only when I2P is enabled.
+	i2pInfo := s.buildI2PInfo()
+	if i2pInfo.Enabled {
+		if i2pInfo.Running {
+			checks.I2P = "ok"
+		} else {
+			checks.I2P = "error"
+		}
+	}
+
 	status := "healthy"
 	if checks.Database == "error" || checks.Disk == "error" {
 		status = "unhealthy"
-	} else if checks.Cache == "error" || checks.Scheduler == "error" || checks.Tor == "error" {
+	} else if checks.Cache == "error" || checks.Scheduler == "error" || checks.Tor == "error" || checks.I2P == "error" {
 		status = "degraded"
 	}
 
@@ -2521,6 +2592,7 @@ func (s *Server) buildHealthResponse() HealthResponse {
 		Maintenance: maint,
 		Features: FeaturesInfo{
 			Tor:   torInfo,
+			I2P:   i2pInfo,
 			GeoIP: s.geoipDB != nil,
 		},
 		Checks: checks,
@@ -2550,6 +2622,25 @@ func (s *Server) buildTorInfo() TorInfo {
 		Running:  running,
 		Status:   status,
 		Hostname: onion,
+	}
+}
+
+// buildI2PInfo returns the I2PInfo block for health responses.
+func (s *Server) buildI2PInfo() I2PInfo {
+	if s.i2pManager == nil {
+		return I2PInfo{Enabled: false, Running: false, Status: "disabled", Hostname: ""}
+	}
+	running := s.i2pManager.Running()
+	addr := s.i2pManager.Address()
+	status := "starting"
+	if running {
+		status = "healthy"
+	}
+	return I2PInfo{
+		Enabled:  true,
+		Running:  running,
+		Status:   status,
+		Hostname: addr,
 	}
 }
 
@@ -2628,6 +2719,14 @@ func writeHealthText(w http.ResponseWriter, hr HealthResponse) {
 	if hr.Features.Tor.Hostname != "" {
 		fmt.Fprintf(w, "features.tor.hostname: %s\n", hr.Features.Tor.Hostname)
 	}
+	fmt.Fprintf(w, "features.i2p.enabled: %t\n", hr.Features.I2P.Enabled)
+	fmt.Fprintf(w, "features.i2p.running: %t\n", hr.Features.I2P.Running)
+	if hr.Features.I2P.Status != "" {
+		fmt.Fprintf(w, "features.i2p.status: %s\n", hr.Features.I2P.Status)
+	}
+	if hr.Features.I2P.Hostname != "" {
+		fmt.Fprintf(w, "features.i2p.hostname: %s\n", hr.Features.I2P.Hostname)
+	}
 	fmt.Fprintf(w, "features.geoip: %t\n", hr.Features.GeoIP)
 	fmt.Fprintf(w, "checks.database: %s\n", hr.Checks.Database)
 	fmt.Fprintf(w, "checks.cache: %s\n", hr.Checks.Cache)
@@ -2636,6 +2735,9 @@ func writeHealthText(w http.ResponseWriter, hr HealthResponse) {
 	fmt.Fprintf(w, "checks.scheduler: %s\n", hr.Checks.Scheduler)
 	if hr.Checks.Tor != "" {
 		fmt.Fprintf(w, "checks.tor: %s\n", hr.Checks.Tor)
+	}
+	if hr.Checks.I2P != "" {
+		fmt.Fprintf(w, "checks.i2p: %s\n", hr.Checks.I2P)
 	}
 	fmt.Fprintf(w, "stats.requests_total: %d\n", hr.Stats.RequestsTotal)
 	fmt.Fprintf(w, "stats.requests_24h: %d\n", hr.Stats.Requests24h)
@@ -2759,6 +2861,7 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 			// Feature flags visible to clients
 			"features": map[string]interface{}{
 				"tor":     s.torManager != nil && s.torManager.Running(),
+				"i2p":     s.i2pManager != nil && s.i2pManager.Running(),
 				"metrics": cfg.Server.Metrics.Enabled,
 			},
 		},
@@ -4190,6 +4293,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject Tor hidden-service status so footers/help can show the "Tor Support"
 	// link and onion address only when the service is enabled and running (PART 31)
 	s.injectTorData(data)
+	s.injectI2PData(data)
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("template %s error: %v", name, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "SERVER_ERROR", "message": "internal server error"})
@@ -4231,6 +4335,7 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
+	s.injectI2PData(data)
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "layout", data); err != nil {
 		return "", err
@@ -4270,6 +4375,21 @@ func (s *Server) injectTorData(data map[string]interface{}) {
 		data["TorAddress"] = s.TorOnionAddress()
 	} else {
 		data["TorAddress"] = ""
+	}
+}
+
+// injectI2PData adds the I2P eepsite status fields used by page footers and
+// the /server/help I2P Access section (PART 31.2). I2PEnabled reflects that
+// the eepsite is configured (opt-in); I2PRunning that it is currently
+// active; the .b32.i2p address is only meaningful while running.
+func (s *Server) injectI2PData(data map[string]interface{}) {
+	running := s.I2PRunning()
+	data["I2PEnabled"] = s.i2pManager != nil
+	data["I2PRunning"] = running
+	if running {
+		data["I2PAddress"] = s.I2PAddress()
+	} else {
+		data["I2PAddress"] = ""
 	}
 }
 
@@ -4396,6 +4516,7 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	}
 	s.injectFooterData(data)
 	s.injectTorData(data)
+	s.injectI2PData(data)
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("error template render failed: %v", err)
 	}
@@ -4423,6 +4544,27 @@ func (s *Server) persistOnionAddress() {
 	}
 }
 
+// persistB32Address writes the .b32.i2p address to server.i2p.b32_address on
+// the first successful I2P bootstrap (PART 31.2, mirroring
+// persistOnionAddress's PART 12 behavior). The stored address enables I2P
+// request detection (baseURL priority 0, contact-email privacy rules).
+// Runs in Run() before HTTP serving starts, so writing s.cfg here is
+// race-free. Already-set addresses are never overwritten.
+func (s *Server) persistB32Address() {
+	b32 := strings.TrimSpace(s.I2PAddress())
+	if b32 == "" || strings.TrimSpace(s.cfg.Server.I2P.B32Address) != "" {
+		return
+	}
+	s.cfg.Server.I2P.B32Address = b32
+	if live := s.liveCfg(); live != s.cfg {
+		live.Server.I2P.B32Address = b32
+	}
+	cfgPath := filepath.Join(s.configDir, "server.yml")
+	if err := config.SetB32Address(cfgPath, b32); err != nil {
+		log.Printf("i2p: persisting b32 address to %s failed: %v", cfgPath, err)
+	}
+}
+
 // torRequestOnion returns the configured onion address when the request
 // arrived via the Tor hidden service — the request Host (after port
 // stripping) matches tor.onion_address (PART 12 priority-0 Tor detection).
@@ -4445,30 +4587,53 @@ func (s *Server) torRequestOnion(r *http.Request) string {
 	return ""
 }
 
+// i2pRequestB32 returns the configured .b32.i2p address when the request
+// arrived via the I2P eepsite — the request Host (after port stripping)
+// matches i2p.b32_address (PART 31.2 priority-0 I2P detection, same trust
+// chain as torRequestOnion). Returns "" for clearnet requests or when no
+// I2P address is configured (I2P disabled or not yet bootstrapped).
+func (s *Server) i2pRequestB32(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	b32 := strings.TrimSpace(s.cfg.Server.I2P.B32Address)
+	if b32 == "" {
+		return ""
+	}
+	reqHost := r.Host
+	if h, _, err := net.SplitHostPort(reqHost); err == nil {
+		reqHost = h
+	}
+	if strings.EqualFold(reqHost, b32) {
+		return b32
+	}
+	return ""
+}
+
 // publicContactEmail returns the general contact address safe to disclose for
-// this request. Tor responses show tor.contact_email only — when it is unset
-// no email is shown; the clearnet email is NEVER a fallback (PART 12 Tor
-// privacy rules).
+// this request. Tor/I2P responses show tor.contact_email only — when it is
+// unset no email is shown; the clearnet email is NEVER a fallback (PART 12
+// Tor privacy rules, extended to .b32.i2p per PART 31.2).
 func (s *Server) publicContactEmail(r *http.Request) string {
-	if s.torRequestOnion(r) != "" {
+	if s.torRequestOnion(r) != "" || s.i2pRequestB32(r) != "" {
 		return strings.TrimSpace(s.liveCfg().Server.Tor.ContactEmail)
 	}
 	return s.liveCfg().GeneralEmailPublic()
 }
 
 // publicAbuseEmail returns the abuse contact address safe to disclose for
-// this request — same Tor privacy rule as publicContactEmail.
+// this request — same Tor/I2P privacy rule as publicContactEmail.
 func (s *Server) publicAbuseEmail(r *http.Request) string {
-	if s.torRequestOnion(r) != "" {
+	if s.torRequestOnion(r) != "" || s.i2pRequestB32(r) != "" {
 		return strings.TrimSpace(s.liveCfg().Server.Tor.ContactEmail)
 	}
 	return s.liveCfg().AbuseEmailPublic()
 }
 
 // publicSecurityEmail returns the security contact address safe to disclose
-// for this request — same Tor privacy rule as publicContactEmail.
+// for this request — same Tor/I2P privacy rule as publicContactEmail.
 func (s *Server) publicSecurityEmail(r *http.Request) string {
-	if s.torRequestOnion(r) != "" {
+	if s.torRequestOnion(r) != "" || s.i2pRequestB32(r) != "" {
 		return strings.TrimSpace(s.liveCfg().Server.Tor.ContactEmail)
 	}
 	return s.liveCfg().SecurityEmail()
@@ -4491,6 +4656,12 @@ func (s *Server) baseURL(r *http.Request) string {
 	// http, no proxy header inspection, no IP check (PART 12 priority-0 rule).
 	if onion := s.torRequestOnion(r); onion != "" {
 		return "http://" + onion
+	}
+
+	// Priority 0: I2P eepsite — identical rule for .b32.i2p (PART 31.2 "Trust
+	// chain integration": trusted for FQDN resolution exactly like .onion).
+	if b32 := s.i2pRequestB32(r); b32 != "" {
+		return "http://" + b32
 	}
 
 	if s.cfg.Server.BaseURL != "" {

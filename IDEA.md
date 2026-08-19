@@ -43,7 +43,8 @@ tagline: Drop-in replacement for pastebin.com, hastebin, dpaste, microbin, and m
 - Drop-in compat layer for pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, the curl-upload family (0x0.st, sprunge.us, ix.io), and termbin/fiche (raw-TCP listener, enabled by default; disable via `server.termbin.enabled: false` or `TERMBIN_ENABLED=false`) — compat routes use their own delete-token mechanism (stored in paste row) separate from the owner token system
 - Two-tier operator token: server operator may set a `server.token` in `server.yml`; this operator token allows deleting any paste unconditionally
 - i18n: 7 supported locales (en, es, fr, de, zh, ar, ja); automatic language selection via `Accept-Language` header; RTL layout for Arabic (`dir="rtl"` on `<html>`); fallback to English when locale unknown
-- Tor hidden service: auto-enabled when the `tor` binary is found on `$PATH` or in common locations; v3 .onion address with persistent ed25519 key; non-fatal when Tor is absent; uses `github.com/cretz/bine` (pure Go, CGO_ENABLED=0 preserved)
+- Tor hidden service: auto-enabled when the `tor` binary is found on `$PATH` or in common locations; v3 .onion address declared via torrc (`HiddenServiceDir`/`HiddenServicePort`) with a persistent ed25519 key generated/held by Tor itself; PROXY-protocol-aware dedicated backend listener; non-fatal when Tor is absent; uses `github.com/cretz/bine` + `github.com/pires/go-proxyproto` (pure Go, CGO_ENABLED=0 preserved)
+- I2P eepsite: optional, disabled by default (`server.i2p.enabled` / `I2P_ENABLED` / `--i2p`); when enabled, uses a dedicated i2pd child process if the binary is found, else falls back to a SAMv3 session against a local SAM bridge; persistent `.b32.i2p` destination address; plain loopback backend (no PROXY-protocol wrapping); non-fatal when neither provider is available
 - GeoIP: MaxMind GeoLite2-Country database; auto-downloaded via jsDelivr CDN by the `geoip_update` scheduled task; applied per-request via middleware; country-based access control (allowlist or denylist); graceful fail-open when database unavailable
 - Prometheus metrics at `/metrics` (`pastebin_` namespace); internal-only (IP allowlist + optional bearer token on same port); never exposed publicly
 - Built-in task scheduler (internal `time.Ticker` engine, no external cron): 10 registered tasks — `ssl_renewal`, `geoip_update`, `blocklist_update`, `cve_update`, `token_cleanup`, `log_rotation`, `backup_daily`, `backup_hourly`, `healthcheck_self`, `tor_health` — plus `expire-pastes` for expiry and burn-after cleanup
@@ -81,7 +82,8 @@ tagline: Drop-in replacement for pastebin.com, hastebin, dpaste, microbin, and m
 - **OpenAPI/Swagger docs** and a **read-only GraphQL query interface** (create/delete remain REST-only)
 - **Drop-in compatibility layer** for pastebin.com, microbin, lenpaste, stikked, hastebin/haste-server, dpaste, the curl-upload family (0x0.st, sprunge.us, ix.io), and termbin/fiche (raw-TCP, enabled by default) — see Compat targets below
 - **i18n** — 7 locales (en, es, fr, de, zh, ar, ja), automatic selection via `Accept-Language`, RTL layout for Arabic, fallback to English
-- **Tor hidden service** — auto-enabled when the `tor` binary is present; persistent v3 `.onion` address
+- **Tor hidden service** — auto-enabled when the `tor` binary is present; persistent v3 `.onion` address via torrc `HiddenServiceDir`
+- **I2P eepsite** — optional, opt-in; persistent `.b32.i2p` address via dedicated i2pd process or SAM bridge
 - **GeoIP country blocking** — allowlist or denylist, fail-open when the database is unavailable
 - **Prometheus metrics** at `/metrics` — internal-only, never exposed publicly
 - **Built-in task scheduler** — no external cron; expiry/burn cleanup, backups, SSL renewal, GeoIP/blocklist/CVE updates, health checks
@@ -174,6 +176,9 @@ Yes, per-endpoint and IP-based; configurable in `server.yml`.
 **Can I access it over Tor?**
 Yes, when the `tor` binary is present the server auto-enables a persistent `.onion` hidden service address, shown on `/server/help`.
 
+**Can I access it over I2P?**
+Only if the operator opts in (`server.i2p.enabled` / `I2P_ENABLED` / `--i2p`, disabled by default). When enabled and a provider (i2pd or a local SAM bridge) is available, a persistent `.b32.i2p` eepsite address is shown on `/server/help`.
+
 ### Roles & permissions
 
 No user roles exist. All native API endpoints are public. The only privilege distinction is the operator token configured server-side.
@@ -226,7 +231,8 @@ No user roles exist. All native API endpoints are public. The only privilege dis
 | Operator token (inbound) | **Untrusted** | Hashed; constant-time compare against cached hash |
 | Compat delete token (inbound) | **Untrusted** | Hashed before comparison |
 | GitHub Releases API | **Untrusted network source** | Used by self-update; SHA-256 checksum verified before applying the downloaded binary; update is operator-initiated, not automatic |
-| Tor binary (host-installed) | Trusted — operator-controlled binary | Forked as subprocess via `github.com/cretz/bine`; non-fatal when absent |
+| Tor binary (host-installed) | Trusted — operator-controlled binary | Forked as subprocess via `github.com/cretz/bine`; hidden service declared via torrc `HiddenServiceDir`; non-fatal when absent |
+| I2P provider (i2pd binary or local SAM bridge) | Trusted — operator-controlled binary/service, opt-in only | i2pd forked as subprocess, or raw SAMv3 session against `sam_address`; non-fatal when neither is available; disabled by default |
 | SMTP server (operator-configured) | Semi-trusted — operator-controlled | Used for email notifications; credentials in `server.yml`; silently disabled when unconfigured |
 | GeoIP CDN (jsDelivr) | Semi-trusted network source | GeoLite2-Country database downloaded by `geoip_update` scheduled task over HTTPS; no separate checksum beyond HTTPS; fail-open on download error |
 
