@@ -67,7 +67,8 @@
   "theme": {
     "light": "ライト",
     "dark": "ダーク",
-    "auto": "自動"
+    "auto": "自動",
+    "toggle": "テーマを切り替え"
   },
   "auth": {
     "login": "ログイン",
@@ -300,7 +301,15 @@
   "pwa": {
     "install": "アプリをインストール",
     "installed": "アプリがインストールされました",
-    "offline_message": "インターネット接続がありません。キャッシュされたコンテンツを表示しています。"
+    "offline_message": "インターネット接続がありません。キャッシュされたコンテンツを表示しています。",
+    "offline_title": "オフライン",
+    "offline_heading": "オフラインです",
+    "offline_body": "オフラインではこのページを利用できません。インターネット接続を確認して、もう一度お試しください。",
+    "retry": "再試行",
+    "ios_install_title": "このアプリをインストール",
+    "ios_step_share": "共有ボタンをタップします",
+    "ios_step_add": "下にスクロールして「ホーム画面に追加」をタップします",
+    "ios_step_confirm": "右上の「追加」をタップします"
   },
   "errors": {
     "required": "このフィールドは必須です",
@@ -507,7 +516,8 @@
     "made_with": "心を込めて",
     "last_update": "最終更新",
     "tor_support": "Torサポート",
-    "copy_onion": "onionアドレスをコピー"
+    "copy_onion": "onionアドレスをコピー",
+    "navigation": "フッター"
   },
   "home": {
     "browse_recent": "最近のペースト",
@@ -586,7 +596,8 @@
     "active_content_desc": "このファイルタイプはブラウザでスクリプトを実行できるため、セキュリティ上の理由からインライン表示できません。",
     "binary_title": "バイナリファイル",
     "binary_desc": "このファイルはテキスト形式ではないため、ブラウザに表示できません。",
-    "embed_title": "このペーストを埋め込む"
+    "embed_title": "このペーストを埋め込む",
+    "title_placeholder": "無題"
   },
   "qr": {
     "download_qr": "QRをダウンロード",

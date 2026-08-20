@@ -67,7 +67,8 @@
   "theme": {
     "light": "Claro",
     "dark": "Oscuro",
-    "auto": "Automático"
+    "auto": "Automático",
+    "toggle": "Cambiar tema"
   },
   "auth": {
     "login": "Iniciar sesión",
@@ -300,7 +301,15 @@
   "pwa": {
     "install": "Instalar aplicación",
     "installed": "Aplicación instalada",
-    "offline_message": "No hay conexión a internet. Mostrando contenido almacenado."
+    "offline_message": "No hay conexión a internet. Mostrando contenido almacenado.",
+    "offline_title": "Sin conexión",
+    "offline_heading": "Estás sin conexión",
+    "offline_body": "Esta página no está disponible sin conexión. Comprueba tu conexión a internet e inténtalo de nuevo.",
+    "retry": "Reintentar",
+    "ios_install_title": "Instala esta aplicación",
+    "ios_step_share": "Toca el botón Compartir",
+    "ios_step_add": "Desplázate hacia abajo y toca \"Añadir a pantalla de inicio\"",
+    "ios_step_confirm": "Toca \"Añadir\" en la esquina superior derecha"
   },
   "errors": {
     "required": "Este campo es obligatorio",
@@ -507,7 +516,8 @@
     "made_with": "Hecho con",
     "last_update": "Última actualización",
     "tor_support": "Soporte Tor",
-    "copy_onion": "Copiar dirección onion"
+    "copy_onion": "Copiar dirección onion",
+    "navigation": "Pie de página"
   },
   "home": {
     "browse_recent": "Ver recientes",
@@ -586,7 +596,8 @@
     "active_content_desc": "Este tipo de archivo puede ejecutar scripts en un navegador y no puede mostrarse en línea por razones de seguridad.",
     "binary_title": "Archivo binario",
     "binary_desc": "Este archivo no es un formato de texto y no puede mostrarse en el navegador.",
-    "embed_title": "Insertar este paste"
+    "embed_title": "Insertar este paste",
+    "title_placeholder": "Sin título"
   },
   "qr": {
     "download_qr": "Descargar QR",

@@ -150,6 +150,71 @@ function applyUpdate() {
     }
 }
 
+// ─── App install prompt ──────────────────────────────────────────────────────
+
+let deferredInstallPrompt = null;
+
+// isInstalledPWA reports whether the page runs as an installed app.
+function isInstalledPWA() {
+    return window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+}
+
+// isIOSSafari reports iOS devices, which never fire beforeinstallprompt and
+// need manual "Add to Home Screen" instructions instead.
+function isIOSSafari() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+
+// showInstallButton reveals the server-rendered footer install affordance.
+function showInstallButton() {
+    const wrap = document.querySelector('.footer-install');
+    if (wrap) wrap.hidden = false;
+}
+
+// hideInstallButton hides the footer install affordance.
+function hideInstallButton() {
+    const wrap = document.querySelector('.footer-install');
+    if (wrap) wrap.hidden = true;
+}
+
+// installApp triggers the captured browser prompt, or the iOS instructions
+// dialog when no prompt event exists (iOS Safari).
+function installApp() {
+    if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.then(function () {
+            deferredInstallPrompt = null;
+            hideInstallButton();
+        });
+        return;
+    }
+    const dlg = document.getElementById('ios-install-dialog');
+    if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
+}
+
+// Capture the install prompt; never show the browser default automatically.
+window.addEventListener('beforeinstallprompt', function (event) {
+    event.preventDefault();
+    if (isInstalledPWA()) return;
+    deferredInstallPrompt = event;
+    showInstallButton();
+});
+
+// Hide the affordance once the app is installed.
+window.addEventListener('appinstalled', function () {
+    deferredInstallPrompt = null;
+    hideInstallButton();
+});
+
+// Wire the install button and surface it on iOS Safari, where
+// beforeinstallprompt never fires but manual install is possible.
+document.addEventListener('DOMContentLoaded', function () {
+    const btn = document.querySelector('[data-action="install-app"]');
+    if (btn) btn.addEventListener('click', installApp);
+    if (isIOSSafari() && !isInstalledPWA()) showInstallButton();
+});
+
 // ─── Offline Detection ───────────────────────────────────────────────────────
 
 // Toggle a persistent #offline-indicator entry inside #toast-container based on

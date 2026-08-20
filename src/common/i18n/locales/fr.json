@@ -67,7 +67,8 @@
   "theme": {
     "light": "Clair",
     "dark": "Sombre",
-    "auto": "Automatique"
+    "auto": "Automatique",
+    "toggle": "Changer de thème"
   },
   "auth": {
     "login": "Se connecter",
@@ -300,7 +301,15 @@
   "pwa": {
     "install": "Installer l'application",
     "installed": "Application installée",
-    "offline_message": "Pas de connexion Internet. Affichage du contenu mis en cache."
+    "offline_message": "Pas de connexion Internet. Affichage du contenu mis en cache.",
+    "offline_title": "Hors ligne",
+    "offline_heading": "Vous êtes hors ligne",
+    "offline_body": "Cette page n'est pas disponible hors ligne. Vérifiez votre connexion internet et réessayez.",
+    "retry": "Réessayer",
+    "ios_install_title": "Installer cette application",
+    "ios_step_share": "Touchez le bouton Partager",
+    "ios_step_add": "Faites défiler vers le bas et touchez \"Sur l'écran d'accueil\"",
+    "ios_step_confirm": "Touchez \"Ajouter\" en haut à droite"
   },
   "errors": {
     "required": "Ce champ est obligatoire",
@@ -507,7 +516,8 @@
     "made_with": "Fait avec",
     "last_update": "Dernière mise à jour",
     "tor_support": "Support Tor",
-    "copy_onion": "Copier l'adresse onion"
+    "copy_onion": "Copier l'adresse onion",
+    "navigation": "Pied de page"
   },
   "home": {
     "browse_recent": "Voir les récents",
@@ -586,7 +596,8 @@
     "active_content_desc": "Ce type de fichier peut exécuter des scripts dans un navigateur et ne peut pas être affiché en ligne pour des raisons de sécurité.",
     "binary_title": "Fichier binaire",
     "binary_desc": "Ce fichier n'est pas un format texte et ne peut pas être affiché dans le navigateur.",
-    "embed_title": "Intégrer ce paste"
+    "embed_title": "Intégrer ce paste",
+    "title_placeholder": "Sans titre"
   },
   "qr": {
     "download_qr": "Télécharger le QR",

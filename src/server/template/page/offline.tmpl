@@ -1,17 +1,16 @@
 {{define "meta"}}
-    <title>Offline - {{.SiteTitle}}</title>
+    <title>{{t .Lang "pwa.offline_title"}} - {{.SiteTitle}}</title>
 {{end}}
 
 {{define "content"}}
         <div class="offline-page">
             <div class="offline-icon">📡</div>
-            <h1 class="offline-title">You are offline</h1>
+            <h1 class="offline-title">{{t .Lang "pwa.offline_heading"}}</h1>
             <p class="offline-message">
-                This page is not available while you are offline.
-                Check your internet connection and try again.
+                {{t .Lang "pwa.offline_body"}}
             </p>
             <button class="btn btn-primary" data-action="reload">
-                Try Again
+                {{t .Lang "pwa.retry"}}
             </button>
         </div>
 {{end}}

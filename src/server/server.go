@@ -3925,7 +3925,16 @@ func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 // ─── Misc handlers ────────────────────────────────────────────────────────────
 
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
+	version := s.version
+	if version == "" {
+		version = "dev"
+	}
+	// PWA manifest is revalidated on every load (PART 16) so a new build's icons
+	// and metadata are picked up promptly; the version-derived ETag lets the
+	// browser short-circuit with 304 when nothing changed.
 	w.Header().Set("Content-Type", "application/manifest+json")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", fmt.Sprintf(`"manifest-%s"`, version))
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name":             s.liveCfg().Web.SiteTitle,
 		"short_name":       "Paste",
@@ -3949,6 +3958,9 @@ func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	if version == "" {
 		version = "dev"
 	}
+	// Version-derived ETag lets a controlled browser revalidate the worker
+	// script cheaply (PART 16 — /sw.js is no-cache + ETag).
+	w.Header().Set("ETag", fmt.Sprintf(`"sw-%s"`, version))
 	sw := fmt.Sprintf(`// Pastebin Service Worker — version %s
 const CACHE_VERSION = %q;
 const CACHE_NAME = 'pastebin-cache-' + CACHE_VERSION;
@@ -3994,34 +4006,24 @@ self.addEventListener('message', event => {
   }
 });
 
-// FETCH — tiered caching strategy
+// FETCH — every response path MUST resolve to a real Response. A promise that
+// resolves to undefined — or rejects — makes the browser render net::ERR_FAILED
+// instead of a page. Every branch below therefore ends in a guaranteed Response.
 self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Only intercept same-origin GET requests
+  // Only same-origin GET is handled here; everything else falls through to the
+  // browser untouched (never call respondWith for it)
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // API calls: network-only (never cache)
+  // API calls are network-only — never intercept
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/graphql')) return;
 
-  // Static assets: cache-first, update cache on network hit
-  if (url.pathname.startsWith('/static/')) {
-    event.respondWith(
-      caches.match(request).then(cached => {
-        if (cached) return cached;
-        return fetch(request).then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
-          return response;
-        });
-      })
-    );
-    return;
-  }
-
-  // HTML pages: network-first, fall back to cache then offline page
-  if (request.headers.get('accept') && request.headers.get('accept').includes('text/html')) {
+  // Navigations (page loads): network-first, then cache, then a GUARANTEED
+  // synthesized offline page — a transient network failure renders a real error
+  // page, never net::ERR_FAILED
+  if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then(response => {
@@ -4029,18 +4031,54 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
           return response;
         })
-        .catch(() => caches.match(request)
-          .then(cached => cached || caches.match('/offline'))
+        .catch(async () =>
+          (await caches.match(request))
+            || (await caches.match('/offline'))
+            || offlineFallbackResponse()
         )
     );
     return;
   }
 
-  // Default: network-first with cache fallback
+  // Static assets: cache-first, then network, then a GUARANTEED 504 — a failed
+  // subresource must never reject respondWith
+  if (url.pathname.startsWith('/static/')) {
+    event.respondWith(
+      caches.match(request)
+        .then(cached => cached || fetch(request).then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+          return response;
+        }))
+        .catch(() => new Response('', { status: 504, statusText: 'Gateway Timeout' }))
+    );
+    return;
+  }
+
+  // Everything else: network-first, then cache, then a GUARANTEED 504
   event.respondWith(
-    fetch(request).catch(() => caches.match(request))
+    fetch(request)
+      .catch(async () =>
+        (await caches.match(request))
+          || new Response('', { status: 504, statusText: 'Gateway Timeout' })
+      )
   );
 });
+
+// GUARANTEED last-resort page — synthesized in the worker so it needs no cache
+// hit and can never itself miss
+function offlineFallbackResponse() {
+  return new Response(
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<title>Offline</title></head><body><main>'
+      + '<h1>You are offline</h1><p>This page could not be loaded and no '
+      + 'cached copy is available. Check your connection and try again.</p>'
+      + '</main></body></html>',
+    { status: 503, statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
+}
 `, version, version)
 	w.Write([]byte(sw))
 }

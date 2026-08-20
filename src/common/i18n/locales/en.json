@@ -67,7 +67,8 @@
   "theme": {
     "light": "Light",
     "dark": "Dark",
-    "auto": "Auto"
+    "auto": "Auto",
+    "toggle": "Toggle theme"
   },
   "auth": {
     "login": "Log in",
@@ -127,7 +128,8 @@
     "made_with": "Made with",
     "last_update": "Last update",
     "tor_support": "Tor Support",
-    "copy_onion": "Copy onion address"
+    "copy_onion": "Copy onion address",
+    "navigation": "Footer"
   },
   "home": {
     "create_paste": "Create Paste",
@@ -206,7 +208,8 @@
     "active_content_desc": "This file type can execute scripts in a browser and cannot be rendered inline for security reasons.",
     "binary_title": "Binary File",
     "binary_desc": "This file is not a text format and cannot be displayed in the browser.",
-    "embed_title": "Embed this paste"
+    "embed_title": "Embed this paste",
+    "title_placeholder": "Untitled"
   },
   "recent": {
     "title": "Recent Pastes",
@@ -405,7 +408,15 @@
   "pwa": {
     "install": "Install app",
     "installed": "App installed",
-    "offline_message": "No internet connection. Showing cached content."
+    "offline_message": "No internet connection. Showing cached content.",
+    "offline_title": "Offline",
+    "offline_heading": "You are offline",
+    "offline_body": "This page is not available while you are offline. Check your internet connection and try again.",
+    "retry": "Try Again",
+    "ios_install_title": "Install this app",
+    "ios_step_share": "Tap the Share button",
+    "ios_step_add": "Scroll down and tap \"Add to Home Screen\"",
+    "ios_step_confirm": "Tap \"Add\" in the top right"
   },
   "errors": {
     "required": "This field is required",

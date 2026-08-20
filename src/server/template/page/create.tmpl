@@ -50,7 +50,7 @@
                                 id="title"
                                 name="title"
                                 class="form-input"
-                                placeholder="Untitled"
+                                placeholder="{{t .Lang "paste.title_placeholder"}}"
                             >
                         </div>
                         <div class="form-group" id="language-group">
@@ -144,7 +144,7 @@
                             name="content"
                             class="form-input"
                             rows="20"
-                            placeholder="Paste your code or text here..."
+                            placeholder="{{t .Lang "paste.content_placeholder"}}"
                             aria-describedby="content-max-size-hint"
                         ></textarea>
                         <small id="content-max-size-hint" class="form-hint">{{tf .Lang "paste.max_size_hint" "size" .MaxPasteSize}}</small>
