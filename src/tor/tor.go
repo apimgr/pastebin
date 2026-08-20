@@ -32,7 +32,7 @@ import (
 
 // nativeKeyHeader is the fixed 32-byte header Tor prepends to a native
 // on-disk ed25519 hidden-service secret-key file.
-var nativeKeyHeader = []byte("== ed25519v1-secret: type0 ==\x00\x00")
+var nativeKeyHeader = []byte("== ed25519v1-secret: type0 ==\x00\x00\x00")
 
 const (
 	// nativeKeyFileLen is the total size of a native-format secret-key file:

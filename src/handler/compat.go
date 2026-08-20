@@ -329,12 +329,13 @@ func (c *CompatHandler) MicrobinList(w http.ResponseWriter, r *http.Request) {
 
 // LenCreate handles POST /api/new
 //
-// lenpaste form fields:
+// lenpaste form fields (per forksmgr/lcomrade-lenpaste's
+// netshare.PasteAddFromForm wire protocol):
 //
 //	title          — paste title
 //	body           — content
 //	syntax         — language
-//	lifetime       — seconds until expiry (0=never)
+//	expiration     — seconds until expiry (0/absent=never)
 //	oneUse         — "true" maps to burn_after=1
 //	createTokenHash — ignored (public instance)
 func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +366,7 @@ func (c *CompatHandler) LenCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var expiresAt *time.Time
-	if lt, err := strconv.ParseInt(r.FormValue("lifetime"), 10, 64); err == nil && lt > 0 {
+	if lt, err := strconv.ParseInt(r.FormValue("expiration"), 10, 64); err == nil && lt > 0 {
 		t := time.Now().Add(time.Duration(lt) * time.Second)
 		expiresAt = &t
 	}

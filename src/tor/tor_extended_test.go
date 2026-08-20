@@ -117,13 +117,7 @@ func TestWaitForHostname_AppearsWhilePolling(t *testing.T) {
 // ─── ApplyKeys success/error paths without a real Tor process ────────────────
 
 // validNativeKey builds a fixture accepted by ApplyKeys, which requires
-// exactly nativeKeyFileLen bytes with a nativeKeyHeader prefix. Note that
-// nativeKeyHeader is actually 31 bytes (not the 32 its own doc comment and
-// nativeKeyFileLen assume — a real off-by-one in tor.go), so the fixture
-// pads one byte past legacyKeyBlobLen to reach nativeKeyFileLen exactly;
-// this does not correspond to what migrateLegacyKey itself ever produces
-// (see TestMigrateLegacyKey_LegacyToNative_PreservesKeyMaterial in
-// tor_test.go for that inconsistency).
+// exactly nativeKeyFileLen bytes (32-byte nativeKeyHeader + 64-byte key).
 func validNativeKey() []byte {
 	body := make([]byte, nativeKeyFileLen-len(nativeKeyHeader))
 	for i := range body {

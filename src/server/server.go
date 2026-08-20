@@ -1332,8 +1332,17 @@ func (s *Server) txtExtensionMiddleware(next http.Handler) http.Handler {
 			// Strip .txt before routing so chi matches the canonical route path.
 			stripped := *r.URL
 			stripped.Path = strings.TrimSuffix(r.URL.Path, ".txt")
+			stripped.RawPath = ""
 			r2 := httputil.WithTxtExtension(r)
 			r2.URL = &stripped
+			// middleware.CleanPath (registered earlier in the chain) already
+			// cached the pre-strip path onto the route context's RoutePath;
+			// chi's router reads that cached value instead of r.URL.Path, so
+			// it must be updated here too or routing still 404s on the
+			// original .txt-suffixed path.
+			if rctx := chi.RouteContext(r2.Context()); rctx != nil {
+				rctx.RoutePath = stripped.Path
+			}
 			next.ServeHTTP(w, r2)
 			return
 		}
@@ -2122,14 +2131,21 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		defer s.notifier.Shutdown(10 * time.Second)
 	}
 
-	// Start Tor hidden service (non-fatal if Tor binary not found).
+	// Start Tor hidden service in the background (non-fatal if Tor binary not
+	// found). Real Tor bootstrap (torrc write, process start, hostname-file
+	// publish) can take many seconds; it must never gate the primary HTTP
+	// listener below from accepting connections (PART 31.1: "All Tor
+	// operations are best-effort, non-blocking"). Manager.Start/Close share a
+	// mutex, so Close (deferred here) safely waits out an in-flight Start.
 	if s.torManager != nil {
-		if err := s.torManager.Start(); err != nil {
-			log.Printf("tor: start failed: %v", err)
-		} else if s.torManager.Running() {
-			go s.torManager.Monitor()
-			s.persistOnionAddress()
-		}
+		go func() {
+			if err := s.torManager.Start(); err != nil {
+				log.Printf("tor: start failed: %v", err)
+			} else if s.torManager.Running() {
+				go s.torManager.Monitor()
+				s.persistOnionAddress()
+			}
+		}()
 		defer s.torManager.Close()
 	}
 
@@ -2157,12 +2173,16 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			DataDir:          s.dataDir,
 			LogDir:           s.logDir,
 		}, s.router)
-		if err := s.i2pManager.Start(); err != nil {
-			log.Printf("i2p: start failed: %v", err)
-		} else if s.i2pManager.Running() {
-			go s.i2pManager.Monitor()
-			s.persistB32Address()
-		}
+		// Same non-blocking, best-effort contract as Tor (backend-rules.md
+		// PART 31.2): I2P bootstrap must never gate the primary HTTP listener.
+		go func() {
+			if err := s.i2pManager.Start(); err != nil {
+				log.Printf("i2p: start failed: %v", err)
+			} else if s.i2pManager.Running() {
+				go s.i2pManager.Monitor()
+				s.persistB32Address()
+			}
+		}()
 		defer s.i2pManager.Close()
 	}
 

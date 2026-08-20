@@ -181,8 +181,8 @@ INCUS_CREATE_DATA='{\"content\":\"hello from incus test\",\"language\":\"text\"}
 INCUS_RESPONSE=$(__vm "curl -sf --header 'Content-Type: application/json' \
     --header 'Accept: application/json' --data '${INCUS_CREATE_DATA}' \
     ${INCUS_BASE}/api/v1/pastes")
-INCUS_PASTE_ID=$(printf '%s' "${INCUS_RESPONSE}" | grep -o -- '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-INCUS_OWNER_TOKEN=$(printf '%s' "${INCUS_RESPONSE}" | grep -o -- '"owner_token":"[^"]*"' | cut -d'"' -f4)
+INCUS_PASTE_ID=$(printf '%s' "${INCUS_RESPONSE}" | grep -o -- '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
+INCUS_OWNER_TOKEN=$(printf '%s' "${INCUS_RESPONSE}" | grep -o -- '"owner_token": *"[^"]*"' | cut -d'"' -f4)
 [[ -n "${INCUS_PASTE_ID}" ]] || __fail "Create paste failed: ${INCUS_RESPONSE}"
 __pass "Create paste: id=${INCUS_PASTE_ID}"
 
@@ -201,9 +201,9 @@ INCUS_LINK_DATA="{\\\"content\\\":\\\"${INCUS_LINK_TARGET}\\\",\\\"is_link\\\":t
 INCUS_LINK_RESPONSE=$(__vm "curl -sf --header 'Content-Type: application/json' \
     --header 'Accept: application/json' --data '${INCUS_LINK_DATA}' \
     ${INCUS_BASE}/api/v1/pastes")
-INCUS_LINK_ID=$(printf '%s' "${INCUS_LINK_RESPONSE}" | grep -o -- '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+INCUS_LINK_ID=$(printf '%s' "${INCUS_LINK_RESPONSE}" | grep -o -- '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
 [[ -n "${INCUS_LINK_ID}" ]] || __fail "Create paste (link) failed: ${INCUS_LINK_RESPONSE}"
-printf '%s' "${INCUS_LINK_RESPONSE}" | grep -q -- '"is_link":true' || \
+printf '%s' "${INCUS_LINK_RESPONSE}" | grep -q -- '"is_link": *true' || \
     __fail "Create paste (link): is_link field missing/false in: ${INCUS_LINK_RESPONSE}"
 __pass "Create paste (link): id=${INCUS_LINK_ID}"
 

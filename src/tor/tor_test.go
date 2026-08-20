@@ -370,11 +370,8 @@ func TestMigrateLegacyKey_LegacyToNative_PreservesKeyMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// NOTE: nativeKeyHeader is documented (and nativeKeyFileLen assumes) a
-	// 32-byte header, but the literal is actually 31 bytes — a real off-by-one
-	// in tor.go, not a test bug. migrateLegacyKey therefore writes
-	// len(nativeKeyHeader)+legacyKeyBlobLen bytes, one short of nativeKeyFileLen.
-	// This test documents the observed behavior; it is not endorsement of it.
+	// The migrated file must be exactly the 32-byte native header plus the
+	// original 64-byte key material — nativeKeyFileLen (96 bytes) total.
 	wantLen := len(nativeKeyHeader) + legacyKeyBlobLen
 	if len(got) != wantLen {
 		t.Fatalf("migrated file length = %d; want %d", len(got), wantLen)
@@ -394,9 +391,7 @@ func TestMigrateLegacyKey_AlreadyNative_Untouched(t *testing.T) {
 	keyPath := filepath.Join(siteDir, "hs_ed25519_secret_key")
 
 	// A file is only recognized as "already native" by migrateLegacyKey when
-	// its length equals nativeKeyFileLen (96) exactly, so pad past the
-	// header+legacyKeyBlobLen (95) length actually produced by migration —
-	// see the off-by-one note in TestMigrateLegacyKey_LegacyToNative above.
+	// its length equals nativeKeyFileLen (96) exactly.
 	body := make([]byte, nativeKeyFileLen-len(nativeKeyHeader))
 	native := append(append([]byte{}, nativeKeyHeader...), body...)
 	if len(native) != nativeKeyFileLen {
