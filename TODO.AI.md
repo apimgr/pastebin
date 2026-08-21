@@ -15,3 +15,12 @@
   `lang`/`theme` cookies. Needs a small middleware or handler-level change so any request
   carrying a valid `?lang=` sets the `lang` cookie (mirroring `setPreferenceCookie`),
   not just the preferences-import flow.
+
+- `Makefile` defines a `clean` target (line 223) in addition to the six allowed core
+  targets (`dev`, `local`, `build`, `test`, `release`, `docker`) — PART 25 forbids any
+  Makefile target beyond those six. `clean` is invoked as a prerequisite of `build`/`local`
+  per spec ("ALWAYS run clean before build and local"), so it needs to be folded into an
+  inline `rm -rf $(BINDIR) $(RELDIR)` step inside those two targets (or made a non-target
+  `.PHONY`-free shell function) rather than exposed as its own `make clean` target.
+  Pre-existing, unrelated to the current change — found via go-lint during the preferences
+  CSS-fix commit.
