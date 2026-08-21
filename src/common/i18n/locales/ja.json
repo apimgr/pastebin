@@ -291,6 +291,25 @@
     "version": "バージョン",
     "links": "リンク"
   },
+  "preferences": {
+    "title": "設定",
+    "description": "テーマと言語の設定を表示、エクスポート、インポートします。",
+    "intro": "これらの設定はこのブラウザのCookieにのみ保存されます。アカウントはなく、サーバーには何も保存されません。",
+    "current": "現在の設定",
+    "theme_label": "テーマ",
+    "lang_label": "言語",
+    "export_title": "エクスポート",
+    "export_desc": "このURLまたはコードをコピーして、設定を別のブラウザやデバイスに引き継ぎます。",
+    "export_url": "設定URL",
+    "export_code": "設定コード",
+    "export_action": "設定をエクスポート",
+    "import_title": "インポート",
+    "import_desc": "他のデバイスの設定URLまたはコードを貼り付けて、ここに適用します。",
+    "import_code": "設定コードまたはURL",
+    "import_placeholder": "theme=dark&lang=fr または完全な設定URL",
+    "import_action": "設定をインポート",
+    "copy": "設定コードをコピー"
+  },
   "announcements": {
     "warning": "警告",
     "info": "情報",
@@ -513,6 +532,7 @@
     "privacy": "プライバシー",
     "contact": "お問い合わせ",
     "help": "ヘルプ",
+    "preferences": "設定",
     "made_with": "心を込めて",
     "last_update": "最終更新",
     "tor_support": "Torサポート",

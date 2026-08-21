@@ -1,0 +1,60 @@
+{{define "meta"}}
+    <title>{{t .Lang "preferences.title"}} - {{.SiteTitle}}</title>
+    <meta name="description" content="{{t .Lang "preferences.description"}}">
+{{end}}
+
+{{define "content"}}
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">{{t .Lang "preferences.title"}}</h1>
+                </div>
+
+                <div class="paste-view page-view">
+                    <p>{{t .Lang "preferences.intro"}}</p>
+
+                    <h2 class="section-mt">{{t .Lang "preferences.current"}}</h2>
+                    <ul class="feature-list">
+                        <li>{{t .Lang "preferences.theme_label"}}: {{.PrefTheme}}</li>
+                        <li>{{t .Lang "preferences.lang_label"}}: {{.PrefLang}}</li>
+                    </ul>
+
+                    <h2 class="section-mt">{{t .Lang "preferences.export_title"}}</h2>
+                    <p>{{t .Lang "preferences.export_desc"}}</p>
+                    {{if .ExportURL}}
+                    <div class="form-group">
+                        <label for="pref-export-url" class="form-label">{{t .Lang "preferences.export_url"}}</label>
+                        <div class="copy-field">
+                            <input type="text" id="pref-export-url" class="form-input long-string" value="{{.ExportURL}}" readonly>
+                            <button type="button" class="copy-btn" data-copy="{{.ExportURL}}" aria-live="polite" aria-label="{{t .Lang "preferences.copy"}}">
+                                <span class="copy-text" aria-hidden="true">📋</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="pref-export-code" class="form-label">{{t .Lang "preferences.export_code"}}</label>
+                        <div class="copy-field">
+                            <input type="text" id="pref-export-code" class="form-input long-string" value="{{.ExportCode}}" readonly>
+                            <button type="button" class="copy-btn" data-copy="{{.ExportCode}}" aria-live="polite" aria-label="{{t .Lang "preferences.copy"}}">
+                                <span class="copy-text" aria-hidden="true">📋</span>
+                            </button>
+                        </div>
+                    </div>
+                    {{else}}
+                    <p><a href="{{.AssetPrefix}}/server/preferences/export" class="btn btn-secondary">{{t .Lang "preferences.export_action"}}</a></p>
+                    {{end}}
+
+                    <h2 class="section-mt">{{t .Lang "preferences.import_title"}}</h2>
+                    <p>{{t .Lang "preferences.import_desc"}}</p>
+                    <form method="get" action="{{.AssetPrefix}}/server/preferences/import" class="contact-form">
+                        <div class="form-group">
+                            <label for="pref-import-code" class="form-label">{{t .Lang "preferences.import_code"}}</label>
+                            <input type="text" id="pref-import-code" name="code" class="form-input long-string"
+                                   maxlength="500" placeholder="{{t .Lang "preferences.import_placeholder"}}">
+                        </div>
+                        <button type="submit" class="btn btn-primary">{{t .Lang "preferences.import_action"}}</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+{{end}}

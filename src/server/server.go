@@ -1071,6 +1071,13 @@ func (s *Server) setupRoutes() {
 	// so the no-JS <noscript> toggle form works (AI.md 21588, 23294, 24084).
 	r.Post("/theme", s.handleThemeSet)
 	r.Get("/server/terms", s.handleTerms)
+	// Cross-device preference sync (AI.md 22899-22909): stateless export/import
+	// of the theme/lang cookies — no account, no preferences table. Same
+	// handlers are mounted again under /api/{api_version}/server/preferences*
+	// below; each already content-negotiates its own response.
+	r.Get("/server/preferences", s.handlePreferences)
+	r.Get("/server/preferences/export", s.handlePreferencesExport)
+	r.Get("/server/preferences/import", s.handlePreferencesImport)
 	r.Get("/server/contact", s.handleContact)
 	r.Post("/server/contact", s.handleContactPost)
 	// Coordinated-disclosure public pages (PART 11, AI.md 14157-14161).
@@ -1177,6 +1184,11 @@ func (s *Server) setupRoutes() {
 		// Server info
 		r.Get("/server/healthz", s.maybeHealthRateLimit(s.handleHealthzJSON))
 		r.Get("/server/version", s.handleVersion)
+		// Cross-device preference sync API mirror (AI.md 22904-22908) — same
+		// handlers as the web routes above; each content-negotiates JSON here.
+		r.Get("/server/preferences", s.handlePreferences)
+		r.Get("/server/preferences/export", s.handlePreferencesExport)
+		r.Get("/server/preferences/import", s.handlePreferencesImport)
 		r.Get("/server/swagger", s.swaggerHandler.ServeSpec)
 		// /api/v1/server/graphql — versioned GraphQL endpoint (PART 14)
 		r.Handle("/server/graphql", s.graphqlHandler)

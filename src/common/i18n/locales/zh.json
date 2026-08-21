@@ -291,6 +291,25 @@
     "version": "版本",
     "links": "链接"
   },
+  "preferences": {
+    "title": "偏好设置",
+    "description": "查看、导出和导入您的主题和语言偏好设置。",
+    "intro": "这些偏好设置仅保存在此浏览器的 Cookie 中——没有账户,服务器也不会保存任何内容。",
+    "current": "当前偏好设置",
+    "theme_label": "主题",
+    "lang_label": "语言",
+    "export_title": "导出",
+    "export_desc": "复制此 URL 或代码,将您的偏好设置带到另一个浏览器或设备。",
+    "export_url": "偏好设置 URL",
+    "export_code": "偏好设置代码",
+    "export_action": "导出偏好设置",
+    "import_title": "导入",
+    "import_desc": "粘贴来自其他设备的偏好设置 URL 或代码以在此处应用。",
+    "import_code": "偏好设置代码或 URL",
+    "import_placeholder": "theme=dark&lang=fr 或完整的偏好设置 URL",
+    "import_action": "导入偏好设置",
+    "copy": "复制偏好设置代码"
+  },
   "announcements": {
     "warning": "警告",
     "info": "信息",
@@ -513,6 +532,7 @@
     "privacy": "隐私",
     "contact": "联系",
     "help": "帮助",
+    "preferences": "偏好设置",
     "made_with": "用心制作",
     "last_update": "最后更新",
     "tor_support": "Tor 支持",

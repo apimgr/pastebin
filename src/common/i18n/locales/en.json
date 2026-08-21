@@ -125,6 +125,7 @@
     "privacy": "Privacy",
     "contact": "Contact",
     "help": "Help",
+    "preferences": "Preferences",
     "made_with": "Made with",
     "last_update": "Last update",
     "tor_support": "Tor Support",
@@ -397,6 +398,25 @@
     "features": "Features",
     "version": "Version",
     "links": "Links"
+  },
+  "preferences": {
+    "title": "Preferences",
+    "description": "View, export, and import your theme and language preferences.",
+    "intro": "These preferences are stored in cookies on this browser only — there is no account and nothing is saved on the server.",
+    "current": "Current preferences",
+    "theme_label": "Theme",
+    "lang_label": "Language",
+    "export_title": "Export",
+    "export_desc": "Copy this URL or code to carry your preferences to another browser or device.",
+    "export_url": "Preferences URL",
+    "export_code": "Preferences code",
+    "export_action": "Export preferences",
+    "import_title": "Import",
+    "import_desc": "Paste a preferences URL or code from another device to apply it here.",
+    "import_code": "Preferences code or URL",
+    "import_placeholder": "theme=dark&lang=fr or a full preferences URL",
+    "import_action": "Import preferences",
+    "copy": "Copy preferences code"
   },
   "announcements": {
     "warning": "Warning",

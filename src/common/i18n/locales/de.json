@@ -291,6 +291,25 @@
     "version": "Version",
     "links": "Links"
   },
+  "preferences": {
+    "title": "Einstellungen",
+    "description": "Zeigen Sie Ihre Design- und Spracheinstellungen an, exportieren und importieren Sie sie.",
+    "intro": "Diese Einstellungen werden nur in Cookies dieses Browsers gespeichert — es gibt kein Konto, und auf dem Server wird nichts gespeichert.",
+    "current": "Aktuelle Einstellungen",
+    "theme_label": "Design",
+    "lang_label": "Sprache",
+    "export_title": "Exportieren",
+    "export_desc": "Kopieren Sie diese URL oder diesen Code, um Ihre Einstellungen auf einen anderen Browser oder ein anderes Gerät zu übertragen.",
+    "export_url": "Einstellungs-URL",
+    "export_code": "Einstellungscode",
+    "export_action": "Einstellungen exportieren",
+    "import_title": "Importieren",
+    "import_desc": "Fügen Sie eine Einstellungs-URL oder einen Code von einem anderen Gerät ein, um ihn hier anzuwenden.",
+    "import_code": "Einstellungscode oder URL",
+    "import_placeholder": "theme=dark&lang=fr oder eine vollständige Einstellungs-URL",
+    "import_action": "Einstellungen importieren",
+    "copy": "Einstellungscode kopieren"
+  },
   "announcements": {
     "warning": "Warnung",
     "info": "Information",
@@ -513,6 +532,7 @@
     "privacy": "Datenschutz",
     "contact": "Kontakt",
     "help": "Hilfe",
+    "preferences": "Einstellungen",
     "made_with": "Gemacht mit",
     "last_update": "Letzte Aktualisierung",
     "tor_support": "Tor-Unterstützung",

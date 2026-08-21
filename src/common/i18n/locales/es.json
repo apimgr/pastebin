@@ -291,6 +291,25 @@
     "version": "Versión",
     "links": "Enlaces"
   },
+  "preferences": {
+    "title": "Preferencias",
+    "description": "Ver, exportar e importar tus preferencias de tema e idioma.",
+    "intro": "Estas preferencias se almacenan en cookies de este navegador únicamente; no hay cuenta y no se guarda nada en el servidor.",
+    "current": "Preferencias actuales",
+    "theme_label": "Tema",
+    "lang_label": "Idioma",
+    "export_title": "Exportar",
+    "export_desc": "Copia esta URL o código para llevar tus preferencias a otro navegador o dispositivo.",
+    "export_url": "URL de preferencias",
+    "export_code": "Código de preferencias",
+    "export_action": "Exportar preferencias",
+    "import_title": "Importar",
+    "import_desc": "Pega una URL o código de preferencias de otro dispositivo para aplicarlo aquí.",
+    "import_code": "Código o URL de preferencias",
+    "import_placeholder": "theme=dark&lang=fr o una URL de preferencias completa",
+    "import_action": "Importar preferencias",
+    "copy": "Copiar código de preferencias"
+  },
   "announcements": {
     "warning": "Advertencia",
     "info": "Información",
@@ -513,6 +532,7 @@
     "privacy": "Privacidad",
     "contact": "Contacto",
     "help": "Ayuda",
+    "preferences": "Preferencias",
     "made_with": "Hecho con",
     "last_update": "Última actualización",
     "tor_support": "Soporte Tor",
