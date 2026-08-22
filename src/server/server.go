@@ -1012,6 +1012,10 @@ func (s *Server) setupRoutes() {
 	// all read operations continue to pass through.
 	r.Use(s.maintenanceMiddleware)
 
+	// Persist ?lang= as the lang cookie on ordinary navigation (AI.md
+	// Client-Side Preferences), not just via /server/preferences/import.
+	r.Use(s.langCookieMiddleware)
+
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	// common.css / components.css / public.css are rendered server-side from
 	// the canonical ThemePalette (src/common/theme/colors.go) rather than
@@ -5123,6 +5127,21 @@ func (s *Server) domainObserveMiddleware(next http.Handler) http.Handler {
 			if host != "" {
 				s.domainLearner.Observe(host)
 			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// langCookieMiddleware persists a valid `?lang=` query parameter as the
+// `lang` cookie on ordinary page navigation, mirroring setPreferenceCookie
+// (AI.md Client-Side Preferences: "?lang= sets a persistent cookie"). Only
+// the preferences-import flow used to do this; every other route left the
+// override request-scoped only. An unsupported value is left for
+// i18n.LangFromRequest to silently fall back to "en" — never written here.
+func (s *Server) langCookieMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if lang := r.URL.Query().Get("lang"); lang != "" && i18n.IsSupported(lang) {
+			s.setPreferenceCookie(w, r, "lang", strings.ToLower(lang))
 		}
 		next.ServeHTTP(w, r)
 	})
