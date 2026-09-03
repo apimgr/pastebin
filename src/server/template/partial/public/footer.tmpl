@@ -1,0 +1,86 @@
+{{define "footer"}}
+<footer class="footer">
+    <div class="footer-content">
+        {{if .FooterCustomHTML}}
+        <div class="footer-brand">{{.FooterCustomHTML}}</div>
+        {{end}}
+        {{if and .TorEnabled .TorRunning}}
+        <div class="footer-onion">
+            <a href="{{.AssetPrefix}}/server/help#tor-access" class="footer-onion-icon" aria-label="{{t .Lang "footer.tor_support"}}">🧅</a>
+            <code class="footer-onion-address onion-address">{{.OnionAddress}}</code>
+            <button type="button" class="footer-onion-copy copy-btn" data-copy="{{.OnionAddress}}" aria-live="polite" aria-label="{{t .Lang "footer.copy_onion"}}">
+                <span class="copy-text">📋</span>
+            </button>
+        </div>
+        {{end}}
+        {{if and .I2PEnabled .I2PRunning .I2PAddress}}
+        <div class="footer-i2p">
+            <a href="{{.AssetPrefix}}/server/help#i2p-access" class="footer-i2p-icon" aria-label="{{t .Lang "footer.i2p_support"}}">🔗</a>
+            <code class="footer-i2p-address i2p-address">{{.I2PAddress}}</code>
+            <button type="button" class="footer-i2p-copy copy-btn" data-copy="{{.I2PAddress}}" aria-live="polite" aria-label="{{t .Lang "footer.copy_i2p"}}">
+                <span class="copy-text">📋</span>
+            </button>
+        </div>
+        {{end}}
+        <nav class="footer-links" aria-label="{{t .Lang "footer.navigation"}}">
+            <a href="{{.AssetPrefix}}/server/about" class="footer-link">{{t .Lang "footer.about"}}</a>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <a href="{{.AssetPrefix}}/server/privacy" class="footer-link">{{t .Lang "footer.privacy"}}</a>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <a href="{{.AssetPrefix}}/server/contact" class="footer-link">{{t .Lang "footer.contact"}}</a>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <a href="{{.AssetPrefix}}/server/help" class="footer-link">{{t .Lang "footer.help"}}</a>
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <a href="{{.AssetPrefix}}/server/preferences" class="footer-link">{{t .Lang "footer.preferences"}}</a>
+        </nav>
+        <div class="footer-made">
+            <a href="https://github.com/apimgr/pastebin" target="_blank" rel="noopener noreferrer" class="footer-repo">{{t .Lang "footer.made_with"}}</a> ❤️
+            <span class="footer-sep" aria-hidden="true">·</span>
+            <span class="footer-version">{{.Version}}</span>
+        </div>
+        <div class="footer-meta">
+            <a href="{{.AssetPrefix}}/server/healthz" class="footer-update">{{t .Lang "footer.last_update"}}: {{.BuildDate}}</a>
+        </div>
+        <div class="footer-install" hidden>
+            <button type="button" class="footer-link footer-install-btn" data-action="install-app">{{t .Lang "pwa.install"}}</button>
+        </div>
+    </div>
+</footer>
+<dialog id="ios-install-dialog" class="install-dialog" aria-labelledby="ios-install-title">
+    <h2 id="ios-install-title" class="install-dialog-title">{{t .Lang "pwa.ios_install_title"}}</h2>
+    <ol class="install-dialog-steps">
+        <li>{{t .Lang "pwa.ios_step_share"}}</li>
+        <li>{{t .Lang "pwa.ios_step_add"}}</li>
+        <li>{{t .Lang "pwa.ios_step_confirm"}}</li>
+    </ol>
+    <form method="dialog" class="install-dialog-actions">
+        <button type="submit" class="btn btn-secondary">{{t .Lang "common.close"}}</button>
+    </form>
+</dialog>
+{{if trackingEnabled}}
+<template id="pb-tracking-snippet">{{trackingScript}}</template>
+{{end}}
+<script type="application/json" id="pb-consent-data">{{consentConfig}}</script>
+{{if not .HasConsented}}
+{{$c := consentInfo}}
+<noscript>
+<form class="cookie-banner cookie-banner-bottom" method="post" action="{{.AssetPrefix}}/server/consent">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <p class="cookie-message">{{$c.Message}} <a href="{{$c.PolicyURL}}" class="policy-link">{{$c.PolicyText}}</a></p>
+    {{if $c.ShowPreferences}}
+    <p class="cookie-category">
+        <label><input type="checkbox" name="preferences" value="1"{{if $c.DefaultPreferences}} checked{{end}}> {{$c.Descriptions.Preferences}}</label>
+    </p>
+    {{if $c.AnalyticsConfigured}}
+    <p class="cookie-category">
+        <label><input type="checkbox" name="analytics" value="1"{{if $c.DefaultAnalytics}} checked{{end}}> {{$c.Descriptions.Analytics}}</label>
+    </p>
+    {{end}}
+    <button type="submit" name="choice" value="save" class="btn btn-secondary">{{t .Lang "cookie_consent.save_preferences"}}</button>
+    {{end}}
+    <button type="submit" name="choice" value="accept" class="btn btn-primary">{{$c.AcceptText}}</button>
+    <button type="submit" name="choice" value="decline" class="btn btn-secondary">{{$c.DeclineText}}</button>
+</form>
+</noscript>
+{{end}}
+{{end}}

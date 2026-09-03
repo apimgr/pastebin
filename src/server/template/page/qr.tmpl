@@ -1,0 +1,34 @@
+{{define "meta"}}
+    <title>QR Code - {{.SiteTitle}}</title>
+    <meta name="description" content="Scan the QR code to open this paste on another device">
+{{end}}
+
+{{define "content"}}
+        <section class="search-section">
+            <div class="container container-sm page-centered">
+                <div class="section-header">
+                    <h1 class="section-title">{{t .Lang "qr.title"}}</h1>
+                    <p class="section-description">Scan to open paste <code>{{.ID}}</code></p>
+                </div>
+
+                <div class="paste-view qr-container">
+                    <img
+                        class="qr-image"
+                        src="{{.AssetPrefix}}/qr/{{.ID}}/image"
+                        alt="QR code for {{.Link}}"
+                        width="300"
+                        height="300"
+                    >
+                    <p class="qr-link-text">{{.Link}}</p>
+                    <div class="form-actions qr-actions">
+                        <a href="{{.AssetPrefix}}/{{.ID}}" class="btn btn-primary">{{t .Lang "qr.view_paste"}}</a>
+                        <button
+                            class="btn btn-secondary"
+                            data-qr-download="/qr/{{.ID}}/image"
+                            data-qr-name="paste-{{.ID}}-qr.png"
+                        >{{t .Lang "qr.download_qr"}}</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+{{end}}

@@ -1,0 +1,68 @@
+# nginx proxy address - http://172.17.0.1:64580
+# pastebin - fast, public pastebin service
+# FOR HUMAN USE ONLY - AI must never use this file directly.
+
+name: pastebin
+
+x-logging: &default-logging
+  options:
+    max-size: '5m'
+    max-file: '1'
+  driver: json-file
+
+services:
+  pastebin:
+    image: ghcr.io/apimgr/pastebin:latest
+    container_name: pastebin-app
+    hostname: pastebin
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      PORT: 80
+      TZ: ${TZ:-America/New_York}
+      CACHE_URL: valkey://pastebin-cache:6379
+      TERMBIN_ENABLED: true
+      # For remote libsql/Turso: set DATABASE_DRIVER=libsql and DATABASE_URL
+      # DATABASE_DRIVER: libsql
+      # DATABASE_URL: libsql://your-db.turso.io?authToken=your-turso-auth-token
+    volumes:
+      - './volumes/config:/config:z'
+      - './volumes/data:/data:z'
+    ports:
+      - '172.17.0.1:64580:80'
+      # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
+      - '9999:9999'
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/pastebin', '--status']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      pastebin-cache:
+        condition: service_healthy
+    networks:
+      - pastebin
+
+  pastebin-cache:
+    image: valkey/valkey:alpine
+    pull_policy: always
+    container_name: pastebin-cache
+    restart: always
+    logging: *default-logging
+    volumes:
+      - './volumes/data/db/valkey:/data:z'
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli ping || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - pastebin
+
+networks:
+  pastebin:
+    name: pastebin
+    external: false

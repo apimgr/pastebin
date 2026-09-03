@@ -1,0 +1,126 @@
+{{define "meta"}}
+    <title>{{.SiteTitle}} - Paste Sharing Service</title>
+    <meta name="description" content="Simple, fast paste sharing service with syntax highlighting and API access">
+{{end}}
+
+{{define "content"}}
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="container">
+                <div class="hero-content">
+                    <div class="hero-badge">
+                        <span class="hero-badge-dot"></span>
+                        <span>API v1.0 - Live</span>
+                    </div>
+                    <h1 class="hero-title">
+                        Paste <span class="hero-title-gradient">Sharing</span>
+                    </h1>
+                    <p class="hero-description">
+                        Share code snippets, text, and files instantly. Syntax highlighting, expiration options, and powerful API for automation.
+                    </p>
+                    <div class="hero-actions">
+                        <a href="{{.AssetPrefix}}/create" class="btn btn-primary btn-lg">
+                            {{t .Lang "home.create_paste"}}
+                        </a>
+                        <a href="{{.AssetPrefix}}/recent" class="btn btn-secondary btn-lg">
+                            {{t .Lang "home.browse_recent"}}
+                        </a>
+                    </div>
+                    <div class="hero-stats">
+                        <div class="hero-stat">
+                            <div class="hero-stat-value">15+</div>
+                            <div class="hero-stat-label">{{t .Lang "home.stat_languages"}}</div>
+                        </div>
+                        <div class="hero-stat">
+                            <div class="hero-stat-value">REST</div>
+                            <div class="hero-stat-label">{{t .Lang "home.stat_api"}}</div>
+                        </div>
+                        <div class="hero-stat">
+                            <div class="hero-stat-value">100%</div>
+                            <div class="hero-stat-label">{{t .Lang "home.stat_free"}}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="features">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">{{t .Lang "home.features_title"}}</h2>
+                    <p class="section-description">{{t .Lang "home.features_desc"}}</p>
+                </div>
+                <div class="features-grid">
+                    <a href="{{.AssetPrefix}}/create" class="feature-card">
+                        <div class="feature-icon">📝</div>
+                        <h3 class="feature-title">{{t .Lang "home.feature_create_title"}}</h3>
+                        <p class="feature-description">{{t .Lang "home.feature_create_desc"}}</p>
+                    </a>
+                    <a href="{{.AssetPrefix}}/recent" class="feature-card">
+                        <div class="feature-icon">📋</div>
+                        <h3 class="feature-title">{{t .Lang "home.feature_recent_title"}}</h3>
+                        <p class="feature-description">{{t .Lang "home.feature_recent_desc"}}</p>
+                    </a>
+                    <a href="{{.AssetPrefix}}/server/help" class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3 class="feature-title">{{t .Lang "home.feature_api_title"}}</h3>
+                        <p class="feature-description">{{t .Lang "home.feature_api_desc"}}</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Start Section -->
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h2 class="section-title">{{t .Lang "home.quickstart_title"}}</h2>
+                    <p class="section-description">{{t .Lang "home.quickstart_desc"}}</p>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">Upload Text File</span>
+                        <button class="code-copy" data-copy-code>Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>curl -X POST --data-binary @file.txt {{.BaseURL}}/api/v1/pastes</pre>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">Upload via Form</span>
+                        <button class="code-copy" data-copy-code>Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>curl -X POST -F "files=@code.py" {{.BaseURL}}/api/v1/pastes</pre>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">JSON API</span>
+                        <button class="code-copy" data-copy-code>Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>curl -H "Content-Type: application/json" \
+     -H "Accept: application/json" \
+     -d '{"content":"Hello World","language":"text"}' \
+     {{.BaseURL}}/api/v1/pastes</pre>
+                    </div>
+                </div>
+
+                <div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">Pipe Content</span>
+                        <button class="code-copy" data-copy-code>Copy</button>
+                    </div>
+                    <div class="code-content">
+                        <pre>echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/api/v1/pastes</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+{{end}}

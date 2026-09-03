@@ -1,0 +1,64 @@
+# Security
+
+## Design Principles
+
+- **No user accounts**: eliminates credential stuffing and privilege escalation entirely
+- **Public anonymous service**: all endpoints are public; no authentication required
+- **Fail closed**: invalid or missing tokens deny access; no silent allows
+- **Crypto/rand everywhere**: paste IDs and delete tokens use `crypto/rand`, never `math/rand`
+
+## Delete Tokens
+
+- Generated using `crypto/rand` (32 bytes → 64-char hex string)
+- Stored as SHA-256 hash only — plaintext never persisted
+- Returned **once only** at paste creation
+- Verified using constant-time comparison to prevent timing attacks
+- Loss of token means paste cannot be deleted before natural expiry
+
+## Paste Content
+
+- HTML-escaped in all web views
+- Chroma highlighting output is sanitized HTML
+- Never executed or evaluated
+- Size-capped at the HTTP layer before reading into memory (10MB max)
+- Never logged
+
+## Transport
+
+- `Access-Control-Allow-Origin: *` on all responses (public API by design)
+- HTTPS strongly recommended in production (use a reverse proxy or `--tls`)
+
+## Framing & Embeds
+
+- All routes send `X-Frame-Options: SAMEORIGIN` and CSP `frame-ancestors 'self'` — third-party sites cannot iframe the app
+- **Exception:** `/emb/{id}` is the designated embeddable endpoint — it omits `X-Frame-Options` and sends a configurable `frame-ancestors` directive instead
+- Default embed policy is `*` (any site may iframe an embed); restrict it via `web.csp.embed_frame_ancestors` in `server.yml`, e.g. `'self' https://example.com`
+- Defense in depth: when a browser sends `Sec-Fetch-Dest: iframe|frame|embed|object` cross-site for any endpoint other than `/emb/{id}`, the request is rejected with 403 (requires `web.headers.sec_fetch_validation`)
+- The paste view page offers copy-ready HTML (`<iframe>` of `/emb/{id}`) and Markdown embed snippets
+
+## Rate Limiting
+
+- Default: 30 paste creations per IP per minute
+- Configurable via `rate_limit.create_per_minute` in `server.yml`
+- Rate limiting protects the server against abuse — it is not a usage cap
+
+## Tor Privacy
+
+Requests whose `Host` matches the configured `tor.onion_address` are
+treated as Tor hidden-service traffic:
+
+- All absolute URLs (base URL, `security.txt` links, pagination, API
+  docs) use `http://{onion}` — the clearnet FQDN never appears
+- `/.well-known/security.txt` serves a Tor variant: onion URLs only,
+  `Contact: mailto:` uses `tor.contact_email` (omitted entirely when
+  unset — never the clearnet email), and `Preferred-Languages` is
+  omitted to reduce fingerprinting
+- CORS headers answer with the onion origin; the clearnet or
+  operator-configured origin is never emitted on Tor responses
+- Contact, abuse, and security emails shown on Tor pages come from
+  `tor.contact_email` only; when unset, no email is disclosed
+
+## Reporting Vulnerabilities
+
+See [SECURITY.md](https://github.com/apimgr/pastebin/blob/main/.github/SECURITY.md) for the responsible disclosure process.
+Do NOT file public issues for security vulnerabilities.

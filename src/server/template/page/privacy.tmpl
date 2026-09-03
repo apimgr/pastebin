@@ -1,0 +1,151 @@
+{{define "meta"}}
+    <title>Privacy - {{.SiteTitle}}</title>
+    <meta name="description" content="Privacy policy for {{.SiteTitle}} — what we collect, how it is used, retention, and your rights">
+{{end}}
+
+{{define "content"}}
+        <section class="search-section">
+            <div class="container container-sm">
+                <div class="section-header">
+                    <h1 class="section-title">{{t .Lang "privacy.title"}}</h1>
+                </div>
+
+                <div class="paste-view page-view">
+                    <section id="summary" class="privacy-summary">
+                    <p class="privacy-summary">
+                        {{if .Privacy.Data.Sold}}
+                            <strong>Your data may be sold or shared with third parties.</strong>
+                            See the sections below and the <a href="#ccpa-opt-out">"Do Not Sell My Personal Information"</a> option for your rights.
+                        {{else}}
+                            <strong>We never sell your data.</strong>
+                            {{if .Privacy.Data.StoredOnServer}}All data is stored on our own servers, not third-party cloud services.{{end}}
+                        {{end}}
+                    </p>
+                    </section>
+
+                    <section id="data-collection">
+                    <h2 class="section-mt">What we collect</h2>
+                    <div class="markdown-content">{{markdown .Privacy.Content.DataCollection}}</div>
+                    </section>
+
+                    <section id="data-usage">
+                    <h2 class="section-mt">How we use your data</h2>
+                    <div class="markdown-content">{{markdown .Privacy.GetDataUsageContent}}</div>
+                    </section>
+
+                    <section id="data-security">
+                    <h2 class="section-mt">How we protect your data</h2>
+                    <div class="markdown-content">{{markdown .Privacy.Content.DataSecurity}}</div>
+                    </section>
+
+                    <section id="data-retention">
+                    <h2 class="section-mt">Data retention</h2>
+                    <p>{{.Privacy.Retention.Period}}</p>
+                    </section>
+
+                    <section id="your-rights">
+                    <h2 class="section-mt">Your rights</h2>
+                    <ul class="feature-list">
+                        <li>Data export: {{if .Privacy.Retention.ExportAvailable}}available on request{{else}}not available{{end}}</li>
+                        <li>Account deletion: {{if .Privacy.Retention.DeletionAvailable}}available on request{{else}}not available{{end}}</li>
+                    </ul>
+                    </section>
+
+                    <section id="data-storage">
+                    {{if .Privacy.Data.Sharing}}
+                    <h2 class="section-mt">When data may be shared</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Condition</th><th>When</th><th>Data</th></tr>
+                        </thead>
+                        <tbody>
+                            {{range .Privacy.Data.Sharing}}
+                            <tr>
+                                <td>{{.Condition}}</td>
+                                <td>{{.When}}</td>
+                                <td class="long-string">{{.Data}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                    {{end}}
+                    </section>
+
+                    <section id="third-parties">
+                    {{if .ThirdPartyServices}}
+                    <h2 class="section-mt">Third-party services</h2>
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Service</th><th>Purpose</th><th>Data sent</th><th>Policy</th></tr>
+                        </thead>
+                        <tbody>
+                            {{range .ThirdPartyServices}}
+                            <tr>
+                                <td>{{.Name}}</td>
+                                <td>{{.Purpose}}</td>
+                                <td class="long-string">{{.DataSent}}</td>
+                                <td>
+                                    {{if .PolicyURL}}
+                                        <a class="long-string" href="{{.PolicyURL}}" rel="noopener noreferrer nofollow" target="_blank">Privacy policy</a>
+                                    {{else}}—{{end}}
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                    {{else}}
+                    <h2 class="section-mt">Third-party services</h2>
+                    <p>We do not share your data with any third-party services.</p>
+                    {{end}}
+                    </section>
+
+                    <section id="cookies">
+                    <h2 class="section-mt">Cookies</h2>
+                    <ul class="feature-list">
+                        <li><strong>Essential:</strong> {{.Privacy.Cookies.Essential.Description}}</li>
+                        <li><strong>Preferences:</strong> {{.Privacy.Cookies.Preferences.Description}}</li>
+                        {{if .Tracking.Enabled}}
+                        <li><strong>Analytics ({{.Tracking.TypeName}}):</strong> {{.Privacy.GetAnalyticsDescription}}</li>
+                        {{end}}
+                    </ul>
+                    {{if .Privacy.Consent.ShowPreferences}}
+                    <p>
+                        <button type="button" class="btn btn-secondary" data-cookie-preferences>{{.Privacy.Consent.PreferencesText}}</button>
+                    </p>
+                    {{end}}
+                    </section>
+
+                    <h2 id="ccpa-opt-out" class="section-mt">Do Not Sell My Personal Information</h2>
+                    {{if .Privacy.IsCCPAApplicable}}
+                        {{if .CCPAOptedOut}}
+                        <p>You have opted out of the sale of your personal information. We will not sell your data.</p>
+                        <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="action" value="opt_in">
+                            <button type="submit" class="btn btn-secondary">Undo opt-out</button>
+                        </form>
+                        {{else}}
+                        <p>
+                            Under the California Consumer Privacy Act (CCPA) you may opt out of the sale of your
+                            personal information. Click below to record your preference on this device.
+                        </p>
+                        <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="action" value="opt_out">
+                            <button type="submit" class="btn btn-primary">Do Not Sell My Personal Information</button>
+                        </form>
+                        {{end}}
+                    {{else}}
+                    <p>We do not sell your personal information, so there is nothing to opt out of.</p>
+                    {{end}}
+
+                    <section id="contact">
+                    <h2 class="section-mt">Contact</h2>
+                    <p>
+                        For questions or concerns, use our <a href="{{.AssetPrefix}}/server/contact">contact page</a>.
+                    </p>
+                    </section>
+                </div>
+            </div>
+        </section>
+{{end}}
