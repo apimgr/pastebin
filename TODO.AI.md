@@ -8,11 +8,6 @@
   `data-copy-code`. AI.md 21422-21484 specifies `.code-block-multi` wrapper and
   reuse of `.copy-btn`/`data-copy-target="<id>"` (same pattern as single-line
   copy). Needs a coordinated rename across 1 CSS file + 3 templates + JS.
-- Global middleware order in `src/server/server.go` (~985-1029) doesn't match
-  the spec's flat 10-step order (URLNormalize, RequestID, PathSecurity,
-  SecurityHeaders, Allowlist, Blocklist, RateLimit, GeoIP, Auth, Logging) —
-  RequestID is inlined into SecurityHeaders, RateLimit/Auth are per-route
-  wrappers instead of global middleware. Structural change, needs review.
 - `src/server/template/partial/public/nav.tmpl` theme-toggle form posts to
   `{{.AssetPrefix}}/theme` (working `POST /theme` route exists), but a spec
   code sample elsewhere shows `/server/preferences`. Confirm canonical route

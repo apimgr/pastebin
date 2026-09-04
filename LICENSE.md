@@ -41,6 +41,7 @@ from the modules actually linked into the shipped binaries (`go list -deps`).
 | github.com/alibabacloud-go/tea | v1.4.0 | Apache-2.0 | See upstream LICENSE |
 | github.com/alibabacloud-go/tea-utils/v2 | v2.0.9 | Apache-2.0 | See upstream LICENSE |
 | github.com/aliyun/credentials-go | v1.4.7 | Apache-2.0 | See upstream LICENSE |
+| github.com/antlr4-go/antlr/v4 | v4.13.0 | BSD-3-Clause | 2012-2023 The ANTLR Project |
 | github.com/atotto/clipboard | v0.1.4 | BSD-3-Clause | 2013 Ato Araki |
 | github.com/aws/aws-sdk-go-v2 | v1.41.6 | Apache-2.0 | See upstream LICENSE |
 | github.com/aws/aws-sdk-go-v2/config | v1.32.16 | Apache-2.0 | See upstream LICENSE |
@@ -97,6 +98,7 @@ from the modules actually linked into the shipped binaries (`go list -deps`).
 | github.com/clipperhouse/stringish | v0.1.1 | MIT | 2025 Matt Sherman |
 | github.com/clipperhouse/uax29/v2 | v2.5.0 | MIT | 2020 Matt Sherman |
 | github.com/cloudflare/circl | v1.6.3 | BSD-3-Clause | 2019 Cloudflare |
+| github.com/coder/websocket | v1.8.12 | ISC | 2023 Anmol Sethi <hi@nhooyr.io> |
 | github.com/cretz/bine | v0.2.0 | MIT | 2018 Chad Retz |
 | github.com/davecgh/go-spew | v1.1.2-0.20180830191138-d8f796af33cc | ISC | 2012-2016 Dave Collins <dave@davec.name> |
 | github.com/dgryski/go-rendezvous | v0.0.0-20200823014737-9f7001d12a5f | MIT | 2017-2020 Damian Gryski <damian@gryski.com> |
@@ -241,6 +243,7 @@ from the modules actually linked into the shipped binaries (`go list -deps`).
 | github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common | v1.3.83 | Apache-2.0 | See upstream LICENSE |
 | github.com/tjfoc/gmsm | v1.4.1 | Apache-2.0 | See upstream LICENSE |
 | github.com/transip/gotransip/v6 | v6.26.2 | MIT | 2018 TransIP B.V |
+| github.com/tursodatabase/libsql-client-go | v0.0.0-20260528064733-9d5d30a29a60 | MIT | 2023 libSQL |
 | github.com/ucloud/ucloud-sdk-go | v0.22.63 | Apache-2.0 | See upstream LICENSE |
 | github.com/ultradns/ultradns-go-sdk | v1.8.1-20250722213956-faef419 | Apache-2.0 | See upstream LICENSE |
 | github.com/vinyldns/go-vinyldns | v0.9.17 | Apache-2.0 | See upstream LICENSE |
@@ -295,6 +298,7 @@ clause applies to each of them:
 > may be used to endorse or promote products derived from this software
 > without specific prior written permission.
 
+- github.com/antlr4-go/antlr/v4
 - github.com/atotto/clipboard
 - github.com/bodgit/tsig
 - github.com/cloudflare/circl
