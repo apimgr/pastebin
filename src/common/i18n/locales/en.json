@@ -423,7 +423,10 @@
     "title": "About",
     "features": "Features",
     "version": "Version",
-    "links": "Links"
+    "links": "Links",
+    "attribution": "Third-Party Attribution",
+    "attribution_geoip": "IP Geolocation by DB-IP",
+    "attribution_nro": "Country and ASN data licensed CC BY 4.0 by the Number Resource Organization (NRO)."
   },
   "preferences": {
     "title": "Preferences",

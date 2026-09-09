@@ -308,7 +308,10 @@
     "title": "Über uns",
     "features": "Funktionen",
     "version": "Version",
-    "links": "Links"
+    "links": "Links",
+    "attribution": "Drittanbieter-Namensnennung",
+    "attribution_geoip": "IP-Geolokalisierung von DB-IP",
+    "attribution_nro": "Länder- und ASN-Daten lizenziert unter CC BY 4.0 von der Number Resource Organization (NRO)."
   },
   "preferences": {
     "title": "Einstellungen",

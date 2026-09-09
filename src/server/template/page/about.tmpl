@@ -31,6 +31,12 @@
                         {{end}}
                     </p>
                     <p>Open source, MIT licensed.</p>
+
+                    {{if .GeoIPEnabled}}
+                    <h2 class="section-mt">{{t .Lang "about.attribution"}}</h2>
+                    <p><a href="https://db-ip.com/" target="_blank" rel="noopener">{{t .Lang "about.attribution_geoip"}}</a></p>
+                    <p>{{t .Lang "about.attribution_nro"}}</p>
+                    {{end}}
                 </div>
             </div>
         </section>

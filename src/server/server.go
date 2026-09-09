@@ -3670,6 +3670,7 @@ func (s *Server) aboutPageData() map[string]interface{} {
 	data["Description"] = b.EffectiveDescription()
 	data["Features"] = b.EffectiveFeatures()
 	data["Links"] = b.EffectiveLinks()
+	data["GeoIPEnabled"] = s.liveCfg().Server.GeoIP.Enabled
 	return data
 }
 
