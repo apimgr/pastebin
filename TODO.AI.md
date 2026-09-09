@@ -32,11 +32,18 @@
 - `src/config/footer.go` / `src/config/config.go`: AI.md's Footer Customization
   "Custom HTML Validation" (reject fully-stripped content) and "Sanitization
   Preview (Startup Log)" requirements are unimplemented.
-- `app.js` JS-rendered consent banner path (`#pb-consent-data`,
-  `consentInfo`/`consentConfig` template funcs) not verified against spec's
-  `CheckTrackingAllowed` behavior table; `src/server/consent.go`/`tracking.go`/
-  `preferences.go` not diffed against the consent/CCPA/tracking behavior
-  tables.
+- Consent-gated tracking path investigated and resolved by reasoning, no code
+  change: `trackingScript` (`src/server/tracking.go`) renders analytics embeds
+  into `<template id="pb-tracking-snippet">` in `footer.tmpl` — a `<template>`
+  element never parses/executes its contained `<script>` tags. `app.js`'s
+  `applyConsent()` only calls `activateTracking()` (clones the template into
+  `<head>`, triggering execution) when `consent.analytics && cfg
+  .analyticsConfigured`, i.e. gated on the visitor's actual stored consent
+  choice, not just server config. This achieves the same guarantee as AI.md's
+  `CheckTrackingAllowed(r)` reference (tracking never loads without consent)
+  via this project's client-side-only consent model (`consent.go`: "server
+  never records per-visitor consent") instead of a server-side per-request
+  check — a legitimate architectural equivalent, not a gap.
 - Fixed: `/server/about` was missing the AI.md PART 16 (lines 26904-26977)
   required GeoIP third-party attribution section (DB-IP link + NRO CC BY 4.0
   notice). Added a conditionally-rendered (`GeoIPEnabled`) attribution
