@@ -60,24 +60,124 @@ function getToastContainer() {
     return container;
 }
 
+// Auto-dismiss durations per toast type (PART 16 Toast Behavior Rules):
+// success/info 3s, warning 5s, error never auto-dismisses (0 = stays until
+// clicked/closed).
+const TOAST_DURATIONS = { success: 3000, info: 3000, warning: 5000, error: 0 };
+const TOAST_ICONS = { success: '✓', error: '✗', warning: '⚠', info: 'ℹ' };
+const TOAST_MAX_VISIBLE = 5;
+
+// toastQueue holds toasts created while TOAST_MAX_VISIBLE are already shown;
+// they render as space frees up (PART 16: "Older toasts queue until space
+// available").
+var toastQueue = [];
+
+// visibleToastCount counts transient toasts currently shown (persistent
+// entries like the SW update banner and offline indicator are excluded —
+// they are not marked data-toast).
+function visibleToastCount() {
+    return getToastContainer().querySelectorAll('.toast[data-toast="true"]:not(.toast-dismissing)').length;
+}
+
+// processToastQueue renders the next queued toast once a slot frees up.
+function processToastQueue() {
+    if (toastQueue.length === 0 || visibleToastCount() >= TOAST_MAX_VISIBLE) return;
+    getToastContainer().prepend(toastQueue.shift());
+}
+
+// armToastTimer starts (or resumes) the auto-dismiss countdown for a toast.
+function armToastTimer(toast, duration) {
+    toast.__toastRemaining = duration;
+    toast.__toastStart = Date.now();
+    toast.__toastTimer = setTimeout(function () { dismissToast(toast); }, duration);
+}
+
+// pauseToastTimer stops the countdown on hover; the progress bar itself
+// pauses via the pure-CSS `.toast:hover .toast-progress` rule.
+function pauseToastTimer(toast) {
+    if (!toast.__toastTimer) return;
+    clearTimeout(toast.__toastTimer);
+    toast.__toastTimer = null;
+    toast.__toastRemaining -= Date.now() - toast.__toastStart;
+}
+
+// resumeToastTimer restarts the countdown with the time remaining when hover ends.
+function resumeToastTimer(toast) {
+    if (toast.__toastTimer || toast.__toastRemaining == null) return;
+    toast.__toastStart = Date.now();
+    toast.__toastTimer = setTimeout(function () { dismissToast(toast); }, Math.max(toast.__toastRemaining, 0));
+}
+
+// dismissToast plays the fade-out animation, removes the toast, then
+// promotes the next queued toast (if any) into its place.
+function dismissToast(toast) {
+    if (toast.__toastTimer) clearTimeout(toast.__toastTimer);
+    if (toast.classList.contains('toast-dismissing')) return;
+    toast.classList.add('toast-dismissing');
+    toast.addEventListener('animationend', function onEnd() {
+        toast.removeEventListener('animationend', onEnd);
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+        processToastQueue();
+    });
+}
+
 // showToast displays a transient notification in the #toast-container element.
 // type: 'info' | 'success' | 'warning' | 'error'
 function showToast(message, type) {
     var toastType = type || 'info';
-    var container = getToastContainer();
     var toast = document.createElement('div');
-    toast.className = 'toast toast--' + toastType;
-    toast.setAttribute('role', 'status');
+    toast.className = 'toast toast-' + toastType;
+    toast.setAttribute('role', 'alert');
     toast.setAttribute('aria-live', 'polite');
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(function () {
-        toast.classList.add('toast--dismissing');
-        toast.addEventListener('animationend', function () {
-            if (toast.parentNode) toast.parentNode.removeChild(toast);
-        });
-    }, 3000);
+    toast.dataset.toast = 'true';
+
+    var icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = TOAST_ICONS[toastType] || TOAST_ICONS.info;
+
+    var msg = document.createElement('span');
+    msg.className = 'toast-message';
+    msg.textContent = message;
+
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'toast-close';
+    close.setAttribute('aria-label', t('dismiss'));
+    close.innerHTML = '&times;';
+    close.addEventListener('click', function (event) {
+        event.stopPropagation();
+        dismissToast(toast);
+    });
+
+    toast.append(icon, msg, close);
+    toast.addEventListener('click', function () { dismissToast(toast); });
+
+    var duration = TOAST_DURATIONS[toastType];
+    if (duration === undefined) duration = TOAST_DURATIONS.info;
+    if (duration > 0) {
+        var progress = document.createElement('div');
+        progress.className = 'toast-progress';
+        progress.style.animationDuration = duration + 'ms';
+        toast.appendChild(progress);
+        armToastTimer(toast, duration);
+        toast.addEventListener('mouseenter', function () { pauseToastTimer(toast); });
+        toast.addEventListener('mouseleave', function () { resumeToastTimer(toast); });
+    }
+
+    if (visibleToastCount() >= TOAST_MAX_VISIBLE) {
+        toastQueue.push(toast);
+        return;
+    }
+    getToastContainer().prepend(toast);
 }
+
+// Escape dismisses the topmost (newest, first-rendered) toast.
+document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    var topmost = document.querySelector('#toast-container .toast[data-toast="true"]:not(.toast-dismissing)');
+    if (topmost) dismissToast(topmost);
+});
 
 // ─── Service worker ───────────────────────────────────────────────────────────
 
@@ -117,7 +217,7 @@ function showUpdateBanner(registration) {
     if (document.getElementById('sw-update-banner')) return;
     const banner = document.createElement('div');
     banner.id = 'sw-update-banner';
-    banner.className = 'toast toast--info sw-update-banner';
+    banner.className = 'toast toast-info sw-update-banner';
     banner.setAttribute('role', 'status');
     banner.setAttribute('aria-live', 'polite');
 
@@ -229,7 +329,7 @@ function updateOfflineIndicator() {
     if (existing) return;
     const indicator = document.createElement('div');
     indicator.id = 'offline-indicator';
-    indicator.className = 'toast toast--warning';
+    indicator.className = 'toast toast-warning';
     indicator.setAttribute('role', 'status');
     indicator.setAttribute('aria-live', 'polite');
     indicator.textContent = t('offline');

@@ -401,8 +401,10 @@ textarea:user-invalid {
     top: var(--space-4);
     right: var(--space-4);
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: column;
     gap: var(--space-2);
+    max-height: calc(100vh - var(--space-8));
+    overflow: hidden;
     z-index: 10000;
     pointer-events: none;
 }
@@ -420,14 +422,50 @@ textarea:user-invalid {
     box-shadow: var(--shadow-lg);
     pointer-events: auto;
     animation: toastIn 0.2s ease forwards;
+    position: relative;
     min-width: 200px;
     max-width: 400px;
 }
 
-.toast--info { border-left: 4px solid var(--color-info); }
-.toast--success { border-left: 4px solid var(--color-success); }
-.toast--warning { border-left: 4px solid var(--color-warning); }
-.toast--error { border-left: 4px solid var(--color-error); }
+.toast-icon {
+    flex-shrink: 0;
+}
+
+.toast-message {
+    flex: 1;
+    word-break: break-word;
+}
+
+.toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font-size: var(--font-size-lg);
+    line-height: 1;
+    cursor: pointer;
+}
+
+.toast-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.5);
+    animation: toastCountdown linear forwards;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* Pause on hover is pure CSS - JS only syncs the removal timer. */
+.toast:hover .toast-progress {
+    animation-play-state: paused;
+}
+
+.toast-info { border-left: 4px solid var(--color-info); }
+.toast-success { border-left: 4px solid var(--color-success); }
+.toast-warning { border-left: 4px solid var(--color-warning); }
+.toast-error { border-left: 4px solid var(--color-error); }
 
 @keyframes toastIn {
     from { opacity: 0; transform: translateY(-8px); }
@@ -439,7 +477,12 @@ textarea:user-invalid {
     to { opacity: 0; transform: translateY(8px); }
 }
 
-.toast--dismissing {
+@keyframes toastCountdown {
+    from { width: 100%; }
+    to { width: 0%; }
+}
+
+.toast-dismissing {
     animation: toastOut 0.2s ease forwards;
 }
 

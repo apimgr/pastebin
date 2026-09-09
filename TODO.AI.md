@@ -11,10 +11,19 @@
   `remove.tmpl`) wires `aria-describedby`/`aria-invalid`/`<span
   class="field-error">` per field, and `app.js` has no blur-validation JS. Needs
   new i18n error-message keys per field across all 7 locales.
-- Toast CSS class naming: `components.css.tmpl` uses BEM-style
-  `.toast--info`/`.toast--success`/etc.; AI.md's Toast Structure example uses
-  two space-separated classes (`class="toast toast-success"`). Not reconciled
-  against the full `showToast`/`dismissToast` JS API — needs a dedicated pass.
+- Fixed: Toast system did not match AI.md PART 16's Toast Notifications spec
+  (structure, JS reference implementation ~line 24687, and stacking CSS ~line
+  22431). Renamed all `.toast--{type}`/`.toast--dismissing` BEM classes to
+  `.toast-{type}`/`.toast-dismissing` in `components.css.tmpl` and their three
+  usages in `app.js` (`showToast`, `showUpdateBanner`, offline indicator).
+  Rebuilt `showToast()` to match the spec: `role="alert"`, `.toast-icon`/
+  `.toast-message`/`.toast-close`/`.toast-progress` sub-elements, per-type
+  auto-dismiss durations (success/info 3s, warning 5s, error never), click
+  and close-button dismiss, Escape dismisses the topmost toast, max 5 visible
+  with FIFO queueing for the rest, and pause-on-hover (CSS pauses the
+  progress bar; JS pauses/resumes the matching removal timer). Container CSS
+  switched from `column-reverse`/append to `column`/`prepend()` per the
+  spec's stacking CSS, with `max-height`/`overflow: hidden`.
 - Buttons loading-state pattern: spec uses `data-action="submit-loading"` +
   `data-loading-text` attributes; `app.js` instead binds a generic handler to
   every `<form>` with a hardcoded English-word→i18n-key map. Functionally
@@ -28,9 +37,16 @@
   `CheckTrackingAllowed` behavior table; `src/server/consent.go`/`tracking.go`/
   `preferences.go` not diffed against the consent/CCPA/tracking behavior
   tables.
-- `/server/about` GeoIP-attribution and IDEA.md-sourced-content requirements
-  not conclusively verified against `about.tmpl` — needs a follow-up pass
-  reading that spec slice directly.
+- Fixed: `/server/about` was missing the AI.md PART 16 (lines 26904-26977)
+  required GeoIP third-party attribution section (DB-IP link + NRO CC BY 4.0
+  notice). Added a conditionally-rendered (`GeoIPEnabled`) attribution
+  section to `about.tmpl`, wired `Server.GeoIP.Enabled` into
+  `aboutPageData()` in `server.go`, and added `about.attribution`,
+  `about.attribution_geoip`, `about.attribution_nro` i18n keys to all 7
+  locales (commit 3c7f837fb16c). IDEA.md-sourced content (tagline,
+  description, features, links) was already correctly wired via
+  `EffectiveTagline()`/`EffectiveDescription()`/`EffectiveFeatures()`/
+  `EffectiveLinks()` — no change needed there.
 - Config-key existence verified, resolved by reasoning, no code change:
   `server.contact.general.email` exists (`ContactConfig.General ContactRole`,
   `src/config/config.go:145`); `server.pages.{about,privacy,help,terms}.content`
