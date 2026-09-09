@@ -70,10 +70,23 @@
   across all 7 locales).
 - `src/client/` is a flat package; PART 32's illustrative tree splits it into
   subpackages. Cosmetic/structural — needs a decision before churn.
-- `src/path/path.go`'s new `SafePath()`/`validatePath()` (PART 5 path
-  normalization/validation) are defined but not called from any request
-  middleware or config-loading call site — currently dead code. Needs wiring
-  into config value loading and/or a dedicated call site, or removal.
+- `src/path/path.go`'s `SafePath()`/`validatePath()` (PART 5) investigated and
+  resolved by reasoning, no code change: (1) `pathSecurityMiddleware` in
+  `src/server/security_middleware.go` already implements PART 5's HTTP
+  traversal-blocking requirement independently (stdlib `path.Clean` +
+  `..`/`%2e` rejection), correctly wired at middleware position #3 — `SafePath`
+  itself is scoped by its own doc comment to config/CLI-flag/API-parameter
+  paths, not general URL paths, so it is not the right fit there. (2) AI.md's
+  own PART 5 example (line 7036) applies `SafePath()` to CLI directory flags
+  like `--data`, but `validatePathSegment`'s regex (`^[a-z0-9_-]+$`, no
+  uppercase, max 64 chars) would reject mandatory real-world OS paths from
+  PART 4's own directory table — macOS `/Library/Application Support/...` and
+  Windows `%ProgramData%\...` both contain uppercase/spaces. Wiring `SafePath`
+  into `--config`/`--data`/`--log`/`--cache`/`--backup`/`--pid` in
+  `src/main.go` as literally shown would break mandatory Windows/macOS
+  support. `SafePath` remains correctly-scoped defensive utility code for a
+  future resource-identifier-shaped path (API file params, slug-like config
+  keys) with no current caller — not a bug to fix by removal or forced wiring.
 - AI.md self-contradiction (recorded, no code change): PART 5's "Six
   Operational States" table and its "Mode Shortcuts" table disagree on whether
   `MODE=debug` implies development. Implementation follows the Mode Shortcuts
