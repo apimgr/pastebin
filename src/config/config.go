@@ -1754,6 +1754,10 @@ func Load(path string) (*Config, error) {
 	// Validate and sanitize — replace invalid values with defaults, never crash.
 	Validate(cfg)
 
+	// Show the operator exactly what a configured footer.custom_html will
+	// render as, once it has survived Validate() (PART 16 Sanitization Preview).
+	LogFooterSanitizationPreview(cfg.Web.Footer.CustomHTML)
+
 	// Generate and persist encryption key if missing (upgrade path for older configs).
 	needSave := false
 	if cfg.Web.Security.EncryptionKey == "" {
@@ -2698,6 +2702,15 @@ func Validate(cfg *Config) {
 	if err := ValidateTracking(&cfg.Server.Tracking); err != nil {
 		log.Printf("[config] WARNING: invalid server.tracking (%v), disabling analytics", err)
 		cfg.Server.Tracking = TrackingConfig{}
+	}
+
+	// Footer custom HTML must survive sanitization; content that sanitizes
+	// down to nothing is a configuration error, so warn and fall back to the
+	// default (empty = built-in branding) rather than silently rendering
+	// nothing (PART 16 Custom HTML Validation, warn-and-default per PART 5).
+	if _, err := ValidateFooterHTML(cfg.Web.Footer.CustomHTML); err != nil {
+		log.Printf("[config] WARNING: invalid web.footer.custom_html (%v), using default branding", err)
+		cfg.Web.Footer.CustomHTML = d.Web.Footer.CustomHTML
 	}
 }
 

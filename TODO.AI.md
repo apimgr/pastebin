@@ -29,9 +29,16 @@
   every `<form>` with a hardcoded English-word→i18n-key map. Functionally
   broader than spec but structurally different — needs a human call on whether
   this is an acceptable superset.
-- `src/config/footer.go` / `src/config/config.go`: AI.md's Footer Customization
-  "Custom HTML Validation" (reject fully-stripped content) and "Sanitization
-  Preview (Startup Log)" requirements are unimplemented.
+- Fixed: `src/config/footer.go` / `src/config/config.go` were missing AI.md's
+  Footer Customization "Custom HTML Validation" and "Sanitization Preview
+  (Startup Log)" requirements. Added `ValidateFooterHTML()` (rejects
+  non-empty, non-sentinel `web.footer.custom_html` that sanitizes down to
+  nothing, warns when partially stripped) and `LogFooterSanitizationPreview()`
+  (logs raw input, sanitized output, and a modified-warning at startup),
+  wired into `Validate()`/`Load()` following the existing warn-and-default
+  pattern (`ValidateTracking`). Added `footer_test.go` covering pass-through,
+  sentinel, safe HTML, fully-stripped-rejected, and
+  partially-stripped-not-rejected cases.
 - Consent-gated tracking path investigated and resolved by reasoning, no code
   change: `trackingScript` (`src/server/tracking.go`) renders analytics embeds
   into `<template id="pb-tracking-snippet">` in `footer.tmpl` — a `<template>`

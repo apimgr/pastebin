@@ -1,6 +1,9 @@
 package config
 
 import (
+	"errors"
+	"log"
+
 	"github.com/microcosm-cc/bluemonday"
 )
 
@@ -41,4 +44,39 @@ func (c *Config) FooterCustomHTML() string {
 		return ""
 	}
 	return SanitizeFooterHTML(raw)
+}
+
+// ValidateFooterHTML sanitizes html and rejects input that sanitized down to
+// nothing (PART 16 Custom HTML Validation) — non-empty, non-sentinel input
+// that contains only disallowed elements is a configuration error, not
+// silently-rendered-blank branding.
+func ValidateFooterHTML(html string) (string, error) {
+	sanitized := SanitizeFooterHTML(html)
+
+	if len(html) > 0 && html != " " && len(sanitized) == 0 {
+		return "", errors.New("custom HTML contained only disallowed elements")
+	}
+
+	if html != sanitized && html != "" && html != " " {
+		log.Printf("[config] WARNING: web.footer.custom_html was sanitized: removed potentially dangerous content")
+	}
+
+	return sanitized, nil
+}
+
+// LogFooterSanitizationPreview logs the raw vs. sanitized web.footer.custom_html
+// at startup (PART 16 Sanitization Preview) so operators can see exactly what
+// will render before it reaches a browser: the configured raw input, the
+// sanitized output that actually renders, and a warning if the sanitizer
+// modified it.
+func LogFooterSanitizationPreview(html string) {
+	if html == "" || html == " " {
+		return
+	}
+	sanitized := SanitizeFooterHTML(html)
+	log.Printf("[config] footer.custom_html raw input: %s", html)
+	log.Printf("[config] footer.custom_html sanitized output: %s", sanitized)
+	if sanitized != html {
+		log.Printf("[config] WARNING: footer.custom_html was modified by the sanitizer")
+	}
 }
