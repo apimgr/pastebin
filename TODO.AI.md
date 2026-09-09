@@ -31,9 +31,12 @@
 - `/server/about` GeoIP-attribution and IDEA.md-sourced-content requirements
   not conclusively verified against `about.tmpl` — needs a follow-up pass
   reading that spec slice directly.
-- Config-key existence not verified (would touch `src/config/**`, out of PART
-  16 audit scope): `server.contact.general.email`, `pages.{about,privacy,
-  contact,help,terms}.*`.
+- Config-key existence verified, resolved by reasoning, no code change:
+  `server.contact.general.email` exists (`ContactConfig.General ContactRole`,
+  `src/config/config.go:145`); `server.pages.{about,privacy,help,terms}.content`
+  and `server.pages.contact.{enabled,captcha,success_message}` all exist
+  exactly as AI.md 27503-27547 specifies (`PagesConfig`/`PageContentConfig`/
+  `ContactPageConfig`, `src/config/config.go:155-180`).
 - Image Sources / Image Scaling / Remote URL Fetching (AI.md 25417-25634)
   entirely unimplemented: no SSRF-safe fetch util, no multi-size image
   generation/caching, no scheduler re-fetch task. `branding.favicon`/`.logo`/
