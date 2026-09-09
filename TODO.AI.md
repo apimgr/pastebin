@@ -23,9 +23,6 @@
 - `src/config/footer.go` / `src/config/config.go`: AI.md's Footer Customization
   "Custom HTML Validation" (reject fully-stripped content) and "Sanitization
   Preview (Startup Log)" requirements are unimplemented.
-- Cookie Consent Banner exact CSS values (`#7c5295` background, `z-index:
-  9999`, `@media (min-width: 601px)` breakpoint) not verified against
-  `components.css.tmpl`/`public.css.tmpl`.
 - `app.js` JS-rendered consent banner path (`#pb-consent-data`,
   `consentInfo`/`consentConfig` template funcs) not verified against spec's
   `CheckTrackingAllowed` behavior table; `src/server/consent.go`/`tracking.go`/
@@ -83,3 +80,9 @@
   table plus the explicit-`DEBUG`-env-wins rule.
 - PART 23 lists s6 among supported Linux init systems but PART 24 supplies no
   s6 service template — nothing concrete to implement against.
+- Makefile ldflags (PART 25): `BuildDate` is derived at runtime in
+  `main.go`'s `init()` from a `BuildEpoch` ldflag instead of being set
+  directly via `-X 'main.BuildDate=$(BUILD_DATE)'` like `Version`/`CommitID`.
+  Flagged by go-lint. Needs a decision: switch to direct ldflags injection,
+  or document the epoch-derivation pattern as an authorized exception in
+  AI.md PART 25.

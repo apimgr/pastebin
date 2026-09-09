@@ -521,11 +521,10 @@ textarea:user-invalid {
     left: 0;
     right: 0;
     width: 100%;
-    background: var(--color-bg-elevated);
-    color: var(--color-text-primary);
-    border-top: 1px solid var(--color-border);
+    background: var(--color-accent-primary);
+    color: var(--color-on-accent);
     box-shadow: var(--shadow-lg);
-    z-index: 9990;
+    z-index: 9999;
 }
 
 .cookie-banner-bottom {
@@ -534,8 +533,6 @@ textarea:user-invalid {
 
 .cookie-banner-top {
     top: 0;
-    border-top: none;
-    border-bottom: 1px solid var(--color-border);
 }
 
 .cookie-banner-content {
@@ -556,12 +553,12 @@ textarea:user-invalid {
 }
 
 .cookie-banner .policy-link {
-    color: var(--color-accent-primary);
+    color: var(--color-on-accent);
     text-decoration: underline;
 }
 
 .cookie-banner .policy-link:hover {
-    color: var(--color-accent-hover);
+    opacity: 0.9;
 }
 
 .cookie-buttons {
@@ -585,25 +582,25 @@ textarea:user-invalid {
 .cookie-banner .btn-preferences,
 .cookie-banner .btn-do-not-sell {
     background: transparent;
-    border: 1px solid var(--color-border-hover);
-    color: var(--color-text-primary);
+    border: none;
+    color: var(--color-on-accent);
 }
 
 .cookie-banner .btn-decline:hover,
 .cookie-banner .btn-preferences:hover,
 .cookie-banner .btn-do-not-sell:hover {
-    background: var(--color-bg-hover);
+    text-decoration: underline;
 }
 
 .cookie-banner .btn-accept {
-    background: var(--color-accent-primary);
-    border: 1px solid var(--color-accent-primary);
-    color: var(--color-on-accent);
+    background: var(--color-on-accent);
+    border: none;
+    color: var(--color-accent-primary);
     font-weight: 600;
 }
 
 .cookie-banner .btn-accept:hover {
-    background: var(--color-accent-hover);
+    opacity: 0.95;
 }
 
 .cookie-modal-overlay {
