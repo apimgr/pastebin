@@ -143,12 +143,29 @@ func (m *Mailer) TestSMTP() error {
 	if m.cfg.SMTP.Host == "" {
 		return fmt.Errorf("smtp: no host configured")
 	}
-	addr := net.JoinHostPort(m.cfg.SMTP.Host, strconv.Itoa(m.cfg.SMTP.Port))
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	return smtpHandshake(m.cfg.SMTP.Host, m.cfg.SMTP.Port, 5*time.Second)
+}
+
+// smtpHandshake dials host:port and performs an SMTP EHLO/HELO handshake,
+// per PART 17's "Attempt SMTP handshake (EHLO)" requirement for both
+// auto-detection and startup connection tests. The connection is closed
+// with QUIT after a successful handshake.
+func smtpHandshake(host string, port int, timeout time.Duration) error {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return fmt.Errorf("smtp: connect %s: %w", addr, err)
 	}
-	conn.Close()
+	conn.SetDeadline(time.Now().Add(timeout))
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("smtp: handshake %s: %w", addr, err)
+	}
+	defer c.Close()
+	if err := c.Hello("localhost"); err != nil {
+		return fmt.Errorf("smtp: EHLO %s: %w", addr, err)
+	}
 	return nil
 }
 
@@ -203,12 +220,9 @@ func AutoDetect(fqdn string) (host string, port int, ok bool) {
 	}
 
 	for _, c := range candidates {
-		addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-		if err != nil {
+		if err := smtpHandshake(c.host, c.port, 2*time.Second); err != nil {
 			continue
 		}
-		conn.Close()
 		log.Printf("[email] SMTP auto-detected: %s:%d", c.host, c.port)
 		return c.host, c.port, true
 	}

@@ -16,37 +16,62 @@
                     <p>Go to <a href="{{.AssetPrefix}}/create">/create</a>, fill in your content, choose a language and expiry, then click <strong>Create Paste</strong>. Save the delete token — it is shown only once.</p>
 
                     <h2 class="section-mt">Create via curl — raw body</h2>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl --data-binary @file.txt {{.BaseURL}}/pastes</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-curl-raw" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-curl-raw">curl --data-binary @file.txt {{.BaseURL}}/pastes</code></pre>
                     </div>
 
                     <h2 class="section-mt">Pipe to paste</h2>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>cat myfile.py | curl --data-binary @- {{.BaseURL}}/pastes</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-pipe" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-pipe">cat myfile.py | curl --data-binary @- {{.BaseURL}}/pastes</code></pre>
                     </div>
 
                     <h2 class="section-mt">JSON API — create</h2>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -H "Content-Type: application/json" \
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-json-create" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-json-create">curl -H "Content-Type: application/json" \
      -H "Accept: application/json" \
      -d '{"content":"Hello","language":"text","expires_in":"1d"}' \
-     {{.BaseURL}}/api/v1/pastes</pre></div>
+     {{.BaseURL}}/api/v1/pastes</code></pre>
                     </div>
 
                     <h2 class="section-mt">Get raw content</h2>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl {{.BaseURL}}/raw/{id}</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-get-raw" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-get-raw">curl {{.BaseURL}}/raw/{id}</code></pre>
                     </div>
 
                     <h2 class="section-mt">Delete a paste</h2>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -X DELETE \
-     "{{.BaseURL}}/api/v1/pastes/{id}?token={delete_token}"</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-delete" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-delete">curl -X DELETE \
+     "{{.BaseURL}}/api/v1/pastes/{id}?token={delete_token}"</code></pre>
                     </div>
 
                     <h2 class="section-mt">Expiry values</h2>
@@ -72,10 +97,15 @@
 
                     <h3>pastebin.com</h3>
                     <p>Wire-compatible with the <a href="https://pastebin.com/doc_api" target="_blank" rel="noopener">pastebin.com API</a>:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -d "api_dev_key=x&api_paste_code=Hello&api_option=paste" \
-     {{.BaseURL}}/api/api_post.php</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-pastebin" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-pastebin">curl -d "api_dev_key=x&api_paste_code=Hello&api_option=paste" \
+     {{.BaseURL}}/api/api_post.php</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -86,9 +116,14 @@
 
                     <h3 class="section-mt">microbin</h3>
                     <p>Wire-compatible with the <a href="https://github.com/szabodanika/microbin" target="_blank" rel="noopener">microbin</a> API:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -d "content=Hello" {{.BaseURL}}/api/v1/pasta</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-microbin" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-microbin">curl -d "content=Hello" {{.BaseURL}}/api/v1/pasta</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -100,9 +135,14 @@
 
                     <h3 class="section-mt">lenpaste</h3>
                     <p>Wire-compatible with the <a href="https://github.com/forksmgr/lcomrade-lenpaste" target="_blank" rel="noopener">lenpaste</a> API:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -d "body=Hello&expiration=86400" {{.BaseURL}}/api/new</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-lenpaste" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-lenpaste">curl -d "body=Hello&expiration=86400" {{.BaseURL}}/api/new</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -115,9 +155,14 @@
 
                     <h3 class="section-mt">stikked</h3>
                     <p>Wire-compatible with the <a href="https://github.com/claudehohl/Stikked" target="_blank" rel="noopener">stikked</a> API:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -d "text=Hello&title=Test&lang=text" {{.BaseURL}}/api/create</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-stikked" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-stikked">curl -d "text=Hello&title=Test&lang=text" {{.BaseURL}}/api/create</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -129,11 +174,16 @@
 
                     <h3 class="section-mt">hastebin / haste-server</h3>
                     <p>Wire-compatible with the <a href="https://github.com/toptal/haste-server" target="_blank" rel="noopener">haste-server</a> API:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -X POST --data-binary "Hello" {{.BaseURL}}/documents
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-hastebin" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-hastebin">curl -X POST --data-binary "Hello" {{.BaseURL}}/documents
 # returns {"key":"AbCdEfGh"}
-curl {{.BaseURL}}/documents/AbCdEfGh</pre></div>
+curl {{.BaseURL}}/documents/AbCdEfGh</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -144,10 +194,15 @@ curl {{.BaseURL}}/documents/AbCdEfGh</pre></div>
 
                     <h3 class="section-mt">dpaste</h3>
                     <p>Wire-compatible with the <a href="https://github.com/bartTC/dpaste" target="_blank" rel="noopener">dpaste</a> API:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>curl -d "content=Hello&lexer=text&expires=86400&format=url" \
-     {{.BaseURL}}/api/</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-dpaste" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-dpaste">curl -d "content=Hello&lexer=text&expires=86400&format=url" \
+     {{.BaseURL}}/api/</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -156,16 +211,21 @@ curl {{.BaseURL}}/documents/AbCdEfGh</pre></div>
 
                     <h3 class="section-mt">0x0.st / sprunge / ix.io (curl-upload family)</h3>
                     <p>Wire-compatible with the curl-upload one-liner family:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre># 0x0.st style
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-compat-curlupload" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-compat-curlupload"># 0x0.st style
 curl -F "file=@file.txt" {{.BaseURL}}/
 
 # sprunge style
 cat file.txt | curl -F "sprunge=&lt;-" {{.BaseURL}}/
 
 # ix.io style
-curl -F "f:1=&lt;-" {{.BaseURL}}/</pre></div>
+curl -F "f:1=&lt;-" {{.BaseURL}}/</code></pre>
                     </div>
                     <table class="help-table">
                         <tr><th>Method</th><th>Path</th><th>Description</th></tr>
@@ -176,10 +236,15 @@ curl -F "f:1=&lt;-" {{.BaseURL}}/</pre></div>
                     {{if .TermbinEnabled}}
                     <h3 class="section-mt" id="termbin">termbin / fiche (raw TCP)</h3>
                     <p>Wire-compatible with <a href="https://termbin.com" target="_blank" rel="noopener">termbin.com</a> and the fiche server protocol. Connect, stream content, close the write side; the server replies with the paste URL and closes:</p>
-                    <div class="code-block">
-                        <div class="code-header"><span class="code-lang">Bash</span></div>
-                        <div class="code-content"><pre>echo "Hello" | nc {{.TermbinHost}} {{.TermbinPort}}
-cat file.txt | nc {{.TermbinHost}} {{.TermbinPort}}</pre></div>
+                    <div class="code-block-multi">
+                        <div class="code-header">
+                            <span class="code-lang">Bash</span>
+                            <button type="button" class="copy-btn" data-copy-target="help-termbin" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                                <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                            </button>
+                        </div>
+                        <pre><code id="help-termbin">echo "Hello" | nc {{.TermbinHost}} {{.TermbinPort}}
+cat file.txt | nc {{.TermbinHost}} {{.TermbinPort}}</code></pre>
                     </div>
                     <p>Maximum payload: {{.TermbinMaxSize}} bytes. Idle/read timeout: {{.TermbinTimeout}}. TCP port: <code>{{.TermbinPort}}</code>.</p>
                     {{end}}

@@ -1,13 +1,98 @@
 package path
 
 import (
+	"errors"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 )
 
 const orgName = "apimgr"
+
+// Path security errors, per AI.md PART 5 (Path Normalization & Validation).
+var (
+	ErrPathTraversal = errors.New("path traversal attempt detected")
+	ErrInvalidPath   = errors.New("invalid path characters")
+	ErrPathTooLong   = errors.New("path exceeds maximum length")
+)
+
+// validPathSegment matches a single safe path segment: lowercase
+// alphanumeric, hyphens, underscores.
+var validPathSegment = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// normalizePath cleans a path for safe use: strips leading/trailing
+// slashes, collapses repeated slashes, and removes "." / ".." segments.
+// Returns "" for empty or still-traversal-containing input.
+func normalizePath(input string) string {
+	if input == "" {
+		return ""
+	}
+
+	cleaned := path.Clean(input)
+	cleaned = strings.Trim(cleaned, "/")
+
+	if strings.Contains(cleaned, "..") {
+		return ""
+	}
+
+	return cleaned
+}
+
+// validatePathSegment checks a single path segment (e.g. "admin" in
+// "/server/admin/dashboard").
+func validatePathSegment(segment string) error {
+	if segment == "" {
+		return ErrInvalidPath
+	}
+	if len(segment) > 64 {
+		return ErrPathTooLong
+	}
+	if !validPathSegment.MatchString(segment) {
+		return ErrInvalidPath
+	}
+	if segment == "." || segment == ".." {
+		return ErrPathTraversal
+	}
+	return nil
+}
+
+// validatePath checks an entire path for traversal attempts, length, and
+// per-segment validity.
+func validatePath(p string) error {
+	if len(p) > 2048 {
+		return ErrPathTooLong
+	}
+
+	if strings.Contains(p, "..") {
+		return ErrPathTraversal
+	}
+
+	segments := strings.Split(strings.Trim(p, "/"), "/")
+	for _, seg := range segments {
+		if seg == "" {
+			continue
+		}
+		if err := validatePathSegment(seg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// SafePath normalizes and validates a path, returning an error if it is
+// invalid or contains a path traversal attempt. Used for configuration
+// values (static_path, etc.), CLI flag paths, and API parameters that
+// contain paths. Per AI.md PART 5 — a GLOBAL security rule for all binaries.
+func SafePath(input string) (string, error) {
+	if err := validatePath(input); err != nil {
+		return "", err
+	}
+	return normalizePath(input), nil
+}
 
 // containerCheck and rootCheck are overridable in tests so that non-container
 // and privileged code-paths can be exercised from any environment.

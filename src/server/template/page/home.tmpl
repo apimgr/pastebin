@@ -79,47 +79,47 @@
                     <p class="section-description">{{t .Lang "home.quickstart_desc"}}</p>
                 </div>
 
-                <div class="code-block">
+                <div class="code-block-multi">
                     <div class="code-header">
-                        <span class="code-lang">Upload Text File</span>
-                        <button class="code-copy" data-copy-code>Copy</button>
+                        <span class="code-lang">Bash</span>
+                        <button type="button" class="copy-btn" data-copy-target="quickstart-upload-file" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                            <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                        </button>
                     </div>
-                    <div class="code-content">
-                        <pre>curl -X POST --data-binary @file.txt {{.BaseURL}}/api/v1/pastes</pre>
-                    </div>
+                    <pre><code id="quickstart-upload-file">curl -X POST --data-binary @file.txt {{.BaseURL}}/api/v1/pastes</code></pre>
                 </div>
 
-                <div class="code-block">
+                <div class="code-block-multi">
                     <div class="code-header">
-                        <span class="code-lang">Upload via Form</span>
-                        <button class="code-copy" data-copy-code>Copy</button>
+                        <span class="code-lang">Bash</span>
+                        <button type="button" class="copy-btn" data-copy-target="quickstart-upload-form" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                            <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                        </button>
                     </div>
-                    <div class="code-content">
-                        <pre>curl -X POST -F "files=@code.py" {{.BaseURL}}/api/v1/pastes</pre>
-                    </div>
+                    <pre><code id="quickstart-upload-form">curl -X POST -F "files=@code.py" {{.BaseURL}}/api/v1/pastes</code></pre>
                 </div>
 
-                <div class="code-block">
+                <div class="code-block-multi">
                     <div class="code-header">
-                        <span class="code-lang">JSON API</span>
-                        <button class="code-copy" data-copy-code>Copy</button>
+                        <span class="code-lang">Bash</span>
+                        <button type="button" class="copy-btn" data-copy-target="quickstart-json-api" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                            <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                        </button>
                     </div>
-                    <div class="code-content">
-                        <pre>curl -H "Content-Type: application/json" \
+                    <pre><code id="quickstart-json-api">curl -H "Content-Type: application/json" \
      -H "Accept: application/json" \
      -d '{"content":"Hello World","language":"text"}' \
-     {{.BaseURL}}/api/v1/pastes</pre>
-                    </div>
+     {{.BaseURL}}/api/v1/pastes</code></pre>
                 </div>
 
-                <div class="code-block">
+                <div class="code-block-multi">
                     <div class="code-header">
-                        <span class="code-lang">Pipe Content</span>
-                        <button class="code-copy" data-copy-code>Copy</button>
+                        <span class="code-lang">Bash</span>
+                        <button type="button" class="copy-btn" data-copy-target="quickstart-pipe" aria-live="polite" aria-label="{{t .Lang "common.copy"}}">
+                            <span class="copy-icon" aria-hidden="true">📋</span><span class="copy-text">{{t .Lang "common.copy"}}</span>
+                        </button>
                     </div>
-                    <div class="code-content">
-                        <pre>echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/api/v1/pastes</pre>
-                    </div>
+                    <pre><code id="quickstart-pipe">echo "Hello World" | curl -X POST --data-binary @- {{.BaseURL}}/api/v1/pastes</code></pre>
                 </div>
             </div>
         </section>

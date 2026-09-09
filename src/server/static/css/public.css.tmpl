@@ -672,8 +672,31 @@ main {
     font-size: var(--font-size-sm);
 }
 
-/* Code Blocks */
+/* Code Blocks - single-line value with copy button */
 .code-block {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 100%;
+    margin: var(--space-2) 0;
+}
+
+.code-block .code-content {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Code Blocks - multi-line (config/scripts/output) */
+.code-block-multi {
     background: var(--color-bg-tertiary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -698,33 +721,22 @@ main {
     letter-spacing: 0.05em;
 }
 
-.code-copy {
-    padding: var(--space-1) var(--space-2);
-    font-size: var(--font-size-xs);
-    background: var(--color-bg-tertiary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-
-.code-copy:hover {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-}
-
-.code-content {
+.code-block-multi pre {
+    margin: 0;
     padding: var(--space-4);
     overflow-x: auto;
-}
-
-.code-content pre {
-    margin: 0;
+    -webkit-overflow-scrolling: touch;
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     line-height: 1.6;
     color: var(--color-text-primary);
+}
+
+.code-block-multi code {
+    display: block;
+    padding: 0;
+    background: none;
+    white-space: pre;
 }
 
 /* ============================================

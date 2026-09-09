@@ -120,7 +120,7 @@ const (
 
 // commonTorPaths lists well-known Tor binary locations per OS.
 var commonTorPaths = map[string][]string{
-	"linux":   {"/usr/bin/tor", "/usr/local/bin/tor", "/bin/tor"},
+	"linux":   {"/usr/bin/tor", "/usr/sbin/tor", "/usr/local/bin/tor", "/bin/tor"},
 	"darwin":  {"/usr/local/bin/tor", "/opt/homebrew/bin/tor"},
 	"windows": {`C:\Program Files\Tor\tor.exe`, `C:\Program Files (x86)\Tor\tor.exe`},
 	"freebsd": {"/usr/local/bin/tor"},
@@ -129,7 +129,8 @@ var commonTorPaths = map[string][]string{
 }
 
 // FindBinary locates the Tor binary. Returns empty string if not found.
-// Checks (in order): configured path, PATH lookup, common OS locations.
+// Checks (in order, per PART 31.1): configured path, common OS locations,
+// PATH lookup.
 func FindBinary(configuredPath string) string {
 	if configuredPath != "" {
 		if _, err := os.Stat(configuredPath); err == nil {
@@ -137,15 +138,15 @@ func FindBinary(configuredPath string) string {
 		}
 		return ""
 	}
-	// PATH lookup.
-	if p, err := findInPath("tor"); err == nil {
-		return p
-	}
 	// Common locations.
 	for _, p := range commonTorPaths[runtime.GOOS] {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	// PATH lookup.
+	if p, err := findInPath("tor"); err == nil {
+		return p
 	}
 	return ""
 }

@@ -2,16 +2,6 @@
 
 ## PART 16 audit follow-ups (AI.md WEB FRONTEND)
 
-- Multi-line code block naming mismatch: `src/server/static/css/public.css.tmpl`
-  (~675-728), `src/server/template/page/{home,healthz,help}.tmpl`, and
-  `copyCode()` in `src/server/static/js/app.js` use `.code-block`/`.code-copy`/
-  `data-copy-code`. AI.md 21422-21484 specifies `.code-block-multi` wrapper and
-  reuse of `.copy-btn`/`data-copy-target="<id>"` (same pattern as single-line
-  copy). Needs a coordinated rename across 1 CSS file + 3 templates + JS.
-- `src/server/template/partial/public/nav.tmpl` theme-toggle form posts to
-  `{{.AssetPrefix}}/theme` (working `POST /theme` route exists), but a spec
-  code sample elsewhere shows `/server/preferences`. Confirm canonical route
-  against AI.md's Theme Toggle section (~line 22349) before changing.
 - Site Banner / Announcements (AI.md 22260-22347, 25648-25692) entirely
   unimplemented: no `web.announcements` config schema, no
   `site-banner`/`site-banner-*` classes/template/JS, no `/announcements/dismiss`
@@ -83,12 +73,10 @@
   across all 7 locales).
 - `src/client/` is a flat package; PART 32's illustrative tree splits it into
   subpackages. Cosmetic/structural — needs a decision before churn.
-- PART 5's escalation matrix requires privilege escalation for
-  `--service start/stop/restart/reload/disable`; `src/service/service.go`
-  currently gates only `Install()`/`Uninstall()` on `isPrivileged()`.
-- `writeJSON()` is duplicated verbatim in `src/server/server.go` and
-  `src/handler/paste.go`. Both are individually spec-compliant; deduplicating
-  into a shared helper package is an architectural change.
+- `src/path/path.go`'s new `SafePath()`/`validatePath()` (PART 5 path
+  normalization/validation) are defined but not called from any request
+  middleware or config-loading call site — currently dead code. Needs wiring
+  into config value loading and/or a dedicated call site, or removal.
 - AI.md self-contradiction (recorded, no code change): PART 5's "Six
   Operational States" table and its "Mode Shortcuts" table disagree on whether
   `MODE=debug` implies development. Implementation follows the Mode Shortcuts

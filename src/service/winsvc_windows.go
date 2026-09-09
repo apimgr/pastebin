@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 )
 
 // IsWindowsService reports whether the process was started by the Windows
@@ -20,6 +21,24 @@ func IsWindowsService() bool {
 
 // isPrivileged is an alias for isElevated for backward compatibility.
 func isPrivileged() bool { return isElevated() }
+
+// isWindowsServiceInstalled reports whether the service is registered with the
+// Service Control Manager. Used by needsEscalationForService to decide whether
+// managing it requires an elevated (administrator) token.
+func isWindowsServiceInstalled() bool {
+	m, err := mgr.Connect()
+	if err != nil {
+		return false
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(appName)
+	if err != nil {
+		return false
+	}
+	s.Close()
+	return true
+}
 
 // windowsService wraps a user-supplied start function as a svc.Handler.
 // The function is expected to block for the lifetime of the service.

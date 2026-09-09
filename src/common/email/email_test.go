@@ -99,13 +99,29 @@ func TestTestSMTP_WithListeningServer(t *testing.T) {
 	}
 	defer ln.Close()
 
+	// TestSMTP performs a real EHLO handshake, so the fake server must speak
+	// just enough SMTP to complete it: a 220 greeting, then a 250 reply to EHLO.
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = conn.Write([]byte("220 localhost ESMTP\r\n"))
+		buf := make([]byte, 512)
+		if _, err := conn.Read(buf); err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte("250 localhost\r\n"))
+	}()
+
 	port := ln.Addr().(*net.TCPAddr).Port
 	cfg := &config.EmailConfig{
 		Enabled: true,
 		SMTP:    config.SMTPConfig{Host: "127.0.0.1", Port: port},
 	}
 	m := email.New(cfg, "pastebin", "https://example.com", "example.com")
-	// TestSMTP connects TCP and immediately closes; it must succeed.
+	// TestSMTP connects and completes an EHLO handshake against the fake server above.
 	if err := m.TestSMTP(); err != nil {
 		t.Errorf("TestSMTP with listening server: %v", err)
 	}

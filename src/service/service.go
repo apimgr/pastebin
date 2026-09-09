@@ -129,6 +129,98 @@ func DetectServiceManager() ServiceType {
 	}
 }
 
+// fileExists reports whether path exists (of any type).
+func fileExists(p string) bool {
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// systemServicePaths returns the on-disk locations a system-wide service
+// definition can occupy for the service managers this binary supports.
+func systemServicePaths() []string {
+	return []string{
+		fmt.Sprintf("/etc/systemd/system/%s.service", appName),
+		fmt.Sprintf("/Library/LaunchDaemons/%s.plist", launchdLabel),
+		fmt.Sprintf("/usr/local/etc/rc.d/%s", appName),
+		fmt.Sprintf("/etc/init.d/%s", appName),
+		fmt.Sprintf("/etc/sv/%s", appName),
+	}
+}
+
+// needsEscalationForService reports whether the current process must gain
+// elevated privileges before it can manage the installed service (PART 5
+// "How Binary Determines Escalation Need"). A system-wide service requires
+// root/administrator; a user service, or no service at all, requires nothing.
+func needsEscalationForService() bool {
+	if runtime.GOOS == "windows" {
+		return !isElevated() && isWindowsServiceInstalled()
+	}
+	for _, p := range systemServicePaths() {
+		if fileExists(p) {
+			return !isElevated()
+		}
+	}
+	return false
+}
+
+// elevateServiceOp escalates privileges for a service lifecycle operation when
+// a system-wide service is installed and the caller is unprivileged. A true
+// first return value means the operation was fully handled (re-executed under
+// the escalation tool) or refused, and the caller must return err immediately.
+//
+// PART 23: never prompt when escalation is impossible — report why instead.
+func elevateServiceOp() (bool, error) {
+	if !needsEscalationForService() {
+		return false, nil
+	}
+	if canEscalate() {
+		return true, execElevated()
+	}
+	return true, fmt.Errorf("managing the system-wide %s service requires administrator privileges; you do not have sudo/admin access — contact your system administrator", appName)
+}
+
+// userServiceAction performs a lifecycle action against the per-user service
+// when no system service is being managed and a user unit exists. A true first
+// return value means the action was handled by the user service.
+func userServiceAction(action string) (bool, error) {
+	if isElevated() {
+		return false, nil
+	}
+	unitPath, supported := userServicePath()
+	if !supported || !fileExists(unitPath) {
+		return false, nil
+	}
+
+	if runtime.GOOS == "darwin" {
+		switch action {
+		case "start":
+			return true, exec.Command("launchctl", "load", "-w", unitPath).Run()
+		case "stop", "disable":
+			return true, exec.Command("launchctl", "unload", "-w", unitPath).Run()
+		default:
+			exec.Command("launchctl", "unload", "-w", unitPath).Run()
+			return true, exec.Command("launchctl", "load", "-w", unitPath).Run()
+		}
+	}
+
+	if action == "disable" {
+		return true, exec.Command("systemctl", "--user", "disable", "--now", appName).Run()
+	}
+	return true, exec.Command("systemctl", "--user", action, appName).Run()
+}
+
+// lifecycleGuard applies the PART 5 escalation matrix to a service lifecycle
+// action (start/stop/restart/reload/disable). A true first return value means
+// the action was already fully handled — by re-executing elevated, by the
+// per-user service, or by refusing because escalation is impossible — and the
+// caller must return err without touching the system service.
+func lifecycleGuard(action string) (bool, error) {
+	if handled, err := elevateServiceOp(); handled {
+		return true, err
+	}
+	return userServiceAction(action)
+}
+
 // Install installs the service for the detected service manager, then enables
 // and starts it (PART 23: --install installs, enables, and starts).
 func Install() error {
@@ -963,6 +1055,9 @@ func copyBinary(src, dst string) error {
 
 // Start starts the service
 func Start() error {
+	if handled, err := lifecycleGuard("start"); handled {
+		return err
+	}
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -988,6 +1083,9 @@ func Start() error {
 
 // Stop stops the service
 func Stop() error {
+	if handled, err := lifecycleGuard("stop"); handled {
+		return err
+	}
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -1013,6 +1111,9 @@ func Stop() error {
 
 // Restart restarts the service
 func Restart() error {
+	if handled, err := lifecycleGuard("restart"); handled {
+		return err
+	}
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -1039,6 +1140,9 @@ func Restart() error {
 
 // Reload sends reload signal to the service
 func Reload() error {
+	if handled, err := lifecycleGuard("reload"); handled {
+		return err
+	}
 	serviceType := DetectServiceManager()
 
 	switch serviceType {
@@ -1059,6 +1163,9 @@ func Reload() error {
 // Disable stops the service and prevents it from starting on boot, but does
 // not remove the service files (unlike Uninstall).
 func Disable() error {
+	if handled, err := lifecycleGuard("disable"); handled {
+		return err
+	}
 	serviceType := DetectServiceManager()
 
 	switch serviceType {

@@ -23,20 +23,15 @@ type osProcess struct {
 // startI2Pd launches i2pd as a child process pointed at the given
 // tunnels.conf, with its data/config/log directories under the server's
 // own directory tree (never a system-wide i2pd install).
-func startI2Pd(bin, configDir, dataDir, logDir, tunnelsPath string) (*osProcess, error) {
+func startI2Pd(bin, dataDir, logDir, tunnelsPath string) (*osProcess, error) {
 	i2pDataDir := filepath.Join(dataDir, "i2p")
-	i2pConfigDir := filepath.Join(configDir, "i2p")
 	logPath := filepath.Join(logDir, "i2pd.log")
 
 	args := []string{
-		"--tunconf=" + tunnelsPath,
-		"--datadir=" + i2pDataDir,
-		"--conf=" + filepath.Join(i2pConfigDir, "i2pd.conf"),
-		"--log=file",
-		"--logfile=" + logPath,
-		"--daemon=false",
-		"--notransit=true",
-		"--ifname4=127.0.0.1",
+		"--datadir", i2pDataDir,
+		"--tunconf", tunnelsPath,
+		"--log", "file",
+		"--logfile", logPath,
 	}
 
 	cmd := exec.Command(bin, args...)

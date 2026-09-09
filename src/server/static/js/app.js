@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', updateOfflineIndicator);
 
 // Source of truth is the server-readable `theme` cookie rendered as the class on
 // <html> (PART 16). No preference is read from localStorage. Without JS, the
-// header <form> POSTs to /theme, sets the cookie, and reloads. This enhancement
+// header <form> POSTs to /server/preferences, sets the cookie, and reloads. This enhancement
 // intercepts the submit to cycle the theme in place — no reload, no FOUC.
 
 // themeCycle advances dark → light → auto → dark, matching nextTheme() on the server.
@@ -276,27 +276,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ─── Copy: code blocks (home page quick-start) ───────────────────────────────
-
-// copyCode copies the <pre> text in the nearest .code-block ancestor.
-// Called via data-copy-code attribute buttons.
-function copyCode(btn) {
-    const block = btn.closest('.code-block');
-    if (!block) return;
-    const pre = block.querySelector('pre');
-    if (!pre) return;
-    navigator.clipboard.writeText(pre.textContent).then(() => {
-        const orig = btn.textContent;
-        btn.textContent = t('copied');
-        setTimeout(() => { btn.textContent = orig || t('copy'); }, 2000);
-    }).catch(() => {
-        // Fallback: select the text.
-        const range = document.createRange();
-        range.selectNodeContents(pre);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-    });
-}
 
 // copyToClipboard copies the text content of the element with the given id,
 // updating the button that triggered the copy (never a global lookup, so
@@ -374,14 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
-    });
-});
-
-// ─── data-copy-code buttons ───────────────────────────────────────────────────
-
-document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('[data-copy-code]').forEach(btn => {
-        btn.addEventListener('click', () => copyCode(btn));
     });
 });
 
@@ -905,16 +876,37 @@ async function fetchAPI(endpoint, options) {
         }
     }
 
-    // Copy-token button (server-rendered result block).
-    const copyBtn = document.querySelector('[data-copy-target]');
-    if (copyBtn && navigator.clipboard) {
-        copyBtn.addEventListener('click', function () {
-            const el = document.getElementById(this.dataset.copyTarget);
-            if (!el) return;
-            navigator.clipboard.writeText(el.textContent.trim());
-            const original = this.textContent;
-            this.textContent = 'Copied!';
-            setTimeout(() => { this.textContent = original; }, 1500);
+    // Copy-target buttons (server-rendered result block on create.tmpl, and
+    // the multi-line code-block-multi quick-start buttons on home.tmpl).
+    // querySelectorAll so every button on the page is bound, not just the
+    // first — a page can render more than one (see home.tmpl quick-start).
+    if (navigator.clipboard) {
+        document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const el = document.getElementById(this.dataset.copyTarget);
+                if (!el) return;
+                navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+                    const icon = this.querySelector('.copy-icon');
+                    const label = this.querySelector('.copy-text');
+                    const copiedLabel = this.getAttribute('data-copied-label') || t('copied');
+                    if (icon || label) {
+                        const restoreIcon = icon ? icon.textContent : null;
+                        const restoreLabel = label ? label.textContent : null;
+                        if (icon) icon.textContent = '✓';
+                        if (label) label.textContent = copiedLabel;
+                        this.classList.add('copied');
+                        setTimeout(() => {
+                            if (icon) icon.textContent = restoreIcon;
+                            if (label) label.textContent = restoreLabel;
+                            this.classList.remove('copied');
+                        }, 2000);
+                    } else {
+                        const original = this.textContent;
+                        this.textContent = copiedLabel;
+                        setTimeout(() => { this.textContent = original; }, 2000);
+                    }
+                });
+            });
         });
     }
 

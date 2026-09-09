@@ -22,6 +22,7 @@ import (
 	"github.com/apimgr/pastebin/src/handler/compat"
 	"github.com/apimgr/pastebin/src/model"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 // ─── isReservedSlug ──────────────────────────────────────────────────────────
@@ -513,31 +514,143 @@ func TestWriteJSONUnmarshalableBody(t *testing.T) {
 	}
 }
 
-// ─── newRequestID ─────────────────────────────────────────────────────────────
+// ─── requestIDMiddleware ─────────────────────────────────────────────────────
 
-func TestNewRequestID(t *testing.T) {
-	id := newRequestID()
-	if id == "" {
-		t.Fatal("newRequestID returned empty string")
-	}
-	if len(id) != 16 {
-		t.Errorf("newRequestID length = %d, want 16 (8 bytes hex)", len(id))
-	}
-	// Each call must return a different value with overwhelming probability.
-	id2 := newRequestID()
-	if id == id2 {
-		t.Errorf("newRequestID returned identical IDs on consecutive calls: %q", id)
-	}
-}
+func TestRequestIDMiddlewareGenerates(t *testing.T) {
+	s := newMinimalServer(&config.Config{})
+	var seenInHandler string
+	h := s.requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenInHandler = RequestIDFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
 
-func TestNewRequestIDUnique(t *testing.T) {
 	seen := make(map[string]struct{})
 	for i := 0; i < 100; i++ {
-		id := newRequestID()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+		id := w.Header().Get("X-Request-ID")
+		if _, err := uuid.Parse(id); err != nil {
+			t.Fatalf("generated request ID %q is not a UUID: %v", id, err)
+		}
+		if id != seenInHandler {
+			t.Fatalf("context request ID %q does not match header %q", seenInHandler, id)
+		}
 		if _, dup := seen[id]; dup {
 			t.Fatalf("duplicate request ID %q after %d iterations", id, i)
 		}
 		seen[id] = struct{}{}
+	}
+}
+
+func TestRequestIDMiddlewareHonorsInboundHeaders(t *testing.T) {
+	s := newMinimalServer(&config.Config{})
+	h := s.requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	for _, hdr := range []string{"X-Request-ID", "X-Correlation-ID", "X-Trace-ID"} {
+		want := uuid.NewString()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set(hdr, want)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if got := w.Header().Get("X-Request-ID"); got != want {
+			t.Errorf("%s: X-Request-ID = %q, want %q", hdr, got, want)
+		}
+	}
+}
+
+func TestRequestIDMiddlewareRejectsMalformed(t *testing.T) {
+	s := newMinimalServer(&config.Config{})
+	h := s.requestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("X-Request-ID", "custom-req-id-123")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	got := w.Header().Get("X-Request-ID")
+	if got == "custom-req-id-123" {
+		t.Fatal("malformed inbound request ID was reused instead of regenerated")
+	}
+	if _, err := uuid.Parse(got); err != nil {
+		t.Errorf("replacement request ID %q is not a UUID: %v", got, err)
+	}
+}
+
+// ─── extractRequestToken ─────────────────────────────────────────────────────
+
+func TestExtractRequestTokenPriority(t *testing.T) {
+	// Every supported source, in PART 8 priority order (AI.md:12946-12951).
+	cases := []struct {
+		header string
+		source string
+	}{
+		{"Authorization", "authorization"},
+		{"X-API-Key", "x-api-key"},
+		{"API-Key", "api-key"},
+		{"X-Auth-Token", "x-auth-token"},
+		{"X-Access-Token", "x-access-token"},
+		{"X-Token", "x-token"},
+		{"Token", "token"},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		if tc.header == "Authorization" {
+			r.Header.Set(tc.header, "Bearer tok_value")
+		} else {
+			r.Header.Set(tc.header, "tok_value")
+		}
+		tok, src := extractRequestToken(r)
+		if tok != "tok_value" || src != tc.source {
+			t.Errorf("%s: got (%q, %q), want (tok_value, %s)", tc.header, tok, src, tc.source)
+		}
+	}
+
+	// Authorization outranks every other header.
+	r := httptest.NewRequest(http.MethodGet, "/?token=query_tok", nil)
+	r.Header.Set("Authorization", "Bearer auth_tok")
+	r.Header.Set("X-API-Key", "apikey_tok")
+	if tok, src := extractRequestToken(r); tok != "auth_tok" || src != "authorization" {
+		t.Errorf("priority: got (%q, %q), want (auth_tok, authorization)", tok, src)
+	}
+
+	// Query parameter is the lowest-priority source.
+	r = httptest.NewRequest(http.MethodGet, "/?token=query_tok", nil)
+	if tok, src := extractRequestToken(r); tok != "query_tok" || src != "query" {
+		t.Errorf("query: got (%q, %q), want (query_tok, query)", tok, src)
+	}
+
+	// No credentials at all.
+	r = httptest.NewRequest(http.MethodGet, "/", nil)
+	if tok, src := extractRequestToken(r); tok != "" || src != "" {
+		t.Errorf("empty: got (%q, %q), want empty", tok, src)
+	}
+
+	// Cookies are never a token source on any route.
+	r = httptest.NewRequest(http.MethodGet, "/", nil)
+	r.AddCookie(&http.Cookie{Name: ownerTokenCookieName, Value: "cookie_tok"})
+	if tok, _ := extractRequestToken(r); tok != "" {
+		t.Errorf("cookie must not be an auth source, got %q", tok)
+	}
+}
+
+func TestAuthMiddlewarePopulatesContext(t *testing.T) {
+	s := newMinimalServer(&config.Config{})
+	var gotTok, gotSrc string
+	h := s.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTok, gotSrc = TokenFromContext(r.Context())
+	}))
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("X-Auth-Token", "tok_abc")
+	h.ServeHTTP(httptest.NewRecorder(), r)
+	if gotTok != "tok_abc" || gotSrc != "x-auth-token" {
+		t.Errorf("got (%q, %q), want (tok_abc, x-auth-token)", gotTok, gotSrc)
+	}
+
+	gotTok, gotSrc = "", ""
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	if gotTok != "" || gotSrc != "" {
+		t.Errorf("unauthenticated request populated context: (%q, %q)", gotTok, gotSrc)
 	}
 }
 
@@ -1359,7 +1472,6 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		"Referrer-Policy",
 		"X-Permitted-Cross-Domain-Policies",
 		"Permissions-Policy",
-		"X-Request-ID",
 	}
 	for _, hdr := range mandatoryHeaders {
 		if w.Header().Get(hdr) == "" {
@@ -1368,7 +1480,10 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	}
 }
 
-func TestSecurityHeadersMiddlewareRequestIDPreserved(t *testing.T) {
+// TestSecurityHeadersMiddlewareLeavesRequestID asserts that the X-Request-ID
+// response header belongs solely to requestIDMiddleware (execution step 2).
+// securityHeadersMiddleware runs after it and must neither set nor overwrite it.
+func TestSecurityHeadersMiddlewareLeavesRequestID(t *testing.T) {
 	s := newMinimalServer(&config.Config{})
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1380,8 +1495,8 @@ func TestSecurityHeadersMiddlewareRequestIDPreserved(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 
-	if got := w.Header().Get("X-Request-ID"); got != "custom-req-id-123" {
-		t.Errorf("X-Request-ID = %q, want custom-req-id-123", got)
+	if got := w.Header().Get("X-Request-ID"); got != "" {
+		t.Errorf("securityHeadersMiddleware set X-Request-ID = %q, want it untouched", got)
 	}
 }
 

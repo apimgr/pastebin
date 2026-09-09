@@ -626,8 +626,13 @@ func RetentionSweep(cfg BackupConfig) error {
 	return applyRetention(cfg)
 }
 
-// backupFileRE matches dated backup filenames like project_backup_2025-01-15.tar.gz[.enc].
-var backupFileRE = regexp.MustCompile(`_backup_(\d{4}-\d{2}-\d{2})\.tar\.gz(\.enc)?$`)
+// backupFileRE matches both daily-full backup filenames
+// (project_backup_2025-01-15.tar.gz[.enc]) and manual/timestamped backup
+// filenames (project_backup_2025-01-15_143022.tar.gz[.enc]) — per AI.md
+// PART 21, timestamped manual backups count toward max_backups alongside
+// daily fulls, sorted by date, oldest deleted first; nothing matching the
+// app's naming is exempt from pruning.
+var backupFileRE = regexp.MustCompile(`_backup_(\d{4}-\d{2}-\d{2})(?:_\d{6})?\.tar\.gz(\.enc)?$`)
 
 // applyRetention removes old backups according to the retention policy (PART 21).
 // Priority order: yearly > monthly > weekly > daily.

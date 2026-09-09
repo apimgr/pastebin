@@ -1280,17 +1280,9 @@ func DetectLanguage(filename string) string {
 }
 
 // writeJSON encodes v as JSON (without HTML-escaping) and writes it to w
-// with the given HTTP status code.
+// with the given HTTP status code. Delegates to httputil.WriteJSON so the
+// encoding behavior stays identical to the copy in src/server (AI.md PART 14
+// "Response Formatting" — deduplication tracked for the server.go side).
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		http.Error(w, `{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}`, http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(buf.Bytes())
+	httputil.WriteJSON(w, status, v)
 }

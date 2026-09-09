@@ -119,7 +119,7 @@ func TestGetTunnelsConfig_ContainsExpectedDirectives(t *testing.T) {
 	out := getTunnelsConfig(cfg, siteDir, 54321)
 
 	for _, want := range []string{
-		"[pastebin]",
+		"[site]",
 		"type = server",
 		"host = 127.0.0.1",
 		"port = 54321",
@@ -320,10 +320,10 @@ func TestSamCreateSession_Success(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	var dest, addr string
+	var addr string
 	var err error
 	go func() {
-		dest, addr, err = samCreateSession(client, destPath, cfg, 12345)
+		addr, err = samCreateSession(client, destPath, cfg, 12345)
 		close(done)
 	}()
 
@@ -335,9 +335,6 @@ func TestSamCreateSession_Success(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("samCreateSession: %v", err)
-	}
-	if dest != "fakeDestinationBlobValue" {
-		t.Errorf("dest = %q; want fakeDestinationBlobValue", dest)
 	}
 	want := b32Address([]byte("fakeDestinationBlobValue"))
 	if addr != want {
@@ -387,7 +384,7 @@ func TestSamCreateSession_ReusesPersistedDestination(t *testing.T) {
 	done := make(chan struct{})
 	var err error
 	go func() {
-		_, _, err = samCreateSession(client, destPath, cfg, 12345)
+		_, err = samCreateSession(client, destPath, cfg, 12345)
 		close(done)
 	}()
 	select {
@@ -415,7 +412,7 @@ func TestSamCreateSession_HelloFailure(t *testing.T) {
 
 	tmp := t.TempDir()
 	cfg := Config{InboundLength: 3, OutboundLength: 3, InboundQuantity: 5, OutboundQuantity: 5, SignatureType: 7}
-	_, _, err := samCreateSession(client, filepath.Join(tmp, "d"), cfg, 1234)
+	_, err := samCreateSession(client, filepath.Join(tmp, "d"), cfg, 1234)
 	if err == nil {
 		t.Error("expected error on SAM HELLO failure")
 	}

@@ -29,11 +29,17 @@ import (
 // driven allowlist extension (Tor control has no legitimate remote caller;
 // the CLI always runs on the same host as the server). Any other peer gets a
 // bare 404 so the endpoint is not discoverable.
+//
+// The check reads the peer address preserved by realIPMiddleware, never the
+// possibly-rewritten r.RemoteAddr: a request relayed by a trusted proxy can
+// carry X-Real-IP: 127.0.0.1, and honouring that would hand the Tor control
+// channel to any remote caller behind that proxy.
 func torControlLoopbackMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		peer := peerAddr(r)
+		host, _, err := net.SplitHostPort(peer)
 		if err != nil {
-			host = r.RemoteAddr
+			host = peer
 		}
 		ip := net.ParseIP(host)
 		if ip == nil || !ip.IsLoopback() {

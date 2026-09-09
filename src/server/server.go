@@ -218,6 +218,7 @@ type Server struct {
 	readLimiter      *rateLimiter
 	writeLimiter     *rateLimiter
 	healthLimiter    *rateLimiter
+	burstLimiter     *rateLimiter
 	version          string
 	commitID         string
 	buildDate        string
@@ -597,9 +598,18 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 		if healthWin <= 0 {
 			healthWin = time.Minute
 		}
+		burstReqs := cfg.RateLimit.GlobalBurst
+		if burstReqs <= 0 {
+			burstReqs = 240
+		}
 		s.readLimiter = newRateLimiter(readReqs, readWin)
 		s.writeLimiter = newRateLimiter(writeReqs, writeWin)
 		s.healthLimiter = newRateLimiter(healthReqs, healthWin)
+		// Absolute ceiling across all endpoint classes combined (AI.md:16187,
+		// 240 req/min per IP). Applied as the step-7 global RateLimitMiddleware;
+		// the per-class limiters above remain attached to their routes as the
+		// tighter per-class quotas.
+		s.burstLimiter = newRateLimiter(burstReqs, time.Minute)
 	}
 
 	tmpl, err := s.buildTemplates()
@@ -776,6 +786,9 @@ func (s *Server) OnConfigChange(next *config.Config) {
 	}
 	if s.healthLimiter != nil && next.RateLimit.Health.Requests > 0 {
 		s.healthLimiter.UpdateLimit(next.RateLimit.Health.Requests)
+	}
+	if s.burstLimiter != nil && next.RateLimit.GlobalBurst > 0 {
+		s.burstLimiter.UpdateLimit(next.RateLimit.GlobalBurst)
 	}
 
 	// Detect restart-required changes and record them for healthz. Settings
@@ -1041,22 +1054,30 @@ func (s *Server) setupRoutes() {
 		s.renderErrorPage(w, req, http.StatusMethodNotAllowed, "That method is not allowed for this resource.")
 	})
 
-	// Middleware execution order per PART 5:
+	// Canonical middleware execution order (AI.md:7156-7184). Numbered steps
+	// map 1:1 onto the spec's ten-step chain; the unnumbered entries are
+	// pre-chain plumbing (real-IP resolution, panic recovery) and project
+	// additions attached to the step they belong with.
+	//
 	// RealIP (custom) — extract real client IP from trusted X-Forwarded-For /
 	//   CF-Connecting-IP / True-Client-IP / X-Client-IP headers (PART 12)
 	// Recoverer (chi) — panic recovery
-	// 1. URLNormalize — trailing slash redirect (file-extension paths exempt)
-	// 2. PathSecurity — block path traversal, normalize double slashes
-	// 3. SecurityHeaders + SecFetch + CORS — add response headers
-	// 4. Allowlist — flag IPs that bypass blocklist/rate-limit/geoip
-	// 5. Blocklist — reject blocked IPs (unless allowlisted)
-	// 6. GeoIP — country blocking (honours allowlist flag)
-	// 7. Logging + metrics + compression (request recording)
+	//  1. URLNormalize — trailing slash redirect (file-extension paths exempt)
+	//  2. RequestID — attach/propagate the trace ID before anything can log
+	//  3. PathSecurity — block path traversal, normalize double slashes
+	//  4. SecurityHeaders (+ SecFetch, CSRF, CORS) — add response headers
+	//  5. Allowlist — flag IPs that bypass blocklist/rate-limit/geoip
+	//  6. Blocklist — reject blocked IPs (unless allowlisted)
+	//  7. RateLimit — global burst ceiling (per-class quotas are per-route)
+	//  8. GeoIP — country blocking (honours allowlist flag)
+	//  9. Auth — resolve presented credentials into the request context
+	// 10. Logging — access log, metrics, request counters
 	r.Use(s.realIPMiddleware)
 	r.Use(s.domainObserveMiddleware)
 	r.Use(s.recoverer)
 	r.Use(middleware.CleanPath)
 	r.Use(s.noTrailingSlash)
+	r.Use(s.requestIDMiddleware)
 	r.Use(s.pathSecurityMiddleware)
 	r.Use(s.securityHeadersMiddleware)
 	r.Use(s.secFetchMiddleware)
@@ -1070,9 +1091,18 @@ func (s *Server) setupRoutes() {
 	r.Use(s.compatModeGate)
 	r.Use(s.allowlistMiddleware)
 	r.Use(s.blocklistMiddleware)
+	// Step 7 — global burst ceiling across every endpoint class (AI.md:16187).
+	// Tighter per-class read/write/health quotas stay attached to their routes
+	// via maybeReadRateLimit / maybeRateLimit / maybeHealthRateLimit.
+	if s.burstLimiter != nil {
+		r.Use(rateLimitMiddleware(s.burstLimiter, "global_burst"))
+	}
 	if s.geoipDB != nil {
 		r.Use(s.geoipDB.Middleware())
 	}
+	// Step 9 — authentication: resolve any presented token into the request
+	// context. Per-route handlers perform authorization against that result.
+	r.Use(s.authMiddleware)
 	r.Use(s.accessLogMiddleware)
 	r.Use(s.countRequests)
 	r.Use(s.metricsCollector.Middleware())
@@ -1174,8 +1204,10 @@ func (s *Server) setupRoutes() {
 	// (AI.md 25598), not just the JS-driven banner in app.js.
 	r.Post("/server/consent", s.handleConsentSet)
 	// Theme preference endpoint — persists the `theme` cookie and redirects back
-	// so the no-JS <noscript> toggle form works (AI.md 21588, 23294, 24084).
-	r.Post("/theme", s.handleThemeSet)
+	// so the no-JS <noscript> toggle form works (AI.md 21588, 22641, 23294, 24084).
+	// Canonical route is POST /server/preferences (AI.md "Theme Toggle" HTML
+	// Structure example, line 22641) — not a standalone /theme path.
+	r.Post("/server/preferences", s.handleThemeSet)
 	r.Get("/server/terms", s.handleTerms)
 	// Cross-device preference sync (AI.md 22899-22909): stateless export/import
 	// of the theme/lang cookies — no account, no preferences table. Same
@@ -1389,16 +1421,25 @@ func (s *Server) setupRoutes() {
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 // requireOperatorToken is middleware that enforces server.token authentication.
-// It extracts "Authorization: Bearer <token>", SHA-256 hashes it, and compares
-// against the cached hash using constant-time comparison (PART 11).
+// It reads the credential resolved by authMiddleware (execution step 9, which
+// honours every PART 8 auth header in priority order), SHA-256 hashes it, and
+// compares against the cached hash using constant-time comparison (PART 11).
 // Returns 401 on missing/invalid credentials — always with the same generic message
 // to prevent user enumeration.
 func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		const prefix = "Bearer "
-		if len(authHeader) <= len(prefix) || authHeader[:len(prefix)] != prefix {
-			metric.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+		incoming, source := TokenFromContext(r.Context())
+		if incoming == "" {
+			// authMiddleware may be bypassed in tests or sub-routers mounted
+			// without the global chain; fall back to direct extraction so the
+			// authorization decision never depends on middleware ordering.
+			incoming, source = extractRequestToken(r)
+		}
+		if source == "" {
+			source = "bearer"
+		}
+		if incoming == "" {
+			metric.AuthAttemptsTotal.WithLabelValues(source, "failure").Inc()
 			s.authLog(r, "operator", "fail", "missing_bearer_token")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -1406,11 +1447,10 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 			})
 			return
 		}
-		incoming := authHeader[len(prefix):]
 		incomingHash := sha256.Sum256([]byte(incoming))
 		var zeroHash [32]byte
 		if s.operatorTokenHash == zeroHash {
-			metric.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			metric.AuthAttemptsTotal.WithLabelValues(source, "failure").Inc()
 			s.authLog(r, "operator", "fail", "token_not_configured")
 			writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 				"ok": false, "error": "SERVER_ERROR", "message": "server.token not configured",
@@ -1418,7 +1458,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 			return
 		}
 		if subtle.ConstantTimeCompare(incomingHash[:], s.operatorTokenHash[:]) != 1 {
-			metric.AuthAttemptsTotal.WithLabelValues("bearer", "failure").Inc()
+			metric.AuthAttemptsTotal.WithLabelValues(source, "failure").Inc()
 			s.authLog(r, "operator", "fail", "invalid_token")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pastebin"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
@@ -1426,7 +1466,7 @@ func (s *Server) requireOperatorToken(next http.Handler) http.Handler {
 			})
 			return
 		}
-		metric.AuthAttemptsTotal.WithLabelValues("bearer", "success").Inc()
+		metric.AuthAttemptsTotal.WithLabelValues(source, "success").Inc()
 		s.authLog(r, "operator", "success", "")
 		next.ServeHTTP(w, r)
 	})
@@ -1768,24 +1808,11 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 			h.Set("NEL", nel)
 		}
 
-		// Per-request ID — use existing if forwarded, otherwise generate.
-		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
-			reqID = newRequestID()
-		}
-		h.Set("X-Request-ID", reqID)
+		// The X-Request-ID response header is set by requestIDMiddleware
+		// (execution step 2), which always runs before this middleware.
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// newRequestID generates a compact hex request ID from 8 random bytes.
-func newRequestID() string {
-	var b [8]byte
-	if _, err := crand.Read(b[:]); err != nil {
-		return "00000000"
-	}
-	return fmt.Sprintf("%x", b)
 }
 
 // metricsIPAllowlistMiddleware restricts /metrics to loopback addresses plus any
@@ -2593,22 +2620,11 @@ func (s *Server) redirectToHTTPS(httpsPort string) http.Handler {
 
 // ─── JSON helpers ─────────────────────────────────────────────────────────────
 
-// writeJSON encodes v as indented JSON and writes it to w.
-// SetEscapeHTML(false) prevents < > & from being mangled to < > &.
+// writeJSON encodes v as indented JSON and writes it to w. Delegates to
+// httputil.WriteJSON so the server and handler packages share one encoder
+// (SetEscapeHTML(false) prevents < > & from being mangled to &lt; &gt; &amp;).
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"ok":false,"error":"SERVER_ERROR","message":"Internal server error"}` + "\n"))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(buf.Bytes())
+	httputil.WriteJSON(w, status, v)
 }
 
 // ─── Health & info handlers ───────────────────────────────────────────────────

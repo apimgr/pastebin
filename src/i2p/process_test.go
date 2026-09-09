@@ -38,9 +38,16 @@ func fakeI2PdScriptWithDestination(t *testing.T) string {
 	script := filepath.Join(tmp, "fake-i2pd-with-dest.sh")
 	body := `#!/bin/sh
 datadir=""
+take_next=""
 for arg in "$@"; do
+  if [ -n "$take_next" ]; then
+    datadir="$arg"
+    take_next=""
+    continue
+  fi
   case "$arg" in
     --datadir=*) datadir="${arg#--datadir=}" ;;
+    --datadir) take_next="1" ;;
   esac
 done
 mkdir -p "$datadir/site"
@@ -58,7 +65,7 @@ func TestStartI2Pd_AliveThenGracefulClose(t *testing.T) {
 	bin := fakeI2PdScript(t)
 	tmp := t.TempDir()
 
-	proc, err := startI2Pd(bin, filepath.Join(tmp, "config"), filepath.Join(tmp, "data"), filepath.Join(tmp, "log"), filepath.Join(tmp, "config", "i2p", "tunnels.conf"))
+	proc, err := startI2Pd(bin, filepath.Join(tmp, "data"), filepath.Join(tmp, "log"), filepath.Join(tmp, "config", "i2p", "tunnels.conf"))
 	if err != nil {
 		t.Fatalf("startI2Pd: %v", err)
 	}
@@ -90,7 +97,7 @@ func TestStartI2Pd_CloseIsIdempotent(t *testing.T) {
 	bin := fakeI2PdScript(t)
 	tmp := t.TempDir()
 
-	proc, err := startI2Pd(bin, filepath.Join(tmp, "config"), filepath.Join(tmp, "data"), filepath.Join(tmp, "log"), filepath.Join(tmp, "config", "i2p", "tunnels.conf"))
+	proc, err := startI2Pd(bin, filepath.Join(tmp, "data"), filepath.Join(tmp, "log"), filepath.Join(tmp, "config", "i2p", "tunnels.conf"))
 	if err != nil {
 		t.Fatalf("startI2Pd: %v", err)
 	}
@@ -104,7 +111,7 @@ func TestStartI2Pd_CloseIsIdempotent(t *testing.T) {
 
 func TestStartI2Pd_InvalidBinary(t *testing.T) {
 	tmp := t.TempDir()
-	_, err := startI2Pd(filepath.Join(tmp, "does-not-exist"), tmp, tmp, tmp, filepath.Join(tmp, "tunnels.conf"))
+	_, err := startI2Pd(filepath.Join(tmp, "does-not-exist"), tmp, tmp, filepath.Join(tmp, "tunnels.conf"))
 	if err == nil {
 		t.Error("expected error when the i2pd binary does not exist")
 	}

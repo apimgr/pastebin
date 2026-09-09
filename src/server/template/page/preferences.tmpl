@@ -17,7 +17,7 @@
                     <p>{{t .Lang "preferences.theme_desc"}}</p>
                     <div class="pref-options" role="group" aria-label="{{t .Lang "preferences.theme_label"}}">
                         {{range $mode := (slice "dark" "light" "auto")}}
-                        <form method="post" action="{{$.AssetPrefix}}/theme" class="pref-option-form">
+                        <form method="post" action="{{$.AssetPrefix}}/server/preferences" class="pref-option-form">
                             <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                             <input type="hidden" name="theme" value="{{$mode}}">
                             <button type="submit" class="btn {{if eq $.PrefTheme $mode}}btn-primary{{else}}btn-secondary{{end}}"

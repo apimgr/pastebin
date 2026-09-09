@@ -62,7 +62,7 @@ func listenBackendLoopback() (net.Listener, error) {
 
 // commonI2PdPaths lists well-known i2pd binary locations per OS.
 var commonI2PdPaths = map[string][]string{
-	"linux":   {"/usr/bin/i2pd", "/usr/local/bin/i2pd", "/bin/i2pd"},
+	"linux":   {"/usr/bin/i2pd", "/usr/sbin/i2pd", "/usr/local/bin/i2pd", "/bin/i2pd"},
 	"darwin":  {"/usr/local/bin/i2pd", "/opt/homebrew/bin/i2pd"},
 	"windows": {`C:\Program Files\i2pd\i2pd.exe`, `C:\Program Files (x86)\i2pd\i2pd.exe`},
 	"freebsd": {"/usr/local/bin/i2pd"},
@@ -71,7 +71,8 @@ var commonI2PdPaths = map[string][]string{
 }
 
 // FindBinary locates the i2pd binary. Returns empty string if not found.
-// Checks (in order): configured path, PATH lookup, common OS locations.
+// Checks (in order, per PART 31.2): configured path, common OS locations,
+// PATH lookup.
 func FindBinary(configuredPath string) string {
 	if configuredPath != "" {
 		if _, err := os.Stat(configuredPath); err == nil {
@@ -79,13 +80,13 @@ func FindBinary(configuredPath string) string {
 		}
 		return ""
 	}
-	if p, err := findInPath("i2pd"); err == nil {
-		return p
-	}
 	for _, p := range commonI2PdPaths[runtime.GOOS] {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	if p, err := findInPath("i2pd"); err == nil {
+		return p
 	}
 	return ""
 }
@@ -250,7 +251,7 @@ func (m *Manager) startI2PdLocked(bin string) error {
 	}
 
 	log.Printf("Starting I2P eepsite (i2pd)...")
-	proc, err := startI2Pd(bin, m.cfg.ConfigDir, m.cfg.DataDir, m.cfg.LogDir, tunnelsPath)
+	proc, err := startI2Pd(bin, m.cfg.DataDir, m.cfg.LogDir, tunnelsPath)
 	if err != nil {
 		_ = backendServer.Close()
 		return fmt.Errorf("start i2pd: %w", err)
@@ -301,13 +302,12 @@ func (m *Manager) startSAMLocked() error {
 	}
 
 	destPath := filepath.Join(m.cfg.DataDir, "i2p", "site", "site-keys.dat")
-	dest, addr, err := samCreateSession(conn, destPath, m.cfg, backendPort)
+	addr, err := samCreateSession(conn, destPath, m.cfg, backendPort)
 	if err != nil {
 		_ = conn.Close()
 		_ = backendServer.Close()
 		return fmt.Errorf("sam session: %w", err)
 	}
-	_ = dest
 
 	m.svc = &service{
 		provider:      ProviderSAM,
@@ -472,7 +472,7 @@ func getTunnelsConfig(cfg *Config, siteDir string, backendPort int) string {
 	return fmt.Sprintf(`# i2pd tunnels configuration — managed by pastebin server binary
 # Regenerated on every startup; this file is fully-derived state.
 
-[pastebin]
+[site]
 type = server
 host = 127.0.0.1
 port = %d
@@ -523,20 +523,19 @@ func waitForKeysAddress(ctx context.Context, siteDir string, timeout time.Durati
 // samCreateSession speaks the SAMv3 text protocol over conn: HELLO, then
 // either loads a persisted destination from destPath or requests a
 // transient one and persists it, then creates a STREAM session forwarding
-// to 127.0.0.1:backendPort. Returns the raw destination blob and the
-// derived .b32.i2p address.
-func samCreateSession(conn net.Conn, destPath string, cfg Config, backendPort int) (string, string, error) {
+// to 127.0.0.1:backendPort. Returns the derived .b32.i2p address.
+func samCreateSession(conn net.Conn, destPath string, cfg Config, backendPort int) (string, error) {
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 
 	if err := samSend(rw, "HELLO VERSION MIN=3.0 MAX=3.3\n"); err != nil {
-		return "", "", err
+		return "", err
 	}
 	line, err := samReadLine(rw)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	if !strings.Contains(line, "RESULT=OK") {
-		return "", "", fmt.Errorf("sam hello failed: %s", line)
+		return "", fmt.Errorf("sam hello failed: %s", line)
 	}
 
 	dest := "TRANSIENT"
@@ -544,44 +543,44 @@ func samCreateSession(conn net.Conn, destPath string, cfg Config, backendPort in
 		dest = strings.TrimSpace(string(existing))
 	}
 
-	sessionID := "pastebin"
+	sessionID := "site"
 	cmd := fmt.Sprintf(
 		"SESSION CREATE STYLE=STREAM ID=%s DESTINATION=%s SIGNATURE_TYPE=%d inbound.length=%d outbound.length=%d inbound.quantity=%d outbound.quantity=%d\n",
 		sessionID, dest, cfg.SignatureType, cfg.InboundLength, cfg.OutboundLength, cfg.InboundQuantity, cfg.OutboundQuantity,
 	)
 	if err := samSend(rw, cmd); err != nil {
-		return "", "", err
+		return "", err
 	}
 	line, err = samReadLine(rw)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	if !strings.Contains(line, "RESULT=OK") {
-		return "", "", fmt.Errorf("sam session create failed: %s", line)
+		return "", fmt.Errorf("sam session create failed: %s", line)
 	}
 
 	destValue := samField(line, "DESTINATION")
 	if destValue == "" {
-		return "", "", fmt.Errorf("sam session create: no DESTINATION in reply: %s", line)
+		return "", fmt.Errorf("sam session create: no DESTINATION in reply: %s", line)
 	}
 	if dest == "TRANSIENT" {
 		if err := writeSecureI2PFile(destPath, []byte(destValue)); err != nil {
-			return "", "", fmt.Errorf("persist sam destination: %w", err)
+			return "", fmt.Errorf("persist sam destination: %w", err)
 		}
 	}
 
-	if err := samSend(rw, fmt.Sprintf("STREAM FORWARD ID=%s PORT=%d\n", sessionID, backendPort)); err != nil {
-		return "", "", err
+	if err := samSend(rw, fmt.Sprintf("STREAM FORWARD ID=%s PORT=%d HOST=127.0.0.1\n", sessionID, backendPort)); err != nil {
+		return "", err
 	}
 	line, err = samReadLine(rw)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	if !strings.Contains(line, "RESULT=OK") {
-		return "", "", fmt.Errorf("sam stream forward failed: %s", line)
+		return "", fmt.Errorf("sam stream forward failed: %s", line)
 	}
 
-	return destValue, b32Address([]byte(destValue)), nil
+	return b32Address([]byte(destValue)), nil
 }
 
 func samSend(rw *bufio.ReadWriter, s string) error {

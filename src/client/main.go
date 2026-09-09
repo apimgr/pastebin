@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	pastebin-cli [--server URL] [--json] <command> [args]
+//	pastebin-cli [--server URL] [--output FORMAT] <command> [flags] [args]
 //
 // Commands:
 //
@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/apimgr/pastebin/src/client/tui"
+	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/shell"
 	"golang.org/x/term"
@@ -62,7 +63,7 @@ func init() {
 }
 
 // projectName is the hardcoded internal name used for User-Agent and config paths.
-// Display uses filepath.Base(os.Args[0]) per PART 32.
+// Display uses binName() per PART 32.
 const projectName = "pastebin"
 
 // apiVersion is the {api_version} route segment (PART 14) this CLI targets.
@@ -82,15 +83,48 @@ const (
 	exitUsage      = 64
 )
 
+// uiLang is the resolved output locale for every translated CLI string
+// (PART 30). It stays "en" until main() resolves the --lang flag, cli.yml, and
+// the LANG/LC_ALL environment chain; the error printers below are called from
+// paths that have no locale argument, so the active language lives here.
+var uiLang = "en"
+
+// setUILang stores the active output locale, silently falling back to English
+// for any unsupported code (PART 30 forbids erroring on an unknown language).
+func setUILang(lang string) {
+	if i18n.IsSupported(lang) {
+		uiLang = lang
+		return
+	}
+	uiLang = "en"
+}
+
+// t returns the translated cli.client.{key} string for the active locale.
+func t(key string) string {
+	return i18n.Translate(uiLang, "cli.client."+key)
+}
+
+// tf returns the translated cli.client.{key} string for the active locale with
+// {variable} placeholders replaced from alternating name/value arguments.
+func tf(key string, args ...interface{}) string {
+	return i18n.TranslateFormat(uiLang, "cli.client."+key, args...)
+}
+
+// binName is the actual (possibly renamed) binary name shown in help, version,
+// and error output per PART 32; the User-Agent keeps the hardcoded projectName.
+func binName() string {
+	return filepath.Base(os.Args[0])
+}
+
 // printConnectionError prints the PART 32 "Error Messages" connection-error
 // format (multi-line: reason + two hints) and exits exitConnection. serverURL
 // is the resolved --server value shown in the message; detail is the
 // underlying error, appended so operators keep diagnostic detail the AI.md
 // example omits but every other error path in this CLI includes.
 func printConnectionError(serverURL string, detail error) {
-	fmt.Fprintf(os.Stderr, "Error: cannot connect to server at %s\n", serverURL)
-	fmt.Fprintln(os.Stderr, "  Check your network connection and server address.")
-	fmt.Fprintln(os.Stderr, "  Use --server to specify a different server.")
+	fmt.Fprintln(os.Stderr, tf("err_connect", "server", serverURL))
+	fmt.Fprintln(os.Stderr, "  "+t("err_connect_hint_network"))
+	fmt.Fprintln(os.Stderr, "  "+t("err_connect_hint_server"))
 	if detail != nil {
 		fmt.Fprintf(os.Stderr, "  (%v)\n", detail)
 	}
@@ -100,16 +134,16 @@ func printConnectionError(serverURL string, detail error) {
 // printAuthError prints the PART 32 "Error Messages" auth-error format
 // (multi-line: reason + two hints) and exits exitAuth.
 func printAuthError() {
-	fmt.Fprintln(os.Stderr, "Error: authentication failed")
-	fmt.Fprintln(os.Stderr, "  Your API token is invalid or expired.")
-	fmt.Fprintln(os.Stderr, "  Update auth.token in cli.yml or use --token flag.")
+	fmt.Fprintln(os.Stderr, t("err_auth"))
+	fmt.Fprintln(os.Stderr, "  "+t("err_auth_hint_invalid"))
+	fmt.Fprintln(os.Stderr, "  "+t("err_auth_hint_update"))
 	os.Exit(exitAuth)
 }
 
 // printNotFoundError prints the PART 32 "Error Messages" not-found format
 // (single line) and exits exitNotFound.
 func printNotFoundError(resource string) {
-	fmt.Fprintf(os.Stderr, "Error: resource not found: %s\n", resource)
+	fmt.Fprintln(os.Stderr, tf("err_not_found", "resource", resource))
 	os.Exit(exitNotFound)
 }
 
@@ -294,6 +328,11 @@ func loadCLIConfig() (cliConfig, error) {
 	data, err := os.ReadFile(resolvedConfigPath())
 	if err != nil {
 		if os.IsNotExist(err) {
+			// PART 32: cli.yml is auto-created on first run with sane defaults.
+			// Failure to write is non-fatal — the defaults still apply in memory.
+			if werr := saveCLIConfig(cfg); werr != nil {
+				log.Println("warning: " + tf("warn_save_config", "error", werr))
+			}
 			return cfg, nil
 		}
 		return cfg, err
@@ -327,7 +366,7 @@ func saveIfUnset(current, flagValue string, validate func(string) bool) (resolve
 		return current, false
 	}
 	if !validate(flagValue) {
-		log.Printf("warning: invalid server URL %q, keeping current config", flagValue)
+		log.Println("warning: " + tf("warn_invalid_server_url", "value", strconv.Quote(flagValue)))
 		return current, false
 	}
 	if current == "" {
@@ -390,9 +429,11 @@ func detectMode(args []string, displayMode string) string {
 	configFlags := map[string]bool{
 		"--config": true, "--server": true, "--token": true, "--token-file": true,
 		"--debug": true, "--color": true, "--json": true, "--lang": true,
+		"--output": true,
 	}
 	valueFlags := map[string]bool{
 		"--config": true, "--server": true, "--token": true, "--token-file": true,
+		"--output": true, "--color": true, "--lang": true,
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -433,8 +474,7 @@ type cliVersionInfo struct {
 // extended block is best-effort — any lookup failure silently falls back to
 // the base version line only, matching checkCLIUpdate's non-fatal contract.
 func printVersionInfo(serverURL string) {
-	binaryName := filepath.Base(os.Args[0])
-	fmt.Printf("%s %s (commit %s, built %s)\n", binaryName, Version, CommitID, BuildDate)
+	fmt.Println(tf("version_line", "binary", binName(), "version", Version, "commit", CommitID, "date", BuildDate))
 
 	if serverURL == "" {
 		return
@@ -468,20 +508,20 @@ func printVersionInfo(serverURL string) {
 		return
 	}
 
-	compat := "compatible"
+	compat := t("version_compatible")
 	cliMajor := strings.SplitN(Version, ".", 2)[0]
 	serverMajor := strings.SplitN(payload.Data.Version, ".", 2)[0]
 	if Version != "dev" && payload.Data.Version != "unknown" && cliMajor != serverMajor {
-		compat = "incompatible"
+		compat = t("version_incompatible")
 	}
 
 	fmt.Println()
-	fmt.Printf("Server: %s\n", serverURL)
-	fmt.Printf("Server Version: %s (%s)\n", payload.Data.Version, compat)
+	fmt.Println(tf("version_server", "server", serverURL))
+	fmt.Println(tf("version_server_version", "version", payload.Data.Version, "compat", compat))
 	fmt.Println()
-	fmt.Println("Build Info:")
-	fmt.Printf("  Go: %s\n", runtime.Version())
-	fmt.Printf("  OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Println(t("version_build_info"))
+	fmt.Println("  " + tf("version_go", "version", runtime.Version()))
+	fmt.Println("  " + tf("version_os_arch", "os", runtime.GOOS, "arch", runtime.GOARCH))
 }
 
 // resolveOutputFormat combines the legacy --json boolean alias with the
@@ -540,18 +580,15 @@ func checkCLIUpdate(serverURL, lang string) error {
 
 	// Enforce minimum version requirement.
 	if disc.CLIMinVersion != "" && versionLessThan(Version, disc.CLIMinVersion) {
-		return fmt.Errorf(
-			"this CLI is too old; the server requires %s — run 'pastebin-cli update yes' to upgrade",
-			disc.CLIMinVersion,
-		)
+		return errors.New(tf("update_too_old", "version", disc.CLIMinVersion, "binary", binName()))
 	}
 
 	// Notify when a newer version is available.
 	osArch := runtime.GOOS + "-" + runtime.GOARCH
 	if info, ok := disc.CLIVersions[osArch]; ok {
 		if versionLessThan(Version, info.Version) {
-			fmt.Fprintf(os.Stderr, "notice: pastebin-cli %s is available (you have %s); run 'pastebin-cli --update yes' to upgrade\n",
-				info.Version, Version)
+			fmt.Fprintln(os.Stderr, tf("update_notice",
+				"binary", binName(), "version", info.Version, "current", Version))
 		}
 	}
 
@@ -615,7 +652,7 @@ func ensureDirs() {
 
 func main() {
 	log.SetFlags(0)
-	log.SetPrefix(filepath.Base(os.Args[0]) + ": ")
+	log.SetPrefix(binName() + ": ")
 
 	ensureDirs()
 
@@ -628,7 +665,7 @@ func main() {
 	// Load cli.yml.
 	fileCfg, err := loadCLIConfig()
 	if err != nil {
-		log.Printf("warning: could not load cli.yml: %v", err)
+		log.Println("warning: " + tf("warn_load_config", "error", err))
 	}
 
 	server := flag.String("server", envOrDefault("PASTEBIN_SERVER_PRIMARY", fileCfg.Server.Primary), "server base URL")
@@ -680,6 +717,17 @@ func main() {
 		os.Unsetenv("NO_COLOR")
 	}
 
+	// PART 8: TERM=dumb forces plain output — no colors, no emoji, no ANSI.
+	if os.Getenv("TERM") == "dumb" {
+		os.Setenv("NO_COLOR", "1")
+	}
+
+	// PART 30 CLI detection chain: --lang flag > cli.yml > LANG/LC_ALL > en.
+	// Resolved before --help/--version/--shell so every branch below is
+	// translated; unsupported codes silently fall back to English.
+	locale := detectLocale(*langFlag, fileCfg.Defaults.Lang)
+	setUILang(locale)
+
 	if *showHelp {
 		printUsage()
 		return
@@ -704,14 +752,14 @@ func main() {
 		}
 		switch shellArg {
 		case "--help", "help", "":
-			shell.PrintHelp(filepath.Base(os.Args[0]))
+			shell.PrintHelp(binName())
 		case "init":
 			shellShell := ""
 			if len(args) >= 3 {
 				shellShell = args[2]
 			}
-			if err := shell.PrintInit(filepath.Base(os.Args[0]), shellShell); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: --shell init: %v\n", filepath.Base(os.Args[0]), err)
+			if err := shell.PrintInit(binName(), shellShell); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_shell_init", "error", err))
 				os.Exit(exitUsage)
 			}
 		case "completions":
@@ -719,13 +767,13 @@ func main() {
 			if len(args) >= 3 {
 				shellShell = args[2]
 			}
-			if err := shell.PrintClientCompletions(filepath.Base(os.Args[0]), shellShell); err != nil {
-				fmt.Fprintf(os.Stderr, "%s: --shell completions: %v\n", filepath.Base(os.Args[0]), err)
+			if err := shell.PrintClientCompletions(binName(), shellShell); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_shell_completions", "error", err))
 				os.Exit(exitUsage)
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "%s: --shell: unknown subcommand %q\n", filepath.Base(os.Args[0]), shellArg)
-			fmt.Fprintf(os.Stderr, "Run '%s --shell --help' for usage.\n", filepath.Base(os.Args[0]))
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("shell_unknown_sub", "sub", strconv.Quote(shellArg)))
+			fmt.Fprintln(os.Stderr, tf("shell_try_help", "binary", binName()))
 			os.Exit(exitUsage)
 		}
 		return
@@ -737,7 +785,7 @@ func main() {
 	if shouldPersist && resolved != "" {
 		fileCfg.Server.Primary = resolved
 		if err := saveCLIConfig(fileCfg); err != nil {
-			log.Printf("warning: could not save cli.yml: %v", err)
+			log.Println("warning: " + tf("warn_save_config", "error", err))
 		}
 	}
 	if resolved != "" {
@@ -754,7 +802,7 @@ func main() {
 	if token == "" && *tokenFileFlag != "" {
 		t, err := readTokenFile(*tokenFileFlag)
 		if err != nil {
-			log.Printf("warning: could not read --token-file %s: %v", *tokenFileFlag, err)
+			log.Println("warning: " + tf("warn_read_token_file", "source", "--token-file", "path", *tokenFileFlag, "error", err))
 		}
 		token = t
 	}
@@ -767,7 +815,7 @@ func main() {
 	if token == "" && fileCfg.Auth.TokenFile != "" {
 		t, err := readTokenFile(fileCfg.Auth.TokenFile)
 		if err != nil {
-			log.Printf("warning: could not read auth.token_file %s: %v", fileCfg.Auth.TokenFile, err)
+			log.Println("warning: " + tf("warn_read_token_file", "source", "auth.token_file", "path", fileCfg.Auth.TokenFile, "error", err))
 		}
 		token = t
 	}
@@ -775,7 +823,7 @@ func main() {
 		if resolvedTok, persist := saveIfUnset(fileCfg.Auth.Token, *tokenFlag, func(s string) bool { return s != "" }); persist && resolvedTok != "" {
 			fileCfg.Auth.Token = resolvedTok
 			if err := saveCLIConfig(fileCfg); err != nil {
-				log.Printf("warning: could not save cli.yml: %v", err)
+				log.Println("warning: " + tf("warn_save_config", "error", err))
 			}
 		}
 	}
@@ -783,13 +831,10 @@ func main() {
 		if resolvedPath, persist := saveIfUnset(fileCfg.Auth.TokenFile, *tokenFileFlag, func(s string) bool { return s != "" }); persist && resolvedPath != "" {
 			fileCfg.Auth.TokenFile = resolvedPath
 			if err := saveCLIConfig(fileCfg); err != nil {
-				log.Printf("warning: could not save cli.yml: %v", err)
+				log.Println("warning: " + tf("warn_save_config", "error", err))
 			}
 		}
 	}
-
-	// Handle --update flag.
-	locale := detectLocale(*langFlag, fileCfg.Defaults.Lang)
 
 	// PART 32 env var mapping ({PROJECT_NAME}_SERVER_TIMEOUT, _RETRY,
 	// _RETRY_DELAY, _API_VERSION) overrides cli.yml before defaults are
@@ -825,7 +870,7 @@ func main() {
 	// Auto-detect display mode per PART 32, honoring the cli.yml
 	// display.mode override ("auto", "tui", or "gui" — never a CLI flag).
 	if fileCfg.Display.Mode == "gui" {
-		fmt.Fprintf(os.Stderr, "%s: display.mode is set to \"gui\" in cli.yml, but no native GUI is available on this build\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("gui_unavailable"))
 		os.Exit(exitGeneral)
 	}
 	mode := detectMode(args, fileCfg.Display.Mode)
@@ -851,7 +896,7 @@ func main() {
 
 	// Check for CLI updates (non-blocking; only blocks on min_version violation).
 	if err := checkCLIUpdate(*server, locale); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: update check: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_update_check", "error", err))
 		os.Exit(exitConnection)
 	}
 
@@ -877,7 +922,7 @@ func main() {
 	case "version":
 		printVersionInfo(*server)
 	default:
-		fmt.Fprintf(os.Stderr, "%s: unknown command %q (try: create, get, delete, list, update)\n", filepath.Base(os.Args[0]), args[0])
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("unknown_command", "command", strconv.Quote(args[0])))
 		os.Exit(exitUsage)
 	}
 }
@@ -895,7 +940,7 @@ func runTUI(server, lang string, cfg cliConfig) {
 	// Auto-update check in TUI mode (non-fatal for version notices).
 	if server != "" {
 		if err := checkCLIUpdate(server, lang); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: update check: %v\n", filepath.Base(os.Args[0]), err)
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_update_check", "error", err))
 			os.Exit(exitConnection)
 		}
 	}
@@ -908,7 +953,7 @@ func runTUI(server, lang string, cfg cliConfig) {
 		Theme:   cfg.TUI.Theme,
 	}
 	if err := tui.Run(tuiCfg); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: tui: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_tui", "error", err))
 		os.Exit(exitGeneral)
 	}
 }
@@ -956,7 +1001,7 @@ func resolveServerTiming(cfg cliConfig) (timeout time.Duration, retry int, retry
 		if d, err := time.ParseDuration(cfg.Server.Timeout); err == nil && d > 0 {
 			timeout = d
 		} else {
-			log.Printf("warning: invalid server.timeout %q in cli.yml, using default %s", cfg.Server.Timeout, defaultClientTimeout)
+			log.Println("warning: " + tf("warn_invalid_timeout", "value", strconv.Quote(cfg.Server.Timeout), "default", defaultClientTimeout))
 		}
 	}
 	retry = defaultClientRetry
@@ -968,7 +1013,7 @@ func resolveServerTiming(cfg cliConfig) (timeout time.Duration, retry int, retry
 		if d, err := time.ParseDuration(cfg.Server.RetryDelay); err == nil && d >= 0 {
 			retryDelay = d
 		} else {
-			log.Printf("warning: invalid server.retry_delay %q in cli.yml, using default %s", cfg.Server.RetryDelay, defaultClientRetryDelay)
+			log.Println("warning: " + tf("warn_invalid_retry_delay", "value", strconv.Quote(cfg.Server.RetryDelay), "default", defaultClientRetryDelay))
 		}
 	}
 	return timeout, retry, retryDelay
@@ -1056,7 +1101,7 @@ func (c *client) cmdCreate(args []string) {
 	title := fs.String("title", "", "paste title")
 	asLink := fs.Bool("link", false, "create as a link — content/arg must be an absolute http:// or https:// URL; server issues a 302 redirect instead of rendering")
 	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: create: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "create", "error", err))
 		os.Exit(exitUsage)
 	}
 
@@ -1079,12 +1124,12 @@ func (c *client) cmdCreate(args []string) {
 			info, statErr := os.Stat(arg)
 			switch {
 			case statErr == nil && info.IsDir():
-				fmt.Fprintf(os.Stderr, "%s: create: %q is a directory, not a file\n", filepath.Base(os.Args[0]), arg)
+				fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("create_is_dir", "path", strconv.Quote(arg)))
 				os.Exit(exitUsage)
 			case statErr == nil:
 				content, err = os.ReadFile(arg)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: read file: %v\n", filepath.Base(os.Args[0]), err)
+					fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_read_file", "error", err))
 					os.Exit(exitGeneral)
 				}
 				if effLang == "text" {
@@ -1100,7 +1145,7 @@ func (c *client) cmdCreate(args []string) {
 	} else {
 		content, err = io.ReadAll(os.Stdin)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: read stdin: %v\n", filepath.Base(os.Args[0]), err)
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_read_stdin", "error", err))
 			os.Exit(exitGeneral)
 		}
 	}
@@ -1148,7 +1193,7 @@ func (c *client) cmdCreate(args []string) {
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: decode response: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_decode", "error", err))
 		os.Exit(exitGeneral)
 	}
 
@@ -1157,7 +1202,7 @@ func (c *client) cmdCreate(args []string) {
 	}
 	if resp.StatusCode != http.StatusCreated {
 		errMsg, _ := result["error"].(string)
-		fmt.Fprintf(os.Stderr, "%s: create: server error %d: %s\n", filepath.Base(os.Args[0]), resp.StatusCode, errMsg)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_server_error", "command", "create", "status", resp.StatusCode, "message", errMsg))
 		os.Exit(exitGeneral)
 	}
 
@@ -1170,10 +1215,10 @@ func (c *client) cmdCreate(args []string) {
 
 	link, _ := result["link"].(string)
 	token, _ := result["delete_token"].(string)
-	fmt.Printf("URL:          %s\n", link)
+	fmt.Printf("%-14s%s\n", t("create_url_label"), link)
 	if token != "" {
-		fmt.Printf("Delete token: %s\n", token)
-		fmt.Println("(save the delete token — it will not be shown again)")
+		fmt.Printf("%-14s%s\n", t("create_token_label"), token)
+		fmt.Println(t("create_token_once"))
 	}
 }
 
@@ -1182,11 +1227,11 @@ func (c *client) cmdGet(args []string) {
 	// below instead of ExitOnError's hardcoded os.Exit(2).
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: get: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "get", "error", err))
 		os.Exit(exitUsage)
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "%s: usage: get <id>\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("get_usage"))
 		os.Exit(exitUsage)
 	}
 	id := fs.Arg(0)
@@ -1213,12 +1258,12 @@ func (c *client) cmdGet(args []string) {
 		printAuthError()
 	}
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "%s: get: server returned %d\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_server_returned", "command", "get", "status", resp.StatusCode))
 		os.Exit(exitGeneral)
 	}
 
 	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: get: read response: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_read_response", "command", "get", "error", err))
 		os.Exit(exitGeneral)
 	}
 }
@@ -1228,11 +1273,11 @@ func (c *client) cmdDelete(args []string) {
 	// below instead of ExitOnError's hardcoded os.Exit(2).
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: delete: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "delete", "error", err))
 		os.Exit(exitUsage)
 	}
 	if fs.NArg() < 2 {
-		fmt.Fprintf(os.Stderr, "%s: usage: delete <id> <token>\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("delete_usage"))
 		os.Exit(exitUsage)
 	}
 	id, token := fs.Arg(0), fs.Arg(1)
@@ -1243,7 +1288,7 @@ func (c *client) cmdDelete(args []string) {
 		nil,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: delete: build request: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_build_request", "command", "delete", "error", err))
 		os.Exit(exitGeneral)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
@@ -1266,7 +1311,7 @@ func (c *client) cmdDelete(args []string) {
 		printAuthError()
 	}
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "%s: delete: server returned %d\n", filepath.Base(os.Args[0]), resp.StatusCode)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_server_returned", "command", "delete", "status", resp.StatusCode))
 		os.Exit(exitGeneral)
 	}
 
@@ -1274,7 +1319,7 @@ func (c *client) cmdDelete(args []string) {
 		io.Copy(os.Stdout, resp.Body)
 		return
 	}
-	fmt.Printf("paste %s deleted\n", id)
+	fmt.Println(tf("delete_ok", "id", id))
 }
 
 func (c *client) cmdList(args []string) {
@@ -1284,7 +1329,7 @@ func (c *client) cmdList(args []string) {
 	limit := fs.Int("limit", 20, "number of pastes to list (max 100)")
 	page := fs.Int("page", 1, "page number")
 	if err := fs.Parse(args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: list: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "list", "error", err))
 		os.Exit(exitUsage)
 	}
 
@@ -1312,7 +1357,7 @@ func (c *client) cmdList(args []string) {
 		} `json:"pagination"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: list: decode: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_decode", "error", err))
 		os.Exit(exitGeneral)
 	}
 
@@ -1324,12 +1369,12 @@ func (c *client) cmdList(args []string) {
 	}
 
 	if len(result.Pastes) == 0 {
-		fmt.Println("no pastes found")
+		fmt.Println(t("list_empty"))
 		return
 	}
 
 	if c.outputFormat == "table" {
-		headers := []string{"ID", "Title", "Language", "Created"}
+		headers := []string{t("list_col_id"), t("list_col_title"), t("list_col_lang"), t("list_col_created")}
 		rows := make([][]string, 0, len(result.Pastes))
 		for _, p := range result.Pastes {
 			title := p.Title
@@ -1339,13 +1384,14 @@ func (c *client) cmdList(args []string) {
 			rows = append(rows, []string{p.ID, title, p.Language, p.CreatedAt.Format("2006-01-02")})
 		}
 		renderBorderedTable(os.Stdout, headers, rows)
-		fmt.Printf("\n(%d total, page %d of %d)\n",
-			result.Pagination.Total, *page, result.Pagination.Pages)
+		fmt.Printf("\n%s\n", tf("list_footer",
+			"total", result.Pagination.Total, "page", *page, "pages", result.Pagination.Pages))
 		return
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tTITLE\tLANG\tVIEWS\tCREATED")
+	fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+		t("list_col_id"), t("list_col_title"), t("list_col_lang"), t("list_col_views"), t("list_col_created"))
 	for _, p := range result.Pastes {
 		title := p.Title
 		if len(title) > 40 {
@@ -1357,8 +1403,8 @@ func (c *client) cmdList(args []string) {
 		)
 	}
 	tw.Flush()
-	fmt.Printf("\n(%d total, page %d of %d)\n",
-		result.Pagination.Total, *page, result.Pagination.Pages)
+	fmt.Printf("\n%s\n", tf("list_footer",
+		"total", result.Pagination.Total, "page", *page, "pages", result.Pagination.Pages))
 }
 
 // renderBorderedTable prints a PART 32 "Output Formats" style box-drawing
@@ -1428,12 +1474,12 @@ func defaultServerURL(resolved, official string) string {
 // message documented in AI.md PART 32 "Server Address Resolution" (line
 // 45115-45126), for projects without a compiled {official_site} default.
 func printNoServerError() {
-	bin := filepath.Base(os.Args[0])
-	fmt.Fprintf(os.Stderr, "Error: no server configured\n\n")
-	fmt.Fprintf(os.Stderr, "To configure a server, run:\n")
+	bin := binName()
+	fmt.Fprintf(os.Stderr, "%s\n\n", t("err_no_server"))
+	fmt.Fprintf(os.Stderr, "%s\n", t("err_no_server_howto"))
 	fmt.Fprintf(os.Stderr, "  %s --server https://your-server.example.com list\n\n", bin)
-	fmt.Fprintf(os.Stderr, "This will save the server address for future commands.\n")
-	fmt.Fprintf(os.Stderr, "Or edit ~/.config/apimgr/%s/cli.yml directly.\n", projectName)
+	fmt.Fprintf(os.Stderr, "%s\n", t("err_no_server_saved"))
+	fmt.Fprintf(os.Stderr, "%s\n", tf("err_no_server_edit", "path", resolvedConfigPath()))
 }
 
 // cmdUpdate handles 'pastebin-cli --update check|yes'.
@@ -1446,7 +1492,7 @@ func (c *client) cmdUpdate(action string) {
 	httpClient := &http.Client{Timeout: c.clientTimeout()}
 	req, err := http.NewRequest(http.MethodGet, c.url("/api/autodiscover"), nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: update: build request: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_build_request", "command", "update", "error", err))
 		os.Exit(exitGeneral)
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("%s-cli/%s", projectName, Version))
@@ -1462,33 +1508,33 @@ func (c *client) cmdUpdate(action string) {
 
 	var disc autodiscoverResponse
 	if err := json.NewDecoder(resp.Body).Decode(&disc); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: update: decode: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_decode", "error", err))
 		os.Exit(exitGeneral)
 	}
 
 	osArch := runtime.GOOS + "-" + runtime.GOARCH
 	info, ok := disc.CLIVersions[osArch]
 	if !ok {
-		fmt.Printf("no CLI binary available for %s\n", osArch)
+		fmt.Println(tf("update_no_binary", "osarch", osArch))
 		return
 	}
 
 	if !versionLessThan(Version, info.Version) {
-		fmt.Printf("pastebin-cli is up to date (%s)\n", Version)
+		fmt.Println(tf("update_up_to_date", "binary", binName(), "version", Version))
 		return
 	}
 
-	fmt.Printf("update available: %s → %s\n", Version, info.Version)
+	fmt.Println(tf("update_available", "current", Version, "latest", info.Version))
 	if action != "yes" {
-		fmt.Printf("run 'pastebin-cli update yes' to install\n")
+		fmt.Println(tf("update_run_to_install", "binary", binName()))
 		return
 	}
 
 	if err := c.downloadAndApplyUpdate(
-		fmt.Sprintf("%s/cli/binaries/pastebin-cli-%s-%s", c.server, runtime.GOOS, runtime.GOARCH),
+		fmt.Sprintf("%s/cli/binaries/%s-cli-%s-%s", c.server, projectName, runtime.GOOS, runtime.GOARCH),
 		info.SHA256,
 	); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: update failed: %v\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_update_failed", "error", err))
 		os.Exit(exitGeneral)
 	}
 }
@@ -1703,7 +1749,7 @@ func firstNonEmpty(s, def string) string {
 }
 
 func printUsage() {
-	binaryName := filepath.Base(os.Args[0])
+	binaryName := binName()
 	// AI.md PART 32 "Server Address Resolution" (line 45128-45136): when the
 	// binary was built with a compiled {official_site}, --help shows it as
 	// the default; otherwise the flag stays marked required.

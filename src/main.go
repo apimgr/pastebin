@@ -152,7 +152,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&backupFlag, "backup", "", "Backup directory")
 	fs.StringVar(&pidFlag, "pid", "", "PID file path")
 	fs.StringVar(&baseurlFlag, "baseurl", "", "URL path prefix")
-	fs.StringVar(&colorFlag, "color", "", "Color output (auto|yes|no)")
+	fs.StringVar(&colorFlag, "color", "auto", "Color output (auto|yes|no)")
 	fs.StringVar(&langFlag, "lang", "", "Language for output")
 	fs.StringVar(&shellCmd, "shell", "", "Shell integration (completions|init|--help)")
 	fs.StringVar(&serviceCmd, "service", "", "Service management")

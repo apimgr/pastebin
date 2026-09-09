@@ -52,7 +52,7 @@ type ServerConfig struct {
 	// APIVersion is the API route prefix segment (default v1): /api/{api_version}/.
 	APIVersion string `yaml:"api_version"`
 	// BaseURL overrides URL generation.
-	BaseURL string `yaml:"base_url"`
+	BaseURL string `yaml:"baseurl"`
 	// Branding holds the site title/tagline/description (PART 12/16).
 	Branding BrandingConfig `yaml:"branding"`
 	// SEO holds search-engine metadata such as keywords (PART 12/16).

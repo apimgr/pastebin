@@ -8,14 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/apimgr/pastebin/src/common/i18n"
 )
 
 // Daemonize forks the process and detaches from the terminal (Unix only).
 // If _DAEMON_CHILD=1 is already set, we are the child — return immediately
 // and let the caller continue with normal startup. The parent prints the
-// child PID and exits 0. lang is accepted for signature parity with the
-// Windows build (PART 30) but is unused on Unix — Daemonize prints no
-// localizable text here.
+// child PID (localized via i18n key cli.daemon_started, PART 30) and exits 0.
 func Daemonize(lang string) error {
 	// Already the daemon child (or already detached from terminal).
 	if os.Getenv("_DAEMON_CHILD") != "" || os.Getppid() == 1 {
@@ -45,7 +45,7 @@ func Daemonize(lang string) error {
 		return fmt.Errorf("starting daemon: %w", err)
 	}
 
-	fmt.Printf("Daemon started with PID %d\n", cmd.Process.Pid)
+	fmt.Println(i18n.TranslateFormat(lang, "cli.daemon_started", "pid", cmd.Process.Pid))
 	os.Exit(0)
 	// unreachable
 	return nil
