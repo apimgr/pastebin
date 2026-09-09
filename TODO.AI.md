@@ -80,9 +80,3 @@
   table plus the explicit-`DEBUG`-env-wins rule.
 - PART 23 lists s6 among supported Linux init systems but PART 24 supplies no
   s6 service template — nothing concrete to implement against.
-- Makefile ldflags (PART 25): `BuildDate` is derived at runtime in
-  `main.go`'s `init()` from a `BuildEpoch` ldflag instead of being set
-  directly via `-X 'main.BuildDate=$(BUILD_DATE)'` like `Version`/`CommitID`.
-  Flagged by go-lint. Needs a decision: switch to direct ldflags injection,
-  or document the epoch-derivation pattern as an authorized exception in
-  AI.md PART 25.
