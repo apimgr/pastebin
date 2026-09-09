@@ -40,9 +40,20 @@
   `.og_image` config fields exist but are never consumed —
   `/favicon.ico` unconditionally redirects to the embedded static default.
   Full new subsystem, needs a dedicated implementation task.
-- `public.tmpl`'s default `<title>{{.SiteTitle}}</title>` fallback has no
-  tagline suffix (`{title} - {tagline}`) — ambiguous whether the spec intends
-  this for the no-override default page title; needs a decision.
+- `public.tmpl`'s default `<title>{{.SiteTitle}}</title>` fallback investigated
+  and resolved by reasoning, no code change: it is only the `{{block "meta"
+  .}}` fallback in the shared layout, and every page template in
+  `src/server/template/page/*.tmpl` already defines its own `meta`
+  block/`<title>` overriding it — `home.tmpl` uses `{{.SiteTitle}} - Paste
+  Sharing Service` (the homepage/tagline-style form AI.md's SEO Meta Tags
+  example shows), every subpage uses `{Page} - {{.SiteTitle}}` (e.g.
+  `about.tmpl`, `create.tmpl`, `healthz.tmpl`), both matching AI.md's
+  `{title} - {tagline}` two-part pattern structurally (specific-part before
+  generic-part). The layout-level fallback is unreachable in normal operation
+  and exists only as a safety default if a future page omits its own `meta`
+  block; hardcoding a `- {tagline}` suffix there would be wrong when
+  `Tagline` is empty (default config), so `{{.SiteTitle}}` alone is the
+  correct fallback.
 - Apple touch icon (`icon-180.png`) is served as SVG
   (`image/svg+xml`) via `handlePWAIcon192/512`; iOS Safari does not reliably
   render SVG for `apple-touch-icon`. Spec's PWA File Structure lists real PNG
