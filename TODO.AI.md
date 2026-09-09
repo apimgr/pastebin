@@ -93,12 +93,25 @@
   positive — it classifies the file as a Dockerfile that must live under
   `docker/`). Needs a human to make the one-character change or adjust the
   hook. Never auto-bypassed.
-- `src/tor/tor.go` `TorConfig` and `src/i2p/i2p.go` `I2PConfig` struct fields
-  were not exhaustively diffed against PART 31's config tables
-  (`max_circuits`, `circuit_timeout`, `num_intro_points`, `bandwidth_*`,
-  `inbound_length`/`quantity`, `signature_type`, etc.). Needs a field-by-field
-  pass.
-- `src/server/tor_control.go` was not exhaustively diffed against PART 31.1.
+- `src/tor/tor.go` `TorConfig` / `src/i2p/i2p.go` `I2PConfig` field-by-field
+  diff against PART 31's config tables completed, resolved by reasoning, no
+  code change: `TorConfig` has `Binary`, `UseNetwork`, `MaxCircuits`,
+  `CircuitTimeout`, `BootstrapTimeout`, `SafeLogging`,
+  `MaxStreamsPerCircuit`, `CloseCircuitOnStreamLimit`, `BandwidthRate`,
+  `BandwidthBurst`, `MaxMonthlyBandwidth`, `NumIntroPoints`, `VirtualPort` —
+  all of PART 31.1's default-config keys are present. `I2PConfig` has
+  `Enabled`, `Binary`, `SAMAddress`, `VirtualPort`, `InboundLength`,
+  `OutboundLength`, `InboundQuantity`, `OutboundQuantity`, `SignatureType`,
+  `BootstrapTimeout` — all of PART 31.2's `server.i2p.*` keys are present.
+  No missing fields.
+- `src/server/tor_control.go` diffed against PART 31.1, resolved by
+  reasoning, no code change: `torControlLoopbackMiddleware` restricts the
+  `/server/tor/*` channel to loopback peers via `peerAddr()` (the preserved
+  original TCP peer, not a proxy-rewritten value) and returns a bare 404 for
+  any other caller, matching the "not discoverable" requirement; handlers
+  for restart/regenerate/vanity start/stop/apply/import-keys implement
+  `RegenerateAddress()`/`ApplyKeys()` semantics via `s.TorRegenerateAddress`/
+  `s.TorApplyKeys`/`s.TorImportKeyPath`. No gap found.
 - CLI-side i18n is entirely absent: `src/client/**` never calls
   `i18n.GetLanguage`/`i18n.Translate`, so `--lang`/`cli.yml lang:` has no
   effect on CLI output and every CLI string is hardcoded English. PART 30
