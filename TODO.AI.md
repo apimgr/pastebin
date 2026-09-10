@@ -162,3 +162,10 @@
   table plus the explicit-`DEBUG`-env-wins rule.
 - PART 23 lists s6 among supported Linux init systems but PART 24 supplies no
   s6 service template — nothing concrete to implement against.
+- Pre-existing `gofmt` struct-alignment drift found while verifying the
+  branding-image-refresh scheduler task diff (not touched by that diff,
+  confirmed via `git diff --unified=0` hunk-range comparison, so not a NEW
+  lint finding and does not block the commit gate): `src/main.go`
+  (`torControlTorInfo` struct tag alignment, ~line 1428) and
+  `src/server/server_test.go` (`stubDB.DeleteExpiredAPITokens` method body
+  alignment, ~lines 2293-2296). Run `gofmt -w` on both files to fix.

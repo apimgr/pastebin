@@ -1165,6 +1165,21 @@ func (s *Server) setupRoutes() {
 	// and publishing is enabled (PART 11, AI.md 14156).
 	r.Get("/.well-known/pgp-key.asc", s.handlePGPKey)
 	r.Get("/favicon.ico", s.handleFavicon)
+	// Branding images (AI.md PART 16 "Image Sources"/"Image Scaling") — cached,
+	// pre-scaled PNGs resolved from server.branding.favicon/.logo/
+	// server.seo.og_image (local file, remote URL, or embedded default).
+	for _, size := range faviconSizes {
+		name := fmt.Sprintf("%d", size)
+		r.Get(fmt.Sprintf("/static/branding/favicon-%s.png", name), s.handleBrandingFavicon(name))
+	}
+	for _, width := range logoWidths {
+		name := "original"
+		if width > 0 {
+			name = fmt.Sprintf("%d", width)
+		}
+		r.Get(fmt.Sprintf("/static/branding/logo-%s.png", name), s.handleBrandingLogo(name))
+	}
+	r.Get("/static/branding/og-image.png", s.handleBrandingOGImage)
 
 	// ── Metrics endpoint ─────────────────────────────────────────────────────
 	if s.cfg.Server.Metrics.Enabled {
@@ -4510,8 +4525,59 @@ func (s *Server) handleSecurity(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(b.String()))
 }
 
+// handleFavicon serves the operator-configured/embedded-default favicon
+// (AI.md PART 16 "Image Sources"/"Image Scaling") at its 32x32 size — the
+// classic favicon dimension browsers request from this path. Content-Type is
+// set explicitly to image/png since browsers sniff content over extension.
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/static/favicon.ico", http.StatusFound)
+	s.serveBrandingImage(w, r, "favicon", "32", faviconVariants(), s.liveCfg().Server.Branding.Favicon)
+}
+
+// handleBrandingFavicon serves one favicon raster size, e.g.
+// /static/branding/favicon-180.png for apple-touch-icon.
+func (s *Server) handleBrandingFavicon(size string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.serveBrandingImage(w, r, "favicon", size, faviconVariants(), s.liveCfg().Server.Branding.Favicon)
+	}
+}
+
+// handleBrandingLogo serves one logo variant, e.g.
+// /static/branding/logo-200.png for the header logo.
+func (s *Server) handleBrandingLogo(variant string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.serveBrandingImage(w, r, "logo", variant, logoVariants(), s.liveCfg().Server.Branding.Logo)
+	}
+}
+
+// handleBrandingOGImage serves the 1200x630 OpenGraph/Twitter card image.
+func (s *Server) handleBrandingOGImage(w http.ResponseWriter, r *http.Request) {
+	s.serveBrandingImage(w, r, "og-image", "1200x630", ogImageVariants(), s.liveCfg().Server.SEO.OGImage)
+}
+
+// serveBrandingImage writes the cached (or on-demand-generated) PNG for one
+// branding field/variant, falling back to a freshly rendered embedded
+// default on any cache/generation failure so the response is never a 5xx.
+func (s *Server) serveBrandingImage(w http.ResponseWriter, r *http.Request, field, variant string, variants map[string][2]int, configuredValue string) {
+	data, err := s.brandingCachedPNG(field, variant, variants, configuredValue)
+	if err != nil {
+		dims := variants[variant]
+		w2, h2 := dims[0], dims[1]
+		if w2 == 0 {
+			w2 = 200
+		}
+		if h2 == 0 {
+			h2 = w2
+		}
+		fallback, encErr := encodePNG(embeddedDefaultBrandingImage(w2, h2))
+		if encErr != nil {
+			http.Error(w, "image unavailable", http.StatusInternalServerError)
+			return
+		}
+		data = fallback
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(data)
 }
 
 // handleOffline serves the PWA offline fallback page.

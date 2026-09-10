@@ -120,16 +120,26 @@ func TestSeoMetaTags_AlwaysPresent(t *testing.T) {
 	}
 }
 
-// TestSeoMetaTags_Conditional verifies keywords/author/og_image/twitter_handle
-// are only rendered when configured, and omitted when blank.
+// TestSeoMetaTags_Conditional verifies keywords/author/twitter_handle are
+// only rendered when configured, and omitted when blank. og:image/
+// twitter:image always render, pointing at the cached branding endpoint
+// rather than the raw og_image config value (PART 16 "Image Scaling").
 func TestSeoMetaTags_Conditional(t *testing.T) {
 	s, cfg := newSEOTestServer(t)
 	r := httptest.NewRequest("GET", "http://example.com/", nil)
 
 	out := string(s.seoMetaTags(r))
 	if strings.Contains(out, `name="keywords"`) || strings.Contains(out, `name="author"`) ||
-		strings.Contains(out, `og:image`) || strings.Contains(out, `twitter:site`) {
+		strings.Contains(out, `twitter:site`) {
 		t.Errorf("expected no conditional tags when unset, got: %s", out)
+	}
+	wantImage := `<meta property="og:image" content="` + s.baseURL(r) + `/static/branding/og-image.png">`
+	if !strings.Contains(out, wantImage) {
+		t.Errorf("expected og:image tag pointing at cached branding endpoint, got: %s", out)
+	}
+	wantTwitterImage := `<meta name="twitter:image" content="` + s.baseURL(r) + `/static/branding/og-image.png">`
+	if !strings.Contains(out, wantTwitterImage) {
+		t.Errorf("expected twitter:image tag pointing at cached branding endpoint, got: %s", out)
 	}
 
 	cfg.Server.SEO.Keywords = []string{"paste", "code"}
@@ -144,11 +154,14 @@ func TestSeoMetaTags_Conditional(t *testing.T) {
 	if !strings.Contains(out, `<meta name="author" content="Jane Doe">`) {
 		t.Errorf("expected author tag, got: %s", out)
 	}
-	if !strings.Contains(out, `<meta property="og:image" content="https://example.com/og.png">`) {
-		t.Errorf("expected og:image tag, got: %s", out)
+	// og:image/twitter:image still point at the cached branding endpoint, not
+	// the raw configured URL, even once server.seo.og_image is set — the raw
+	// value only selects the source RefreshBrandingImages() fetches from.
+	if !strings.Contains(out, wantImage) {
+		t.Errorf("expected og:image tag to remain the cached branding endpoint, got: %s", out)
 	}
-	if !strings.Contains(out, `<meta name="twitter:image" content="https://example.com/og.png">`) {
-		t.Errorf("expected twitter:image tag, got: %s", out)
+	if !strings.Contains(out, wantTwitterImage) {
+		t.Errorf("expected twitter:image tag to remain the cached branding endpoint, got: %s", out)
 	}
 	if !strings.Contains(out, `<meta name="twitter:site" content="@pastebin">`) {
 		t.Errorf("expected twitter:site tag, got: %s", out)

@@ -1147,6 +1147,19 @@ Examples:
 		return nil
 	}))
 
+	// Branding image refresh (PART 16 "Image Scaling"): re-fetches/re-renders
+	// the cached favicon/logo/OG-image variants on the operator-configured
+	// cadence (default 24h) so a remote branding URL's content changes
+	// eventually propagate without requiring a restart.
+	logSchedErr(sched.Register("branding_refresh", "Branding Image Refresh",
+		fmt.Sprintf("@every %s", cfg.Server.Branding.EffectiveImageRefreshInterval()), true, func(ctx context.Context) error {
+			if err := srv.RefreshBrandingImages(); err != nil {
+				return err
+			}
+			log.Printf("scheduler: branding images refreshed")
+			return nil
+		}))
+
 	// Tor health check — registered after srv so it can query srv.TorRunning().
 	logSchedErr(sched.Register("tor_health", "Tor Health", "@every 10m", true,
 		task.TorHealth(srv.TorRunning, srv.TorRestart)))
@@ -1168,6 +1181,7 @@ Examples:
 	// default with a 1h base delay; operators override per task in server.yml.
 	sched.SetRetry("blocklist_update", true, time.Hour, 0)
 	sched.SetRetry("cve_update", true, time.Hour, 0)
+	sched.SetRetry("branding_refresh", true, time.Hour, 0)
 	for id, tc := range cfg.Server.Scheduler.Tasks {
 		var delay time.Duration
 		if tc.RetryDelay != "" {

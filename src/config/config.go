@@ -1093,13 +1093,35 @@ type LetsEncryptConfig struct {
 // (PART 16 page-content sourcing); each has a real default drawn from IDEA.md so
 // the About page is never blank or generic.
 type BrandingConfig struct {
-	Title       string         `yaml:"title"`
-	Tagline     string         `yaml:"tagline"`
-	Description string         `yaml:"description"`
-	Favicon     string         `yaml:"favicon"`
-	Logo        string         `yaml:"logo"`
-	Features    []string       `yaml:"features"`
-	Links       []BrandingLink `yaml:"links"`
+	Title       string   `yaml:"title"`
+	Tagline     string   `yaml:"tagline"`
+	Description string   `yaml:"description"`
+	Favicon     string   `yaml:"favicon"`
+	Logo        string   `yaml:"logo"`
+	Features    []string `yaml:"features"`
+	// ImageRefreshInterval controls how often a remote logo/favicon/OG image
+	// URL is re-fetched (PART 16 Image Scaling: "configurable, default:
+	// daily"). Accepts a Go duration string (e.g. "24h", "12h"); empty or
+	// invalid falls back to the 24h default.
+	ImageRefreshInterval string         `yaml:"image_refresh_interval"`
+	Links                []BrandingLink `yaml:"links"`
+}
+
+// DefaultImageRefreshInterval is the PART 16 Image Scaling default cadence for
+// re-fetching a remote branding image (logo/favicon/OG image) URL.
+const DefaultImageRefreshInterval = 24 * time.Hour
+
+// EffectiveImageRefreshInterval parses the configured refresh interval,
+// falling back to DefaultImageRefreshInterval when empty or invalid.
+func (b BrandingConfig) EffectiveImageRefreshInterval() time.Duration {
+	if b.ImageRefreshInterval == "" {
+		return DefaultImageRefreshInterval
+	}
+	d, err := time.ParseDuration(b.ImageRefreshInterval)
+	if err != nil || d <= 0 {
+		return DefaultImageRefreshInterval
+	}
+	return d
 }
 
 // BrandingLink is a single labeled hyperlink shown on the /server/about page.

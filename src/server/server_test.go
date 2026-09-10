@@ -1103,16 +1103,19 @@ func TestHandleSecurity(t *testing.T) {
 
 func TestHandleFavicon(t *testing.T) {
 	s := newMinimalServer(&config.Config{})
+	s.dataDir = t.TempDir()
 	r := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
 	w := httptest.NewRecorder()
 	s.handleFavicon(w, r)
 
-	if w.Code != http.StatusFound {
-		t.Errorf("favicon redirect status = %d, want %d", w.Code, http.StatusFound)
+	// AI.md PART 16 "Image Sources"/"Image Scaling": /favicon.ico serves the
+	// operator-configured/embedded-default favicon directly (32x32 PNG), not
+	// a redirect to a static file.
+	if w.Code != http.StatusOK {
+		t.Errorf("favicon status = %d, want %d", w.Code, http.StatusOK)
 	}
-	loc := w.Header().Get("Location")
-	if loc != "/static/favicon.ico" {
-		t.Errorf("favicon redirect location = %q, want /static/favicon.ico", loc)
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("favicon Content-Type = %q, want image/png", ct)
 	}
 }
 
@@ -3557,7 +3560,9 @@ func TestNewServeHTTP(t *testing.T) {
 		{http.MethodGet, "/api/swagger", http.StatusOK},
 		{http.MethodGet, "/robots.txt", http.StatusOK},
 		{http.MethodGet, "/manifest.json", http.StatusOK},
-		{http.MethodGet, "/favicon.ico", http.StatusFound},
+		// AI.md PART 16 "Static Files": /favicon.ico serves the embedded/
+		// configured default directly, not a redirect (see TestHandleFavicon).
+		{http.MethodGet, "/favicon.ico", http.StatusOK},
 	}
 	for _, tc := range routes {
 		t.Run(tc.method+"_"+tc.path, func(t *testing.T) {

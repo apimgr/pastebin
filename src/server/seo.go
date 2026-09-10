@@ -212,12 +212,14 @@ func (s *Server) seoMetaTags(r *http.Request) template.HTML {
 	sb.WriteString(`<meta property="og:description" content="`)
 	sb.WriteString(description)
 	sb.WriteString("\">\n")
-	ogImage := strings.TrimSpace(seo.OGImage)
-	if ogImage != "" {
-		sb.WriteString(`<meta property="og:image" content="`)
-		sb.WriteString(html.EscapeString(ogImage))
-		sb.WriteString("\">\n")
-	}
+	// PART 16 "Image Scaling": always point at the cached/generated
+	// 1200x630 branding endpoint (never the raw og_image config value) so
+	// a remote-fetch failure falls back to the embedded default instead of
+	// a broken/oversized image or a missing tag.
+	ogImage := html.EscapeString(s.baseURL(r) + "/static/branding/og-image.png")
+	sb.WriteString(`<meta property="og:image" content="`)
+	sb.WriteString(ogImage)
+	sb.WriteString("\">\n")
 	sb.WriteString(`<meta property="og:type" content="website">` + "\n")
 	sb.WriteString(`<meta property="og:url" content="`)
 	sb.WriteString(currentURL)
@@ -230,11 +232,9 @@ func (s *Server) seoMetaTags(r *http.Request) template.HTML {
 	sb.WriteString(`<meta name="twitter:description" content="`)
 	sb.WriteString(description)
 	sb.WriteString("\">\n")
-	if ogImage != "" {
-		sb.WriteString(`<meta name="twitter:image" content="`)
-		sb.WriteString(html.EscapeString(ogImage))
-		sb.WriteString("\">\n")
-	}
+	sb.WriteString(`<meta name="twitter:image" content="`)
+	sb.WriteString(ogImage)
+	sb.WriteString("\">\n")
 	if h := strings.TrimSpace(seo.TwitterHandle); h != "" {
 		sb.WriteString(`<meta name="twitter:site" content="`)
 		sb.WriteString(html.EscapeString(h))
