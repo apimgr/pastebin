@@ -3490,7 +3490,7 @@ func TestHandleURLRedirect(t *testing.T) {
 func TestNew(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.2.3", "abc1234", "2025-01-01", "", "")
+	s := New(db, cfg, nil, "1.2.3", "abc1234", "2025-01-01", t.TempDir(), t.TempDir())
 
 	if s == nil {
 		t.Fatal("New returned nil")
@@ -3516,7 +3516,7 @@ func TestNewWithToken(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
 	cfg.Server.Token = "mysecrettoken"
-	s := New(db, cfg, nil, "1.0.0", "def5678", "2025-06-01", "", "")
+	s := New(db, cfg, nil, "1.0.0", "def5678", "2025-06-01", t.TempDir(), t.TempDir())
 	var zeroHash [32]byte
 	if s.operatorTokenHash == zeroHash {
 		t.Error("operatorTokenHash should be set when server.token is non-empty")
@@ -3529,7 +3529,7 @@ func TestNewWithRateLimitEnabled(t *testing.T) {
 	cfg.RateLimit.Enabled = true
 	cfg.RateLimit.Write.Requests = 5
 	cfg.RateLimit.Read.Requests = 60
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 	if s.writeLimiter == nil {
 		t.Error("writeLimiter should be non-nil when rate limiting enabled")
 	}
@@ -3548,7 +3548,7 @@ func TestNewWithRateLimitEnabled(t *testing.T) {
 func TestNewServeHTTP(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	routes := []struct {
 		method string
@@ -3582,7 +3582,7 @@ func TestNewServeHTTP(t *testing.T) {
 func TestRun(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// cancel before Run — server should stop immediately after binding
@@ -3600,7 +3600,7 @@ func TestRun(t *testing.T) {
 func TestRunBindError(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	// An unbindable address makes bindAndDrop fail; Run must surface the error.
 	err := s.Run(context.Background(), "127.0.0.1:99999")
@@ -3614,7 +3614,7 @@ func TestRunBindError(t *testing.T) {
 func TestNewHandlersWithTemplates(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	t.Run("handleHome_html", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -3985,7 +3985,7 @@ func TestOnConfigChangeRestartPrefixMatch(t *testing.T) {
 func TestHandleWebCreate(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	t.Run("urlencoded_success_renders_token", func(t *testing.T) {
 		body := strings.NewReader("content=hello+world&title=Test&language=go&visibility=0&expires_in=never&burn_after=0")

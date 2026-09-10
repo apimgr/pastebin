@@ -260,7 +260,7 @@ func TestHasPGPKey_DisabledConfig(t *testing.T) {
 func TestHandleSecurityOverview_Returns200(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security", nil)
 	r.Host = "localhost"
@@ -275,7 +275,7 @@ func TestHandleSecurityOverview_Returns200(t *testing.T) {
 func TestHandleSecurityPolicy_Returns200(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security/policy", nil)
 	r.Host = "localhost"
@@ -290,7 +290,7 @@ func TestHandleSecurityPolicy_Returns200(t *testing.T) {
 func TestHandleSecurityThanks_Returns200(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security/thanks", nil)
 	r.Host = "localhost"
@@ -307,7 +307,7 @@ func TestHandleSecurityThanks_Returns200(t *testing.T) {
 func TestHandleSecurityReportStatus_MissingTrackingID(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security/report/%20%20%20?token=abc123", nil)
 	r.Host = "localhost"
@@ -322,7 +322,7 @@ func TestHandleSecurityReportStatus_MissingTrackingID(t *testing.T) {
 func TestHandleSecurityReportStatus_NotFound(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security/report/sec_missing?token=tok123", nil)
 	r.Host = "localhost"
@@ -339,7 +339,7 @@ func TestHandleSecurityReportStatus_NotFound(t *testing.T) {
 func TestHandleSecurityOverview_TextPlain(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security", nil)
 	r.Header.Set("Accept", "text/plain")
@@ -355,7 +355,7 @@ func TestHandleSecurityOverview_TextPlain(t *testing.T) {
 func TestHandleSecurityPolicy_TextPlain(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security/policy", nil)
 	r.Header.Set("Accept", "text/plain")
@@ -371,7 +371,7 @@ func TestHandleSecurityPolicy_TextPlain(t *testing.T) {
 func TestHandleSecurityThanks_TextPlain(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/server/security/thanks", nil)
 	r.Header.Set("Accept", "text/plain")

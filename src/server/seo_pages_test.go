@@ -12,7 +12,7 @@ import (
 func TestHandleSitemap_XML(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
 	r.Host = "paste.example.com"
@@ -46,7 +46,7 @@ func TestHandleSitemap_XML(t *testing.T) {
 func TestHandleRobots_ReferencesSitemap(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	r := httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
 	r.Host = "paste.example.com"
@@ -64,7 +64,7 @@ func TestHandleRobots_ReferencesSitemap(t *testing.T) {
 func TestHandleLLMs_WellKnownAndAlias(t *testing.T) {
 	db := &stubDB{}
 	cfg := config.DefaultConfig()
-	s := New(db, cfg, nil, "1.0.0", "abc", "now", "", "")
+	s := New(db, cfg, nil, "1.0.0", "abc", "now", t.TempDir(), t.TempDir())
 
 	for _, path := range []string{"/.well-known/llms.txt", "/llms.txt"} {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
