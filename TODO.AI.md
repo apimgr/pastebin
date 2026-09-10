@@ -95,11 +95,6 @@
 
 ## Full-AI.md compliance pass follow-ups
 
-- `.dockerignore` line for git excludes `.git` rather than `.git/`; the
-  `no-forbidden-files.sh` hook rejects any Edit/Write to that path (false
-  positive — it classifies the file as a Dockerfile that must live under
-  `docker/`). Needs a human to make the one-character change or adjust the
-  hook. Never auto-bypassed.
 - `src/tor/tor.go` `TorConfig` / `src/i2p/i2p.go` `I2PConfig` field-by-field
   diff against PART 31's config tables completed, resolved by reasoning, no
   code change: `TorConfig` has `Binary`, `UseNetwork`, `MaxCircuits`,
