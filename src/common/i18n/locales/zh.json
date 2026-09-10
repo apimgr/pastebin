@@ -611,6 +611,8 @@
       "op_tui": "tui：{error}",
       "op_shell_init": "--shell init：{error}",
       "op_shell_completions": "--shell completions：{error}",
+      "reexec_restarting": "更新已应用 — 正在重启...",
+      "reexec_manual_restart": "更新已应用 — 请手动重启 {binary}",
       "help_tagline": "{binary} {version} — pastebin 服务的命令行客户端",
       "help_head_usage": "用法",
       "help_usage_line": "{binary} [--server URL] [--output 格式] <命令> [参数]",

@@ -1753,57 +1753,55 @@ func printUsage() {
 	// AI.md PART 32 "Server Address Resolution" (line 45128-45136): when the
 	// binary was built with a compiled {official_site}, --help shows it as
 	// the default; otherwise the flag stays marked required.
-	serverFlagHelp := "Server base URL (required; or set $PASTEBIN_SERVER_PRIMARY)"
+	serverFlagHelp := t("help_flag_server_required")
 	if OfficialSite != "" {
-		serverFlagHelp = fmt.Sprintf("Server base URL (default: %s)", OfficialSite)
+		serverFlagHelp = tf("help_flag_server_default", "site", OfficialSite)
 	}
-	fmt.Fprintf(os.Stderr, `%s %s — command-line client for the pastebin service
+	fmt.Fprintf(os.Stderr, "%s\n\n", tf("help_tagline", "binary", binaryName, "version", Version))
+	fmt.Fprintf(os.Stderr, "%s\n", t("help_head_usage"))
+	fmt.Fprintf(os.Stderr, "    %s\n\n", tf("help_usage_line", "binary", binaryName))
 
-USAGE
-    %s [--server URL] [--json] <command> [flags] [args]
+	fmt.Fprintf(os.Stderr, "%s\n", t("help_head_commands"))
+	fmt.Fprintf(os.Stderr, "    create [file]        %s\n", t("help_cmd_create"))
+	fmt.Fprintf(os.Stderr, "    get <id>             %s\n", t("help_cmd_get"))
+	fmt.Fprintf(os.Stderr, "    delete <id> <token>  %s\n", t("help_cmd_delete"))
+	fmt.Fprintf(os.Stderr, "    list [--limit N]     %s\n", t("help_cmd_list"))
+	fmt.Fprintf(os.Stderr, "    update [check|yes]   %s\n\n", t("help_cmd_update"))
+	fmt.Fprintf(os.Stderr, "    %s\n\n", t("help_cmd_tui_note"))
 
-COMMANDS
-    create [file]        Create paste from stdin or file; prints URL and delete token
-    get <id>             Fetch and print raw paste content
-    delete <id> <token>  Delete paste using its delete token
-    list [--limit N]     List recent public pastes
-    update [check|yes]   Check for or apply CLI updates (default: check)
+	fmt.Fprintf(os.Stderr, "%s\n", t("help_head_create_flags"))
+	fmt.Fprintf(os.Stderr, "    --lang <lang>        %s\n", t("help_flag_lang_create"))
+	fmt.Fprintf(os.Stderr, "    --expiry <duration>  %s\n", t("help_flag_expiry"))
+	fmt.Fprintf(os.Stderr, "    --burn <n>           %s\n", t("help_flag_burn"))
+	fmt.Fprintf(os.Stderr, "    --unlisted           %s\n", t("help_flag_unlisted"))
+	fmt.Fprintf(os.Stderr, "    --title <title>      %s\n", t("help_flag_title"))
+	fmt.Fprintf(os.Stderr, "    --link                %s\n", t("help_flag_link"))
+	fmt.Fprintf(os.Stderr, "                          %s\n\n", t("help_flag_link_cont"))
 
-    When no command is given in an interactive terminal, the TUI launches automatically.
+	fmt.Fprintf(os.Stderr, "%s\n", t("help_head_list_flags"))
+	fmt.Fprintf(os.Stderr, "    --limit <n>          %s\n", t("help_flag_limit"))
+	fmt.Fprintf(os.Stderr, "    --page <n>           %s\n\n", t("help_flag_page"))
 
-CREATE FLAGS
-    --lang <lang>        Syntax language (default: text)
-    --expiry <duration>  1h 1d 1w 1m 3m 6m 1y 2y never, or seconds (default: never)
-    --burn <n>           Delete after N views; 0 = disabled (default: 0)
-    --unlisted           Create as unlisted (not shown in recent pastes)
-    --title <title>      Paste title (optional)
-    --link                Create as a link — arg/stdin must be an http:// or
-                          https:// URL; visiting the paste 302-redirects there
+	fmt.Fprintf(os.Stderr, "%s\n", t("help_head_global_flags"))
+	fmt.Fprintf(os.Stderr, "    --server <url>       %s\n", serverFlagHelp)
+	fmt.Fprintf(os.Stderr, "    --token <token>      %s\n", t("help_flag_token"))
+	fmt.Fprintf(os.Stderr, "    --token-file <file>  %s\n", t("help_flag_token_file"))
+	fmt.Fprintf(os.Stderr, "    --json               %s\n", t("help_flag_json"))
+	fmt.Fprintf(os.Stderr, "    --output <format>    %s\n", t("help_flag_output"))
+	fmt.Fprintf(os.Stderr, "    --color <when>       %s\n", t("help_flag_color"))
+	fmt.Fprintf(os.Stderr, "    --lang <code>        %s\n", t("help_flag_lang"))
+	fmt.Fprintf(os.Stderr, "    --config <name>      %s\n", t("help_flag_config"))
+	fmt.Fprintf(os.Stderr, "    --debug              %s\n", t("help_flag_debug"))
+	fmt.Fprintf(os.Stderr, "    --update check|yes   %s\n", t("help_flag_update"))
+	fmt.Fprintf(os.Stderr, "    --version            %s\n", t("help_flag_version"))
+	fmt.Fprintf(os.Stderr, "    --shell completions [SHELL]  %s\n", t("help_flag_shell_completions"))
+	fmt.Fprintf(os.Stderr, "    --shell init [SHELL]         %s\n", t("help_flag_shell_init"))
+	fmt.Fprintf(os.Stderr, "    --shell --help               %s\n\n", t("help_flag_shell_help"))
 
-LIST FLAGS
-    --limit <n>          Number of pastes per page (default: 20)
-    --page <n>           Page number (default: 1)
-
-GLOBAL FLAGS
-    --server <url>       %s
-    --token <token>      Operator/owner API token (or set $PASTEBIN_TOKEN)
-    --token-file <file>  Read the API token from file
-    --json               Output machine-readable JSON
-    --color <when>       Color output: auto, yes, no (default: auto; honors NO_COLOR)
-    --lang <code>        Output language (default: auto-detect from LANG)
-    --debug              Enable debug output
-    --update check|yes   Check for or apply CLI updates
-    --version            Print version
-    --shell completions [SHELL]  Print shell completions
-    --shell init [SHELL]         Print shell init command (eval-able)
-    --shell --help               Show shell integration help
-
-EXAMPLES
-    PASTEBIN_SERVER_PRIMARY=https://paste.example.com %s create --lang text < file.txt
-    %s --server https://paste.example.com create --lang go myfile.go
-    %s --server https://paste.example.com get abc12345
-    %s --server https://paste.example.com delete abc12345 <delete-token>
-    %s --server https://paste.example.com list --limit 10
-
-`, binaryName, Version, binaryName, serverFlagHelp, binaryName, binaryName, binaryName, binaryName, binaryName)
+	fmt.Fprintf(os.Stderr, "%s\n", t("help_head_examples"))
+	fmt.Fprintf(os.Stderr, "    PASTEBIN_SERVER_PRIMARY=https://paste.example.com %s create --lang text < file.txt\n", binaryName)
+	fmt.Fprintf(os.Stderr, "    %s --server https://paste.example.com create --lang go myfile.go\n", binaryName)
+	fmt.Fprintf(os.Stderr, "    %s --server https://paste.example.com get abc12345\n", binaryName)
+	fmt.Fprintf(os.Stderr, "    %s --server https://paste.example.com delete abc12345 <delete-token>\n", binaryName)
+	fmt.Fprintf(os.Stderr, "    %s --server https://paste.example.com list --limit 10\n\n", binaryName)
 }

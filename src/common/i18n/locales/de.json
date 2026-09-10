@@ -611,6 +611,8 @@
       "op_tui": "TUI: {error}",
       "op_shell_init": "--shell init: {error}",
       "op_shell_completions": "--shell completions: {error}",
+      "reexec_restarting": "Update angewendet — wird neu gestartet...",
+      "reexec_manual_restart": "Update angewendet — bitte {binary} manuell neu starten",
       "help_tagline": "{binary} {version} — Kommandozeilen-Client für den Pastebin-Dienst",
       "help_head_usage": "VERWENDUNG",
       "help_usage_line": "{binary} [--server URL] [--output FORMAT] <Befehl> [Optionen] [Argumente]",

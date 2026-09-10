@@ -611,6 +611,8 @@
       "op_tui": "tui: {error}",
       "op_shell_init": "--shell init: {error}",
       "op_shell_completions": "--shell completions: {error}",
+      "reexec_restarting": "更新を適用しました — 再起動しています...",
+      "reexec_manual_restart": "更新を適用しました — {binary} を手動で再起動してください",
       "help_tagline": "{binary} {version} — pastebin サービスのコマンドラインクライアント",
       "help_head_usage": "使い方",
       "help_usage_line": "{binary} [--server URL] [--output 形式] <コマンド> [オプション] [引数]",

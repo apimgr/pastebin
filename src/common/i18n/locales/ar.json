@@ -726,6 +726,8 @@
       "op_tui": "الواجهة النصية: {error}",
       "op_shell_init": "‎--shell init‎: {error}",
       "op_shell_completions": "‎--shell completions‎: {error}",
+      "reexec_restarting": "تم تطبيق التحديث — جارٍ إعادة التشغيل...",
+      "reexec_manual_restart": "تم تطبيق التحديث — يرجى إعادة تشغيل {binary} يدويًا",
       "help_tagline": "{binary} {version} — عميل سطر أوامر لخدمة اللصقات",
       "help_head_usage": "الاستخدام",
       "help_usage_line": "{binary} [--server URL] [--output FORMAT] <command> [flags] [args]",

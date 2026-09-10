@@ -726,6 +726,8 @@
       "op_tui": "tui: {error}",
       "op_shell_init": "--shell init: {error}",
       "op_shell_completions": "--shell completions: {error}",
+      "reexec_restarting": "update applied — restarting...",
+      "reexec_manual_restart": "update applied — please restart {binary}",
       "help_tagline": "{binary} {version} — command-line client for the pastebin service",
       "help_head_usage": "USAGE",
       "help_usage_line": "{binary} [--server URL] [--output FORMAT] <command> [flags] [args]",
