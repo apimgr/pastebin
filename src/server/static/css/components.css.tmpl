@@ -165,6 +165,11 @@ textarea:user-invalid {
     color: var(--color-error);
     font-size: 0.875rem;
     margin-top: var(--space-2);
+}
+
+input:user-invalid ~ .field-error,
+select:user-invalid ~ .field-error,
+textarea:user-invalid ~ .field-error {
     display: block;
 }
 

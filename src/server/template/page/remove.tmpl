@@ -42,10 +42,13 @@
                                 required
                                 autocomplete="off"
                                 data-token-error="{{if .Error}}true{{else}}false{{end}}"
+                                aria-describedby="token-error"
+                                aria-invalid="false"
                             >
                             <p class="token-hint">
                                 {{t .Lang "paste.delete_token_hint"}}
                             </p>
+                            <span id="token-error" class="field-error" role="alert" hidden></span>
                         </div>
                         <div class="form-actions">
                             <a href="{{.AssetPrefix}}/{{.ID}}" class="btn btn-secondary">{{t .Lang "paste.cancel"}}</a>

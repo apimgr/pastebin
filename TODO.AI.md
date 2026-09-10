@@ -6,11 +6,20 @@
   unimplemented: no `web.announcements` config schema, no
   `site-banner`/`site-banner-*` classes/template/JS, no `/announcements/dismiss`
   route. Needs a new config schema in `src/config/**` before frontend work.
-- Form Validation markup gap: CSS for `.field-error`/`aria-invalid` states was
-  added, but no template (`contact.tmpl`, `create.tmpl`, `preferences.tmpl`,
-  `remove.tmpl`) wires `aria-describedby`/`aria-invalid`/`<span
-  class="field-error">` per field, and `app.js` has no blur-validation JS. Needs
-  new i18n error-message keys per field across all 7 locales.
+- Fixed: Form Validation markup gap per AI.md PART 16 (lines 22745-22864).
+  Wired `aria-describedby`/`aria-invalid` plus a sibling `<span
+  class="field-error" role="alert" hidden>` onto every form field in
+  `contact.tmpl` (both the security-disclosure and regular contact forms),
+  `create.tmpl`, `preferences.tmpl`, and `remove.tmpl`. Fixed
+  `components.css.tmpl` so `.field-error` only becomes visible via the
+  `:user-invalid ~ .field-error` CSS fallback rule (was previously
+  unconditionally `display: block`). Added `initFormValidation()` to
+  `app.js`, matching AI.md's own reference JS: validates on blur, clears the
+  error once the field becomes valid again, mirrors `el.validationMessage`
+  on the native `invalid` event, and focuses the first invalid field on
+  submit. No new i18n keys needed — error text is the browser-native
+  `validationMessage`, matching AI.md's own reference implementation, not a
+  custom per-field string.
 - Fixed: Toast system did not match AI.md PART 16's Toast Notifications spec
   (structure, JS reference implementation ~line 24687, and stacking CSS ~line
   22431). Renamed all `.toast--{type}`/`.toast--dismissing` BEM classes to

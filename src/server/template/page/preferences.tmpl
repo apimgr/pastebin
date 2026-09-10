@@ -47,20 +47,24 @@
                     <div class="form-group">
                         <label for="pref-export-url" class="form-label">{{t .Lang "preferences.export_url"}}</label>
                         <div class="copy-field">
-                            <input type="text" id="pref-export-url" class="form-input long-string" value="{{.ExportURL}}" readonly>
+                            <input type="text" id="pref-export-url" class="form-input long-string" value="{{.ExportURL}}" readonly
+                                   aria-describedby="pref-export-url-error" aria-invalid="false">
                             <button type="button" class="copy-btn" data-copy="{{.ExportURL}}" aria-live="polite" aria-label="{{t .Lang "preferences.copy"}}">
                                 <span class="copy-text">📋</span>
                             </button>
                         </div>
+                        <span id="pref-export-url-error" class="field-error" role="alert" hidden></span>
                     </div>
                     <div class="form-group">
                         <label for="pref-export-code" class="form-label">{{t .Lang "preferences.export_code"}}</label>
                         <div class="copy-field">
-                            <input type="text" id="pref-export-code" class="form-input long-string" value="{{.ExportCode}}" readonly>
+                            <input type="text" id="pref-export-code" class="form-input long-string" value="{{.ExportCode}}" readonly
+                                   aria-describedby="pref-export-code-error" aria-invalid="false">
                             <button type="button" class="copy-btn" data-copy="{{.ExportCode}}" aria-live="polite" aria-label="{{t .Lang "preferences.copy"}}">
                                 <span class="copy-text">📋</span>
                             </button>
                         </div>
+                        <span id="pref-export-code-error" class="field-error" role="alert" hidden></span>
                     </div>
                     {{else}}
                     <p><a href="{{.AssetPrefix}}/server/preferences/export" class="btn btn-secondary">{{t .Lang "preferences.export_action"}}</a></p>
@@ -72,7 +76,9 @@
                         <div class="form-group">
                             <label for="pref-import-code" class="form-label">{{t .Lang "preferences.import_code"}}</label>
                             <input type="text" id="pref-import-code" name="code" class="form-input long-string"
-                                   maxlength="500" placeholder="{{t .Lang "preferences.import_placeholder"}}">
+                                   maxlength="500" placeholder="{{t .Lang "preferences.import_placeholder"}}"
+                                   aria-describedby="pref-import-code-error" aria-invalid="false">
+                            <span id="pref-import-code-error" class="field-error" role="alert" hidden></span>
                         </div>
                         <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.importing"}}">{{t .Lang "preferences.import_action"}}</button>
                     </form>

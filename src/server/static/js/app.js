@@ -1345,3 +1345,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 })();
+
+// ─── Form validation (AI.md PART 16, Form Validation) ──────────────────────
+// Progressive enhancement over native HTML5 validation (required/pattern/
+// type=). Every field's own required/pattern/type attributes remain the
+// single source of truth for validity — this only adds inline, accessible
+// error messaging: validate on blur (not while typing), clear the error the
+// moment the field becomes valid again, mirror the native "invalid" event
+// fired on submit, and focus the first invalid field on submit.
+function initFormValidation() {
+    function showFieldError(el, error) {
+        el.setAttribute('aria-invalid', 'true');
+        error.textContent = el.validationMessage;
+        error.hidden = false;
+    }
+
+    function clearFieldError(el, error) {
+        el.setAttribute('aria-invalid', 'false');
+        error.textContent = '';
+        error.hidden = true;
+    }
+
+    var fields = document.querySelectorAll('.form-group input, .form-group select, .form-group textarea');
+    fields.forEach(function (el) {
+        var error = document.getElementById(el.id + '-error');
+        if (!error) {
+            return;
+        }
+
+        // Validate on blur — never while the user is still typing.
+        el.addEventListener('blur', function () {
+            if (el.checkValidity()) {
+                clearFieldError(el, error);
+            } else {
+                showFieldError(el, error);
+            }
+        });
+
+        // Clear on fix — only re-check once an error has already been shown;
+        // don't validate a field's first pass while the user is typing.
+        el.addEventListener('input', function () {
+            if (el.getAttribute('aria-invalid') === 'true' && el.checkValidity()) {
+                clearFieldError(el, error);
+            }
+        });
+
+        // Native "invalid" event fires on submit attempt.
+        el.addEventListener('invalid', function () {
+            showFieldError(el, error);
+        });
+    });
+
+    // Focus the first invalid field on submit (native validation already
+    // blocks submission — this just improves where focus lands).
+    document.querySelectorAll('form').forEach(function (form) {
+        form.addEventListener('submit', function () {
+            if (!form.checkValidity()) {
+                var firstInvalid = form.querySelector(':invalid');
+                if (firstInvalid) {
+                    firstInvalid.focus();
+                }
+            }
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initFormValidation);
