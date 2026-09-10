@@ -811,6 +811,33 @@ type WebConfig struct {
 	CSRF CSRFConfig `yaml:"csrf"`
 	// Footer controls operator footer branding (PART 16).
 	Footer FooterConfig `yaml:"footer"`
+	// Announcements controls the server-rendered site banner (PART 16 → Site
+	// Banner, PART 22 → Announcements).
+	Announcements AnnouncementsConfig `yaml:"announcements"`
+}
+
+// AnnouncementsConfig holds operator-configured site-wide announcement
+// messages (server.yml web.announcements, AI.md 26078-26121) rendered as the
+// Site Banner (AI.md 22517-22605). Disabled or an empty Messages list means
+// no banner is ever rendered.
+type AnnouncementsConfig struct {
+	Enabled  bool                  `yaml:"enabled"`
+	Messages []AnnouncementMessage `yaml:"messages"`
+}
+
+// AnnouncementMessage is a single operator announcement (AI.md 26094-26109).
+// Type must be one of warning, info, error, success; Start/End are ISO 8601
+// UTC timestamps bounding the active window. ID is stable across edits and is
+// the key stored in the visitor's dismissed_announcements cookie — changing
+// the ID reshows the banner for everyone.
+type AnnouncementMessage struct {
+	ID          string `yaml:"id"`
+	Type        string `yaml:"type"`
+	Title       string `yaml:"title"`
+	Message     string `yaml:"message"`
+	Start       string `yaml:"start"`
+	End         string `yaml:"end"`
+	Dismissible bool   `yaml:"dismissible"`
 }
 
 // FooterConfig holds operator footer branding shown above the default
@@ -1706,6 +1733,10 @@ func DefaultConfig() *Config {
 				Secure:      "auto",
 				ExemptPaths: []string{},
 			},
+			Announcements: AnnouncementsConfig{
+				Enabled:  true,
+				Messages: []AnnouncementMessage{},
+			},
 		},
 	}
 }
@@ -2562,6 +2593,26 @@ func Validate(cfg *Config) {
 		log.Printf("[config] WARNING: invalid web.theme %q, using default \"dark\"", cfg.Web.Theme)
 		cfg.Web.Theme = "dark"
 	}
+
+	// Announcement type must be one of the valid values (AI.md 22527); an
+	// entry with a blank/missing ID cannot be dismissed or matched against the
+	// dismissed_announcements cookie, so it is dropped with a warning rather
+	// than rendered forever.
+	validAnnouncements := cfg.Web.Announcements.Messages[:0]
+	for _, m := range cfg.Web.Announcements.Messages {
+		if strings.TrimSpace(m.ID) == "" {
+			log.Printf("[config] WARNING: web.announcements.messages entry with empty id skipped")
+			continue
+		}
+		switch m.Type {
+		case "info", "warning", "error", "success":
+		default:
+			log.Printf("[config] WARNING: invalid web.announcements.messages[%q].type %q, using default \"info\"", m.ID, m.Type)
+			m.Type = "info"
+		}
+		validAnnouncements = append(validAnnouncements, m)
+	}
+	cfg.Web.Announcements.Messages = validAnnouncements
 
 	// Rate limit counts must be non-negative (zero means "disabled for this class").
 	if cfg.RateLimit.Read.Requests < 0 {

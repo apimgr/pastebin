@@ -363,6 +363,7 @@
     "info": "信息",
     "error": "错误",
     "success": "成功",
+    "dismiss": "关闭公告",
     "scheduled_maintenance": "计划维护"
   },
   "pwa": {

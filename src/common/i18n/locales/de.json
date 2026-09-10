@@ -363,6 +363,7 @@
     "info": "Information",
     "error": "Fehler",
     "success": "Erfolg",
+    "dismiss": "Ankündigung ausblenden",
     "scheduled_maintenance": "Geplante Wartung"
   },
   "pwa": {

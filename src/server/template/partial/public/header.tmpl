@@ -1,5 +1,19 @@
 {{define "header"}}
     <a href="#main-content" class="skip-link">{{t .Lang "nav.skip_to_content"}}</a>
+    {{range .Announcements}}
+    <div class="site-banner site-banner-{{.Type}}" role="{{.Role}}" data-announcement-id="{{.ID}}">
+        <span class="site-banner-icon" aria-hidden="true">{{.Icon}}</span>
+        <span class="site-banner-text">{{if .Title}}<strong>{{.Title}}:</strong> {{end}}{{.Message}}</span>
+        {{if .Dismissible}}
+        <form method="post" action="{{$.AssetPrefix}}/announcements/dismiss" class="site-banner-dismiss">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input type="hidden" name="return_to" value="{{$.CurrentPath}}">
+            <button type="submit" class="site-banner-close" aria-label="{{t $.Lang "announcements.dismiss"}}">&times;</button>
+        </form>
+        {{end}}
+    </div>
+    {{end}}
     <header class="header">
         <a href="{{.AssetPrefix}}/" class="site-brand">
             <div class="site-brand-icon">📋</div>

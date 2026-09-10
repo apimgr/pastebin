@@ -522,6 +522,61 @@ textarea:user-invalid {
 }
 
 /* ============================================
+   Site Banner / Announcements (PART 16, AI.md 22517-22605)
+   Server-rendered, first element inside <body> (after the skip link).
+   Dismissal posts to /announcements/dismiss with zero JS; app.js only makes
+   it reload-free.
+   ============================================ */
+.site-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-sm);
+    background: var(--color-info-tint);
+    color: var(--color-info);
+}
+
+.site-banner-warning,
+.site-banner-error {
+    background: var(--color-warning-tint);
+    color: var(--color-warning);
+}
+
+.site-banner-error {
+    background: var(--color-error-tint);
+    color: var(--color-error);
+}
+
+.site-banner-success {
+    background: var(--color-success-tint);
+    color: var(--color-success);
+}
+
+.site-banner-icon {
+    flex-shrink: 0;
+}
+
+.site-banner-text {
+    flex: 1;
+    text-align: center;
+}
+
+.site-banner-dismiss {
+    display: contents;
+}
+
+.site-banner-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    font-size: var(--font-size-lg);
+    line-height: 1;
+    padding: var(--space-1);
+}
+
+/* ============================================
    SW Update Banner (PART 16)
    Rendered inside #toast-container (see Offline Indicator above) using the
    .toast base class for positioning/stacking; this class supplies only the

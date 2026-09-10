@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1203,6 +1204,10 @@ func (s *Server) setupRoutes() {
 	// and redirects back so the no-JS <noscript> banner/preferences form works
 	// (AI.md 25598), not just the JS-driven banner in app.js.
 	r.Post("/server/consent", s.handleConsentSet)
+	// Site Banner dismissal endpoint — appends the submitted announcement id
+	// to the dismissed_announcements cookie and redirects back, so the no-JS
+	// <form method="post"> dismissal always works (AI.md 22529, 22541-22555).
+	r.Post("/announcements/dismiss", s.handleAnnouncementDismiss)
 	// Theme preference endpoint — persists the `theme` cookie and redirects back
 	// so the no-JS <noscript> toggle form works (AI.md 21588, 22641, 23294, 24084).
 	// Canonical route is POST /server/preferences (AI.md "Theme Toggle" HTML
@@ -4028,6 +4033,144 @@ func (s *Server) handleConsentSet(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
+// announcementView is the template-facing shape of one active, non-dismissed
+// site banner entry (AI.md 22517-22605). Icon/Role are pre-resolved here
+// rather than in the template so the icon-per-type and ARIA-role-per-type
+// mapping (AI.md 22528: role="status" for info/success, role="alert" for
+// warning/error) live in one place.
+type announcementView struct {
+	ID          string
+	Type        string
+	Title       string
+	Message     string
+	Dismissible bool
+	Icon        string
+	Role        string
+}
+
+// announcementIcons maps each announcement type to its ARIA-hidden glyph
+// (AI.md 22538 shows "⚠" for warning; the other three follow the same
+// convention used elsewhere in the spec for toast/banner icons).
+var announcementIcons = map[string]string{
+	"info":    "ℹ",
+	"warning": "⚠",
+	"error":   "✕",
+	"success": "✓",
+}
+
+// dismissedAnnouncementIDs parses the visitor's dismissed_announcements
+// cookie (comma-separated announcement ids, AI.md 22529-22530) into a set.
+func dismissedAnnouncementIDs(r *http.Request) map[string]bool {
+	ids := map[string]bool{}
+	c, err := r.Cookie("dismissed_announcements")
+	if err != nil || c.Value == "" {
+		return ids
+	}
+	value, err := url.QueryUnescape(c.Value)
+	if err != nil {
+		value = c.Value
+	}
+	for _, id := range strings.Split(value, ",") {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+// activeAnnouncements returns the operator-configured announcements
+// (server.yml web.announcements) whose start-end window is currently active
+// and whose id is absent from the visitor's dismissed_announcements cookie,
+// in config order (AI.md 22525-22532: disabled/empty = no banner; multiple
+// active announcements stack in config order).
+func (s *Server) activeAnnouncements(r *http.Request) []announcementView {
+	cfg := s.liveCfg()
+	if !cfg.Web.Announcements.Enabled || len(cfg.Web.Announcements.Messages) == 0 {
+		return nil
+	}
+	dismissed := dismissedAnnouncementIDs(r)
+	now := time.Now().UTC()
+	var out []announcementView
+	for _, m := range cfg.Web.Announcements.Messages {
+		if dismissed[m.ID] {
+			continue
+		}
+		if m.Start != "" {
+			if start, err := time.Parse(time.RFC3339, m.Start); err == nil && now.Before(start) {
+				continue
+			}
+		}
+		if m.End != "" {
+			if end, err := time.Parse(time.RFC3339, m.End); err == nil && now.After(end) {
+				continue
+			}
+		}
+		typ := m.Type
+		if typ == "" {
+			typ = "info"
+		}
+		role := "status"
+		if typ == "warning" || typ == "error" {
+			role = "alert"
+		}
+		out = append(out, announcementView{
+			ID:          m.ID,
+			Type:        typ,
+			Title:       m.Title,
+			Message:     m.Message,
+			Dismissible: m.Dismissible,
+			Icon:        announcementIcons[typ],
+			Role:        role,
+		})
+	}
+	return out
+}
+
+// handleAnnouncementDismiss appends the submitted announcement id to the
+// dismissed_announcements cookie and redirects back to return_to, giving
+// zero-JS dismissal of the Site Banner (AI.md 22529, 22541-22545, 22555).
+// The cookie is keyed on the announcement id, so changing an announcement's
+// id in server.yml reshows the banner for everyone (AI.md 22529).
+func (s *Server) handleAnnouncementDismiss(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PostFormValue("id"))
+	if id == "" {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	ids := dismissedAnnouncementIDs(r)
+	ids[id] = true
+	list := make([]string, 0, len(ids))
+	for existing := range ids {
+		list = append(list, existing)
+	}
+	sort.Strings(list)
+	cfg := s.liveCfg()
+	secure := r.TLS != nil
+	if cfg.Web.CSRF.Secure == "true" {
+		secure = true
+	} else if cfg.Web.CSRF.Secure == "false" {
+		secure = false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "dismissed_announcements",
+		Value:    url.QueryEscape(strings.Join(list, ",")),
+		Path:     "/",
+		MaxAge:   365 * 24 * 60 * 60,
+		HttpOnly: false,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	// Same-site relative paths only (mirrors handleConsentSet's referer check).
+	dest := "/"
+	if rt := r.PostFormValue("return_to"); rt != "" {
+		if u, err := url.Parse(rt); err == nil && u.Host == "" && strings.HasPrefix(u.Path, "/") {
+			dest = u.RequestURI()
+		}
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
+}
+
 // validThemes is the closed set of theme modes the server will render as a
 // class on <html> (AI.md 23294: theme-light, theme-dark, theme-auto).
 var validThemes = map[string]bool{"light": true, "dark": true, "auto": true}
@@ -4544,6 +4687,9 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject the header profile/preferences zone's owner_token-dependent state
 	// (AI.md "Header Layout" / "Profile/Preferences Zone", PART 16)
 	s.injectOwnerTokenData(r, data)
+	// Inject the active, non-dismissed site-wide announcements rendered as the
+	// Site Banner, first element inside <body> (AI.md 22517-22605, 26078-26121)
+	data["Announcements"] = s.activeAnnouncements(r)
 	// Render into a buffer first so a mid-template failure never leaks a
 	// partially-written, corrupted response — headers/status are only sent
 	// once rendering has fully succeeded. On failure, fall back through

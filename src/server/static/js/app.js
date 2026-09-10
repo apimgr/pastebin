@@ -467,6 +467,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// ─── Site Banner dismissal (AI.md 22589-22605) ───────────────────────────────
+
+// No-reload enhancement only — the POST /announcements/dismiss form fallback
+// always works without this. Dismissal is keyed on the announcement id, so
+// changing the id in server.yml resets dismissals for everyone.
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.site-banner .site-banner-dismiss').forEach((form) => {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const id = form.elements.id.value;
+            const match = document.cookie.match(/(?:^|;\s*)dismissed_announcements=([^;]*)/);
+            const ids = match ? decodeURIComponent(match[1]).split(',').filter(Boolean) : [];
+            if (!ids.includes(id)) ids.push(id);
+            const value = encodeURIComponent(ids.join(','));
+            const secure = location.protocol === 'https:' ? '; Secure' : '';
+            document.cookie = `dismissed_announcements=${value}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax${secure}`;
+            const banner = form.closest('.site-banner');
+            if (banner) banner.remove();
+        });
+    });
+});
+
 // ─── QR download ─────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {

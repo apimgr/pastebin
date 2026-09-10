@@ -363,6 +363,7 @@
     "info": "情報",
     "error": "エラー",
     "success": "成功",
+    "dismiss": "お知らせを閉じる",
     "scheduled_maintenance": "定期メンテナンス"
   },
   "pwa": {

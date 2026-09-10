@@ -478,6 +478,7 @@
     "info": "معلومات",
     "error": "خطأ",
     "success": "نجاح",
+    "dismiss": "إغلاق الإعلان",
     "scheduled_maintenance": "صيانة مجدولة"
   },
   "pwa": {

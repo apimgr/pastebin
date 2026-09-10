@@ -478,7 +478,8 @@
     "info": "Info",
     "error": "Error",
     "success": "Success",
-    "scheduled_maintenance": "Scheduled maintenance"
+    "scheduled_maintenance": "Scheduled maintenance",
+    "dismiss": "Dismiss announcement"
   },
   "pwa": {
     "install": "Install app",
