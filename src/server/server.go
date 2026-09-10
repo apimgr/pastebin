@@ -3927,6 +3927,20 @@ func (s *Server) privacyPageData(r *http.Request) map[string]interface{} {
 	return data
 }
 
+// safeRedirectPath returns u's path+query, but only when it is a genuine
+// single-slash relative path — never "//host/..." or "/\\host/..." style
+// values, which browsers can interpret as protocol-relative/scheme-relative
+// URLs and redirect off-site even when url.Parse reported an empty or
+// matching Host (open-redirect hardening for every Referer/return_to-based
+// same-page redirect in this file).
+func safeRedirectPath(u *url.URL) (string, bool) {
+	p := u.RequestURI()
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") {
+		return "", false
+	}
+	return p, true
+}
+
 // handleCCPAOptOut sets or clears the ccpa_opt_out cookie in response to the
 // "Do Not Sell My Personal Information" toggle on the privacy page (PART 31).
 // action=opt_in clears the opt-out; any other value records the opt-out for one
@@ -3953,7 +3967,18 @@ func (s *Server) handleCCPAOptOut(w http.ResponseWriter, r *http.Request) {
 		cookie.MaxAge = 365 * 24 * 60 * 60
 	}
 	http.SetCookie(w, cookie)
-	http.Redirect(w, r, "/server/privacy#ccpa-opt-out", http.StatusSeeOther)
+	// Return to the referring page (privacy or preferences, AI.md 23480: the
+	// CCPA toggle is now also a control on /server/preferences) rather than
+	// always bouncing to /server/privacy, mirroring handleConsentSet.
+	dest := "/server/privacy#ccpa-opt-out"
+	if ref := r.Header.Get("Referer"); ref != "" {
+		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {
+			if p, ok := safeRedirectPath(u); ok {
+				dest = p
+			}
+		}
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 // consentState mirrors the JSON persisted in the server-readable cookie_consent
@@ -4045,7 +4070,9 @@ func (s *Server) handleConsentSet(w http.ResponseWriter, r *http.Request) {
 	dest := "/"
 	if ref := r.Header.Get("Referer"); ref != "" {
 		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {
-			dest = u.RequestURI()
+			if p, ok := safeRedirectPath(u); ok {
+				dest = p
+			}
 		}
 	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)
@@ -4182,8 +4209,10 @@ func (s *Server) handleAnnouncementDismiss(w http.ResponseWriter, r *http.Reques
 	// Same-site relative paths only (mirrors handleConsentSet's referer check).
 	dest := "/"
 	if rt := r.PostFormValue("return_to"); rt != "" {
-		if u, err := url.Parse(rt); err == nil && u.Host == "" && strings.HasPrefix(u.Path, "/") {
-			dest = u.RequestURI()
+		if u, err := url.Parse(rt); err == nil && u.Host == "" {
+			if p, ok := safeRedirectPath(u); ok {
+				dest = p
+			}
 		}
 	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)
@@ -4251,7 +4280,9 @@ func (s *Server) handleThemeSet(w http.ResponseWriter, r *http.Request) {
 	dest := "/"
 	if ref := r.Header.Get("Referer"); ref != "" {
 		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {
-			dest = u.RequestURI()
+			if p, ok := safeRedirectPath(u); ok {
+				dest = p
+			}
 		}
 	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)

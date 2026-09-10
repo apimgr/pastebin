@@ -88,6 +88,27 @@
                         <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.importing"}}">{{t .Lang "preferences.import_action"}}</button>
                     </form>
 
+                    <h2 id="ccpa-opt-out" class="section-mt">{{t .Lang "privacy.ccpa_do_not_sell"}}</h2>
+                    {{if .Privacy.IsCCPAApplicable}}
+                        {{if .CCPAOptedOut}}
+                        <p>{{t .Lang "privacy.ccpa_opted_out_full"}}</p>
+                        <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="action" value="opt_in">
+                            <button type="submit" class="btn btn-secondary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">{{t .Lang "privacy.ccpa_opt_back_in"}}</button>
+                        </form>
+                        {{else}}
+                        <p>{{t .Lang "privacy.ccpa_intro"}}</p>
+                        <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="action" value="opt_out">
+                            <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">{{t .Lang "privacy.ccpa_do_not_sell"}}</button>
+                        </form>
+                        {{end}}
+                    {{else}}
+                    <p>{{t .Lang "privacy.ccpa_not_applicable"}}</p>
+                    {{end}}
+
                     {{$c := consentInfo}}
                     <h2 class="section-mt">{{t .Lang "preferences.consent_title"}}</h2>
                     <p>{{t .Lang "preferences.consent_desc"}}</p>

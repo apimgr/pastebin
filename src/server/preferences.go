@@ -85,6 +85,17 @@ func (s *Server) preferencesPageData(r *http.Request, theme, lang string) map[st
 	}
 	data["ConsentPreferences"] = consentPreferences
 	data["ConsentAnalytics"] = consentAnalytics
+	// CCPA opt-out toggle (AI.md 23480: every cookie in the table needs a
+	// control here, including CCPA) — same Privacy/CCPAOptedOut shape
+	// privacyPageData exposes to privacy.tmpl, so the same template partial
+	// pattern works unchanged on this page.
+	privacy := cfg.Server.Privacy
+	data["Privacy"] = &privacy
+	ccpaOptedOut := false
+	if cookie, err := r.Cookie("ccpa_opt_out"); err == nil && cookie.Value == "true" {
+		ccpaOptedOut = true
+	}
+	data["CCPAOptedOut"] = ccpaOptedOut
 	return data
 }
 
@@ -172,7 +183,9 @@ func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request)
 	dest := "/"
 	if ref := r.Header.Get("Referer"); ref != "" {
 		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {
-			dest = u.RequestURI()
+			if p, ok := safeRedirectPath(u); ok {
+				dest = p
+			}
 		}
 	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)
