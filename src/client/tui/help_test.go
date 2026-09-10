@@ -8,13 +8,13 @@ import (
 // Tests for help.go: viewHelp, allHelpEntries
 
 func TestAllHelpEntriesNotEmpty(t *testing.T) {
-	if len(allHelpEntries) == 0 {
+	if len(allHelpEntries()) == 0 {
 		t.Fatal("allHelpEntries should not be empty")
 	}
 }
 
 func TestAllHelpEntriesHaveKeysAndDescriptions(t *testing.T) {
-	for i, entry := range allHelpEntries {
+	for i, entry := range allHelpEntries() {
 		if entry.key == "" {
 			t.Errorf("allHelpEntries[%d].key is empty", i)
 		}
@@ -29,7 +29,7 @@ func TestAllHelpEntriesContainsExpectedKeys(t *testing.T) {
 
 	for _, expected := range expectedKeys {
 		found := false
-		for _, entry := range allHelpEntries {
+		for _, entry := range allHelpEntries() {
 			if strings.Contains(entry.key, expected) {
 				found = true
 				break

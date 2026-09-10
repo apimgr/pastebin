@@ -111,10 +111,10 @@ func sizeMode(cols, rows int) terminal.SizeMode {
 func helpLineForMode(mode terminal.SizeMode) string {
 	switch {
 	case mode <= terminal.SizeModeMinimal:
-		return "?:help q:quit"
+		return t("footer_hint_xs")
 	case mode == terminal.SizeModeCompact:
-		return "↑↓:nav │ enter:open │ /:search │ ?:help │ q:quit"
+		return t("footer_hint_sm")
 	default:
-		return "↑↓/jk:nav │ enter:open │ /:search │ r:refresh │ n:new │ d:delete │ ?:help │ q:quit"
+		return t("footer_hint_full")
 	}
 }

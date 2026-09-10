@@ -169,10 +169,10 @@ func (m listModel) selectedItem() *PasteListItem {
 // view renders the paste list.
 func (m listModel) view(styles TUIStyles, width, height int, sizeMode terminal.SizeMode) string {
 	if m.loading {
-		return styles.Muted.Render("Loading pastes…")
+		return styles.Muted.Render(t("list_loading"))
 	}
 	if m.err != nil {
-		return styles.Error.Render("Error: " + m.err.Error())
+		return styles.Error.Render(tf("list_error", "error", m.err.Error()))
 	}
 
 	cfg := GetLayoutConfig(sizeMode)
@@ -183,11 +183,11 @@ func (m listModel) view(styles TUIStyles, width, height int, sizeMode terminal.S
 	if m.searching {
 		sb.WriteString(styles.Header.Render("/") + m.searchQuery + "█\n")
 	} else if m.searchQuery != "" {
-		sb.WriteString(styles.Muted.Render("search: "+m.searchQuery+" (Esc to clear)") + "\n")
+		sb.WriteString(styles.Muted.Render(tf("list_search_hint", "query", m.searchQuery)) + "\n")
 	}
 
 	if len(m.filtered) == 0 {
-		sb.WriteString(styles.Muted.Render("No pastes found."))
+		sb.WriteString(styles.Muted.Render(t("list_empty")))
 		return sb.String()
 	}
 
@@ -234,7 +234,7 @@ func (m listModel) view(styles TUIStyles, width, height int, sizeMode terminal.S
 
 // columnsForMode returns the header column labels for the given max column count.
 func columnsForMode(maxCols int) []string {
-	all := []string{"ID", "TITLE", "LANG", "VIEWS", "CREATED", "EXPIRES"}
+	all := []string{t("list_col_id"), t("list_col_title"), t("list_col_lang"), t("list_col_views"), t("list_col_created"), t("list_col_expires")}
 	if maxCols >= len(all) {
 		return all
 	}
@@ -249,7 +249,7 @@ func formatPasteRow(item PasteListItem, maxCols, width, truncAt int) string {
 		title = title[:truncAt-3] + "..."
 	}
 	if title == "" {
-		title = "(untitled)"
+		title = t("list_untitled")
 	}
 
 	cols := []string{
@@ -290,11 +290,11 @@ func formatRow(cols []string, maxCols, width, _ int) string {
 }
 
 // formatExpiry returns a short string for the expiry time.
-func formatExpiry(t time.Time) string {
-	if t.IsZero() {
-		return "never"
+func formatExpiry(exp time.Time) string {
+	if exp.IsZero() {
+		return t("list_expiry_never")
 	}
-	return t.Format("2006-01-02")
+	return exp.Format("2006-01-02")
 }
 
 // min returns the smaller of a and b.

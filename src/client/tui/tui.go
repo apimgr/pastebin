@@ -5,7 +5,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/apimgr/pastebin/src/common/terminal"
@@ -74,6 +73,7 @@ func Run(cfg ClientConfig) error {
 
 // newModel builds the initial Model and chooses the starting state.
 func newModel(cfg ClientConfig) Model {
+	setUILang(cfg.Lang)
 	// Resolve dark/light/auto per AI.md "CLI Theme Configuration" —
 	// GetTerminalPalette handles the "auto" -> system-detect branch.
 	CurrentTheme = theme.GetTerminalPalette(cfg.Theme)
@@ -153,7 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Setup wizard: save error — display it in setup.
 	case serverURLErrorMsg:
-		m.setup.err = fmt.Sprintf("save failed: %v", msg.err)
+		m.setup.err = tf("setup_save_failed", "error", msg.err)
 		return m, nil
 
 	// List view: pastes loaded.

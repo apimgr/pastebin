@@ -286,6 +286,8 @@ func toString(v interface{}) string {
 		return s
 	case int:
 		return fmt_int(s)
+	case error:
+		return s.Error()
 	default:
 		b, _ := json.Marshal(v)
 		return strings.Trim(string(b), `"`)

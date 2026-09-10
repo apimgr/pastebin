@@ -1,0 +1,30 @@
+package tui
+
+import "github.com/apimgr/pastebin/src/common/i18n"
+
+// uiLang is the resolved TUI display language, cached once at startup.
+// PART 30 requires locale files be embedded and used in ALL binaries,
+// including the TUI screens of pastebin-cli.
+var uiLang = "en"
+
+// setUILang resolves and caches the TUI display language from the client's
+// configured locale, falling back to "en" for any unsupported value (never
+// errors or crashes on a bad --lang/config value).
+func setUILang(lang string) {
+	if i18n.IsSupported(lang) {
+		uiLang = lang
+		return
+	}
+	uiLang = "en"
+}
+
+// t translates a "cli.tui.*" key using the resolved uiLang.
+func t(key string) string {
+	return i18n.Translate(uiLang, "cli.tui."+key)
+}
+
+// tf translates a "cli.tui.*" key, substituting {variable} placeholders
+// from the given (name, value) pairs.
+func tf(key string, args ...interface{}) string {
+	return i18n.TranslateFormat(uiLang, "cli.tui."+key, args...)
+}

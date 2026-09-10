@@ -39,7 +39,7 @@ func (s setupModel) update(msg tea.Msg) (setupModel, tea.Cmd) {
 		case tea.KeyEnter:
 			rawURL := strings.TrimSpace(s.input.Value())
 			if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-				s.err = "URL must start with http:// or https://"
+				s.err = t("setup_url_invalid")
 				return s, nil
 			}
 			s.err = ""
@@ -59,8 +59,8 @@ func (s setupModel) update(msg tea.Msg) (setupModel, tea.Cmd) {
 
 // view renders the setup wizard.
 func (s setupModel) view(styles TUIStyles) string {
-	title := styles.Title.Render("pastebin-cli setup")
-	prompt := styles.Normal.Render("Server URL:")
+	title := styles.Title.Render(t("setup_title"))
+	prompt := styles.Normal.Render(t("setup_server_url_label"))
 	inputView := s.input.View()
 
 	errLine := ""
@@ -68,7 +68,7 @@ func (s setupModel) view(styles TUIStyles) string {
 		errLine = "\n" + styles.Error.Render(s.err)
 	}
 
-	hint := styles.Muted.Render("[Enter] confirm  [Ctrl+C] quit")
+	hint := styles.Muted.Render(t("setup_hint"))
 
 	inner := fmt.Sprintf("%s\n\n%s\n> %s%s\n\n%s",
 		title, prompt, inputView, errLine, hint)

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -43,7 +42,7 @@ func newDetailModel(server, lang, pasteID string, width, height int) (detailMode
 	vp.SetContent("")
 
 	ti := textinput.New()
-	ti.Placeholder = "delete token"
+	ti.Placeholder = t("detail_delete_token_placeholder")
 	ti.CharLimit = 128
 	ti.Width = 40
 
@@ -85,7 +84,7 @@ func (m detailModel) update(msg tea.Msg) (detailModel, tea.Cmd) {
 
 	case pasteDeletedMsg:
 		m.deleting = false
-		m.deleteSuccess = fmt.Sprintf("Paste %s deleted.", msg.id)
+		m.deleteSuccess = tf("detail_delete_success", "id", msg.id)
 		return m, nil
 
 	case pasteDeleteErrMsg:
@@ -134,7 +133,7 @@ func (m detailModel) updateDelete(msg tea.KeyMsg) (detailModel, tea.Cmd) {
 	case tea.KeyEnter:
 		token := strings.TrimSpace(m.deleteInput.Value())
 		if token == "" {
-			m.deleteErr = "token required"
+			m.deleteErr = t("detail_token_required")
 			return m, nil
 		}
 		server := m.server
@@ -165,22 +164,22 @@ func (m detailModel) view(styles TUIStyles, width int) string {
 
 	if m.deleteSuccess != "" {
 		sb.WriteString(styles.Success.Render(m.deleteSuccess) + "\n\n")
-		sb.WriteString(styles.Muted.Render("Press Esc or b to go back."))
+		sb.WriteString(styles.Muted.Render(t("detail_back_hint")))
 		return sb.String()
 	}
 
-	header := styles.Title.Render("Paste: "+m.pasteID) + "  " +
-		styles.Muted.Render("b/Esc:back  d:delete  j/k:scroll")
+	header := styles.Title.Render(tf("detail_header", "id", m.pasteID)) + "  " +
+		styles.Muted.Render(t("detail_keys_hint"))
 	sb.WriteString(header + "\n")
 	sb.WriteString(styles.Muted.Render(strings.Repeat("─", min(width-2, 80))) + "\n")
 
 	if m.loading {
-		sb.WriteString(styles.Muted.Render("Loading…"))
+		sb.WriteString(styles.Muted.Render(t("detail_loading")))
 		return sb.String()
 	}
 
 	if m.err != nil {
-		sb.WriteString(styles.Error.Render("Error: " + m.err.Error()))
+		sb.WriteString(styles.Error.Render(tf("list_error", "error", m.err.Error())))
 		return sb.String()
 	}
 
@@ -188,7 +187,7 @@ func (m detailModel) view(styles TUIStyles, width int) string {
 
 	if m.deleting {
 		sb.WriteString("\n\n")
-		sb.WriteString(styles.Warning.Render("Enter delete token (Esc to cancel):") + "\n")
+		sb.WriteString(styles.Warning.Render(t("detail_delete_prompt")) + "\n")
 		sb.WriteString(m.deleteInput.View())
 		if m.deleteErr != "" {
 			sb.WriteString("\n" + styles.Error.Render(m.deleteErr))

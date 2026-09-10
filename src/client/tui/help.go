@@ -13,29 +13,31 @@ type helpEntry struct {
 }
 
 // allHelpEntries lists every keybinding shown in the help overlay.
-var allHelpEntries = []helpEntry{
-	{"j / ↓", "Next item"},
-	{"k / ↑", "Previous item"},
-	{"g / G", "Top / Bottom"},
-	{"Enter", "Open paste"},
-	{"/", "Search"},
-	{"r", "Refresh"},
-	{"n", "New paste"},
-	{"d", "Delete paste"},
-	{"?", "Help"},
-	{"q", "Quit"},
-	{"Esc", "Back"},
+func allHelpEntries() []helpEntry {
+	return []helpEntry{
+		{"j / ↓", t("help_next_item")},
+		{"k / ↑", t("help_previous_item")},
+		{"g / G", t("help_top_bottom")},
+		{"Enter", t("help_open_paste")},
+		{"/", t("help_search")},
+		{"r", t("help_refresh")},
+		{"n", t("help_new_paste")},
+		{"d", t("help_delete_paste")},
+		{"?", t("help_help")},
+		{"q", t("help_quit")},
+		{"Esc", t("help_back")},
+	}
 }
 
 // viewHelp renders the help overlay modal.
 func viewHelp(styles TUIStyles, width, height int) string {
-	title := styles.Title.Render("Keyboard shortcuts")
+	title := styles.Title.Render(t("help_title"))
 	divider := styles.Muted.Render(strings.Repeat("─", 28))
 
 	var rows []string
 	rows = append(rows, title)
 	rows = append(rows, divider)
-	for _, e := range allHelpEntries {
+	for _, e := range allHelpEntries() {
 		key := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(CurrentTheme.Primary)).
 			Width(12).
@@ -44,7 +46,7 @@ func viewHelp(styles TUIStyles, width, height int) string {
 		rows = append(rows, key+desc)
 	}
 	rows = append(rows, "")
-	rows = append(rows, styles.Muted.Render("Press ? or Esc to close"))
+	rows = append(rows, styles.Muted.Render(t("help_footer")))
 
 	content := strings.Join(rows, "\n")
 
