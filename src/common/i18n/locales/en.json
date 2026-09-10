@@ -471,7 +471,9 @@
     "import_code": "Preferences code or URL",
     "import_placeholder": "theme=dark&lang=fr or a full preferences URL",
     "import_action": "Import preferences",
-    "copy": "Copy preferences code"
+    "copy": "Copy preferences code",
+    "consent_title": "Cookie Preferences",
+    "consent_desc": "Change which optional cookie categories this browser allows. Essential cookies are always on and cannot be disabled."
   },
   "announcements": {
     "warning": "Warning",

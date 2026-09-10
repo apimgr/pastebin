@@ -356,7 +356,9 @@
     "import_code": "偏好设置代码或 URL",
     "import_placeholder": "theme=dark&lang=fr 或完整的偏好设置 URL",
     "import_action": "导入偏好设置",
-    "copy": "复制偏好设置代码"
+    "copy": "复制偏好设置代码",
+    "consent_title": "Cookie 偏好设置",
+    "consent_desc": "更改此浏览器允许的可选 Cookie 类别。必要 Cookie 始终启用，无法禁用。"
   },
   "announcements": {
     "warning": "警告",

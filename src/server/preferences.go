@@ -70,6 +70,21 @@ func (s *Server) preferencesPageData(r *http.Request, theme, lang string) map[st
 	data := s.pageData()
 	data["PrefTheme"] = theme
 	data["PrefLang"] = lang
+	// Seed the cookie-consent toggles from the visitor's existing choice (if
+	// any), falling back to the configured defaults — the preferences page is
+	// the one place a visitor can revisit and change consent after the
+	// first-visit banner is gone (no-JS parity: a working control must remain
+	// reachable without JavaScript, AI.md PART 16 "Frontend Consumes Backend").
+	cfg := s.liveCfg()
+	def := buildConsentClientConfig(cfg)
+	consentPreferences := def.DefaultPreferences
+	consentAnalytics := def.DefaultAnalytics
+	if prior, hadPrior := priorConsentState(r); hadPrior {
+		consentPreferences = prior.Preferences
+		consentAnalytics = prior.Analytics
+	}
+	data["ConsentPreferences"] = consentPreferences
+	data["ConsentAnalytics"] = consentAnalytics
 	return data
 }
 

@@ -356,7 +356,9 @@
     "import_code": "Code ou URL des préférences",
     "import_placeholder": "theme=dark&lang=fr ou une URL de préférences complète",
     "import_action": "Importer les préférences",
-    "copy": "Copier le code des préférences"
+    "copy": "Copier le code des préférences",
+    "consent_title": "Préférences de cookies",
+    "consent_desc": "Modifiez les catégories de cookies facultatives autorisées par ce navigateur. Les cookies essentiels sont toujours actifs et ne peuvent pas être désactivés."
   },
   "announcements": {
     "warning": "Avertissement",

@@ -12,6 +12,11 @@
 
                 <div class="paste-view page-view">
                     <p>{{t .Lang "preferences.intro"}}</p>
+                    <p class="alert">
+                        <strong>{{t .Lang "preferences.current"}}:</strong>
+                        {{t .Lang "preferences.theme_label"}} = {{t .Lang (print "theme." .PrefTheme)}},
+                        {{t .Lang "preferences.lang_label"}} = {{t .Lang (print "lang." .PrefLang)}}
+                    </p>
 
                     <h2 class="section-mt">{{t .Lang "preferences.theme_label"}}</h2>
                     <p>{{t .Lang "preferences.theme_desc"}}</p>
@@ -81,6 +86,37 @@
                             <span id="pref-import-code-error" class="field-error" role="alert" hidden></span>
                         </div>
                         <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.importing"}}">{{t .Lang "preferences.import_action"}}</button>
+                    </form>
+
+                    {{$c := consentInfo}}
+                    <h2 class="section-mt">{{t .Lang "preferences.consent_title"}}</h2>
+                    <p>{{t .Lang "preferences.consent_desc"}}</p>
+                    <form method="post" action="{{.AssetPrefix}}/server/consent" class="contact-form">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <p class="cookie-category">
+                            <label>
+                                <input type="checkbox" checked disabled aria-describedby="pref-consent-essential">
+                                <span id="pref-consent-essential">{{$c.Descriptions.Essential}}</span>
+                            </label>
+                        </p>
+                        <p class="cookie-category">
+                            <label>
+                                <input type="checkbox" name="preferences" value="1"{{if .ConsentPreferences}} checked{{end}}
+                                       aria-describedby="pref-consent-preferences">
+                                <span id="pref-consent-preferences">{{$c.Descriptions.Preferences}}</span>
+                            </label>
+                        </p>
+                        {{if $c.AnalyticsConfigured}}
+                        <p class="cookie-category">
+                            <label>
+                                <input type="checkbox" name="analytics" value="1"{{if .ConsentAnalytics}} checked{{end}}
+                                       aria-describedby="pref-consent-analytics">
+                                <span id="pref-consent-analytics">{{$c.Descriptions.Analytics}}</span>
+                            </label>
+                        </p>
+                        {{end}}
+                        <button type="submit" name="choice" value="save" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">{{t .Lang "cookie_consent.save_preferences"}}</button>
+                        <button type="submit" name="choice" value="decline" class="btn btn-secondary">{{t .Lang "cookie_consent.decline"}}</button>
                     </form>
                 </div>
             </div>

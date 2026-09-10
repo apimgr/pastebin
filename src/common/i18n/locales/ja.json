@@ -356,7 +356,9 @@
     "import_code": "設定コードまたはURL",
     "import_placeholder": "theme=dark&lang=fr または完全な設定URL",
     "import_action": "設定をインポート",
-    "copy": "設定コードをコピー"
+    "copy": "設定コードをコピー",
+    "consent_title": "クッキーの設定",
+    "consent_desc": "このブラウザで許可するオプションのクッキーカテゴリを変更します。必須クッキーは常に有効で無効にはできません。"
   },
   "announcements": {
     "warning": "警告",

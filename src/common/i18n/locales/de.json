@@ -356,7 +356,9 @@
     "import_code": "Einstellungscode oder URL",
     "import_placeholder": "theme=dark&lang=fr oder eine vollständige Einstellungs-URL",
     "import_action": "Einstellungen importieren",
-    "copy": "Einstellungscode kopieren"
+    "copy": "Einstellungscode kopieren",
+    "consent_title": "Cookie-Einstellungen",
+    "consent_desc": "Ändern Sie, welche optionalen Cookie-Kategorien dieser Browser zulässt. Essenzielle Cookies sind immer aktiv und können nicht deaktiviert werden."
   },
   "announcements": {
     "warning": "Warnung",
