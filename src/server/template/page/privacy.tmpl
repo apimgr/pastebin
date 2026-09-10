@@ -14,49 +14,49 @@
                     <section id="summary" class="privacy-summary">
                     <p class="privacy-summary">
                         {{if .Privacy.Data.Sold}}
-                            <strong>Your data may be sold or shared with third parties.</strong>
-                            See the sections below and the <a href="#ccpa-opt-out">"Do Not Sell My Personal Information"</a> option for your rights.
+                            <strong>{{t .Lang "privacy.data_may_be_sold"}}</strong>
+                            {{t .Lang "privacy.see_sections_prefix"}} <a href="#ccpa-opt-out">"{{t .Lang "privacy.ccpa_do_not_sell"}}"</a> {{t .Lang "privacy.see_sections_suffix"}}
                         {{else}}
-                            <strong>We never sell your data.</strong>
-                            {{if .Privacy.Data.StoredOnServer}}All data is stored on our own servers, not third-party cloud services.{{end}}
+                            <strong>{{t .Lang "privacy.never_sell"}}</strong>
+                            {{if .Privacy.Data.StoredOnServer}}{{t .Lang "privacy.stored_own_servers"}}{{end}}
                         {{end}}
                     </p>
                     </section>
 
                     <section id="data-collection">
-                    <h2 class="section-mt">What we collect</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.data_we_collect"}}</h2>
                     <div class="markdown-content">{{markdown .Privacy.Content.DataCollection}}</div>
                     </section>
 
                     <section id="data-usage">
-                    <h2 class="section-mt">How we use your data</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.how_we_use"}}</h2>
                     <div class="markdown-content">{{markdown .Privacy.GetDataUsageContent}}</div>
                     </section>
 
                     <section id="data-security">
-                    <h2 class="section-mt">How we protect your data</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.how_we_protect"}}</h2>
                     <div class="markdown-content">{{markdown .Privacy.Content.DataSecurity}}</div>
                     </section>
 
                     <section id="data-retention">
-                    <h2 class="section-mt">Data retention</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.data_retention"}}</h2>
                     <p>{{.Privacy.Retention.Period}}</p>
                     </section>
 
                     <section id="your-rights">
-                    <h2 class="section-mt">Your rights</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.your_rights"}}</h2>
                     <ul class="feature-list">
-                        <li>Data export: {{if .Privacy.Retention.ExportAvailable}}available on request{{else}}not available{{end}}</li>
-                        <li>Account deletion: {{if .Privacy.Retention.DeletionAvailable}}available on request{{else}}not available{{end}}</li>
+                        <li>{{t .Lang "privacy.data_export_label"}} {{if .Privacy.Retention.ExportAvailable}}{{t .Lang "privacy.export_available"}}{{else}}{{t .Lang "privacy.export_not_available"}}{{end}}</li>
+                        <li>{{t .Lang "privacy.account_deletion_label"}} {{if .Privacy.Retention.DeletionAvailable}}{{t .Lang "privacy.export_available"}}{{else}}{{t .Lang "privacy.export_not_available"}}{{end}}</li>
                     </ul>
                     </section>
 
                     <section id="data-storage">
                     {{if .Privacy.Data.Sharing}}
-                    <h2 class="section-mt">When data may be shared</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.when_shared"}}</h2>
                     <table class="data-table">
                         <thead>
-                            <tr><th>Condition</th><th>When</th><th>Data</th></tr>
+                            <tr><th>{{t .Lang "privacy.table_condition"}}</th><th>{{t .Lang "privacy.table_when"}}</th><th>{{t .Lang "privacy.table_data"}}</th></tr>
                         </thead>
                         <tbody>
                             {{range .Privacy.Data.Sharing}}
@@ -73,10 +73,10 @@
 
                     <section id="third-parties">
                     {{if .ThirdPartyServices}}
-                    <h2 class="section-mt">Third-party services</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.third_party_services"}}</h2>
                     <table class="data-table">
                         <thead>
-                            <tr><th>Service</th><th>Purpose</th><th>Data sent</th><th>Policy</th></tr>
+                            <tr><th>{{t .Lang "privacy.service"}}</th><th>{{t .Lang "privacy.purpose"}}</th><th>{{t .Lang "privacy.data_sent"}}</th><th>{{t .Lang "privacy.table_policy"}}</th></tr>
                         </thead>
                         <tbody>
                             {{range .ThirdPartyServices}}
@@ -86,7 +86,7 @@
                                 <td class="long-string">{{.DataSent}}</td>
                                 <td>
                                     {{if .PolicyURL}}
-                                        <a class="long-string" href="{{.PolicyURL}}" rel="noopener noreferrer nofollow" target="_blank">Privacy policy</a>
+                                        <a class="long-string" href="{{.PolicyURL}}" rel="noopener noreferrer nofollow" target="_blank">{{t .Lang "privacy.view_policy"}}</a>
                                     {{else}}—{{end}}
                                 </td>
                             </tr>
@@ -94,18 +94,18 @@
                         </tbody>
                     </table>
                     {{else}}
-                    <h2 class="section-mt">Third-party services</h2>
-                    <p>We do not share your data with any third-party services.</p>
+                    <h2 class="section-mt">{{t .Lang "privacy.third_party_services"}}</h2>
+                    <p>{{t .Lang "privacy.no_third_party"}}</p>
                     {{end}}
                     </section>
 
                     <section id="cookies">
-                    <h2 class="section-mt">Cookies</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.cookies_heading"}}</h2>
                     <ul class="feature-list">
-                        <li><strong>Essential:</strong> {{.Privacy.Cookies.Essential.Description}}</li>
-                        <li><strong>Preferences:</strong> {{.Privacy.Cookies.Preferences.Description}}</li>
+                        <li><strong>{{t .Lang "privacy.essential_label"}}</strong> {{.Privacy.Cookies.Essential.Description}}</li>
+                        <li><strong>{{t .Lang "privacy.preferences_label"}}</strong> {{.Privacy.Cookies.Preferences.Description}}</li>
                         {{if .Tracking.Enabled}}
-                        <li><strong>Analytics ({{.Tracking.TypeName}}):</strong> {{.Privacy.GetAnalyticsDescription}}</li>
+                        <li><strong>{{tf .Lang "privacy.analytics_label" "type" .Tracking.TypeName}}</strong> {{.Privacy.GetAnalyticsDescription}}</li>
                         {{end}}
                     </ul>
                     {{if .Privacy.Consent.ShowPreferences}}
@@ -115,34 +115,31 @@
                     {{end}}
                     </section>
 
-                    <h2 id="ccpa-opt-out" class="section-mt">Do Not Sell My Personal Information</h2>
+                    <h2 id="ccpa-opt-out" class="section-mt">{{t .Lang "privacy.ccpa_do_not_sell"}}</h2>
                     {{if .Privacy.IsCCPAApplicable}}
                         {{if .CCPAOptedOut}}
-                        <p>You have opted out of the sale of your personal information. We will not sell your data.</p>
+                        <p>{{t .Lang "privacy.ccpa_opted_out_full"}}</p>
                         <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <input type="hidden" name="action" value="opt_in">
-                            <button type="submit" class="btn btn-secondary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">Undo opt-out</button>
+                            <button type="submit" class="btn btn-secondary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">{{t .Lang "privacy.ccpa_opt_back_in"}}</button>
                         </form>
                         {{else}}
-                        <p>
-                            Under the California Consumer Privacy Act (CCPA) you may opt out of the sale of your
-                            personal information. Click below to record your preference on this device.
-                        </p>
+                        <p>{{t .Lang "privacy.ccpa_intro"}}</p>
                         <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <input type="hidden" name="action" value="opt_out">
-                            <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">Do Not Sell My Personal Information</button>
+                            <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">{{t .Lang "privacy.ccpa_do_not_sell"}}</button>
                         </form>
                         {{end}}
                     {{else}}
-                    <p>We do not sell your personal information, so there is nothing to opt out of.</p>
+                    <p>{{t .Lang "privacy.ccpa_not_applicable"}}</p>
                     {{end}}
 
                     <section id="contact">
-                    <h2 class="section-mt">Contact</h2>
+                    <h2 class="section-mt">{{t .Lang "privacy.contact_us"}}</h2>
                     <p>
-                        For questions or concerns, use our <a href="{{.AssetPrefix}}/server/contact">contact page</a>.
+                        {{t .Lang "privacy.contact_intro"}} <a href="{{.AssetPrefix}}/server/contact">{{t .Lang "privacy.contact_page_link"}}</a>.
                     </p>
                     </section>
                 </div>
