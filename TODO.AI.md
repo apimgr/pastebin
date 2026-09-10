@@ -2,10 +2,17 @@
 
 ## PART 16 audit follow-ups (AI.md WEB FRONTEND)
 
-- Site Banner / Announcements (AI.md 22260-22347, 25648-25692) entirely
-  unimplemented: no `web.announcements` config schema, no
-  `site-banner`/`site-banner-*` classes/template/JS, no `/announcements/dismiss`
-  route. Needs a new config schema in `src/config/**` before frontend work.
+- Fixed (stale entry corrected): Site Banner / Announcements (AI.md
+  22517-22605, 26078-26121) is fully implemented, this entry was outdated.
+  `AnnouncementsConfig`/`AnnouncementMessage` exist in `src/config/config.go`
+  (with type/empty-id validation), `activeAnnouncements()` /
+  `handleAnnouncementDismiss()` / the `POST /announcements/dismiss` route
+  exist in `src/server/server.go`, the banner renders in
+  `header.tmpl` (`site-banner`/`site-banner-*` classes, `role`/icon per
+  type, zero-JS dismiss form), `components.css.tmpl` has the full
+  `.site-banner*` rule set, and `app.js` has the no-reload dismiss
+  enhancement. No code change needed — TODO entry corrected to match
+  actual codebase state.
 - Fixed: Form Validation markup gap per AI.md PART 16 (lines 22745-22864).
   Wired `aria-describedby`/`aria-invalid` plus a sibling `<span
   class="field-error" role="alert" hidden>` onto every form field in
