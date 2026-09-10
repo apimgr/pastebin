@@ -34,6 +34,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/apimgr/pastebin/src/client/paths"
 	"github.com/apimgr/pastebin/src/client/tui"
 	"github.com/apimgr/pastebin/src/common/i18n"
 	"github.com/apimgr/pastebin/src/config"
@@ -205,106 +206,6 @@ type cliConfig struct {
 	} `yaml:"defaults"`
 }
 
-// activeConfigPath, when non-empty, overrides the default cli.yml path.
-// It is set from the --config flag (profile name or explicit path) during
-// startup, before cli.yml is loaded, so the chosen profile feeds every
-// flag default. Empty means "use cliConfigPath()".
-var activeConfigPath string
-
-// cliConfigPath returns the platform-correct path to cli.yml.
-// The CLI always uses user-scope directories regardless of privilege level;
-// it never falls back to system directories like /etc/.
-func cliConfigPath() string {
-	if p := os.Getenv("CLI_CONFIG"); p != "" {
-		return p
-	}
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(os.Getenv("APPDATA"), "apimgr", projectName, "cli.yml")
-	case "darwin":
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, "Library", "Application Support", "apimgr", projectName, "cli.yml")
-	default:
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			return filepath.Join(xdg, "apimgr", projectName, "cli.yml")
-		}
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".config", "apimgr", projectName, "cli.yml")
-	}
-}
-
-// resolvedConfigPath returns the active config path, falling back to the
-// default cli.yml location when no --config profile/path was selected.
-func resolvedConfigPath() string {
-	if activeConfigPath != "" {
-		return activeConfigPath
-	}
-	return cliConfigPath()
-}
-
-// prescanConfigFlag scans args for --config NAME / --config=NAME before
-// flag.Parse runs, so the selected profile can be loaded first (PART 32).
-func prescanConfigFlag(args []string) string {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--config" {
-			if i+1 < len(args) {
-				return args[i+1]
-			}
-			return ""
-		}
-		if strings.HasPrefix(a, "--config=") {
-			return strings.TrimPrefix(a, "--config=")
-		}
-	}
-	return ""
-}
-
-// resolveConfigPath maps a --config value to a concrete file path (PART 32):
-//   - empty         → default cli.yml
-//   - ~ or absolute → expanded, then extension-resolved
-//   - relative name → {config_dir}/{name}, then extension-resolved
-func resolveConfigPath(name string) string {
-	if name == "" {
-		return cliConfigPath()
-	}
-	if strings.HasPrefix(name, "~") {
-		home, _ := os.UserHomeDir()
-		name = filepath.Join(home, strings.TrimPrefix(name, "~"))
-	}
-	if filepath.IsAbs(name) {
-		return resolveYamlExtension(name)
-	}
-	dir := filepath.Dir(cliConfigPath())
-	return resolveYamlExtension(filepath.Join(dir, name))
-}
-
-// resolveYamlExtension applies PART 32 rules 3-5: an explicit .yml/.yaml (or any
-// other) extension is kept as-is; an extensionless path prefers an existing
-// .yml, then .yaml, defaulting to .yml for a new config.
-func resolveYamlExtension(path string) string {
-	switch filepath.Ext(path) {
-	case ".yml", ".yaml":
-		return path
-	case "":
-		if fileExists(path + ".yml") {
-			return path + ".yml"
-		}
-		if fileExists(path + ".yaml") {
-			return path + ".yaml"
-		}
-		return path + ".yml"
-	default:
-		return path
-	}
-}
-
-// fileExists reports whether path exists and is not a directory.
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
-}
-
 // loadCLIConfig reads cli.yml; returns zero-value config if absent.
 func loadCLIConfig() (cliConfig, error) {
 	var cfg cliConfig
@@ -325,7 +226,7 @@ func loadCLIConfig() (cliConfig, error) {
 	cfg.Defaults.Syntax = "text"
 	cfg.Defaults.Limit = 20
 
-	data, err := os.ReadFile(resolvedConfigPath())
+	data, err := os.ReadFile(paths.Resolved())
 	if err != nil {
 		if os.IsNotExist(err) {
 			// PART 32: cli.yml is auto-created on first run with sane defaults.
@@ -345,7 +246,7 @@ func loadCLIConfig() (cliConfig, error) {
 
 // saveCLIConfig writes cfg to cli.yml, creating parent dirs as needed.
 func saveCLIConfig(cfg cliConfig) error {
-	p := resolvedConfigPath()
+	p := paths.Resolved()
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
@@ -630,36 +531,16 @@ func versionLessThan(a, b string) bool {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-// ensureDirs creates the standard user-scope directories for the CLI client
-// (config, data, cache, log). Called at startup before any config is loaded.
-func ensureDirs() {
-	home, _ := os.UserHomeDir()
-	dirs := []string{
-		filepath.Join(home, ".config", "apimgr", projectName),
-		filepath.Join(home, ".local", "share", "apimgr", projectName),
-		filepath.Join(home, ".cache", "apimgr", projectName),
-		filepath.Join(home, ".local", "log", "apimgr", projectName),
-	}
-	for _, d := range dirs {
-		os.MkdirAll(d, 0o700)
-		// PART 32 CLI Startup Sequence step 2: re-assert 0700 on every startup —
-		// MkdirAll leaves an already-existing directory's permissions untouched.
-		if runtime.GOOS != "windows" {
-			os.Chmod(d, 0o700)
-		}
-	}
-}
-
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix(binName() + ": ")
 
-	ensureDirs()
+	paths.EnsureDirs()
 
 	// PART 32: --config selects a named profile (or explicit path) before
 	// cli.yml is loaded, so the chosen profile feeds every flag default.
-	if name := prescanConfigFlag(os.Args[1:]); name != "" {
-		activeConfigPath = resolveConfigPath(name)
+	if name := paths.PrescanConfigFlag(os.Args[1:]); name != "" {
+		paths.ActiveConfigPath = paths.Resolve(name)
 	}
 
 	// Load cli.yml.
@@ -949,7 +830,7 @@ func runTUI(server, lang string, cfg cliConfig) {
 		Server:  server,
 		Lang:    lang,
 		SaveURL: saveCLIConfigURL,
-		CfgPath: resolvedConfigPath(),
+		CfgPath: paths.Resolved(),
 		Theme:   cfg.TUI.Theme,
 	}
 	if err := tui.Run(tuiCfg); err != nil {
@@ -1479,7 +1360,7 @@ func printNoServerError() {
 	fmt.Fprintf(os.Stderr, "%s\n", t("err_no_server_howto"))
 	fmt.Fprintf(os.Stderr, "  %s --server https://your-server.example.com list\n\n", bin)
 	fmt.Fprintf(os.Stderr, "%s\n", t("err_no_server_saved"))
-	fmt.Fprintf(os.Stderr, "%s\n", tf("err_no_server_edit", "path", resolvedConfigPath()))
+	fmt.Fprintf(os.Stderr, "%s\n", tf("err_no_server_edit", "path", paths.Resolved()))
 }
 
 // cmdUpdate handles 'pastebin-cli --update check|yes'.

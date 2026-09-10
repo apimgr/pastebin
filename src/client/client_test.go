@@ -291,27 +291,8 @@ func TestDetectMode_UnknownFlagWithValue(t *testing.T) {
 	}
 }
 
-// ─── cliConfigPath ────────────────────────────────────────────────────────────
-
-func TestCLIConfigPath_WithEnvOverride(t *testing.T) {
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "my-cli.yml")
-	t.Setenv("CLI_CONFIG", cfgPath)
-
-	got := cliConfigPath()
-	if got != cfgPath {
-		t.Errorf("cliConfigPath() = %q; want %q", got, cfgPath)
-	}
-}
-
-func TestCLIConfigPath_DefaultPath(t *testing.T) {
-	os.Unsetenv("CLI_CONFIG")
-	// Default path should be non-empty and contain the project name.
-	got := cliConfigPath()
-	if got == "" {
-		t.Error("cliConfigPath() returned empty string without CLI_CONFIG")
-	}
-}
+// cliConfigPath itself has moved to the paths package (paths.ConfigFile);
+// see src/client/paths/paths_test.go for its coverage.
 
 // ─── loadCLIConfig ────────────────────────────────────────────────────────────
 

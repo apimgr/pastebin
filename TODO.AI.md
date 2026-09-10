@@ -138,8 +138,25 @@
   for restart/regenerate/vanity start/stop/apply/import-keys implement
   `RegenerateAddress()`/`ApplyKeys()` semantics via `s.TorRegenerateAddress`/
   `s.TorApplyKeys`/`s.TorImportKeyPath`. No gap found.
-- `src/client/` is a flat package; PART 32's illustrative tree splits it into
-  subpackages. Cosmetic/structural — needs a decision before churn.
+- Fixed: `src/client/` was a flat package; PART 32's illustrative tree splits
+  it into subpackages. Extracted the CLI config-path-resolution logic
+  (`cliConfigPath`/`resolvedConfigPath`/`prescanConfigFlag`/
+  `resolveConfigPath`/`resolveYamlExtension`/`fileExists`/`ensureDirs`) into
+  a new `src/client/paths/` package (`ConfigFile()`, `Resolved()`,
+  `PrescanConfigFlag()`, `Resolve()`, `EnsureDirs()`), mirroring the existing
+  `src/client/tui/` subpackage precedent; `main.go` now calls through
+  `paths.*`. Deliberately left `setup`/`gui`/`cli`/`api`/`cmd` unextracted:
+  the setup wizard (`src/client/tui/setup.go`) is a Bubble Tea model tightly
+  coupled to `tui`'s event loop/styling and already satisfies PART 32's
+  "setup wizard" intent inside `tui` — pulling it into its own `client/setup`
+  package would risk an import cycle for no structural benefit; there is no
+  GUI implementation to extract into `client/gui`; and splitting the
+  remaining CLI/API/cmd dispatch logic out of `main.go` would be a much
+  larger, higher-risk restructuring with no corresponding PART 32
+  requirement forcing it. Verified in Docker (`casjaysdev/go:latest`):
+  `go build ./...`, `go vet ./src/client/...`, and
+  `go test ./src/client/... -cover` all pass (client 48.1%, client/paths
+  88.5%, client/tui 95.8%).
 - `src/path/path.go`'s `SafePath()`/`validatePath()` (PART 5) investigated and
   resolved by reasoning, no code change: (1) `pathSecurityMiddleware` in
   `src/server/security_middleware.go` already implements PART 5's HTTP

@@ -456,22 +456,8 @@ func TestCheckCLIUpdate_NoPlatformBinary(t *testing.T) {
 	}
 }
 
-// ─── cliConfigPath — all OS branches ─────────────────────────────────────────
-
-func TestCLIConfigPath_LinuxWithoutXDG(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Linux-only test")
-	}
-	t.Setenv("CLI_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	got := cliConfigPath()
-	home, _ := os.UserHomeDir()
-	expected := filepath.Join(home, ".config", "apimgr", "pastebin", "cli.yml")
-	if got != expected {
-		t.Errorf("cliConfigPath() = %q; want %q", got, expected)
-	}
-}
+// cliConfigPath's OS branches moved with the function itself to the paths
+// package; see src/client/paths/paths_test.go.
 
 // ─── saveIfUnset — additional edge cases ────────────────────────────
 

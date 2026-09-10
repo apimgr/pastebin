@@ -669,15 +669,8 @@ func TestClientURL_TrailingSlashOnServerPreserved(t *testing.T) {
 	}
 }
 
-// ─── cliConfigPath — default path without env ────────────────────────────────
-
-func TestCLIConfigPath_DefaultContainsProjectName(t *testing.T) {
-	t.Setenv("CLI_CONFIG", "")
-	got := cliConfigPath()
-	if !strings.Contains(got, projectName) {
-		t.Errorf("default config path %q should contain %q", got, projectName)
-	}
-}
+// cliConfigPath's default-path coverage moved with the function itself to
+// the paths package; see src/client/paths/paths_test.go.
 
 // ─── detectLocale — LANGUAGE env var fallback ─────────────────────────────────
 // Covers the LANGUAGE branch which is reached only when LC_ALL and LANG are

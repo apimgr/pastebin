@@ -6,33 +6,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 )
 
-// ─── cliConfigPath — darwin and XDG branches ────────────────────────────────
-// The darwin branch requires runtime.GOOS == "darwin" which we cannot override
-// in-process. The XDG branch is reachable on Linux when XDG_CONFIG_HOME is set.
-
-func TestCLIConfigPath_XDGConfigHome(t *testing.T) {
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		t.Skip("XDG_CONFIG_HOME only applies to Linux/Unix")
-	}
-	dir := t.TempDir()
-	t.Setenv("CLI_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", dir)
-
-	got := cliConfigPath()
-	// Path should start with the XDG dir
-	if !strings.HasPrefix(got, dir) {
-		t.Errorf("cliConfigPath() = %q; want prefix %q", got, dir)
-	}
-	// Should contain apimgr/pastebin
-	if !strings.Contains(got, filepath.Join("apimgr", "pastebin")) {
-		t.Errorf("cliConfigPath() = %q; should contain apimgr/pastebin", got)
-	}
-}
+// cliConfigPath's darwin/XDG branches moved with the function itself to the
+// paths package; see src/client/paths/paths_test.go.
 
 // ─── saveCLIConfigURL ─────────────────────────────────────────────────────────
 // Tests that saveCLIConfigURL correctly updates the server URL field.
@@ -80,18 +58,8 @@ func TestSaveCLIConfigURL_CreatesNewFile(t *testing.T) {
 	}
 }
 
-// ─── ensureDirs ───────────────────────────────────────────────────────────────
-// Calls ensureDirs and verifies it does not panic. The actual directories
-// created depend on the user's home directory, so we just verify non-panic.
-
-func TestEnsureDirs_NoPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("ensureDirs panicked: %v", r)
-		}
-	}()
-	ensureDirs()
-}
+// ensureDirs moved to the paths package as paths.EnsureDirs; see
+// src/client/paths/paths_test.go for its coverage.
 
 // ─── detectMode — additional branches ─────────────────────────────────────────
 // Cover the branch where an unknown flag triggers CLI mode.
