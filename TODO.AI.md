@@ -98,11 +98,17 @@
   block; hardcoding a `- {tagline}` suffix there would be wrong when
   `Tagline` is empty (default config), so `{{.SiteTitle}}` alone is the
   correct fallback.
-- Apple touch icon (`icon-180.png`) is served as SVG
-  (`image/svg+xml`) via `handlePWAIcon192/512`; iOS Safari does not reliably
-  render SVG for `apple-touch-icon`. Spec's PWA File Structure lists real PNG
-  rasters at multiple sizes (72-512px + maskable). Needs an SVG→PNG rasterizer
-  or precomputed PNG assets — no such dependency exists yet.
+- Fixed: PWA icons were served as SVG (`image/svg+xml`), which iOS Safari
+  does not reliably render for `apple-touch-icon`. Added
+  `src/server/pwa_icons.go`, a pure-Go (no CGO, stdlib
+  `image`/`image/draw`/`image/png`/`math` only) PNG icon generator that
+  renders a rounded-square accent background with a geometric "paste card"
+  glyph, including a full-bleed maskable variant per the PWA safe-zone
+  convention. Wired the full PNG icon set (72-512px + maskable) into
+  `src/server/server.go` route registration (`handlePWAIcon`/
+  `handlePWAIconMaskable`) and the `manifest.json` icons array. Updated
+  `src/server/server_test.go` (`TestGeneratePWAIconPNG`, `TestHandlePWAIcons`)
+  to verify decodable PNG output, correct dimensions, and maskable opacity.
 
 ## Full-AI.md compliance pass follow-ups
 

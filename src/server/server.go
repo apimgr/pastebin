@@ -1152,9 +1152,12 @@ func (s *Server) setupRoutes() {
 	// bare /llms.txt alias; both serve the same generated document.
 	r.Get("/.well-known/llms.txt", s.handleLLMs)
 	r.Get("/llms.txt", s.handleLLMs)
-	r.Get("/static/icons/icon-180.png", s.handlePWAIcon180)
-	r.Get("/static/icons/icon-192.png", s.handlePWAIcon192)
-	r.Get("/static/icons/icon-512.png", s.handlePWAIcon512)
+	for _, size := range []int{72, 96, 128, 144, 152, 180, 192, 384, 512} {
+		r.Get(fmt.Sprintf("/static/icons/icon-%d.png", size), s.handlePWAIcon(size))
+	}
+	for _, size := range []int{192, 512} {
+		r.Get(fmt.Sprintf("/static/icons/icon-maskable-%d.png", size), s.handlePWAIconMaskable(size))
+	}
 	// RFC 9116: canonical path is /.well-known/security.txt only. Bare
 	// /security.txt is intentionally NOT registered and returns 404 (PART 13).
 	r.Get("/.well-known/security.txt", s.handleSecurity)
@@ -4275,8 +4278,16 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 		"background_color": "#1e1e2e",
 		"theme_color":      "#89b4fa",
 		"icons": []map[string]interface{}{
-			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable"},
-			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any maskable"},
+			{"src": "/static/icons/icon-72.png", "sizes": "72x72", "type": "image/png"},
+			{"src": "/static/icons/icon-96.png", "sizes": "96x96", "type": "image/png"},
+			{"src": "/static/icons/icon-128.png", "sizes": "128x128", "type": "image/png"},
+			{"src": "/static/icons/icon-144.png", "sizes": "144x144", "type": "image/png"},
+			{"src": "/static/icons/icon-152.png", "sizes": "152x152", "type": "image/png"},
+			{"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+			{"src": "/static/icons/icon-384.png", "sizes": "384x384", "type": "image/png"},
+			{"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+			{"src": "/static/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+			{"src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
 		},
 	})
 }
@@ -4414,31 +4425,21 @@ function offlineFallbackResponse() {
 	w.Write([]byte(sw))
 }
 
-// pwaIconSVG returns an SVG icon for the PWA manifest at the given size.
-// The icon is a rounded-rect with the accent colour and a clipboard emoji.
-func pwaIconSVG(size int) string {
-	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
-  <rect width="%d" height="%d" rx="%d" fill="#6366f1"/>
-  <text x="50%%" y="55%%" dominant-baseline="middle" text-anchor="middle" font-size="%d" font-family="serif">📋</text>
-</svg>`, size, size, size, size, size, size, size/6, size*2/3)
+// handlePWAIcon serves a generated PNG PWA icon at one of the fixed sizes
+// required by the PWA File Structure spec (PART 16): real PNG rasters, not
+// SVG — iOS Safari does not reliably render SVG for `apple-touch-icon`.
+func (s *Server) handlePWAIcon(size int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		servePWAIconPNG(w, size, false)
+	}
 }
 
-func (s *Server) handlePWAIcon180(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/svg+xml")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write([]byte(pwaIconSVG(180)))
-}
-
-func (s *Server) handlePWAIcon192(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/svg+xml")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write([]byte(pwaIconSVG(192)))
-}
-
-func (s *Server) handlePWAIcon512(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/svg+xml")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write([]byte(pwaIconSVG(512)))
+// handlePWAIconMaskable serves a generated maskable PNG PWA icon (full-bleed
+// background, glyph confined to the inner safe zone) at the given size.
+func (s *Server) handlePWAIconMaskable(size int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		servePWAIconPNG(w, size, true)
+	}
 }
 
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {

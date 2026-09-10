@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -438,26 +440,42 @@ func TestFormatUptime(t *testing.T) {
 	}
 }
 
-// ─── pwaIconSVG ───────────────────────────────────────────────────────────────
+// ─── generatePWAIconPNG ─────────────────────────────────────────────────────
 
-func TestPWAIconSVG(t *testing.T) {
+func TestGeneratePWAIconPNG(t *testing.T) {
 	cases := []struct {
-		name string
-		size int
+		name     string
+		size     int
+		maskable bool
 	}{
-		{"192", 192},
-		{"512", 512},
-		{"180", 180},
-		{"64", 64},
+		{"192", 192, false},
+		{"512", 512, false},
+		{"180", 180, false},
+		{"64", 64, false},
+		{"maskable-192", 192, true},
+		{"maskable-512", 512, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pwaIconSVG(tc.size)
-			if got == "" {
-				t.Fatal("pwaIconSVG returned empty string")
+			data := generatePWAIconPNG(tc.size, tc.maskable)
+			if len(data) == 0 {
+				t.Fatal("generatePWAIconPNG returned empty data")
 			}
-			if !strings.Contains(got, "<svg") {
-				t.Errorf("pwaIconSVG(%d) does not contain <svg, got: %q", tc.size, got[:min(len(got), 80)])
+			img, err := png.Decode(bytes.NewReader(data))
+			if err != nil {
+				t.Fatalf("generatePWAIconPNG(%d, %v) did not produce a decodable PNG: %v", tc.size, tc.maskable, err)
+			}
+			bounds := img.Bounds()
+			if bounds.Dx() != tc.size || bounds.Dy() != tc.size {
+				t.Errorf("generatePWAIconPNG(%d, %v) size = %dx%d, want %dx%d", tc.size, tc.maskable, bounds.Dx(), bounds.Dy(), tc.size, tc.size)
+			}
+			if tc.maskable {
+				// Maskable icons must be full-bleed opaque at every edge pixel
+				// (no transparency), per the PWA safe-zone convention.
+				_, _, _, a := img.At(bounds.Min.X, bounds.Min.Y).RGBA()
+				if a != 0xffff {
+					t.Errorf("generatePWAIconPNG(%d, maskable) corner pixel not opaque, alpha=%d", tc.size, a)
+				}
 			}
 		})
 	}
@@ -1150,30 +1168,40 @@ func TestHandleServiceWorker(t *testing.T) {
 	}
 }
 
-// ─── Server.handlePWAIcon handlers ───────────────────────────────────────────
+// ─── Server.handlePWAIcon / handlePWAIconMaskable ────────────────────────────
 
 func TestHandlePWAIcons(t *testing.T) {
 	cases := []struct {
-		name    string
-		handler func(*Server, http.ResponseWriter, *http.Request)
+		name     string
+		size     int
+		maskable bool
 	}{
-		{"icon180", (*Server).handlePWAIcon180},
-		{"icon192", (*Server).handlePWAIcon192},
-		{"icon512", (*Server).handlePWAIcon512},
+		{"icon180", 180, false},
+		{"icon192", 192, false},
+		{"icon512", 512, false},
+		{"maskable192", 192, true},
+		{"maskable512", 512, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newMinimalServer(&config.Config{})
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			w := httptest.NewRecorder()
-			tc.handler(s, w, r)
-
-			if ct := w.Header().Get("Content-Type"); ct != "image/svg+xml" {
-				t.Errorf("Content-Type = %q, want image/svg+xml", ct)
+			if tc.maskable {
+				s.handlePWAIconMaskable(tc.size)(w, r)
+			} else {
+				s.handlePWAIcon(tc.size)(w, r)
 			}
-			body := w.Body.String()
-			if !strings.Contains(body, "<svg") {
-				t.Errorf("PWA icon response should contain <svg")
+
+			if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+				t.Errorf("Content-Type = %q, want image/png", ct)
+			}
+			img, err := png.Decode(bytes.NewReader(w.Body.Bytes()))
+			if err != nil {
+				t.Fatalf("PWA icon response is not a decodable PNG: %v", err)
+			}
+			if img.Bounds().Dx() != tc.size || img.Bounds().Dy() != tc.size {
+				t.Errorf("PWA icon size = %dx%d, want %dx%d", img.Bounds().Dx(), img.Bounds().Dy(), tc.size, tc.size)
 			}
 		})
 	}
