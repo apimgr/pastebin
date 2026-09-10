@@ -78,12 +78,19 @@
   and `server.pages.contact.{enabled,captcha,success_message}` all exist
   exactly as AI.md 27503-27547 specifies (`PagesConfig`/`PageContentConfig`/
   `ContactPageConfig`, `src/config/config.go:155-180`).
-- Image Sources / Image Scaling / Remote URL Fetching (AI.md 25417-25634)
-  entirely unimplemented: no SSRF-safe fetch util, no multi-size image
-  generation/caching, no scheduler re-fetch task. `branding.favicon`/`.logo`/
-  `.og_image` config fields exist but are never consumed —
-  `/favicon.ico` unconditionally redirects to the embedded static default.
-  Full new subsystem, needs a dedicated implementation task.
+- Fixed (stale entry corrected): Image Sources / Image Scaling / Remote URL
+  Fetching (AI.md 25848-26076) is fully implemented — this entry predated
+  commit `3d17c0962a47`. `src/common/urlutil/fetch.go` implements the
+  SSRF-safe `FetchRemoteImage()`/`ValidateRemoteURL()`/
+  `validateNotPrivateIP()` reference. `src/server/branding_images.go`
+  resolves `server.branding.favicon`/`.logo`/`server.seo.og_image` (each
+  empty/local-path/remote-URL) into cached pre-scaled PNGs (favicon
+  16/32/48/180/192/512, logo original/200/50, OG image original/1200x630),
+  falling back to the embedded default on any fetch/validate failure.
+  `handleFavicon`/`handleBrandingFavicon` in `src/server/server.go` serve
+  the cached variants. `main.go` registers the `branding_refresh` scheduler
+  task (daily, `EffectiveImageRefreshInterval()`-driven, hourly retry
+  backoff) — no external cron. No code change needed.
 - `public.tmpl`'s default `<title>{{.SiteTitle}}</title>` fallback investigated
   and resolved by reasoning, no code change: it is only the `{{block "meta"
   .}}` fallback in the shared layout, and every page template in
@@ -156,3 +163,10 @@
   table plus the explicit-`DEBUG`-env-wins rule.
 - PART 23 lists s6 among supported Linux init systems but PART 24 supplies no
   s6 service template — nothing concrete to implement against.
+- AI.md self-contradiction (recorded, no code change): PART 25's version
+  precedence text says the no-`release.txt`/no-`VERSION` fallback is
+  `"0.1.0"`, but its own Key Rules Summary table says `devel`. `Makefile`
+  line 14 implements the table's `devel` fallback. `release.txt` (currently
+  `1.0.0`) always wins per the documented priority order, so this fallback
+  is never exercised in practice — flagged by `go-lint`, not fixed pending
+  clarification of which AI.md text is authoritative.
