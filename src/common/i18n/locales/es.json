@@ -653,7 +653,25 @@
       "help_head_examples": "EJEMPLOS",
       "version_compatible": "compatible",
       "version_incompatible": "incompatible",
-      "op_flags": "{command}: {error}"
+      "op_flags": "{command}: {error}",
+      "err_parse_config": "analizar cli.yml",
+      "err_read_token_file": "leer archivo de token",
+      "err_token_file_empty": "el archivo de token {path} está vacío",
+      "err_server_status": "el servidor devolvió {status}",
+      "err_find_executable": "encontrar ejecutable",
+      "err_resolve_symlinks": "resolver enlaces simbólicos",
+      "err_create_temp_file": "crear archivo temporal",
+      "err_download": "descargar",
+      "err_write": "escribir",
+      "err_close": "cerrar",
+      "err_checksum_mismatch": "discrepancia SHA-256: se obtuvo {got}, se esperaba {want}",
+      "err_replace_binary": "reemplazar binario",
+      "err_create_temp_base": "crear base temporal {base}",
+      "err_create_temp_dir": "crear directorio temporal",
+      "err_open_staged_binary": "abrir binario preparado",
+      "err_create_staging_file": "crear archivo de preparación",
+      "err_copy_staged_binary": "copiar binario preparado",
+      "err_close_staging_file": "cerrar archivo de preparación"
     },
     "tui": {
       "setup_save_failed": "Error al guardar la URL del servidor: {error}",
@@ -696,7 +714,15 @@
       "setup_hint": "Pulsa Intro para guardar, Ctrl+C para salir",
       "footer_hint_xs": "?:ayuda q:salir",
       "footer_hint_sm": "↑↓:mover │ intro:abrir │ /:buscar │ ?:ayuda │ q:salir",
-      "footer_hint_full": "↑↓/jk:mover │ intro:abrir │ /:buscar │ r:actualizar │ n:nuevo │ d:eliminar │ ?:ayuda │ q:salir"
+      "footer_hint_full": "↑↓/jk:mover │ intro:abrir │ /:buscar │ r:actualizar │ n:nuevo │ d:eliminar │ ?:ayuda │ q:salir",
+      "err_list": "listar",
+      "err_decode": "decodificar",
+      "err_get": "obtener",
+      "err_read_body": "leer cuerpo",
+      "err_delete": "eliminar",
+      "err_server_status": "el servidor devolvió {status}",
+      "err_paste_not_found_expired": "el paste {id} no existe o ha expirado",
+      "err_paste_not_found_invalid_token": "el paste {id} no existe o el token no es válido"
     }
   },
   "version": {

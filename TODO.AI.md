@@ -131,12 +131,6 @@
   for restart/regenerate/vanity start/stop/apply/import-keys implement
   `RegenerateAddress()`/`ApplyKeys()` semantics via `s.TorRegenerateAddress`/
   `s.TorApplyKeys`/`s.TorImportKeyPath`. No gap found.
-- CLI-side i18n is entirely absent: `src/client/**` never calls
-  `i18n.GetLanguage`/`i18n.Translate`, so `--lang`/`cli.yml lang:` has no
-  effect on CLI output and every CLI string is hardcoded English. PART 30
-  requires the locale files be embedded in ALL binaries. Large, needs a
-  dedicated task (extract every `fmt.Printf` string in `src/client/` to keys
-  across all 7 locales).
 - `src/client/` is a flat package; PART 32's illustrative tree splits it into
   subpackages. Cosmetic/structural — needs a decision before churn.
 - `src/path/path.go`'s `SafePath()`/`validatePath()` (PART 5) investigated and

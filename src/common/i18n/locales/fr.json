@@ -653,7 +653,25 @@
       "help_head_examples": "EXEMPLES",
       "version_compatible": "compatible",
       "version_incompatible": "incompatible",
-      "op_flags": "{command}: {error}"
+      "op_flags": "{command}: {error}",
+      "err_parse_config": "analyser cli.yml",
+      "err_read_token_file": "lire le fichier de jeton",
+      "err_token_file_empty": "le fichier de jeton {path} est vide",
+      "err_server_status": "le serveur a répondu {status}",
+      "err_find_executable": "trouver l'exécutable",
+      "err_resolve_symlinks": "résoudre les liens symboliques",
+      "err_create_temp_file": "créer un fichier temporaire",
+      "err_download": "télécharger",
+      "err_write": "écrire",
+      "err_close": "fermer",
+      "err_checksum_mismatch": "incohérence SHA-256 : obtenu {got}, attendu {want}",
+      "err_replace_binary": "remplacer le binaire",
+      "err_create_temp_base": "créer la base temporaire {base}",
+      "err_create_temp_dir": "créer le répertoire temporaire",
+      "err_open_staged_binary": "ouvrir le binaire préparé",
+      "err_create_staging_file": "créer le fichier de préparation",
+      "err_copy_staged_binary": "copier le binaire préparé",
+      "err_close_staging_file": "fermer le fichier de préparation"
     },
     "tui": {
       "setup_save_failed": "Erreur lors de l'enregistrement de l'URL du serveur : {error}",
@@ -696,7 +714,15 @@
       "setup_hint": "Appuyez sur Entrée pour enregistrer, Ctrl+C pour quitter",
       "footer_hint_xs": "?:aide q:quitter",
       "footer_hint_sm": "↑↓:déplacer │ entrée:ouvrir │ /:rechercher │ ?:aide │ q:quitter",
-      "footer_hint_full": "↑↓/jk:déplacer │ entrée:ouvrir │ /:rechercher │ r:actualiser │ n:nouveau │ d:supprimer │ ?:aide │ q:quitter"
+      "footer_hint_full": "↑↓/jk:déplacer │ entrée:ouvrir │ /:rechercher │ r:actualiser │ n:nouveau │ d:supprimer │ ?:aide │ q:quitter",
+      "err_list": "lister",
+      "err_decode": "décoder",
+      "err_get": "obtenir",
+      "err_read_body": "lire le corps",
+      "err_delete": "supprimer",
+      "err_server_status": "le serveur a répondu {status}",
+      "err_paste_not_found_expired": "le paste {id} est introuvable ou a expiré",
+      "err_paste_not_found_invalid_token": "le paste {id} est introuvable ou le jeton est invalide"
     }
   },
   "version": {

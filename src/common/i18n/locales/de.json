@@ -653,7 +653,25 @@
       "help_head_examples": "BEISPIELE",
       "version_compatible": "kompatibel",
       "version_incompatible": "inkompatibel",
-      "op_flags": "{command}: {error}"
+      "op_flags": "{command}: {error}",
+      "err_parse_config": "cli.yml analysieren",
+      "err_read_token_file": "Token-Datei lesen",
+      "err_token_file_empty": "Token-Datei {path} ist leer",
+      "err_server_status": "Server antwortete mit {status}",
+      "err_find_executable": "ausführbare Datei finden",
+      "err_resolve_symlinks": "symbolische Links auflösen",
+      "err_create_temp_file": "temporäre Datei erstellen",
+      "err_download": "herunterladen",
+      "err_write": "schreiben",
+      "err_close": "schließen",
+      "err_checksum_mismatch": "SHA-256-Abweichung: erhalten {got}, erwartet {want}",
+      "err_replace_binary": "Binärdatei ersetzen",
+      "err_create_temp_base": "temporäres Basisverzeichnis {base} erstellen",
+      "err_create_temp_dir": "temporäres Verzeichnis erstellen",
+      "err_open_staged_binary": "vorbereitete Binärdatei öffnen",
+      "err_create_staging_file": "Staging-Datei erstellen",
+      "err_copy_staged_binary": "vorbereitete Binärdatei kopieren",
+      "err_close_staging_file": "Staging-Datei schließen"
     },
     "tui": {
       "setup_save_failed": "Fehler beim Speichern der Server-URL: {error}",
@@ -696,7 +714,15 @@
       "setup_hint": "Enter zum Speichern, Strg+C zum Beenden",
       "footer_hint_xs": "?:Hilfe q:beenden",
       "footer_hint_sm": "↑↓:bewegen │ enter:öffnen │ /:suchen │ ?:Hilfe │ q:beenden",
-      "footer_hint_full": "↑↓/jk:bewegen │ enter:öffnen │ /:suchen │ r:aktualisieren │ n:neu │ d:löschen │ ?:Hilfe │ q:beenden"
+      "footer_hint_full": "↑↓/jk:bewegen │ enter:öffnen │ /:suchen │ r:aktualisieren │ n:neu │ d:löschen │ ?:Hilfe │ q:beenden",
+      "err_list": "auflisten",
+      "err_decode": "dekodieren",
+      "err_get": "abrufen",
+      "err_read_body": "Antworttext lesen",
+      "err_delete": "löschen",
+      "err_server_status": "Server antwortete mit {status}",
+      "err_paste_not_found_expired": "Paste {id} nicht gefunden oder abgelaufen",
+      "err_paste_not_found_invalid_token": "Paste {id} nicht gefunden oder Token ungültig"
     }
   },
   "version": {

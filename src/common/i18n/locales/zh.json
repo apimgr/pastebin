@@ -653,7 +653,25 @@
       "help_head_examples": "示例",
       "version_compatible": "兼容",
       "version_incompatible": "不兼容",
-      "op_flags": "{command}：{error}"
+      "op_flags": "{command}：{error}",
+      "err_parse_config": "解析 cli.yml",
+      "err_read_token_file": "读取令牌文件",
+      "err_token_file_empty": "令牌文件 {path} 为空",
+      "err_server_status": "服务器返回 {status}",
+      "err_find_executable": "查找可执行文件",
+      "err_resolve_symlinks": "解析符号链接",
+      "err_create_temp_file": "创建临时文件",
+      "err_download": "下载",
+      "err_write": "写入",
+      "err_close": "关闭",
+      "err_checksum_mismatch": "SHA-256 不匹配：得到 {got}，期望 {want}",
+      "err_replace_binary": "替换二进制文件",
+      "err_create_temp_base": "创建临时基目录 {base}",
+      "err_create_temp_dir": "创建临时目录",
+      "err_open_staged_binary": "打开暂存的二进制文件",
+      "err_create_staging_file": "创建暂存文件",
+      "err_copy_staged_binary": "复制暂存的二进制文件",
+      "err_close_staging_file": "关闭暂存文件"
     },
     "tui": {
       "setup_save_failed": "保存服务器地址时出错：{error}",
@@ -696,7 +714,15 @@
       "setup_hint": "按 Enter 保存，按 Ctrl+C 退出",
       "footer_hint_xs": "?:帮助 q:退出",
       "footer_hint_sm": "↑↓:移动 │ enter:打开 │ /:搜索 │ ?:帮助 │ q:退出",
-      "footer_hint_full": "↑↓/jk:移动 │ enter:打开 │ /:搜索 │ r:刷新 │ n:新建 │ d:删除 │ ?:帮助 │ q:退出"
+      "footer_hint_full": "↑↓/jk:移动 │ enter:打开 │ /:搜索 │ r:刷新 │ n:新建 │ d:删除 │ ?:帮助 │ q:退出",
+      "err_list": "列出",
+      "err_decode": "解码",
+      "err_get": "获取",
+      "err_read_body": "读取响应体",
+      "err_delete": "删除",
+      "err_server_status": "服务器返回 {status}",
+      "err_paste_not_found_expired": "粘贴 {id} 不存在或已过期",
+      "err_paste_not_found_invalid_token": "粘贴 {id} 不存在或令牌无效"
     }
   },
   "version": {

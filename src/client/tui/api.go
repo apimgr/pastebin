@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,17 +65,17 @@ func fetchPastes(server, lang string, page, limit int) ([]PasteListItem, error) 
 	path := fmt.Sprintf("/api/%s/pastes?page=%d&limit=%d", apiVersion, page, limit)
 	resp, err := a.get(path)
 	if err != nil {
-		return nil, fmt.Errorf("list: %w", err)
+		return nil, fmt.Errorf("%s: %w", t("err_list"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned %d", resp.StatusCode)
+		return nil, errors.New(tf("err_server_status", "status", resp.StatusCode))
 	}
 
 	var lr listResponse
 	if err := json.NewDecoder(resp.Body).Decode(&lr); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
+		return nil, fmt.Errorf("%s: %w", t("err_decode"), err)
 	}
 	return lr.Pastes, nil
 }
@@ -84,20 +85,20 @@ func fetchPasteRaw(server, lang, id string) (string, error) {
 	a := newAPIClient(server, lang)
 	resp, err := a.get("/raw/" + url.PathEscape(id))
 	if err != nil {
-		return "", fmt.Errorf("get: %w", err)
+		return "", fmt.Errorf("%s: %w", t("err_get"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("paste %q not found or has expired", id)
+		return "", errors.New(tf("err_paste_not_found_expired", "id", id))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("server returned %d", resp.StatusCode)
+		return "", errors.New(tf("err_server_status", "status", resp.StatusCode))
 	}
 
 	buf, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read body: %w", err)
+		return "", fmt.Errorf("%s: %w", t("err_read_body"), err)
 	}
 	return string(buf), nil
 }
@@ -117,15 +118,15 @@ func deletePaste(server, lang, id, token string) error {
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("delete: %w", err)
+		return fmt.Errorf("%s: %w", t("err_delete"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("paste %q not found or invalid token", id)
+		return errors.New(tf("err_paste_not_found_invalid_token", "id", id))
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("server returned %d", resp.StatusCode)
+		return errors.New(tf("err_server_status", "status", resp.StatusCode))
 	}
 	return nil
 }

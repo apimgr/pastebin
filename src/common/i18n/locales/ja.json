@@ -653,7 +653,25 @@
       "help_head_examples": "例",
       "version_compatible": "互換性あり",
       "version_incompatible": "互換性なし",
-      "op_flags": "{command}: {error}"
+      "op_flags": "{command}: {error}",
+      "err_parse_config": "cli.yml を解析",
+      "err_read_token_file": "トークンファイルを読み取り",
+      "err_token_file_empty": "トークンファイル {path} が空です",
+      "err_server_status": "サーバーが {status} を返しました",
+      "err_find_executable": "実行ファイルを検索",
+      "err_resolve_symlinks": "シンボリックリンクを解決",
+      "err_create_temp_file": "一時ファイルを作成",
+      "err_download": "ダウンロード",
+      "err_write": "書き込み",
+      "err_close": "クローズ",
+      "err_checksum_mismatch": "SHA-256 不一致: 取得 {got}、期待 {want}",
+      "err_replace_binary": "バイナリを置換",
+      "err_create_temp_base": "一時ベースディレクトリ {base} を作成",
+      "err_create_temp_dir": "一時ディレクトリを作成",
+      "err_open_staged_binary": "準備済みバイナリを開く",
+      "err_create_staging_file": "ステージングファイルを作成",
+      "err_copy_staged_binary": "準備済みバイナリをコピー",
+      "err_close_staging_file": "ステージングファイルを閉じる"
     },
     "tui": {
       "setup_save_failed": "サーバーURLの保存中にエラーが発生しました: {error}",
@@ -696,7 +714,15 @@
       "setup_hint": "Enterで保存、Ctrl+Cで終了",
       "footer_hint_xs": "?:ヘルプ q:終了",
       "footer_hint_sm": "↑↓:移動 │ enter:開く │ /:検索 │ ?:ヘルプ │ q:終了",
-      "footer_hint_full": "↑↓/jk:移動 │ enter:開く │ /:検索 │ r:更新 │ n:新規 │ d:削除 │ ?:ヘルプ │ q:終了"
+      "footer_hint_full": "↑↓/jk:移動 │ enter:開く │ /:検索 │ r:更新 │ n:新規 │ d:削除 │ ?:ヘルプ │ q:終了",
+      "err_list": "一覧取得",
+      "err_decode": "デコード",
+      "err_get": "取得",
+      "err_read_body": "本文を読み取り",
+      "err_delete": "削除",
+      "err_server_status": "サーバーが {status} を返しました",
+      "err_paste_not_found_expired": "ペースト {id} が見つからないか期限切れです",
+      "err_paste_not_found_invalid_token": "ペースト {id} が見つからないか、トークンが無効です"
     }
   },
   "version": {

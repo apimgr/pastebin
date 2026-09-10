@@ -768,7 +768,25 @@
       "help_head_examples": "أمثلة",
       "version_compatible": "متوافق",
       "version_incompatible": "غير متوافق",
-      "op_flags": "{command}: {error}"
+      "op_flags": "{command}: {error}",
+      "err_parse_config": "تحليل cli.yml",
+      "err_read_token_file": "قراءة ملف الرمز",
+      "err_token_file_empty": "ملف الرمز {path} فارغ",
+      "err_server_status": "أعاد الخادم {status}",
+      "err_find_executable": "العثور على الملف التنفيذي",
+      "err_resolve_symlinks": "تحليل الروابط الرمزية",
+      "err_create_temp_file": "إنشاء ملف مؤقت",
+      "err_download": "تنزيل",
+      "err_write": "كتابة",
+      "err_close": "إغلاق",
+      "err_checksum_mismatch": "عدم تطابق SHA-256: تم الحصول على {got}، المتوقع {want}",
+      "err_replace_binary": "استبدال الملف الثنائي",
+      "err_create_temp_base": "إنشاء القاعدة المؤقتة {base}",
+      "err_create_temp_dir": "إنشاء دليل مؤقت",
+      "err_open_staged_binary": "فتح الملف الثنائي المُجهّز",
+      "err_create_staging_file": "إنشاء ملف التجهيز",
+      "err_copy_staged_binary": "نسخ الملف الثنائي المُجهّز",
+      "err_close_staging_file": "إغلاق ملف التجهيز"
     },
     "tui": {
       "setup_save_failed": "خطأ في حفظ عنوان URL للخادم: {error}",
@@ -811,7 +829,15 @@
       "setup_hint": "اضغط Enter للحفظ، Ctrl+C للخروج",
       "footer_hint_xs": "?:مساعدة q:خروج",
       "footer_hint_sm": "↑↓:تحريك │ enter:فتح │ /:بحث │ ?:مساعدة │ q:خروج",
-      "footer_hint_full": "↑↓/jk:تحريك │ enter:فتح │ /:بحث │ r:تحديث │ n:جديد │ d:حذف │ ?:مساعدة │ q:خروج"
+      "footer_hint_full": "↑↓/jk:تحريك │ enter:فتح │ /:بحث │ r:تحديث │ n:جديد │ d:حذف │ ?:مساعدة │ q:خروج",
+      "err_list": "سرد",
+      "err_decode": "فك الترميز",
+      "err_get": "جلب",
+      "err_read_body": "قراءة النص",
+      "err_delete": "حذف",
+      "err_server_status": "أعاد الخادم {status}",
+      "err_paste_not_found_expired": "اللصقة {id} غير موجودة أو انتهت صلاحيتها",
+      "err_paste_not_found_invalid_token": "اللصقة {id} غير موجودة أو الرمز غير صالح"
     }
   },
   "version": {

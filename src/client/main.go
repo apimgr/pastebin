@@ -338,7 +338,7 @@ func loadCLIConfig() (cliConfig, error) {
 		return cfg, err
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parse cli.yml: %w", err)
+		return cfg, fmt.Errorf("%s: %w", t("err_parse_config"), err)
 	}
 	return cfg, nil
 }
@@ -389,11 +389,11 @@ func isValidURL(s string) bool {
 func readTokenFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read token file: %w", err)
+		return "", fmt.Errorf("%s: %w", t("err_read_token_file"), err)
 	}
 	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("token file %s is empty", path)
+		return "", errors.New(tf("err_token_file_empty", "path", path))
 	}
 	return token, nil
 }
@@ -1045,7 +1045,7 @@ func (c *client) doWithRetry(httpClient *http.Client, req *http.Request) (*http.
 		}
 		if err == nil {
 			resp.Body.Close()
-			lastErr = fmt.Errorf("server returned %d", resp.StatusCode)
+			lastErr = errors.New(tf("err_server_status", "status", resp.StatusCode))
 		} else {
 			lastErr = err
 		}
@@ -1544,11 +1544,11 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	// Determine current binary path.
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("find executable: %w", err)
+		return fmt.Errorf("%s: %w", t("err_find_executable"), err)
 	}
 	exe, err = filepath.EvalSymlinks(exe)
 	if err != nil {
-		return fmt.Errorf("resolve symlinks: %w", err)
+		return fmt.Errorf("%s: %w", t("err_resolve_symlinks"), err)
 	}
 
 	// Download to ${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/cli.update.tmp, verify
@@ -1561,14 +1561,14 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 
 	f, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+		return fmt.Errorf("%s: %w", t("err_create_temp_file"), err)
 	}
 
 	httpClient := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := httpClient.Get(downloadURL)
 	if err != nil {
 		f.Close()
-		return fmt.Errorf("download: %w", err)
+		return fmt.Errorf("%s: %w", t("err_download"), err)
 	}
 	defer resp.Body.Close()
 
@@ -1576,16 +1576,16 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	h := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
 		f.Close()
-		return fmt.Errorf("write: %w", err)
+		return fmt.Errorf("%s: %w", t("err_write"), err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("close: %w", err)
+		return fmt.Errorf("%s: %w", t("err_close"), err)
 	}
 
 	// Verify SHA-256.
 	got := fmt.Sprintf("%x", h.Sum(nil))
 	if !strings.EqualFold(got, expectedSHA) {
-		return fmt.Errorf("SHA-256 mismatch: got %s, want %s", got, expectedSHA)
+		return errors.New(tf("err_checksum_mismatch", "got", got, "want", expectedSHA))
 	}
 
 	// Atomically replace the current binary. os.Rename is atomic only within a
@@ -1593,7 +1593,7 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	// error stage the verified binary beside the target and rename from there.
 	if err := os.Rename(tmpFile, exe); err != nil {
 		if !errors.Is(err, syscall.EXDEV) {
-			return fmt.Errorf("replace binary: %w", err)
+			return fmt.Errorf("%s: %w", t("err_replace_binary"), err)
 		}
 		if err := replaceCrossDevice(tmpFile, exe); err != nil {
 			return err
@@ -1610,11 +1610,11 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 func updateTempDir() (dir, file string, err error) {
 	base := filepath.Join(os.TempDir(), "apimgr")
 	if err := os.MkdirAll(base, 0o700); err != nil {
-		return "", "", fmt.Errorf("create temp base %s: %w", base, err)
+		return "", "", fmt.Errorf("%s: %w", tf("err_create_temp_base", "base", base), err)
 	}
 	dir, err = os.MkdirTemp(base, projectName+"-*")
 	if err != nil {
-		return "", "", fmt.Errorf("create temp dir: %w", err)
+		return "", "", fmt.Errorf("%s: %w", t("err_create_temp_dir"), err)
 	}
 	return dir, filepath.Join(dir, "cli.update.tmp"), nil
 }
@@ -1626,26 +1626,26 @@ func replaceCrossDevice(src, dst string) error {
 	staging := dst + ".new"
 	in, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open staged binary: %w", err)
+		return fmt.Errorf("%s: %w", t("err_open_staged_binary"), err)
 	}
 	defer in.Close()
 
 	out, err := os.OpenFile(staging, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
-		return fmt.Errorf("create staging file: %w", err)
+		return fmt.Errorf("%s: %w", t("err_create_staging_file"), err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
 		os.Remove(staging)
-		return fmt.Errorf("copy staged binary: %w", err)
+		return fmt.Errorf("%s: %w", t("err_copy_staged_binary"), err)
 	}
 	if err := out.Close(); err != nil {
 		os.Remove(staging)
-		return fmt.Errorf("close staging file: %w", err)
+		return fmt.Errorf("%s: %w", t("err_close_staging_file"), err)
 	}
 	if err := os.Rename(staging, dst); err != nil {
 		os.Remove(staging)
-		return fmt.Errorf("replace binary: %w", err)
+		return fmt.Errorf("%s: %w", t("err_replace_binary"), err)
 	}
 	return nil
 }

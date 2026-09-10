@@ -768,7 +768,25 @@
       "help_head_examples": "EXAMPLES",
       "version_compatible": "compatible",
       "version_incompatible": "incompatible",
-      "op_flags": "{command}: {error}"
+      "op_flags": "{command}: {error}",
+      "err_parse_config": "parse cli.yml",
+      "err_read_token_file": "read token file",
+      "err_token_file_empty": "token file {path} is empty",
+      "err_server_status": "server returned {status}",
+      "err_find_executable": "find executable",
+      "err_resolve_symlinks": "resolve symlinks",
+      "err_create_temp_file": "create temp file",
+      "err_download": "download",
+      "err_write": "write",
+      "err_close": "close",
+      "err_checksum_mismatch": "SHA-256 mismatch: got {got}, want {want}",
+      "err_replace_binary": "replace binary",
+      "err_create_temp_base": "create temp base {base}",
+      "err_create_temp_dir": "create temp dir",
+      "err_open_staged_binary": "open staged binary",
+      "err_create_staging_file": "create staging file",
+      "err_copy_staged_binary": "copy staged binary",
+      "err_close_staging_file": "close staging file"
     },
     "tui": {
       "setup_save_failed": "Error saving server URL: {error}",
@@ -811,7 +829,15 @@
       "setup_hint": "Press Enter to save, Ctrl+C to quit",
       "footer_hint_xs": "?:help q:quit",
       "footer_hint_sm": "↑↓:nav │ enter:open │ /:search │ ?:help │ q:quit",
-      "footer_hint_full": "↑↓/jk:nav │ enter:open │ /:search │ r:refresh │ n:new │ d:delete │ ?:help │ q:quit"
+      "footer_hint_full": "↑↓/jk:nav │ enter:open │ /:search │ r:refresh │ n:new │ d:delete │ ?:help │ q:quit",
+      "err_list": "list",
+      "err_decode": "decode",
+      "err_get": "get",
+      "err_read_body": "read body",
+      "err_delete": "delete",
+      "err_server_status": "server returned {status}",
+      "err_paste_not_found_expired": "paste {id} not found or has expired",
+      "err_paste_not_found_invalid_token": "paste {id} not found or invalid token"
     }
   },
   "version": {
