@@ -293,7 +293,7 @@ func TestCmdList_AcceptLanguageHeader(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotLang = r.Header.Get("Accept-Language")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"data":     []interface{}{},
+			"data":       []interface{}{},
 			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))

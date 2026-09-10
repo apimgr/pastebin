@@ -146,10 +146,10 @@ func (m *mockDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, e
 	return nil, 0, nil
 }
 func (m *mockDB) IncrementViewsAndCheckBurn(id string) (int, bool, error) { return 0, false, nil }
-func (m *mockDB) DeletePaste(id string) error              { return nil }
-func (m *mockDB) DeletePasteByToken(id, hash string) error { return nil }
-func (m *mockDB) DeleteExpiredPastes() (int64, error)      { return 0, nil }
-func (m *mockDB) DeleteBurnedPastes() (int64, error)       { return 0, nil }
+func (m *mockDB) DeletePaste(id string) error                             { return nil }
+func (m *mockDB) DeletePasteByToken(id, hash string) error                { return nil }
+func (m *mockDB) DeleteExpiredPastes() (int64, error)                     { return 0, nil }
+func (m *mockDB) DeleteBurnedPastes() (int64, error)                      { return 0, nil }
 func (m *mockDB) CreateAPIToken(hash, prefix, rType, rID string, expiresAt *time.Time) error {
 	return nil
 }
@@ -160,7 +160,7 @@ func (m *mockDB) ListAPITokens() ([]*database.APITokenRecord, error)    { return
 func (m *mockDB) GetAPITokenByPrefix(prefix string) (*database.APITokenRecord, error) {
 	return nil, nil
 }
-func (m *mockDB) DeleteExpiredAPITokens() (int64, error)                { return 0, nil }
+func (m *mockDB) DeleteExpiredAPITokens() (int64, error) { return 0, nil }
 func (m *mockDB) FindResourceIDByToken(tokenHash [32]byte, resourceType string) (string, error) {
 	return "", nil
 }

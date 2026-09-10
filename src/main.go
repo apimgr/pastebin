@@ -1428,10 +1428,10 @@ func torControlRequest(method, baseURL, urlPath string, body []byte, contentType
 // torControlTorInfo mirrors server.TorInfo for decoding /server/tor/status
 // and /server/tor/restart responses.
 type torControlTorInfo struct {
-	Enabled  bool                `json:"enabled"`
-	Running  bool                `json:"running"`
-	Status   string              `json:"status"`
-	Hostname string              `json:"hostname"`
+	Enabled  bool                 `json:"enabled"`
+	Running  bool                 `json:"running"`
+	Status   string               `json:"status"`
+	Hostname string               `json:"hostname"`
 	Vanity   torControlVanityInfo `json:"vanity"`
 }
 

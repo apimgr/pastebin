@@ -2293,7 +2293,7 @@ func (d *stubDB) ListAPITokens() ([]*database.APITokenRecord, error)            
 func (d *stubDB) GetAPITokenByPrefix(prefix string) (*database.APITokenRecord, error) {
 	return nil, nil
 }
-func (d *stubDB) DeleteExpiredAPITokens() (int64, error)                { return 0, nil }
+func (d *stubDB) DeleteExpiredAPITokens() (int64, error) { return 0, nil }
 func (d *stubDB) FindResourceIDByToken(tokenHash [32]byte, resourceType string) (string, error) {
 	return "", nil
 }

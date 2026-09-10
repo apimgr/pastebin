@@ -152,11 +152,11 @@ func printNotFoundError(resource string) {
 // cliConfig mirrors the complete structure of cli.yml (PART 32).
 type cliConfig struct {
 	Server struct {
-		Primary     string `yaml:"primary"`
-		APIVersion  string `yaml:"api_version"`
-		Timeout     string `yaml:"timeout"`
-		Retry       int    `yaml:"retry"`
-		RetryDelay  string `yaml:"retry_delay"`
+		Primary    string `yaml:"primary"`
+		APIVersion string `yaml:"api_version"`
+		Timeout    string `yaml:"timeout"`
+		Retry      int    `yaml:"retry"`
+		RetryDelay string `yaml:"retry_delay"`
 	} `yaml:"server"`
 	Update struct {
 		Auto          bool   `yaml:"auto"`

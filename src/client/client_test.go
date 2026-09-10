@@ -525,7 +525,7 @@ func TestClientPostJSON_UnmarshalableBody(t *testing.T) {
 func TestCmdList_Empty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"data":     []interface{}{},
+			"data":       []interface{}{},
 			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
@@ -557,7 +557,7 @@ func TestCmdList_WithData(t *testing.T) {
 func TestCmdList_AsJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"data":     []interface{}{},
+			"data":       []interface{}{},
 			"pagination": map[string]int{"total": 0, "pages": 0},
 		})
 	}))
