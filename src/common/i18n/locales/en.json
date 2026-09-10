@@ -784,6 +784,7 @@
     "sending": "Sending…",
     "searching": "Searching…",
     "uploading": "Uploading…",
+    "importing": "Importing…",
     "working": "…",
     "content_link_label": "Target URL"
   }

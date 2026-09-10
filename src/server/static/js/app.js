@@ -484,29 +484,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ─── Submit button loading state ─────────────────────────────────────────────
 
-// Per PART 16: disable submit on click, show loading text, re-enable on response.
+// Per PART 16: disable submit on click, show loading text, re-enable on
+// response. Only buttons opting in via data-action="submit-loading" are
+// bound; the server renders the loading text via data-loading-text.
 document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('form').forEach(form => {
+    document.querySelectorAll('[data-action="submit-loading"]').forEach(btn => {
+        const form = btn.closest('form');
+        if (!form) return;
+
         form.addEventListener('submit', () => {
-            const btn = form.querySelector('[type="submit"]');
-            if (!btn || btn.disabled) return;
+            if (btn.disabled) return;
 
-            const originalText = btn.textContent.trim();
-            const loadingMap = {
-                'create': t('creating'),
-                'save': t('saving'),
-                'submit': t('submitting'),
-                'delete': t('deleting'),
-                'send': t('sending'),
-                'search': t('searching'),
-                'upload': t('uploading'),
-            };
-            const lower = originalText.toLowerCase();
-            const loadingText = loadingMap[lower] || originalText + t('working');
-
-            btn.disabled = true;
             btn.style.minWidth = btn.offsetWidth + 'px';
-            btn.textContent = loadingText;
+            btn.disabled = true;
+            btn.textContent = btn.dataset.loadingText || btn.textContent;
         });
     });
 });

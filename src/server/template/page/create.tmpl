@@ -161,7 +161,7 @@
                         <small id="file-upload-hint" class="form-hint">{{t .Lang "paste.file_upload_hint"}}</small>
                     </div>
                     <div class="form-actions">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary btn-lg" data-action="submit-loading" data-loading-text="{{t .Lang "js.creating"}}">
                             <span class="btn-icon">📝</span>
                             {{t .Lang "paste.create_btn"}}
                         </button>

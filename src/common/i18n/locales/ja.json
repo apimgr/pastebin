@@ -784,6 +784,7 @@
     "sending": "送信中…",
     "searching": "検索中…",
     "uploading": "アップロード中…",
+    "importing": "インポート中…",
     "working": "…",
     "content_link_label": "対象URL"
   }

@@ -784,6 +784,7 @@
     "sending": "正在发送…",
     "searching": "正在搜索…",
     "uploading": "正在上传…",
+    "importing": "正在导入…",
     "working": "…",
     "content_link_label": "目标 URL"
   }

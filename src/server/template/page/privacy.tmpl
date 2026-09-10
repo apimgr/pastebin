@@ -122,7 +122,7 @@
                         <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <input type="hidden" name="action" value="opt_in">
-                            <button type="submit" class="btn btn-secondary">Undo opt-out</button>
+                            <button type="submit" class="btn btn-secondary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">Undo opt-out</button>
                         </form>
                         {{else}}
                         <p>
@@ -132,7 +132,7 @@
                         <form method="POST" action="{{.AssetPrefix}}/server/privacy/ccpa">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <input type="hidden" name="action" value="opt_out">
-                            <button type="submit" class="btn btn-primary">Do Not Sell My Personal Information</button>
+                            <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">Do Not Sell My Personal Information</button>
                         </form>
                         {{end}}
                     {{else}}

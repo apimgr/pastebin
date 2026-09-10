@@ -24,11 +24,6 @@
   progress bar; JS pauses/resumes the matching removal timer). Container CSS
   switched from `column-reverse`/append to `column`/`prepend()` per the
   spec's stacking CSS, with `max-height`/`overflow: hidden`.
-- Buttons loading-state pattern: spec uses `data-action="submit-loading"` +
-  `data-loading-text` attributes; `app.js` instead binds a generic handler to
-  every `<form>` with a hardcoded English-word→i18n-key map. Functionally
-  broader than spec but structurally different — needs a human call on whether
-  this is an acceptable superset.
 - Fixed: `src/config/footer.go` / `src/config/config.go` were missing AI.md's
   Footer Customization "Custom HTML Validation" and "Sanitization Preview
   (Startup Log)" requirements. Added `ValidateFooterHTML()` (rejects

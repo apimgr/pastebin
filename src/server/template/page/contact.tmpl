@@ -136,7 +136,7 @@
                         </div>
                         {{end}}
 
-                        <button type="submit" class="btn btn-primary">{{t .Lang "contact.sec_send"}}</button>
+                        <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.sending"}}">{{t .Lang "contact.sec_send"}}</button>
                     </form>
                     {{else if .FormEnabled}}
                     <form method="POST" action="{{.AssetPrefix}}/server/contact" class="contact-form">
@@ -175,7 +175,7 @@
                         </div>
                         {{end}}
 
-                        <button type="submit" class="btn btn-primary">{{t .Lang "contact.send"}}</button>
+                        <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.sending"}}">{{t .Lang "contact.send"}}</button>
                     </form>
                     {{else if .Contact}}
                     <p class="section-mt-sm">

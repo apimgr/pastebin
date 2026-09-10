@@ -21,7 +21,8 @@
                             <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                             <input type="hidden" name="theme" value="{{$mode}}">
                             <button type="submit" class="btn {{if eq $.PrefTheme $mode}}btn-primary{{else}}btn-secondary{{end}}"
-                                    aria-pressed="{{if eq $.PrefTheme $mode}}true{{else}}false{{end}}">{{t $.Lang (print "theme." $mode)}}</button>
+                                    aria-pressed="{{if eq $.PrefTheme $mode}}true{{else}}false{{end}}"
+                                    data-action="submit-loading" data-loading-text="{{t $.Lang "js.saving"}}">{{t $.Lang (print "theme." $mode)}}</button>
                         </form>
                         {{end}}
                     </div>
@@ -73,7 +74,7 @@
                             <input type="text" id="pref-import-code" name="code" class="form-input long-string"
                                    maxlength="500" placeholder="{{t .Lang "preferences.import_placeholder"}}">
                         </div>
-                        <button type="submit" class="btn btn-primary">{{t .Lang "preferences.import_action"}}</button>
+                        <button type="submit" class="btn btn-primary" data-action="submit-loading" data-loading-text="{{t .Lang "js.importing"}}">{{t .Lang "preferences.import_action"}}</button>
                     </form>
                 </div>
             </div>
