@@ -154,7 +154,8 @@ Every subdomain-forced compat create path continues to honor the operator-config
 - A paste is a link when, and only when, its entire trimmed content is exactly one absolute `http://` or `https://` URL and nothing else; this is auto-detected and is never a client-settable field
 - Link targets are validated for scheme and format only and are never fetched server-side
 - A paste with no supplied title falls back to `Untitled`, except a link paste, which falls back to its target URL
-- Recent-paste listings are paginated with a maximum page size of 250 items
+- Recent-paste listings are paginated with a maximum page size of 250 items; requested page sizes above 250 are silently capped, never rejected
+- Recent-paste listings support `search` (matches paste ID, title, and content, case-insensitive substring), `sort` (`date` (default), `name`, `views`, or `id`), and `order` (`desc` (default) or `asc`) query parameters, on both the frontend `/recent` page and the JSON API; unrecognized `sort` values fall back to `date` rather than erroring; unlisted pastes are never returned regardless of search/sort
 - Deletion before natural expiry requires the paste's owner token; the operator token deletes any paste unconditionally; compat-created pastes use their protocol's own delete token and the two systems are never mixed
 - An owner token may be reused across multiple pastes by the same caller; the server verifies the token is active before linking a new paste to it
 - The termbin/fiche raw-TCP listener is enabled by default on port 9999, capped at `server.termbin.max_size` (default 32768 bytes) with a `server.termbin.timeout` idle timeout (default `5s`)
@@ -170,7 +171,7 @@ Native capabilities, exposed on both the API surface and the browser frontend:
 - View a paste embedded — iframe-embeddable rendering of a paste
 - Get a paste's QR code — as a page and as a PNG image
 - Delete a paste — requires the paste's owner token, or the operator token which may delete any paste
-- List recent public pastes — paginated; unlisted pastes are never included
+- List recent public pastes — paginated (max 250/page), searchable by ID/title/content, sortable by date/name/views/id in either order; unlisted pastes are never included
 - Scheduler management — operator-token gated; the sole runtime-configuration exception (see Non-goals)
 - API documentation UIs — Swagger and GraphQL browsers
 

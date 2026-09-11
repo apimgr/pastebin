@@ -242,7 +242,20 @@
     "create_paste": "Create Paste",
     "views": "views",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "search_label": "Search",
+    "search_placeholder": "Search by id, title, or content",
+    "search_button": "Search",
+    "clear_filters": "Clear filters",
+    "sort_label": "Sort by",
+    "sort_date": "Date",
+    "sort_name": "Name",
+    "sort_views": "Views",
+    "order_label": "Order",
+    "order_asc": "Ascending",
+    "order_desc": "Descending",
+    "no_results_title": "No matching pastes",
+    "no_results_desc": "Try a different search term or clear your filters."
   },
   "qr": {
     "title": "QR Code",

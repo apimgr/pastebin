@@ -1227,3 +1227,58 @@ textarea:user-invalid ~ .field-error {
         font-size: 0.8rem;
     }
 }
+
+/* ============================================
+   Filter bar (search + sort, e.g. recent pastes)
+   Mobile-first: stacked; row layout from tablet up.
+   ============================================ */
+.filter-bar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+}
+
+.filter-bar .form-group {
+    margin-bottom: 0;
+}
+
+.filter-bar-search {
+    flex: 1;
+}
+
+@media (min-width: 640px) {
+    .filter-bar {
+        flex-direction: row;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .filter-bar-sort,
+    .filter-bar-order,
+    .filter-bar-actions {
+        width: auto;
+    }
+}
+
+/* ============================================
+   Pagination
+   ============================================ */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-8);
+}
+
+.pagination-info {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+}
+
+.pagination .btn[aria-disabled="true"] {
+    opacity: 0.5;
+    pointer-events: none;
+}

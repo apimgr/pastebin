@@ -787,7 +787,15 @@ func (h *PasteHandler) ListPastes(w http.ResponseWriter, r *http.Request) {
 		limit = 250
 	}
 
-	pastes, total, err := h.db.GetPublicPastes(page, limit)
+	// search/sort/order (TODO.md: search recents by id/name/content, sort by
+	// name/date/etc.) — SearchPublicPastes falls back to the same "date desc"
+	// ordering GetPublicPastes always used when these are empty, so it is a
+	// drop-in replacement for the plain listing case too.
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+	sortBy := strings.TrimSpace(r.URL.Query().Get("sort"))
+	order := strings.TrimSpace(r.URL.Query().Get("order"))
+
+	pastes, total, err := h.db.SearchPublicPastes(page, limit, search, sortBy, order)
 	if err != nil {
 		sendAPIError(w, r, "SERVER_ERROR", "failed to fetch pastes")
 		return

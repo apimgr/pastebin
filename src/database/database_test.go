@@ -249,6 +249,153 @@ func TestGetPublicPastes(t *testing.T) {
 	}
 }
 
+// TestSearchPublicPastes verifies search-by-id/title/content matching and
+// sort-by-name/date/views ordering in both directions (TODO.md items 1-3).
+func TestSearchPublicPastes(t *testing.T) {
+	db := newTestDB(t)
+
+	specs := []struct {
+		id, title, content string
+		views              int
+	}{
+		{"aaa00001", "Zebra notes", "unique-alpha-content", 5},
+		{"bbb00002", "Apple pie", "unique-beta-content", 20},
+		{"ccc00003", "Mango salad", "search-target-here", 10},
+	}
+	for _, s := range specs {
+		p := samplePaste(s.id)
+		p.Title = s.title
+		p.Content = s.content
+		p.Visibility = model.VisibilityPublic
+		if err := db.CreatePaste(p); err != nil {
+			t.Fatalf("CreatePaste %s: %v", s.id, err)
+		}
+		for n := 0; n < s.views; n++ {
+			if _, _, err := db.IncrementViewsAndCheckBurn(s.id); err != nil {
+				t.Fatalf("IncrementViewsAndCheckBurn %s: %v", s.id, err)
+			}
+		}
+	}
+
+	t.Run("search by id", func(t *testing.T) {
+		items, total, err := db.SearchPublicPastes(1, 10, "aaa00001", "", "")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 1 || len(items) != 1 || items[0].ID != "aaa00001" {
+			t.Fatalf("got total=%d items=%v, want 1 match for aaa00001", total, items)
+		}
+	})
+
+	t.Run("search by title", func(t *testing.T) {
+		items, total, err := db.SearchPublicPastes(1, 10, "Mango", "", "")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 1 || len(items) != 1 || items[0].ID != "ccc00003" {
+			t.Fatalf("got total=%d items=%v, want 1 match for Mango title", total, items)
+		}
+	})
+
+	t.Run("search by content", func(t *testing.T) {
+		items, total, err := db.SearchPublicPastes(1, 10, "search-target-here", "", "")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 1 || len(items) != 1 || items[0].ID != "ccc00003" {
+			t.Fatalf("got total=%d items=%v, want 1 match for content search", total, items)
+		}
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		items, total, err := db.SearchPublicPastes(1, 10, "nonexistent-term-xyz", "", "")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 0 || len(items) != 0 {
+			t.Fatalf("got total=%d items=%v, want no matches", total, items)
+		}
+	})
+
+	t.Run("sort by name asc", func(t *testing.T) {
+		items, total, err := db.SearchPublicPastes(1, 10, "", "name", "asc")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 3 || len(items) != 3 {
+			t.Fatalf("got total=%d len=%d, want 3", total, len(items))
+		}
+		want := []string{"Apple pie", "Mango salad", "Zebra notes"}
+		for i, w := range want {
+			if items[i].Title != w {
+				t.Errorf("items[%d].Title: got %q, want %q", i, items[i].Title, w)
+			}
+		}
+	})
+
+	t.Run("sort by name desc", func(t *testing.T) {
+		items, _, err := db.SearchPublicPastes(1, 10, "", "name", "desc")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		want := []string{"Zebra notes", "Mango salad", "Apple pie"}
+		for i, w := range want {
+			if items[i].Title != w {
+				t.Errorf("items[%d].Title: got %q, want %q", i, items[i].Title, w)
+			}
+		}
+	})
+
+	t.Run("sort by views desc", func(t *testing.T) {
+		items, _, err := db.SearchPublicPastes(1, 10, "", "views", "desc")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		want := []string{"bbb00002", "ccc00003", "aaa00001"}
+		for i, w := range want {
+			if items[i].ID != w {
+				t.Errorf("items[%d].ID: got %q, want %q", i, items[i].ID, w)
+			}
+		}
+	})
+
+	t.Run("sort by date desc is default", func(t *testing.T) {
+		defaultItems, _, err := db.SearchPublicPastes(1, 10, "", "", "")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		dateItems, _, err := db.SearchPublicPastes(1, 10, "", "date", "desc")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if len(defaultItems) != len(dateItems) {
+			t.Fatalf("len mismatch: %d vs %d", len(defaultItems), len(dateItems))
+		}
+		for i := range defaultItems {
+			if defaultItems[i].ID != dateItems[i].ID {
+				t.Errorf("order mismatch at %d: %q vs %q", i, defaultItems[i].ID, dateItems[i].ID)
+			}
+		}
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		page1, total, err := db.SearchPublicPastes(1, 2, "", "name", "asc")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 3 || len(page1) != 2 {
+			t.Fatalf("page1: got total=%d len=%d, want total=3 len=2", total, len(page1))
+		}
+		page2, total, err := db.SearchPublicPastes(2, 2, "", "name", "asc")
+		if err != nil {
+			t.Fatalf("SearchPublicPastes: %v", err)
+		}
+		if total != 3 || len(page2) != 1 {
+			t.Fatalf("page2: got total=%d len=%d, want total=3 len=1", total, len(page2))
+		}
+	})
+}
+
 // TestIncrementViews verifies the view counter increments correctly.
 func TestIncrementViews(t *testing.T) {
 	db := newTestDB(t)

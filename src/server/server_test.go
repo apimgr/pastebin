@@ -2269,6 +2269,9 @@ func (d *stubDB) GetPasteByID(id string) (*model.Paste, error) {
 func (d *stubDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error) {
 	return nil, 0, nil
 }
+func (d *stubDB) SearchPublicPastes(page, limit int, search, sortBy, order string) ([]model.PasteListItem, int, error) {
+	return nil, 0, nil
+}
 func (d *stubDB) IncrementViewsAndCheckBurn(id string) (int, bool, error) { return 0, false, nil }
 func (d *stubDB) DeletePaste(id string) error                             { return nil }
 func (d *stubDB) DeletePasteByToken(id, tok string) error                 { return nil }
@@ -2813,6 +2816,105 @@ func TestHandleRecentNilTemplates(t *testing.T) {
 		s.handleRecent(w, r)
 		if w.Code != http.StatusInternalServerError {
 			t.Errorf("handleRecent HTML status = %d, want 500", w.Code)
+		}
+	})
+}
+
+// newRecentTestServer builds a Server backed by a real SQLite database (no
+// templates loaded) for exercising handleRecent's real search/sort/pagination
+// behavior (TODO.md items 1 and 3) via SearchPublicPastes.
+func newRecentTestServer(t *testing.T) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := database.NewDatabase("sqlite", filepath.Join(dir, "server.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return newServerWithDB(&config.Config{Web: config.WebConfig{SiteTitle: "Pastebin", Theme: "dark"}}, db)
+}
+
+// seedRecentPaste creates a public, non-expired paste for handleRecent tests.
+func seedRecentPaste(t *testing.T, s *Server, id, title, content string) {
+	t.Helper()
+	p := &model.Paste{
+		ID:         id,
+		Title:      title,
+		Content:    content,
+		Language:   "text",
+		Visibility: model.VisibilityPublic,
+	}
+	if err := s.db.CreatePaste(p); err != nil {
+		t.Fatalf("seed paste %s: %v", id, err)
+	}
+}
+
+// TestHandleRecentSearchAndSort verifies handleRecent's ?search=/?sort=/?order=
+// query params (TODO.md items 1 and 3) against a real SQLite-backed search.
+func TestHandleRecentSearchAndSort(t *testing.T) {
+	t.Run("search filters by title", func(t *testing.T) {
+		s := newRecentTestServer(t)
+		seedRecentPaste(t, s, "id-zebra", "Zebra notes", "unique-alpha-content")
+		seedRecentPaste(t, s, "id-apple", "Apple pie", "unique-beta-content")
+		seedRecentPaste(t, s, "id-mango", "Mango salad", "search-target-here")
+
+		r := httptest.NewRequest(http.MethodGet, "/recent?search=Mango", nil)
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		r.Host = "example.com"
+		w := httptest.NewRecorder()
+		s.handleRecent(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "Mango salad") {
+			t.Errorf("body missing matched paste title, got: %s", body)
+		}
+		if strings.Contains(body, "Zebra notes") || strings.Contains(body, "Apple pie") {
+			t.Errorf("body contains non-matching paste titles, got: %s", body)
+		}
+	})
+
+	t.Run("sort by name ascending", func(t *testing.T) {
+		s := newRecentTestServer(t)
+		seedRecentPaste(t, s, "id-zebra2", "Zebra notes", "content-z")
+		seedRecentPaste(t, s, "id-apple2", "Apple pie", "content-a")
+		seedRecentPaste(t, s, "id-mango2", "Mango salad", "content-m")
+
+		r := httptest.NewRequest(http.MethodGet, "/recent?sort=name&order=asc", nil)
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		r.Host = "example.com"
+		w := httptest.NewRecorder()
+		s.handleRecent(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+		}
+		body := w.Body.String()
+		idxApple := strings.Index(body, "Apple pie")
+		idxMango := strings.Index(body, "Mango salad")
+		idxZebra := strings.Index(body, "Zebra notes")
+		if idxApple < 0 || idxMango < 0 || idxZebra < 0 {
+			t.Fatalf("body missing expected titles, got: %s", body)
+		}
+		if !(idxApple < idxMango && idxMango < idxZebra) {
+			t.Errorf("titles not in ascending name order, got: %s", body)
+		}
+	})
+
+	t.Run("pagination caps limit at 250", func(t *testing.T) {
+		s := newRecentTestServer(t)
+		seedRecentPaste(t, s, "id-cap", "Capped paste", "content")
+
+		r := httptest.NewRequest(http.MethodGet, "/recent?limit=9999", nil)
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		r.Host = "example.com"
+		w := httptest.NewRecorder()
+		s.handleRecent(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
 		}
 	})
 }

@@ -34,6 +34,12 @@ func (m *mockDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int, e
 	return m.pastes, m.total, m.pastesErr
 }
 
+func (m *mockDB) SearchPublicPastes(page, limit int, search, sortBy, order string) ([]model.PasteListItem, int, error) {
+	m.lastPage = page
+	m.lastLimit = limit
+	return m.pastes, m.total, m.pastesErr
+}
+
 // samplePaste returns a non-nil Paste for use in tests.
 func samplePaste() *model.Paste {
 	now := time.Now()

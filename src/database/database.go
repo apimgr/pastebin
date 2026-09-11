@@ -66,6 +66,7 @@ type DB interface {
 	CreatePaste(paste *model.Paste) error
 	GetPasteByID(id string) (*model.Paste, error)
 	GetPublicPastes(page, limit int) ([]model.PasteListItem, int, error)
+	SearchPublicPastes(page, limit int, search, sortBy, order string) ([]model.PasteListItem, int, error)
 	IncrementViewsAndCheckBurn(id string) (views int, burned bool, err error)
 	DeletePaste(id string) error
 	DeletePasteByToken(id, deleteTokenHash string) error
@@ -568,6 +569,102 @@ func (s *SQLiteDB) GetPublicPastes(page, limit int) ([]model.PasteListItem, int,
 		items = append(items, item)
 	}
 	return items, total, rows.Err()
+}
+
+// publicPasteSortColumns allow-lists the ORDER BY column for
+// SearchPublicPastes — column names can never be parameterized, so any
+// caller-supplied sort key must be resolved through this map rather than
+// interpolated directly into SQL.
+var publicPasteSortColumns = map[string]string{
+	"date":  "created_at",
+	"name":  "title",
+	"title": "title",
+	"views": "views",
+	"id":    "id",
+}
+
+// SearchPublicPastes returns paginated public (visibility=0) non-expired
+// pastes, optionally filtered by a search term matched against id, title,
+// and content, and sorted by an allow-listed column. sortBy and order fall
+// back to "date"/"desc" (the same ordering GetPublicPastes always used) for
+// any empty or unrecognized value — never an error, since these come
+// straight off a query string (TODO.md: search + sort + full listing).
+func (s *SQLiteDB) SearchPublicPastes(page, limit int, search, sortBy, order string) ([]model.PasteListItem, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	// Defense-in-depth: callers already clamp, but guard against a non-positive
+	// limit reaching the query so LIMIT can never be zero or negative.
+	if limit < 1 {
+		limit = 1
+	}
+	offset := (page - 1) * limit
+	now := time.Now()
+
+	column, ok := publicPasteSortColumns[strings.ToLower(strings.TrimSpace(sortBy))]
+	if !ok {
+		column = "created_at"
+	}
+	direction := "DESC"
+	if strings.EqualFold(strings.TrimSpace(order), "asc") {
+		direction = "ASC"
+	}
+
+	search = strings.TrimSpace(search)
+
+	ctx, cancel := dbCtx(dbComplexTimeout)
+	defer cancel()
+
+	where := `WHERE visibility = 0 AND (expires_at IS NULL OR expires_at > ?)`
+	args := []interface{}{now}
+	if search != "" {
+		where += ` AND (id LIKE ? ESCAPE '\' OR title LIKE ? ESCAPE '\' OR content LIKE ? ESCAPE '\')`
+		term := "%" + escapeLikeTerm(search) + "%"
+		args = append(args, term, term, term)
+	}
+
+	var total int
+	countArgs := append([]interface{}{}, args...)
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pastes `+where, countArgs...,
+	).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// column/direction come only from the allow-list above, never from raw
+	// caller input, so this interpolation cannot inject SQL.
+	query := `SELECT id, title, language, views, expires_at, burn_after, created_at
+		 FROM pastes ` + where + ` ORDER BY ` + column + ` ` + direction + `, id ASC LIMIT ? OFFSET ?`
+	rows, err := s.db.QueryContext(ctx, query, append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var items []model.PasteListItem
+	for rows.Next() {
+		var item model.PasteListItem
+		var expiresAt sql.NullTime
+		if err := rows.Scan(&item.ID, &item.Title, &item.Language, &item.Views, &expiresAt, &item.BurnAfter, &item.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		if expiresAt.Valid {
+			item.ExpiresAt = &expiresAt.Time
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+// escapeLikeTerm escapes SQLite LIKE wildcard characters (%, _, and the
+// escape character itself) in user-supplied search input so a search term
+// like "50%" or "a_b" is matched literally instead of as a wildcard pattern.
+func escapeLikeTerm(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 // IncrementViewsAndCheckBurn atomically increments the view counter and, when

@@ -114,6 +114,79 @@ func TestListPastes_LimitExceedsMax(t *testing.T) {
 	}
 }
 
+// TestListPastes_Search verifies the ?search= query param filters by
+// id/title/content (TODO.md item 1).
+func TestListPastes_Search(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	createViaAPI(t, h, `{"title":"Zebra notes","content":"unique-alpha-content"}`)
+	createViaAPI(t, h, `{"title":"Apple pie","content":"unique-beta-content"}`)
+	createViaAPI(t, h, `{"title":"Mango salad","content":"search-target-here"}`)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes?search=Mango", nil)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	rr := httptest.NewRecorder()
+	h.ListPastes(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200\nbody: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	data, ok := resp["data"].([]interface{})
+	if !ok {
+		t.Fatal("data field must be a JSON array")
+	}
+	if len(data) != 1 {
+		t.Fatalf("got %d results, want 1", len(data))
+	}
+	item := data[0].(map[string]interface{})
+	if item["title"] != "Mango salad" {
+		t.Errorf("title: got %v, want Mango salad", item["title"])
+	}
+}
+
+// TestListPastes_SortByName verifies the ?sort=name&order=asc query params
+// order results alphabetically (TODO.md item 3).
+func TestListPastes_SortByName(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	createViaAPI(t, h, `{"title":"Zebra notes","content":"content-z"}`)
+	createViaAPI(t, h, `{"title":"Apple pie","content":"content-a"}`)
+	createViaAPI(t, h, `{"title":"Mango salad","content":"content-m"}`)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pastes?sort=name&order=asc", nil)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	rr := httptest.NewRecorder()
+	h.ListPastes(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200\nbody: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	data, ok := resp["data"].([]interface{})
+	if !ok {
+		t.Fatal("data field must be a JSON array")
+	}
+	if len(data) != 3 {
+		t.Fatalf("got %d results, want 3", len(data))
+	}
+	want := []string{"Apple pie", "Mango salad", "Zebra notes"}
+	for i, w := range want {
+		item := data[i].(map[string]interface{})
+		if item["title"] != w {
+			t.Errorf("data[%d].title: got %v, want %q", i, item["title"], w)
+		}
+	}
+}
+
 // ─── GetPasteForWeb ───────────────────────────────────────────────────────────
 
 func TestGetPasteForWeb_NotFound(t *testing.T) {

@@ -242,7 +242,20 @@
     "create_paste": "إنشاء لصقة",
     "views": "مشاهدة",
     "previous": "السابق",
-    "next": "التالي"
+    "next": "التالي",
+    "search_label": "بحث",
+    "search_placeholder": "ابحث بالمعرف أو العنوان أو المحتوى",
+    "search_button": "بحث",
+    "clear_filters": "مسح عوامل التصفية",
+    "sort_label": "ترتيب حسب",
+    "sort_date": "التاريخ",
+    "sort_name": "الاسم",
+    "sort_views": "المشاهدات",
+    "order_label": "الترتيب",
+    "order_asc": "تصاعدي",
+    "order_desc": "تنازلي",
+    "no_results_title": "لا توجد لصقات مطابقة",
+    "no_results_desc": "جرّب مصطلح بحث مختلف أو امسح عوامل التصفية."
   },
   "qr": {
     "title": "رمز QR",

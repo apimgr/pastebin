@@ -11,6 +11,34 @@
                     <p class="section-description">{{t .Lang "recent.description"}}</p>
                 </div>
 
+                <form method="get" action="{{.CurrentPath}}" class="filter-bar">
+                    <div class="form-group filter-bar-search">
+                        <label class="form-label sr-only" for="recent-search">{{t .Lang "recent.search_label"}}</label>
+                        <input type="text" id="recent-search" name="search" class="form-input" placeholder="{{t .Lang "recent.search_placeholder"}}" value="{{.Search}}">
+                    </div>
+                    <div class="form-group filter-bar-sort">
+                        <label class="form-label sr-only" for="recent-sort">{{t .Lang "recent.sort_label"}}</label>
+                        <select id="recent-sort" name="sort" class="form-select">
+                            <option value="date" {{if eq .Sort "date"}}selected{{end}}>{{t .Lang "recent.sort_date"}}</option>
+                            <option value="name" {{if eq .Sort "name"}}selected{{end}}>{{t .Lang "recent.sort_name"}}</option>
+                            <option value="views" {{if eq .Sort "views"}}selected{{end}}>{{t .Lang "recent.sort_views"}}</option>
+                        </select>
+                    </div>
+                    <div class="form-group filter-bar-order">
+                        <label class="form-label sr-only" for="recent-order">{{t .Lang "recent.order_label"}}</label>
+                        <select id="recent-order" name="order" class="form-select">
+                            <option value="desc" {{if eq .Order "desc"}}selected{{end}}>{{t .Lang "recent.order_desc"}}</option>
+                            <option value="asc" {{if eq .Order "asc"}}selected{{end}}>{{t .Lang "recent.order_asc"}}</option>
+                        </select>
+                    </div>
+                    <div class="form-group filter-bar-actions">
+                        <button type="submit" class="btn btn-primary">{{t .Lang "recent.search_button"}}</button>
+                        {{if or .Search (ne .Sort "date") (ne .Order "desc")}}
+                        <a href="{{.CurrentPath}}" class="btn btn-secondary">{{t .Lang "recent.clear_filters"}}</a>
+                        {{end}}
+                    </div>
+                </form>
+
                 {{if .Pastes}}
                 <div class="pastes-list">
                     {{range .Pastes}}
@@ -23,6 +51,27 @@
                         </div>
                     </div>
                     {{end}}
+                </div>
+
+                <nav class="pagination" aria-label="{{t .Lang "recent.title"}}">
+                    {{if .HasPrev}}
+                    <a class="btn btn-secondary" href="{{.CurrentPath}}?page={{.PrevPage}}&amp;limit={{.Limit}}&amp;search={{.Search | urlquery}}&amp;sort={{.Sort | urlquery}}&amp;order={{.Order | urlquery}}">{{t .Lang "recent.previous"}}</a>
+                    {{else}}
+                    <span class="btn btn-secondary" aria-disabled="true">{{t .Lang "recent.previous"}}</span>
+                    {{end}}
+                    <span class="pagination-info">{{tf .Lang "common.page_x_of_y" "current" .Page "total" .Pages}}</span>
+                    {{if .HasNext}}
+                    <a class="btn btn-secondary" href="{{.CurrentPath}}?page={{.NextPage}}&amp;limit={{.Limit}}&amp;search={{.Search | urlquery}}&amp;sort={{.Sort | urlquery}}&amp;order={{.Order | urlquery}}">{{t .Lang "recent.next"}}</a>
+                    {{else}}
+                    <span class="btn btn-secondary" aria-disabled="true">{{t .Lang "recent.next"}}</span>
+                    {{end}}
+                </nav>
+                {{else if .Search}}
+                <div class="empty-state">
+                    <div class="empty-state-icon">🔍</div>
+                    <h3 class="empty-state-title">{{t .Lang "recent.no_results_title"}}</h3>
+                    <p class="empty-state-message">{{t .Lang "recent.no_results_desc"}}</p>
+                    <a href="{{.CurrentPath}}" class="btn btn-primary">{{t .Lang "recent.clear_filters"}}</a>
                 </div>
                 {{else}}
                 <div class="empty-state">

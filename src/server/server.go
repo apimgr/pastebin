@@ -3176,14 +3176,51 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
-	page := 1
-	pastes, total, _ := s.db.GetPublicPastes(page, 20)
+	q := r.URL.Query()
+
+	page, _ := strconv.Atoi(q.Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 250 {
+		limit = 250
+	}
+	search := strings.TrimSpace(q.Get("search"))
+	sortBy := strings.TrimSpace(q.Get("sort"))
+	order := strings.TrimSpace(q.Get("order"))
+	if order == "" {
+		order = "desc"
+	}
+	if sortBy == "" {
+		sortBy = "date"
+	}
+
+	pastes, total, _ := s.db.SearchPublicPastes(page, limit, search, sortBy, order)
+	pages := (total + limit - 1) / limit
+	if pages < 1 {
+		pages = 1
+	}
 	data := map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
 		"BaseURL":   s.baseURL(r),
 		"Pastes":    pastes,
 		"Total":     total,
+		"Page":      page,
+		"Limit":     limit,
+		"Pages":     pages,
+		"HasPrev":   page > 1,
+		"HasNext":   page < pages,
+		"PrevPage":  page - 1,
+		"NextPage":  page + 1,
+		"Search":      search,
+		"Sort":        sortBy,
+		"Order":       order,
+		"CurrentPath": r.URL.Path,
 	}
 
 	// Content negotiation: HTTP tools get the full template rendered as plain text.
