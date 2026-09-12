@@ -5,11 +5,74 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/common/i18n"
 )
+
+// prefCookiePrefix names every app-specific guest preference cookie
+// (AI.md 23480-23496: "{project_name}_pref_{key}"). Pastebin has no concrete
+// app-specific preference today, but the export/import mechanism below is
+// generic so any future `pastebin_pref_*` cookie round-trips automatically
+// without a second storage mechanism ever being invented (AI.md 23496).
+const prefCookiePrefix = "pastebin_pref_"
+
+// prefKeyPattern constrains the `{key}` portion of a `pastebin_pref_{key}`
+// cookie/param name — lowercase alnum and underscores only, matching the
+// project's own naming conventions for config/cookie keys.
+var prefKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// prefValuePattern is a conservative allowlist for app-specific preference
+// values in the absence of any concrete preference (and therefore no
+// per-key enum) to validate against yet — printable ASCII, no control
+// characters, no cookie/URL metacharacters, bounded length.
+var prefValuePattern = regexp.MustCompile(`^[A-Za-z0-9_.\-]{1,64}$`)
+
+// appPreferencesFromRequest returns every `pastebin_pref_*` cookie present
+// on the request, keyed by the bare `{key}` suffix (AI.md 23496: "cookie-only,
+// read per request, never persisted server-side").
+func appPreferencesFromRequest(r *http.Request) map[string]string {
+	prefs := make(map[string]string)
+	for _, c := range r.Cookies() {
+		if key, value, ok := parseAppPref(c.Name, c.Value); ok {
+			prefs[key] = value
+		}
+	}
+	return prefs
+}
+
+// extractAppPrefs scans a set of query values (either the live request query
+// or a decoded import `code`) for `pastebin_pref_*` params, applying the same
+// key/value allowlist as appPreferencesFromRequest — an imported value is
+// still untrusted input (AI.md 22908), so it is revalidated the same way.
+func extractAppPrefs(values url.Values) map[string]string {
+	prefs := make(map[string]string)
+	for name, vals := range values {
+		if len(vals) == 0 {
+			continue
+		}
+		if key, value, ok := parseAppPref(name, strings.TrimSpace(vals[0])); ok {
+			prefs[key] = value
+		}
+	}
+	return prefs
+}
+
+// parseAppPref validates a single `pastebin_pref_{key}` name/value pair
+// against prefKeyPattern/prefValuePattern, returning the bare key on success.
+func parseAppPref(name, value string) (key string, val string, ok bool) {
+	if !strings.HasPrefix(name, prefCookiePrefix) {
+		return "", "", false
+	}
+	key = strings.TrimPrefix(name, prefCookiePrefix)
+	if !prefKeyPattern.MatchString(key) || !prefValuePattern.MatchString(value) {
+		return "", "", false
+	}
+	return key, value, true
+}
 
 // setPreferenceCookie writes a client-side preference cookie using the same
 // Secure/SameSite/MaxAge shape as handleThemeSet and handleConsentSet
@@ -99,12 +162,32 @@ func (s *Server) preferencesPageData(r *http.Request, theme, lang string) map[st
 	return data
 }
 
-// preferencesExportQuery builds the canonical `theme=...&lang=...` query
-// string for the current preferences — the query string IS the portable
+// preferencesExportQuery builds the canonical `theme=...&lang=...&pastebin_pref_{key}=...`
+// query string for the current preferences — the query string IS the portable
 // preference state (AI.md 22901: "the code/URL is the preference values, not
-// a lookup key"), so only theme and lang are ever included (AI.md 22903).
-func preferencesExportQuery(theme, lang string) string {
-	return fmt.Sprintf("theme=%s&lang=%s", url.QueryEscape(theme), url.QueryEscape(lang))
+// a lookup key"). theme, lang, and every app-specific `pastebin_pref_*`
+// cookie round-trip (AI.md 23502); `cookie_consent`/`ccpa_opt_out`/
+// `pastebin_build` are never included since they aren't in extra (they don't
+// carry the `pastebin_pref_` prefix appPreferencesFromRequest filters on).
+func preferencesExportQuery(theme, lang string, extra map[string]string) string {
+	q := fmt.Sprintf("theme=%s&lang=%s", url.QueryEscape(theme), url.QueryEscape(lang))
+	if len(extra) == 0 {
+		return q
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(q)
+	for _, k := range keys {
+		b.WriteString("&")
+		b.WriteString(url.QueryEscape(prefCookiePrefix + k))
+		b.WriteString("=")
+		b.WriteString(url.QueryEscape(extra[k]))
+	}
+	return b.String()
 }
 
 // handlePreferencesExport serves GET /server/preferences/export, API-mirrored
@@ -114,24 +197,39 @@ func preferencesExportQuery(theme, lang string) string {
 func (s *Server) handlePreferencesExport(w http.ResponseWriter, r *http.Request) {
 	theme := s.themeFromRequest(r)
 	lang := i18n.LangFromRequest(r)
-	query := preferencesExportQuery(theme, lang)
+	appPrefs := appPreferencesFromRequest(r)
+	query := preferencesExportQuery(theme, lang, appPrefs)
 	exportURL := s.baseURL(r) + "/server/preferences/import?" + query
 	code := base64.RawURLEncoding.EncodeToString([]byte(query))
 
 	switch detectClientType(r) {
 	case "json":
+		data := map[string]interface{}{
+			"theme": theme,
+			"lang":  lang,
+			"url":   exportURL,
+			"code":  code,
+		}
+		if len(appPrefs) > 0 {
+			data["prefs"] = appPrefs
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"ok": true,
-			"data": map[string]interface{}{
-				"theme": theme,
-				"lang":  lang,
-				"url":   exportURL,
-				"code":  code,
-			},
+			"ok":   true,
+			"data": data,
 		})
 	case "text":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "Preferences export\nURL:  %s\nCode: %s\n", exportURL, code)
+		if len(appPrefs) > 0 {
+			keys := make([]string, 0, len(appPrefs))
+			for k := range appPrefs {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Fprintf(w, "%s%s: %s\n", prefCookiePrefix, k, appPrefs[k])
+			}
+		}
 	default:
 		data := s.preferencesPageData(r, theme, lang)
 		data["ExportURL"] = exportURL
@@ -155,8 +253,11 @@ func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request)
 
 	theme := strings.TrimSpace(q.Get("theme"))
 	lang := strings.TrimSpace(q.Get("lang"))
+	// Values sourced from the query string take precedence; the decoded code
+	// only fills in whatever wasn't given directly (mirrors theme/lang below).
+	appPrefs := extractAppPrefs(q)
 
-	if code := strings.TrimSpace(q.Get("code")); code != "" && (theme == "" || lang == "") {
+	if code := strings.TrimSpace(q.Get("code")); code != "" && (theme == "" || lang == "" || len(appPrefs) == 0) {
 		if idx := strings.LastIndex(code, "/server/preferences/import?"); idx != -1 {
 			code = code[idx+len("/server/preferences/import?"):]
 		}
@@ -168,6 +269,11 @@ func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request)
 				if lang == "" {
 					lang = strings.TrimSpace(values.Get("lang"))
 				}
+				for k, v := range extractAppPrefs(values) {
+					if _, exists := appPrefs[k]; !exists {
+						appPrefs[k] = v
+					}
+				}
 			}
 		}
 	}
@@ -177,6 +283,9 @@ func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request)
 	}
 	if lang != "" && i18n.IsSupported(lang) {
 		s.setPreferenceCookie(w, r, "lang", strings.ToLower(lang))
+	}
+	for key, value := range appPrefs {
+		s.setPreferenceCookie(w, r, prefCookiePrefix+key, value)
 	}
 
 	// Never linger on the visible URL/browser history (AI.md 22908).
