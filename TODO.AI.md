@@ -31,7 +31,7 @@ in `SPEC.md` since `AI.md` is read-only.
 - [ ] Wire GUI mode into `main.go` (`detectMode()`, `guiEnvAvailable()`,
   dispatch to `gui.LaunchGUI`) — not yet wired; `gui.LaunchGUI`/
   `gui.IsGUIAvailable` currently have no caller anywhere in `src/client/`
-- [ ] Run `make test` + `go-lint` agent, write `COMMIT_MESS`, commit
+- [x] Run `make test` + `go-lint` agent, write `COMMIT_MESS`, commit
 
 ## netbsd/openbsd build failure in disk_unix.go (pre-existing, unrelated to GUI work)
 
