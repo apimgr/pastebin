@@ -867,6 +867,7 @@
     "no_results_title": "Aucun paste correspondant",
     "order_asc": "Croissant",
     "order_desc": "Décroissant",
+    "limit_label": "Par page",
     "order_label": "Ordre",
     "previous": "Précédent",
     "search_button": "Rechercher",

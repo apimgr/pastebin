@@ -34,6 +34,7 @@ import (
 
 	"github.com/apimgr/pastebin/src/audit"
 	"github.com/apimgr/pastebin/src/cache"
+	"github.com/apimgr/pastebin/src/common/buildinfo"
 	"github.com/apimgr/pastebin/src/common/email"
 	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/common/i18n"
@@ -439,6 +440,10 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	}
 	s.stats.lastHour = time.Now().Hour()
 
+	// Publish the build identity used by every asset URL, cache header, and the
+	// version-change purge cookie (AI.md PART 9, "Asset Version-Busting").
+	buildinfo.Set(version, commitID)
+
 	// Validate configured SEO site-verification codes/custom tags at startup and
 	// log (never abort) on invalid format — invalid entries are simply never
 	// rendered (PART 16 "Server validates codes on startup and logs errors").
@@ -712,6 +717,10 @@ func (s *Server) buildTemplates() (map[string]*template.Template, error) {
 		"consentInfo": func() consentClientConfig {
 			return buildConsentClientConfig(s.liveCfg())
 		},
+		// asset appends the running build stamp to a static asset path so a
+		// browser never serves a stale file after an update (AI.md PART 9,
+		// line 13285 — hand-written bare /static/... URLs are a bug).
+		"asset":   assetURL,
 		"fmtTime": fmtUserTime,
 		"fmtDate": fmtUserDate,
 	}
@@ -1143,7 +1152,7 @@ func (s *Server) setupRoutes() {
 	r.Get("/static/css/components.css", s.handleCSS("components"))
 	r.Get("/static/css/public.css", s.handleCSS("public"))
 	staticSub, _ := fs.Sub(staticFS, "static")
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	r.Handle("/static/*", staticCacheHeaders(http.StripPrefix("/static/", http.FileServer(http.FS(staticSub)))))
 	r.Get("/manifest.json", s.handleManifest)
 	r.Get("/sw.js", s.handleServiceWorker)
 	r.Get("/robots.txt", s.handleRobots)
@@ -3178,25 +3187,51 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
+	// Guest preferences (AI.md 23482: results-per-page, sort order): an
+	// explicit query param always wins and is persisted back to the
+	// pastebin_pref_{sort,order,per_page} cookies; otherwise fall back to
+	// the visitor's saved preference, then the hard default.
+	prefs := appPreferencesFromRequest(r)
+
 	page, _ := strconv.Atoi(q.Get("page"))
 	if page < 1 {
 		page = 1
 	}
-	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	limitParam := strings.TrimSpace(q.Get("limit"))
+	limit, _ := strconv.Atoi(limitParam)
+	if limitParam == "" {
+		limit, _ = strconv.Atoi(prefs[prefKeyPerPage])
+	} else {
+		s.setPreferenceCookie(w, r, prefCookiePrefix+prefKeyPerPage, limitParam)
+	}
 	if limit < 1 {
 		limit = 20
 	}
 	if limit > 250 {
 		limit = 250
 	}
+
 	search := strings.TrimSpace(q.Get("search"))
+
 	sortBy := strings.TrimSpace(q.Get("sort"))
-	order := strings.TrimSpace(q.Get("order"))
-	if order == "" {
-		order = "desc"
+	if sortBy == "" {
+		sortBy = prefs[prefKeySort]
+	} else {
+		s.setPreferenceCookie(w, r, prefCookiePrefix+prefKeySort, sortBy)
 	}
 	if sortBy == "" {
 		sortBy = "date"
+	}
+
+	order := strings.TrimSpace(q.Get("order"))
+	if order == "" {
+		order = prefs[prefKeyOrder]
+	} else {
+		s.setPreferenceCookie(w, r, prefCookiePrefix+prefKeyOrder, order)
+	}
+	if order == "" {
+		order = "desc"
 	}
 
 	pastes, total, _ := s.db.SearchPublicPastes(page, limit, search, sortBy, order)
@@ -3205,18 +3240,18 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 		pages = 1
 	}
 	data := map[string]interface{}{
-		"SiteTitle": s.liveCfg().Web.SiteTitle,
-		"Theme":     s.liveCfg().Web.Theme,
-		"BaseURL":   s.baseURL(r),
-		"Pastes":    pastes,
-		"Total":     total,
-		"Page":      page,
-		"Limit":     limit,
-		"Pages":     pages,
-		"HasPrev":   page > 1,
-		"HasNext":   page < pages,
-		"PrevPage":  page - 1,
-		"NextPage":  page + 1,
+		"SiteTitle":   s.liveCfg().Web.SiteTitle,
+		"Theme":       s.liveCfg().Web.Theme,
+		"BaseURL":     s.baseURL(r),
+		"Pastes":      pastes,
+		"Total":       total,
+		"Page":        page,
+		"Limit":       limit,
+		"Pages":       pages,
+		"HasPrev":     page > 1,
+		"HasNext":     page < pages,
+		"PrevPage":    page - 1,
+		"NextPage":    page + 1,
 		"Search":      search,
 		"Sort":        sortBy,
 		"Order":       order,
@@ -4838,6 +4873,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Every HTML document is uncacheable and carries the build-stamp ETag, and
+	// every HTML response refreshes the build cookie so a browser holding caches
+	// from an older build is purged exactly once (AI.md PART 9, 13287 and
+	// 13323-13351). This is the single HTML choke point, so static, API and
+	// /sw.js responses can never pick these up.
+	setHTMLCacheHeaders(w)
+	s.versionPurge(w, r)
 	statusCode := http.StatusOK
 	if len(status) > 0 {
 		statusCode = status[0]

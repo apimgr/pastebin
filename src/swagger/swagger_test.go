@@ -455,16 +455,19 @@ func TestServeUI_IsValidHTML(t *testing.T) {
 	}
 }
 
-// TestServeUI_CacheControlHeader confirms Cache-Control: no-cache is set on UI.
+// TestServeUI_CacheControlHeader confirms the UI shell is an HTML response and
+// therefore never cached: no-store plus a build-stamp ETag (AI.md PART 9, 13287).
 func TestServeUI_CacheControlHeader(t *testing.T) {
 	h := swagger.New("API", "1.0.0", "https://example.com", "")
 	req := httptest.NewRequest(http.MethodGet, "/server/swagger", nil)
 	rec := httptest.NewRecorder()
 	h.ServeUI(rec, req)
 
-	cc := rec.Header().Get("Cache-Control")
-	if cc != "no-cache" {
-		t.Errorf("Cache-Control: got %q, want %q", cc, "no-cache")
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control: got %q, want %q", cc, "no-store")
+	}
+	if etag := rec.Header().Get("ETag"); etag == "" {
+		t.Error("ETag: got empty, want the build stamp")
 	}
 }
 

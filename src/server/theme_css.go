@@ -63,7 +63,10 @@ func (s *Server) handleCSS(name string) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
+		// These are static assets served off their own routes, so they follow
+		// the same stamp-gated cache policy as /static/* — a fixed max-age
+		// would let an old stylesheet outlive an update (AI.md 13286).
+		setStaticCacheHeaders(w, r)
 		data := cssTemplateData{
 			Dark:  theme.ThemePaletteDark,
 			Light: theme.ThemePaletteLight,

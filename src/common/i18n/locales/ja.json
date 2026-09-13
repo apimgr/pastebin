@@ -867,6 +867,7 @@
     "no_results_title": "一致するペーストがありません",
     "order_asc": "昇順",
     "order_desc": "降順",
+    "limit_label": "ページごと",
     "order_label": "順序",
     "previous": "前へ",
     "search_button": "検索",

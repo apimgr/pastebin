@@ -254,6 +254,7 @@
     "order_label": "الترتيب",
     "order_asc": "تصاعدي",
     "order_desc": "تنازلي",
+"limit_label": "لكل صفحة",
     "no_results_title": "لا توجد لصقات مطابقة",
     "no_results_desc": "جرّب مصطلح بحث مختلف أو امسح عوامل التصفية."
   },

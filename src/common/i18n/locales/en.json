@@ -254,6 +254,7 @@
     "order_label": "Order",
     "order_asc": "Ascending",
     "order_desc": "Descending",
+    "limit_label": "Per page",
     "no_results_title": "No matching pastes",
     "no_results_desc": "Try a different search term or clear your filters."
   },

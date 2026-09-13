@@ -2919,6 +2919,72 @@ func TestHandleRecentSearchAndSort(t *testing.T) {
 	})
 }
 
+// TestHandleRecentPreferenceCookies verifies handleRecent's read/write of the
+// pastebin_pref_{sort,order,per_page} guest preference cookies (AI.md 23482):
+// an explicit query param is persisted back to its cookie, and an absent
+// query param falls back to the visitor's previously saved preference.
+func TestHandleRecentPreferenceCookies(t *testing.T) {
+	t.Run("explicit query params are persisted to cookies", func(t *testing.T) {
+		s := newRecentTestServer(t)
+		seedRecentPaste(t, s, "id-pref1", "Pref paste", "content")
+
+		r := httptest.NewRequest(http.MethodGet, "/recent?sort=name&order=asc&limit=50", nil)
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		r.Host = "example.com"
+		w := httptest.NewRecorder()
+		s.handleRecent(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+		}
+		got := map[string]string{}
+		for _, c := range w.Result().Cookies() {
+			got[c.Name] = c.Value
+		}
+		if got[prefCookiePrefix+prefKeySort] != "name" {
+			t.Errorf("sort cookie = %q, want %q", got[prefCookiePrefix+prefKeySort], "name")
+		}
+		if got[prefCookiePrefix+prefKeyOrder] != "asc" {
+			t.Errorf("order cookie = %q, want %q", got[prefCookiePrefix+prefKeyOrder], "asc")
+		}
+		if got[prefCookiePrefix+prefKeyPerPage] != "50" {
+			t.Errorf("per_page cookie = %q, want %q", got[prefCookiePrefix+prefKeyPerPage], "50")
+		}
+	})
+
+	t.Run("missing query params fall back to saved preference cookies", func(t *testing.T) {
+		s := newRecentTestServer(t)
+		seedRecentPaste(t, s, "id-pref2a", "Zebra notes", "content-z")
+		seedRecentPaste(t, s, "id-pref2b", "Apple pie", "content-a")
+
+		r := httptest.NewRequest(http.MethodGet, "/recent", nil)
+		r.Header.Set("User-Agent", "curl/7.88.1")
+		r.Host = "example.com"
+		r.AddCookie(&http.Cookie{Name: prefCookiePrefix + prefKeySort, Value: "name"})
+		r.AddCookie(&http.Cookie{Name: prefCookiePrefix + prefKeyOrder, Value: "asc"})
+		r.AddCookie(&http.Cookie{Name: prefCookiePrefix + prefKeyPerPage, Value: "50"})
+		w := httptest.NewRecorder()
+		s.handleRecent(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200\nbody: %s", w.Code, w.Body.String())
+		}
+		body := w.Body.String()
+		idxApple := strings.Index(body, "Apple pie")
+		idxZebra := strings.Index(body, "Zebra notes")
+		if idxApple < 0 || idxZebra < 0 {
+			t.Fatalf("body missing expected titles, got: %s", body)
+		}
+		if !(idxApple < idxZebra) {
+			t.Errorf("titles not in ascending name order from saved preference, got: %s", body)
+		}
+		// No query params were given, so nothing should be re-written.
+		if len(w.Result().Cookies()) != 0 {
+			t.Errorf("unexpected cookies set on preference-only request: %v", w.Result().Cookies())
+		}
+	})
+}
+
 // ─── Server.handleViewPaste via reserved slug ─────────────────────────────────
 
 func TestHandleViewPasteReservedSlug(t *testing.T) {

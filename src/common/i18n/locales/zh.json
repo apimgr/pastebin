@@ -867,6 +867,7 @@
     "no_results_title": "未找到匹配的粘贴",
     "order_asc": "升序",
     "order_desc": "降序",
+    "limit_label": "每页",
     "order_label": "排序方式",
     "previous": "上一页",
     "search_button": "搜索",

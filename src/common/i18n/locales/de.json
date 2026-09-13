@@ -867,6 +867,7 @@
     "no_results_title": "Keine passenden Pastes",
     "order_asc": "Aufsteigend",
     "order_desc": "Absteigend",
+    "limit_label": "Pro Seite",
     "order_label": "Reihenfolge",
     "previous": "Zurück",
     "search_button": "Suchen",

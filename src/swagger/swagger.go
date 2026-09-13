@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/apimgr/pastebin/src/common/buildinfo"
 	"github.com/apimgr/pastebin/src/common/i18n"
 )
 
@@ -128,7 +129,10 @@ func (h *Handler) ServeUI(w http.ResponseWriter, r *http.Request) {
 	base := h.resolveBase(r)
 	specURL := base + "/api/" + h.apiVersion + "/server/swagger"
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	// HTML is never cached; the build-stamp ETag makes an intermediary that
+	// ignores no-store revalidate anyway (AI.md PART 9, line 13287).
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("ETag", `"`+buildinfo.AssetStamp()+`"`)
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, h.renderUI(r, specURL))
 }
@@ -270,8 +274,8 @@ func (h *Handler) renderUI(r *http.Request, specURL string) string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + h.title + ` — API Docs</title>
-    <link rel="stylesheet" href="` + assetPrefix + `/static/css/common.css">
-    <link rel="stylesheet" href="` + assetPrefix + `/static/css/components.css">
+    <link rel="stylesheet" href="` + buildinfo.AssetURL(assetPrefix, "/static/css/common.css") + `">
+    <link rel="stylesheet" href="` + buildinfo.AssetURL(assetPrefix, "/static/css/components.css") + `">
   </head>
   <body class="swagger-page">
     <a href="#app" class="skip-link">` + t("nav.skip_to_content") + `</a>
@@ -311,7 +315,7 @@ func (h *Handler) renderUI(r *http.Request, specURL string) string {
         </div>
       </div>
     </footer>
-    <script src="` + assetPrefix + `/static/js/app.js"></script>
+    <script src="` + buildinfo.AssetURL(assetPrefix, "/static/js/app.js") + `"></script>
   </body>
 </html>
 `

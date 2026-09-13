@@ -867,6 +867,7 @@
     "no_results_title": "No se encontraron pastes",
     "order_asc": "Ascendente",
     "order_desc": "Descendente",
+    "limit_label": "Por página",
     "order_label": "Orden",
     "previous": "Anterior",
     "search_button": "Buscar",

@@ -31,9 +31,18 @@
                             <option value="asc" {{if eq .Order "asc"}}selected{{end}}>{{t .Lang "recent.order_asc"}}</option>
                         </select>
                     </div>
+                    <div class="form-group filter-bar-limit">
+                        <label class="form-label sr-only" for="recent-limit">{{t .Lang "recent.limit_label"}}</label>
+                        <select id="recent-limit" name="limit" class="form-select">
+                            <option value="20" {{if eq .Limit 20}}selected{{end}}>20</option>
+                            <option value="50" {{if eq .Limit 50}}selected{{end}}>50</option>
+                            <option value="100" {{if eq .Limit 100}}selected{{end}}>100</option>
+                            <option value="250" {{if eq .Limit 250}}selected{{end}}>250</option>
+                        </select>
+                    </div>
                     <div class="form-group filter-bar-actions">
                         <button type="submit" class="btn btn-primary">{{t .Lang "recent.search_button"}}</button>
-                        {{if or .Search (ne .Sort "date") (ne .Order "desc")}}
+                        {{if or .Search (ne .Sort "date") (ne .Order "desc") (ne .Limit 20)}}
                         <a href="{{.CurrentPath}}" class="btn btn-secondary">{{t .Lang "recent.clear_filters"}}</a>
                         {{end}}
                     </div>

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/apimgr/pastebin/src/common/buildinfo"
 	"github.com/apimgr/pastebin/src/common/i18n"
 )
 
@@ -130,7 +131,10 @@ func (h *Handler) serveQuery(w http.ResponseWriter, _ *http.Request, query strin
 // serveUI renders the self-contained GraphiQL HTML interface.
 func (h *Handler) serveUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	// HTML is never cached; the build-stamp ETag makes an intermediary that
+	// ignores no-store revalidate anyway (AI.md PART 9, line 13287).
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("ETag", `"`+buildinfo.AssetStamp()+`"`)
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, h.renderUI(r))
 }
@@ -171,8 +175,8 @@ func (h *Handler) renderUI(r *http.Request) string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + h.title + ` — GraphQL</title>
-    <link rel="stylesheet" href="` + prefix + `/static/css/common.css">
-    <link rel="stylesheet" href="` + prefix + `/static/css/components.css">
+    <link rel="stylesheet" href="` + buildinfo.AssetURL(prefix, "/static/css/common.css") + `">
+    <link rel="stylesheet" href="` + buildinfo.AssetURL(prefix, "/static/css/components.css") + `">
   </head>
   <body class="graphql-page">
     <a href="#graphiql" class="skip-link">` + t("nav.skip_to_content") + `</a>
@@ -228,7 +232,7 @@ func (h *Handler) renderUI(r *http.Request) string {
         </div>
       </div>
     </footer>
-    <script src="` + prefix + `/static/js/app.js"></script>
+    <script src="` + buildinfo.AssetURL(prefix, "/static/js/app.js") + `"></script>
   </body>
 </html>
 `

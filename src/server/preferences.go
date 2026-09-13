@@ -14,11 +14,22 @@ import (
 )
 
 // prefCookiePrefix names every app-specific guest preference cookie
-// (AI.md 23480-23496: "{project_name}_pref_{key}"). Pastebin has no concrete
-// app-specific preference today, but the export/import mechanism below is
-// generic so any future `pastebin_pref_*` cookie round-trips automatically
-// without a second storage mechanism ever being invented (AI.md 23496).
+// (AI.md 23480-23496: "{project_name}_pref_{key}"). AI.md's example category
+// list ("default view mode, results-per-page, sort order, ...") maps
+// directly onto this app's existing /pastes recents controls, so the
+// concrete preferences are: sort, order, per_page (see handleRecent in
+// server.go). The export/import mechanism below stays generic so any future
+// `pastebin_pref_*` cookie round-trips automatically without a second
+// storage mechanism ever being invented (AI.md 23496).
 const prefCookiePrefix = "pastebin_pref_"
+
+// Concrete pastebin_pref_* keys (AI.md 23482 "Client-Side Preferences"):
+// the /pastes recents list's sort column, sort direction, and page size.
+const (
+	prefKeySort    = "sort"
+	prefKeyOrder   = "order"
+	prefKeyPerPage = "per_page"
+)
 
 // prefKeyPattern constrains the `{key}` portion of a `pastebin_pref_{key}`
 // cookie/param name — lowercase alnum and underscores only, matching the
@@ -79,21 +90,29 @@ func parseAppPref(name, value string) (key string, val string, ok bool) {
 // (AI.md 22886-22890: "the server sets the same cookies on its POST/GET
 // preference endpoints").
 func (s *Server) setPreferenceCookie(w http.ResponseWriter, r *http.Request, name, value string) {
-	secure := r.TLS != nil
-	if s.liveCfg().Web.CSRF.Secure == "true" {
-		secure = true
-	} else if s.liveCfg().Web.CSRF.Secure == "false" {
-		secure = false
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   365 * 24 * 60 * 60,
 		HttpOnly: false,
-		Secure:   secure,
+		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// cookieSecure resolves the Secure attribute for every client-readable cookie
+// the server sets: the connection's own TLS state, overridden by an explicit
+// web.csrf.secure config value. Marking a cookie Secure on a plain-HTTP
+// deployment would make the browser drop it entirely.
+func (s *Server) cookieSecure(r *http.Request) bool {
+	switch s.liveCfg().Web.CSRF.Secure {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return r.TLS != nil
 }
 
 // handlePreferences serves the guest preferences hub — GET /server/preferences,
@@ -105,20 +124,31 @@ func (s *Server) handlePreferences(w http.ResponseWriter, r *http.Request) {
 	theme := s.themeFromRequest(r)
 	lang := i18n.LangFromRequest(r)
 
+	// App-specific guest preferences travel with theme/lang everywhere they are
+	// reported, so the hub and the export endpoint describe the same state.
+	appPrefs := appPreferencesFromRequest(r)
+
 	switch detectClientType(r) {
 	case "json":
+		payload := map[string]interface{}{
+			"theme": theme,
+			"lang":  lang,
+		}
+		if len(appPrefs) > 0 {
+			payload["prefs"] = appPrefs
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"ok": true,
-			"data": map[string]interface{}{
-				"theme": theme,
-				"lang":  lang,
-			},
+			"ok":   true,
+			"data": payload,
 		})
 	case "text":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		html, err := s.renderTemplateToString(r, "preferences.html", s.preferencesPageData(r, theme, lang))
 		if err != nil {
 			fmt.Fprintf(w, "Preferences — theme=%s lang=%s\n", theme, lang)
+			for _, k := range sortedPrefKeys(appPrefs) {
+				fmt.Fprintf(w, "%s%s: %s\n", prefCookiePrefix, k, appPrefs[k])
+			}
 			return
 		}
 		fmt.Fprint(w, httputil.HTML2TextConverter(html, 80))
@@ -220,15 +250,8 @@ func (s *Server) handlePreferencesExport(w http.ResponseWriter, r *http.Request)
 	case "text":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		fmt.Fprintf(w, "Preferences export\nURL:  %s\nCode: %s\n", exportURL, code)
-		if len(appPrefs) > 0 {
-			keys := make([]string, 0, len(appPrefs))
-			for k := range appPrefs {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				fmt.Fprintf(w, "%s%s: %s\n", prefCookiePrefix, k, appPrefs[k])
-			}
+		for _, k := range sortedPrefKeys(appPrefs) {
+			fmt.Fprintf(w, "%s%s: %s\n", prefCookiePrefix, k, appPrefs[k])
 		}
 	default:
 		data := s.preferencesPageData(r, theme, lang)
@@ -236,6 +259,17 @@ func (s *Server) handlePreferencesExport(w http.ResponseWriter, r *http.Request)
 		data["ExportCode"] = code
 		s.renderTemplate(w, r, "preferences.html", data)
 	}
+}
+
+// sortedPrefKeys returns the app-preference keys in a stable order so plain-text
+// output is deterministic across requests (Go map iteration is randomized).
+func sortedPrefKeys(prefs map[string]string) []string {
+	keys := make([]string, 0, len(prefs))
+	for k := range prefs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // handlePreferencesImport serves GET /server/preferences/import, API-mirrored
@@ -257,7 +291,10 @@ func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request)
 	// only fills in whatever wasn't given directly (mirrors theme/lang below).
 	appPrefs := extractAppPrefs(q)
 
-	if code := strings.TrimSpace(q.Get("code")); code != "" && (theme == "" || lang == "" || len(appPrefs) == 0) {
+	// The code is decoded whenever one is present: it can carry app preferences
+	// the query string never mentions, so gating the decode on a missing
+	// theme/lang would silently drop them. Query values still win key by key.
+	if code := strings.TrimSpace(q.Get("code")); code != "" {
 		if idx := strings.LastIndex(code, "/server/preferences/import?"); idx != -1 {
 			code = code[idx+len("/server/preferences/import?"):]
 		}
