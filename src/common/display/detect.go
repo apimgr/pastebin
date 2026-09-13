@@ -78,7 +78,7 @@ func (e *DisplayEnv) autoDetectDisplayMode() DisplayMode {
 	if e.TerminalType == "dumb" {
 		return DisplayModeCLI
 	}
-	if e.HasDisplay && !e.IsSSH && !e.IsMosh {
+	if e.HasDisplay && !e.IsSSH && !e.IsMosh && guiSupportedOS() {
 		return DisplayModeGUI
 	}
 	if e.IsTerminal {

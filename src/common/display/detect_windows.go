@@ -9,6 +9,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// guiSupportedOS reports whether the current OS has a gogpu/gogpu windowing
+// backend. Windows always has one, so GUI mode is never excluded here (see
+// the freebsd/netbsd/openbsd exclusion in detect_unix.go).
+func guiSupportedOS() bool { return true }
+
 // detectPlatformDisplay - Windows display detection
 func (e *DisplayEnv) detectPlatformDisplay() {
 	// Windows always has a display unless running as a service

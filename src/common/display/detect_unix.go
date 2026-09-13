@@ -14,6 +14,19 @@ import (
 // branches without running on the target OS.
 var detectedOS = runtime.GOOS
 
+// guiSupportedOS reports whether the current OS has a gogpu/gogpu windowing
+// backend. freebsd/netbsd/openbsd have no backend yet (AI.md PART 32 "GUI
+// Mode Requirements"), so GUI mode is never auto-detected there — the
+// display falls through to TUI (or CLI with no TTY) instead.
+func guiSupportedOS() bool {
+	switch detectedOS {
+	case "freebsd", "netbsd", "openbsd":
+		return false
+	default:
+		return true
+	}
+}
+
 // detectPlatformDisplay - Unix/macOS display detection
 func (e *DisplayEnv) detectPlatformDisplay() {
 	// Check for Wayland first (preferred on Linux)
