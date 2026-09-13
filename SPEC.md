@@ -50,3 +50,12 @@ GUI mode from scope.
 Everywhere `AI.md` PART 32 references Gio, Fyne, or native OS toolkits for
 the GUI display mode, `github.com/gogpu/ui` is the actual toolkit in use for
 this project.
+
+**Update (2026-09-13):** `AI.md` PART 32 was updated upstream to mandate
+`github.com/gogpu/ui` directly, confirming this override rather than
+conflicting with it. Upstream also documents that `gogpu/gogpu`'s windowing
+layer has no BSD backend yet — GUI mode is compiled out and unavailable on
+`freebsd`/`netbsd`/`openbsd`, which fall back to TUI (or CLI with no TTY).
+This section is kept for historical context (the cgo verification work that
+led to the decision) but no longer overrides `AI.md`, which now states the
+same toolkit choice natively.
