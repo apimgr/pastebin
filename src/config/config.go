@@ -608,22 +608,68 @@ type GeoIPConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// Dir is the path to the MMDB database directory.
 	Dir string `yaml:"dir"`
-	// CountryMode selects the country-blocking policy (AI.md:27343):
-	// "none" disables country blocking, "deny" blocks listed countries,
-	// "allow" allows ONLY listed countries. Empty = infer from which list is
-	// non-empty (allow_countries takes precedence when both are set).
-	CountryMode    string               `yaml:"country_mode"`
-	DenyCountries  []string             `yaml:"deny_countries"`
-	AllowCountries []string             `yaml:"allow_countries"`
-	Databases      GeoIPDatabasesConfig `yaml:"databases"`
+	// DenyCountries blocks the listed ISO 3166-1 alpha-2 codes and allows
+	// all others. AllowCountries allows ONLY the listed codes and blocks all
+	// others. When both are set, allow_countries wins. When both are empty
+	// (the default), no country blocking happens.
+	DenyCountries  []string `yaml:"deny_countries"`
+	AllowCountries []string `yaml:"allow_countries"`
+	// Presets are named, operator-authored country lists for reuse
+	// (AI.md PART 19, "Country Blocking Presets"). A preset is only ever a
+	// name plus the codes the operator entered; it is never fetched,
+	// inferred, or auto-applied, and the enforced behavior always comes from
+	// DenyCountries/AllowCountries. Ships empty.
+	Presets   map[string][]string  `yaml:"presets"`
+	Databases GeoIPDatabasesConfig `yaml:"databases"`
 }
 
 // GeoIPDatabasesConfig controls which MMDB files to download and use.
+//
+// PART 19 lists exactly three: asn, country, and city. There is no separate
+// WHOIS database — the geo-whois-asn-country package exposes only country_code.
 type GeoIPDatabasesConfig struct {
 	ASN     bool `yaml:"asn"`
 	Country bool `yaml:"country"`
 	City    bool `yaml:"city"`
-	WHOIS   bool `yaml:"whois"`
+}
+
+// MetricsAuthConfig is the `server.metrics.auth` block (AI.md PART 20).
+//
+// "Every metrics route requires a bearer token. There is no unauthenticated
+// default." Each service has its own token so rotating one never breaks the
+// others, and an empty token disables that service with a 403.
+type MetricsAuthConfig struct {
+	// AllowUnauthenticated skips token checks for ALL metrics services. It is
+	// a firewalled-internal-networks escape hatch; enabling it on a publicly
+	// reachable server is a deployment bug.
+	AllowUnauthenticated bool `yaml:"allow_unauthenticated"`
+	// Tokens holds the per-service bearer tokens.
+	Tokens MetricsTokensConfig `yaml:"tokens"`
+}
+
+// MetricsTokensConfig holds the per-service bearer tokens for the metrics
+// routes. An empty token disables that service (403, empty body).
+type MetricsTokensConfig struct {
+	Prometheus string `yaml:"prometheus"`
+	Grafana    string `yaml:"grafana"`
+	Loki       string `yaml:"loki"`
+}
+
+// MetricsRootConfig is the `server.metrics.root` block (AI.md PART 20). It
+// gates the bare `/metrics` root alias, which Prometheus scrapers default to.
+// The alias serves the same handler and is never a redirect.
+type MetricsRootConfig struct {
+	// Enabled mounts the bare `/metrics` alias. Defaults to true.
+	Enabled bool `yaml:"enabled"`
+}
+
+// MetricsLokiConfig bounds how much recent log the loki metrics service
+// serves (AI.md PART 20).
+type MetricsLokiConfig struct {
+	// MaxEntries caps how many log entries a scrape returns.
+	MaxEntries int `yaml:"max_entries"`
+	// MaxAge drops entries older than this Go duration string (e.g. "1h").
+	MaxAge string `yaml:"max_age"`
 }
 
 // MetricsConfig configures the /metrics endpoint.
@@ -635,6 +681,14 @@ type MetricsConfig struct {
 	// IncludeRuntime exposes pastebin_go_* runtime gauges when true.
 	IncludeRuntime bool   `yaml:"include_runtime"`
 	Token          string `yaml:"token"`
+	// Auth carries the per-service tokens and the unauthenticated escape
+	// hatch. Token is retained as the prometheus-service token for
+	// compatibility with existing configs.
+	Auth MetricsAuthConfig `yaml:"auth"`
+	// Root gates the bare `/metrics` alias.
+	Root MetricsRootConfig `yaml:"root"`
+	// Loki bounds how much recent log the loki service serves.
+	Loki MetricsLokiConfig `yaml:"loki"`
 	// DurationBuckets overrides the http_request_duration_seconds histogram buckets.
 	DurationBuckets []float64 `yaml:"duration_buckets"`
 	// SizeBuckets overrides the http_request_size_bytes / http_response_size_bytes buckets.
@@ -1366,11 +1420,32 @@ func DefaultConfig() *Config {
 				Tasks:   map[string]SchedulerTask{},
 			},
 			Metrics: MetricsConfig{
-				Enabled:         true,
-				Endpoint:        "/metrics",
-				IncludeSystem:   true,
-				IncludeRuntime:  true,
-				Token:           "",
+				Enabled:        true,
+				Endpoint:       "/metrics",
+				IncludeSystem:  true,
+				IncludeRuntime: true,
+				// Token is the prometheus-service token, kept for compatibility
+				// with configs that predate auth.tokens.
+				Token: "",
+				// PART 20: no unauthenticated default, so the escape hatch is
+				// off and every service token starts empty. An empty token
+				// disables that service (403), so out of the box /metrics is
+				// mounted but serves nothing until an operator sets a token.
+				Auth: MetricsAuthConfig{
+					AllowUnauthenticated: false,
+					Tokens: MetricsTokensConfig{
+						Prometheus: "",
+						Grafana:    "",
+						Loki:       "",
+					},
+				},
+				// Prometheus scrapers default to /metrics, so the root alias is
+				// on by default.
+				Root: MetricsRootConfig{Enabled: true},
+				Loki: MetricsLokiConfig{
+					MaxEntries: 1000,
+					MaxAge:     "1h",
+				},
 				DurationBuckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 				SizeBuckets:     []float64{100, 1000, 10000, 100000, 1000000, 10000000},
 				AllowedIPs:      []string{},
@@ -1385,16 +1460,15 @@ func DefaultConfig() *Config {
 			GeoIP: GeoIPConfig{
 				Enabled: true,
 				// resolved at startup to {data_dir}/security/geoip
-				Dir: "",
-				// empty = infer mode from deny/allow list contents
-				CountryMode:    "",
+				Dir:            "",
 				DenyCountries:  []string{},
 				AllowCountries: []string{},
+				// Operator-authored only; never bundled or auto-applied.
+				Presets: map[string][]string{},
 				Databases: GeoIPDatabasesConfig{
 					ASN:     true,
 					Country: true,
 					City:    true,
-					WHOIS:   true,
 				},
 			},
 			Tor: TorConfig{
@@ -2595,17 +2669,6 @@ func Validate(cfg *Config) {
 	}
 	if cfg.Server.Pages.Contact.SuccessMessage == "" {
 		cfg.Server.Pages.Contact.SuccessMessage = d.Server.Pages.Contact.SuccessMessage
-	}
-
-	// GeoIP country mode must be one of the valid values (AI.md:27343).
-	// Empty means "infer from deny/allow list contents" and is valid.
-	switch strings.ToLower(strings.TrimSpace(cfg.Server.GeoIP.CountryMode)) {
-	case "", "none", "deny", "allow":
-		cfg.Server.GeoIP.CountryMode = strings.ToLower(strings.TrimSpace(cfg.Server.GeoIP.CountryMode))
-	default:
-		log.Printf("[config] WARNING: invalid geoip.country_mode %q, using inferred mode",
-			cfg.Server.GeoIP.CountryMode)
-		cfg.Server.GeoIP.CountryMode = ""
 	}
 
 	// Web theme must be one of the valid values.

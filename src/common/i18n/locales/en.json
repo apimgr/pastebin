@@ -473,6 +473,8 @@
     "theme_desc": "Choose how the site looks on this browser.",
     "lang_label": "Language",
     "lang_desc": "Choose your preferred language for this browser.",
+    "app_pref_title": "Browsing preferences",
+    "app_pref_desc": "Default sorting and page size for the recent pastes list.",
     "token_title": "Saved Token",
     "token_desc": "Forget the paste-ownership token saved in this browser. Your pastes are not deleted — you just won't be able to edit or delete them from here unless you re-enter the token.",
     "export_title": "Export",

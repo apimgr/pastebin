@@ -475,17 +475,34 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 	s.graphqlHandler.SetThemeResolver(s.themeFromRequest)
 	s.graphqlHandler.SetCSRFTokenResolver(s.csrfTokenFromRequest)
 	s.metricsCollector = metric.NewWithOptions(metric.Options{
-		Version:         version,
-		Commit:          commitID,
-		BuildDate:       buildDate,
-		Token:           cfg.Server.Metrics.Token,
-		StartTime:       s.startTime,
-		IncludeSystem:   cfg.Server.Metrics.IncludeSystem,
-		IncludeRuntime:  cfg.Server.Metrics.IncludeRuntime,
-		DurationBuckets: cfg.Server.Metrics.DurationBuckets,
-		SizeBuckets:     cfg.Server.Metrics.SizeBuckets,
-		DataDir:         dataDir,
+		Version:   version,
+		Commit:    commitID,
+		BuildDate: buildDate,
+		Token:     cfg.Server.Metrics.Token,
+		ServiceTokens: map[string]string{
+			metric.ServicePrometheus: cfg.Server.Metrics.Auth.Tokens.Prometheus,
+			metric.ServiceGrafana:    cfg.Server.Metrics.Auth.Tokens.Grafana,
+			metric.ServiceLoki:       cfg.Server.Metrics.Auth.Tokens.Loki,
+		},
+		AllowUnauthenticated: cfg.Server.Metrics.Auth.AllowUnauthenticated,
+		StartTime:            s.startTime,
+		IncludeSystem:        cfg.Server.Metrics.IncludeSystem,
+		IncludeRuntime:       cfg.Server.Metrics.IncludeRuntime,
+		DurationBuckets:      cfg.Server.Metrics.DurationBuckets,
+		SizeBuckets:          cfg.Server.Metrics.SizeBuckets,
+		DataDir:              dataDir,
+		LokiMaxEntries:       cfg.Server.Metrics.Loki.MaxEntries,
+		LokiMaxAge:           cfg.Server.Metrics.Loki.MaxAge,
+		LogProvider:          s.recentLogEntries,
 	})
+
+	// PART 20: an empty per-service token disables that service (403). Log the
+	// reason once at startup so an operator can tell "metrics off" from "metrics
+	// broken" without a token ever appearing in a log line.
+	if disabled := s.metricsCollector.DisabledServices(); len(disabled) > 0 {
+		log.Printf("metrics: no bearer token configured; service(s) disabled and answering 403: %s",
+			strings.Join(disabled, ", "))
+	}
 
 	if cfg.Server.GeoIP.Enabled {
 		gcfg := geoip.Config{
@@ -493,8 +510,6 @@ func New(db database.DB, cfg *config.Config, cfgMgr *config.ConfigManager, versi
 			EnableASN:      cfg.Server.GeoIP.Databases.ASN,
 			EnableCountry:  cfg.Server.GeoIP.Databases.Country,
 			EnableCity:     cfg.Server.GeoIP.Databases.City,
-			EnableWHOIS:    cfg.Server.GeoIP.Databases.WHOIS,
-			CountryMode:    cfg.Server.GeoIP.CountryMode,
 			DenyCountries:  cfg.Server.GeoIP.DenyCountries,
 			AllowCountries: cfg.Server.GeoIP.AllowCountries,
 			// Wire server-wide security allowlist into geoip so GeoIP also
@@ -723,6 +738,17 @@ func (s *Server) buildTemplates() (map[string]*template.Template, error) {
 		"asset":   assetURL,
 		"fmtTime": fmtUserTime,
 		"fmtDate": fmtUserDate,
+		// "list" builds a []string from its arguments so a template can range
+		// over a fixed set of literal values (option lists, button rows).
+		//
+		// This is deliberately NOT named "slice": `slice` is a text/template
+		// builtin implementing range-slicing (`slice coll 0 2`), and calling
+		// it as a list-maker fails only at RENDER time, not at parse time —
+		// "cannot index slice/array with type string" — so the breakage is
+		// invisible until the page is actually served. Naming the helper
+		// `list` also avoids shadowing that builtin for any future template
+		// that legitimately wants a real slice expression.
+		"list": func(values ...string) []string { return values },
 	}
 	base, err := template.New("").Funcs(funcMap).ParseFS(templatesFS,
 		"template/layout/*.tmpl",
@@ -1197,6 +1223,26 @@ func (s *Server) setupRoutes() {
 			endpoint = "/metrics"
 		}
 		r.With(s.metricsIPAllowlistMiddleware).Handle(endpoint, s.metricsCollector.Handler())
+
+		// PART 20: the bare /metrics root alias is gated on
+		// server.metrics.root.enabled (default true, since Prometheus scrapers
+		// default to /metrics). It serves the SAME handler and is never a
+		// redirect — redirects break scrapers. Skipped when the configured
+		// endpoint already is /metrics, since that registration covers it.
+		if s.cfg.Server.Metrics.Root.Enabled && endpoint != "/metrics" {
+			r.With(s.metricsIPAllowlistMiddleware).Handle("/metrics", s.metricsCollector.Handler())
+			// Per-service subpaths on the root alias too, so an operator can
+			// point grafana or loki at /metrics/grafana. Only mounted when the
+			// bare path was mounted above, so the two never collide.
+			s.mountMetricsServices(r, "/metrics", false)
+		}
+
+		// PART 20: the canonical /server/metrics route tree. The bare path is
+		// the prometheus service; /{service} selects prometheus, grafana, or
+		// loki, each behind its own bearer token. An unknown service is 404
+		// rather than silently falling back to prometheus, so a typo never
+		// serves the wrong payload.
+		s.mountMetricsServices(r, "/server/metrics", true)
 	}
 
 	// ── Tor CLI control channel (AI.md PART 31.1) ───────────────────────────
@@ -1239,9 +1285,9 @@ func (s *Server) setupRoutes() {
 	// so the no-JS <noscript> toggle form works (AI.md 21588, 22641, 23294, 24084).
 	// Canonical route is POST /server/preferences (AI.md "Theme Toggle" HTML
 	// Structure example, line 22641) — not a standalone /theme path.
-	r.Post("/server/preferences", s.handleThemeSet)
+	r.Post("/server/preferences", s.handlePreferencesSet)
 	r.Get("/server/terms", s.handleTerms)
-	// Cross-device preference sync (AI.md 22899-22909): stateless export/import
+	// Cross-device preference sync (AI.md 23503-23513): stateless export/import
 	// of the theme/lang cookies — no account, no preferences table. Same
 	// handlers are mounted again under /api/{api_version}/server/preferences*
 	// below; each already content-negotiates its own response.
@@ -1354,7 +1400,7 @@ func (s *Server) setupRoutes() {
 		// Server info
 		r.Get("/server/healthz", s.maybeHealthRateLimit(s.handleHealthzJSON))
 		r.Get("/server/version", s.handleVersion)
-		// Cross-device preference sync API mirror (AI.md 22904-22908) — same
+		// Cross-device preference sync API mirror (AI.md 23509-23512) — same
 		// handlers as the web routes above; each content-negotiates JSON here.
 		r.Get("/server/preferences", s.handlePreferences)
 		r.Get("/server/preferences/export", s.handlePreferencesExport)
@@ -1374,12 +1420,22 @@ func (s *Server) setupRoutes() {
 			r.With(s.requireOperatorToken).Post("/{id}/enable", s.handleSchedulerEnable)
 			r.With(s.requireOperatorToken).Post("/{id}/disable", s.handleSchedulerDisable)
 		})
+
+		// PART 20: the metrics tree also answers under the versioned API path,
+		// invoking the same handlers with the same per-service tokens.
+		if s.cfg.Server.Metrics.Enabled {
+			s.mountMetricsServices(r, "/server/metrics", true)
+		}
 	})
 
 	// Unversioned aliases — same handler as versioned, served directly (no redirect) per PART 14.
 	r.Get("/api/swagger", s.swaggerHandler.ServeSpec)
 	r.Handle("/api/graphql", s.graphqlHandler)
 	r.Get("/api/healthz", s.maybeHealthRateLimit(s.handleHealthzJSON))
+	// PART 20: unversioned machine-friendly metrics alias, same handlers.
+	if s.cfg.Server.Metrics.Enabled {
+		s.mountMetricsServices(r, "/api/metrics", true)
+	}
 	// autodiscover is non-versioned by design (PART 32/14): clients use it before knowing the version.
 	r.Get("/api/autodiscover", s.handleAutodiscover)
 
@@ -1847,6 +1903,42 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// mountMetricsServices registers the per-service metrics routes under base
+// (PART 20): base/{prometheus,grafana,loki}, each behind that service's own
+// bearer token via ServiceHandler. When withBare is true the bare base path is
+// also registered as the prometheus service.
+//
+// Every route is wrapped in metricsIPAllowlistMiddleware, so the per-service
+// paths are no more exposed than the bare /metrics path is — they are not a way
+// around the allowlist.
+//
+// An unrecognized service name is 404 rather than falling back to prometheus,
+// so a typo in a scraper config fails loudly instead of silently returning the
+// wrong payload.
+func (s *Server) mountMetricsServices(r chi.Router, base string, withBare bool) {
+	handlerFor := func(service string) http.Handler {
+		return s.metricsCollector.ServiceHandler(service)
+	}
+
+	if withBare {
+		r.With(s.metricsIPAllowlistMiddleware).Handle(base, handlerFor(metric.ServicePrometheus))
+	}
+
+	r.With(s.metricsIPAllowlistMiddleware).Handle(base+"/prometheus", handlerFor(metric.ServicePrometheus))
+	r.With(s.metricsIPAllowlistMiddleware).Handle(base+"/grafana", handlerFor(metric.ServiceGrafana))
+	r.With(s.metricsIPAllowlistMiddleware).Handle(base+"/loki", handlerFor(metric.ServiceLoki))
+
+	// Catch-all for the service segment so an unknown name 404s with the
+	// canonical PART 14 envelope instead of chi's bare-text default.
+	r.With(s.metricsIPAllowlistMiddleware).HandleFunc(base+"/{service}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"ok":      false,
+			"error":   "NOT_FOUND",
+			"message": "unknown metrics service: " + chi.URLParam(r, "service"),
+		})
+	})
+}
+
 // metricsIPAllowlistMiddleware restricts /metrics to loopback addresses plus any
 // IPs or CIDRs listed in cfg.Server.Metrics.AllowedIPs (PART 20).
 // Loopback (127.0.0.1, ::1) is always permitted regardless of the configured list.
@@ -2097,36 +2189,44 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 		isMutating := r.Method == http.MethodPost || r.Method == http.MethodPut ||
 			r.Method == http.MethodPatch || r.Method == http.MethodDelete
 
-		// Bypass conditions (any one is sufficient).
+		// Bypass conditions (any one is sufficient). Exactly the AI.md PART 11
+		// bypass list — non-mutating methods, Bearer credentials, WebSocket
+		// upgrades, and operator-declared exempt paths. A missing CSRF cookie
+		// is NOT a bypass: a mutating request without Bearer must present a
+		// valid token, and "token absent" is a rejection reason, not an escape.
 		hasBearer := r.Header.Get("Authorization") != "" || r.Header.Get("X-API-Token") != ""
-		// A caller that carries no CSRF cookie never loaded a page from us in a
-		// browser session — it is a CLI tool, API/compat client, webhook, or other
-		// non-browser caller. CSRF defends against a browser auto-attaching a cookie
-		// credential to a cross-site request; with no such cookie there is nothing to
-		// forge, so validating here only breaks legitimate clients without adding
-		// defense (AI.md PART 11 "When CSRF Validation Runs": validate only when the
-		// request authenticates via a session cookie; bypass public/non-browser callers).
 		bypass := !isMutating || hasBearer ||
 			isWebSocketUpgrade(r) ||
-			isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths) ||
-			!hasCookie
+			isCSRFExempt(r.URL.Path, cfg.Web.CSRF.ExemptPaths)
 
 		if !bypass {
-			// Read the submitted token from the header, falling back to the form field.
+			// Read the submitted token from the header, falling back to the form
+			// field. The no-JS create form posts multipart/form-data (file
+			// upload support), and ParseForm never reads a multipart body —
+			// parse multipart explicitly so the hidden csrf_token field is
+			// visible. ParseMultipartForm caches the parsed form, so the
+			// handler's own later parse of the same body is a no-op.
 			submitted := r.Header.Get(cfg.Web.CSRF.HeaderName)
 			if submitted == "" {
-				_ = r.ParseForm()
+				if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+					// Malformed multipart falls through to token-absent
+					// rejection below; no special handling needed.
+					_ = r.ParseMultipartForm(32 << 10)
+				} else {
+					_ = r.ParseForm()
+				}
 				submitted = r.FormValue("csrf_token")
 			}
-			// hasCookie is guaranteed true here — the bypass above short-circuits
-			// every request that carries no CSRF cookie, so reqCookie is non-nil.
+			// Double-submit comparison target: the request cookie when present;
+			// when the cookie is absent there is nothing to match, so the token
+			// alone can never satisfy double-submit.
 			reason := ""
 			switch {
 			case submitted == "":
 				reason = "token absent"
 			case !s.validateCSRFToken(submitted):
 				reason = "token signature invalid"
-			case subtle.ConstantTimeCompare([]byte(submitted), []byte(reqCookie.Value)) != 1:
+			case reqCookie == nil || subtle.ConstantTimeCompare([]byte(submitted), []byte(reqCookie.Value)) != 1:
 				reason = "token mismatch"
 			}
 			if reason != "" {
@@ -2143,11 +2243,10 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 					Target:   &audit.Target{Type: "endpoint", ID: r.URL.Path},
 					Reason:   reason,
 				})
-				writeJSON(w, http.StatusForbidden, map[string]interface{}{
-					"ok":      false,
-					"error":   "CSRF_FAILED",
-					"message": "CSRF token validation failed",
-				})
+				// API and non-interactive clients get the canonical CSRF_FAILED envelope
+				// (AI.md PART 14 error table); browsers get the themed error page
+				// (PART 16 error-page rules). Both share csrfFailureResponse.
+				s.csrfFailureResponse(w, r)
 				return
 			}
 		}
@@ -2178,6 +2277,22 @@ func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 }
 
 // isWebSocketUpgrade reports whether the request is a WebSocket upgrade handshake.
+// csrfFailureResponse writes the CSRF rejection response with content
+// negotiation (PART 14 + PART 16): API and non-interactive clients get the
+// canonical CSRF_FAILED JSON envelope; browser clients get the themed error
+// page. Never a bare unstyled body.
+func (s *Server) csrfFailureResponse(w http.ResponseWriter, r *http.Request) {
+	if detectClientType(r) != "html" {
+		writeJSON(w, http.StatusForbidden, map[string]interface{}{
+			"ok":      false,
+			"error":   "CSRF_FAILED",
+			"message": "CSRF token validation failed",
+		})
+		return
+	}
+	s.renderErrorPage(w, r, http.StatusForbidden, "CSRF token validation failed. Please reload the page and try again.")
+}
+
 func isWebSocketUpgrade(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
@@ -3085,7 +3200,12 @@ func (s *Server) handleAutodiscover(w http.ResponseWriter, r *http.Request) {
 // ─── Web page handlers ────────────────────────────────────────────────────────
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	pastes, _, _ := s.db.GetPublicPastes(1, 5)
+	pastes, _, err := s.db.GetPublicPastes(1, 5)
+	if err != nil {
+		// Fail-open: the home page still renders (just without the recent
+		// list) so a transient DB error never takes the landing page down.
+		log.Printf("home: recent pastes query failed: %v", err)
+	}
 	data := map[string]interface{}{
 		"SiteTitle": s.liveCfg().Web.SiteTitle,
 		"Theme":     s.liveCfg().Web.Theme,
@@ -3187,7 +3307,7 @@ func (s *Server) handleWebCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	// Guest preferences (AI.md 23482: results-per-page, sort order): an
+	// Guest preferences (AI.md 23485: results-per-page, sort order): an
 	// explicit query param always wins and is persisted back to the
 	// pastebin_pref_{sort,order,per_page} cookies; otherwise fall back to
 	// the visitor's saved preference, then the hard default.
@@ -3203,7 +3323,7 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	if limitParam == "" {
 		limit, _ = strconv.Atoi(prefs[prefKeyPerPage])
 	} else {
-		s.setPreferenceCookie(w, r, prefCookiePrefix+prefKeyPerPage, limitParam)
+		s.rememberPreference(w, r, prefKeyPerPage, limitParam)
 	}
 	if limit < 1 {
 		limit = 20
@@ -3218,7 +3338,7 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	if sortBy == "" {
 		sortBy = prefs[prefKeySort]
 	} else {
-		s.setPreferenceCookie(w, r, prefCookiePrefix+prefKeySort, sortBy)
+		s.rememberPreference(w, r, prefKeySort, sortBy)
 	}
 	if sortBy == "" {
 		sortBy = "date"
@@ -3228,7 +3348,7 @@ func (s *Server) handleRecent(w http.ResponseWriter, r *http.Request) {
 	if order == "" {
 		order = prefs[prefKeyOrder]
 	} else {
-		s.setPreferenceCookie(w, r, prefCookiePrefix+prefKeyOrder, order)
+		s.rememberPreference(w, r, prefKeyOrder, order)
 	}
 	if order == "" {
 		order = "desc"
@@ -3551,7 +3671,13 @@ func (s *Server) handleQRImage(w http.ResponseWriter, r *http.Request) {
 	link := s.baseURL(r) + "/" + id
 	png, err := qrcode.Encode(link, qrcode.Medium, 300)
 	if err != nil {
-		http.Error(w, "qr generation failed", http.StatusInternalServerError)
+		// The QR route serves an image, so the failure body must stay
+		// machine-readable rather than negotiating to an HTML page.
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"error":   "SERVER_ERROR",
+			"message": "QR generation failed",
+		})
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
@@ -4039,7 +4165,7 @@ func (s *Server) handleCCPAOptOut(w http.ResponseWriter, r *http.Request) {
 		cookie.MaxAge = 365 * 24 * 60 * 60
 	}
 	http.SetCookie(w, cookie)
-	// Return to the referring page (privacy or preferences, AI.md 23480: the
+	// Return to the referring page (privacy or preferences, AI.md 23485: the
 	// CCPA toggle is now also a control on /server/preferences) rather than
 	// always bouncing to /server/privacy, mirroring handleConsentSet.
 	dest := "/server/privacy#ccpa-opt-out"
@@ -4107,7 +4233,7 @@ func (s *Server) handleConsentSet(w http.ResponseWriter, r *http.Request) {
 		state.Preferences = strings.TrimSpace(r.PostFormValue("preferences")) != ""
 		state.Analytics = analyticsConfigured && strings.TrimSpace(r.PostFormValue("analytics")) != ""
 	default:
-		http.Error(w, "invalid choice", http.StatusBadRequest)
+		s.renderErrorPage(w, r, http.StatusBadRequest, "Invalid consent choice.")
 		return
 	}
 	// A prior choice that granted Preferences/Analytics storage, now revoked
@@ -4252,7 +4378,7 @@ func (s *Server) activeAnnouncements(r *http.Request) []announcementView {
 func (s *Server) handleAnnouncementDismiss(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PostFormValue("id"))
 	if id == "" {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		s.renderErrorPage(w, r, http.StatusBadRequest, "Invalid announcement id.")
 		return
 	}
 	ids := dismissedAnnouncementIDs(r)
@@ -4291,12 +4417,12 @@ func (s *Server) handleAnnouncementDismiss(w http.ResponseWriter, r *http.Reques
 }
 
 // validThemes is the closed set of theme modes the server will render as a
-// class on <html> (AI.md 23294: theme-light, theme-dark, theme-auto).
+// class on <html> (AI.md 24552: theme-light, theme-dark, theme-auto).
 var validThemes = map[string]bool{"light": true, "dark": true, "auto": true}
 
 // themeFromRequest resolves the active theme for the current request from the
-// server-readable `theme` cookie (AI.md 23292). Precedence: valid cookie value
-// → operator's configured default → "dark" (AI.md 23292 fallback, 24076).
+// server-readable `theme` cookie (AI.md 23474). Precedence: valid cookie value
+// → operator's configured default → "dark" (AI.md 23474 fallback, 24552).
 func (s *Server) themeFromRequest(r *http.Request) string {
 	if c, err := r.Cookie("theme"); err == nil {
 		v := strings.TrimSpace(c.Value)
@@ -4323,30 +4449,47 @@ func nextTheme(cur string) string {
 	}
 }
 
-// handleThemeSet persists the theme preference in the `theme` cookie and
-// redirects back, giving no-JS visitors a working toggle via the <noscript>
-// form that POSTs here (AI.md 21588, 23294, 24084). The cookie is server-
-// readable so the next render emits the correct class on <html> with no FOUC.
-func (s *Server) handleThemeSet(w http.ResponseWriter, r *http.Request) {
-	theme := strings.TrimSpace(r.PostFormValue("theme"))
-	if !validThemes[theme] {
-		theme = "dark"
+// handlePreferencesSet is the single POST endpoint behind every no-JS
+// preference control on /server/preferences (AI.md 23489: "the server sets
+// the same cookies on its POST endpoints"). It persists the `theme` cookie
+// and any `pastebin_pref_*` fields present on the form, then redirects back
+// so each control feels in-place. The theme cookie is server-readable so the
+// next render emits the correct class on <html> with no FOUC (AI.md 21588,
+// 23294, 24084).
+//
+// A form carries only the field it is for, so a bare theme form must not
+// clobber the app-specific cookies (and vice versa) — each field is written
+// only when it was actually submitted. An app-pref field whose value fails
+// validAppPrefValue is ignored rather than stored, so a hand-crafted POST can
+// never set a cookie the preferences page has no `<option>` to render.
+func (s *Server) handlePreferencesSet(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.renderErrorPage(w, r, http.StatusBadRequest, "Invalid form submission.")
+		return
 	}
-	secure := r.TLS != nil
-	if s.liveCfg().Web.CSRF.Secure == "true" {
-		secure = true
-	} else if s.liveCfg().Web.CSRF.Secure == "false" {
-		secure = false
+
+	// Only treat `theme` as submitted when the form actually carried the
+	// field — an app-pref form omits it, and must not reset the visitor's
+	// theme to the default as a side effect.
+	if _, submitted := r.PostForm["theme"]; submitted {
+		theme := strings.TrimSpace(r.PostFormValue("theme"))
+		if !validThemes[theme] {
+			theme = "dark"
+		}
+		s.setPreferenceCookie(w, r, "theme", theme)
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "theme",
-		Value:    theme,
-		Path:     "/",
-		MaxAge:   365 * 24 * 60 * 60,
-		HttpOnly: false,
-		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
-	})
+
+	for key, values := range r.PostForm {
+		if !strings.HasPrefix(key, prefCookiePrefix) || len(values) == 0 {
+			continue
+		}
+		prefKey := strings.TrimPrefix(key, prefCookiePrefix)
+		value := strings.TrimSpace(values[0])
+		if !prefKeyPattern.MatchString(prefKey) || !validAppPrefValue(prefKey, value) {
+			continue
+		}
+		s.setPreferenceCookie(w, r, key, value)
+	}
 	// Return to the referring page so the toggle feels in-place; fall back to
 	// the site root when no same-origin referer is present.
 	dest := "/"
@@ -4673,7 +4816,13 @@ func (s *Server) serveBrandingImage(w http.ResponseWriter, r *http.Request, fiel
 		}
 		fallback, encErr := encodePNG(embeddedDefaultBrandingImage(w2, h2))
 		if encErr != nil {
-			http.Error(w, "image unavailable", http.StatusInternalServerError)
+			// Same as the QR route: an image endpoint answering with the
+			// canonical JSON envelope, never an HTML error page.
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"ok":      false,
+				"error":   "SERVER_ERROR",
+				"message": "Image unavailable",
+			})
 			return
 		}
 		data = fallback
@@ -4813,7 +4962,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, r *http.Request, name str
 	// Inject text direction for RTL languages (Arabic) — templates access it as .Dir
 	data["Dir"] = i18n.Direction(lang)
 	// Inject the theme resolved from the server-readable `theme` cookie so every
-	// <html> renders class="theme-{{.Theme}}" with no init JS and no FOUC (AI.md 23252, 23294)
+	// <html> renders class="theme-{{.Theme}}" with no init JS and no FOUC (AI.md 23474, 24552)
 	theme := s.themeFromRequest(r)
 	data["Theme"] = theme
 	// Inject the next mode in the cycle so the no-JS toggle form can advance it (AI.md 21588)
@@ -4902,7 +5051,7 @@ func (s *Server) renderTemplateToString(r *http.Request, name string, data map[s
 	lang := i18n.LangFromRequest(r)
 	data["Lang"] = lang
 	data["Dir"] = i18n.Direction(lang)
-	// Inject the theme resolved from the server-readable `theme` cookie (AI.md 23294)
+	// Inject the theme resolved from the server-readable `theme` cookie (AI.md 23474)
 	theme := s.themeFromRequest(r)
 	data["Theme"] = theme
 	data["NextTheme"] = nextTheme(theme)
@@ -5114,7 +5263,15 @@ func (s *Server) renderErrorPage(w http.ResponseWriter, r *http.Request, status 
 	data["Message"] = message
 	tmpl := s.templates["error.html"]
 	if tmpl == nil {
-		http.Error(w, message, status)
+		// Degraded bootstrap state: error.html failed to parse, so the themed
+		// page cannot be rendered. Fall back to the canonical JSON envelope so
+		// this path still never emits a bare unstyled text error page. Nothing
+		// has been written to w yet, so the status is still unset here.
+		httputil.WriteJSON(w, status, map[string]any{
+			"ok":      false,
+			"error":   errorCodeForStatus(status),
+			"message": message,
+		})
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

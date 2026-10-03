@@ -66,7 +66,13 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 
 	body, err := xml.MarshalIndent(set, "", "  ")
 	if err != nil {
-		http.Error(w, "sitemap generation failed", http.StatusInternalServerError)
+		// Sitemaps are fetched by crawlers, not browsers: send the canonical
+		// JSON error envelope instead of an HTML page (PART 14).
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"error":   "SERVER_ERROR",
+			"message": "Sitemap generation failed",
+		})
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")

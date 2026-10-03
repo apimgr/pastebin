@@ -678,6 +678,15 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 		return err
 	}
 
+	// The containment check above is purely lexical, so a symlink planted
+	// anywhere along the path defeats it: MkdirAll and OpenFile both follow
+	// pre-existing symlinks, letting a crafted archive write outside the
+	// destination base. Re-verify against the real filesystem now that the
+	// directories exist, and refuse to extract through any symlink.
+	if err := rejectSymlinkedPath(dest); err != nil {
+		return err
+	}
+
 	// PART 21: restored files always get mode 0600 — never trust the archive
 	// header mode, which a crafted backup could set world-writable.
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -695,6 +704,32 @@ func extractEntry(tr *tar.Reader, hdr *tar.Header, configDir, dataDir string) er
 	lr := io.LimitReader(tr, 256<<20)
 	_, err = io.Copy(f, lr)
 	return err
+}
+
+// rejectSymlinkedPath walks every component of path from the filesystem root
+// down and fails if any component is a symbolic link. It uses Lstat rather
+// than O_NOFOLLOW because that flag is not portable across Linux, BSD, macOS,
+// and Windows. A component that does not exist yet is not an error — the
+// caller has already created the parent directories.
+func rejectSymlinkedPath(path string) error {
+	cur := filepath.Clean(path)
+	for {
+		info, err := os.Lstat(cur)
+		if err != nil {
+			// A component that does not exist cannot be a symlink, but its
+			// parents still can be — keep walking up to the root.
+			if !os.IsNotExist(err) {
+				return err
+			}
+		} else if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to restore through symlink: %s", cur)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return nil
+		}
+		cur = parent
+	}
 }
 
 // encrypt encrypts data using AES-256-GCM with a key derived via Argon2id.

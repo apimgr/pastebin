@@ -75,6 +75,103 @@ func TestDetectMode_ConfigFlagsThenCommand(t *testing.T) {
 	}
 }
 
+// ─── detectMode — GUI mode ───────────────────────────────────────────────────
+// PART 32's display.mode table: `gui` forces the native GUI (erroring when no
+// display exists), and `auto` picks GUI whenever a display is present.
+
+func TestDetectMode_ExplicitGUIOverride(t *testing.T) {
+	// display.mode: gui must select GUI even with no args at all. This branch
+	// is reached without consulting guiAvailable() — main is the layer that
+	// turns "no display" into the gui_unavailable error, so that the error is
+	// reported only for a mode the user actually asked for.
+	for _, args := range [][]string{
+		{},
+		{"--config=dev"},
+		{"--server=https://x.com"},
+		{"--token=abc"},
+	} {
+		if got := detectMode(args, "gui"); got != "gui" {
+			t.Errorf("detectMode(%v, \"gui\") = %q; want gui", args, got)
+		}
+	}
+}
+
+func TestDetectMode_ExplicitGUIOverrideLosesToCommand(t *testing.T) {
+	// A command argument must beat display.mode: gui — `pastebin-cli list`
+	// with GUI forced has to print a list, not open a window. Same for a flag
+	// outside the config allowlist.
+	for _, args := range [][]string{
+		{"list"},
+		{"--server=https://x.com", "list"},
+		{"create", "hello"},
+		{"--unknown-flag"},
+	} {
+		got := detectMode(args, "gui")
+		if got != "cli" && got != "plain" {
+			t.Errorf("detectMode(%v, \"gui\") = %q; want cli or plain", args, got)
+		}
+	}
+}
+
+func TestDetectMode_ExplicitGUIOverrideLosesToExitFlag(t *testing.T) {
+	// -h/--version must still short-circuit to CLI ahead of GUI.
+	for _, args := range [][]string{
+		{"--config=x", "-h"},
+		{"--version"},
+	} {
+		if got := detectMode(args, "gui"); got != "cli" {
+			t.Errorf("detectMode(%v, \"gui\") = %q; want cli", args, got)
+		}
+	}
+}
+
+func TestDetectMode_TUIOverrideUnaffectedByCommands(t *testing.T) {
+	// display.mode: tui keeps its existing meaning: force the interactive
+	// launch for config-only invocations, but still yield to a command.
+	if got := detectMode([]string{"--config=dev"}, "tui"); got != "tui" {
+		t.Errorf("detectMode([--config=dev], \"tui\") = %q; want tui", got)
+	}
+	if got := detectMode([]string{"list"}, "tui"); got != "cli" && got != "plain" {
+		t.Errorf("detectMode([list], \"tui\") = %q; want cli or plain", got)
+	}
+}
+
+func TestArgsAreConfigOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"no args", nil, true},
+		{"single flag with equals", []string{"--config=dev"}, true},
+		{"several config flags", []string{"--server=https://x.com", "--debug"}, true},
+		{"space-syntax value consumed", []string{"--config", "dev"}, true},
+		{"command name", []string{"list"}, false},
+		{"flag after command", []string{"--debug", "list"}, false},
+		{"unknown flag", []string{"--nope"}, false},
+		{"positional search term", []string{"golang", "tutorials"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := argsAreConfigOnly(tc.args); got != tc.want {
+				t.Errorf("argsAreConfigOnly(%v) = %v; want %v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDetectMode_GUIAvailableFalseNeverSelectsGUI documents the no-tag build
+// contract: guiAvailable() compiles to a constant false there, so auto must
+// never return "gui" and every config-only invocation stays tui/plain.
+func TestDetectMode_GUIAvailableFalseNeverSelectsGUI(t *testing.T) {
+	if guiAvailable() {
+		t.Skip("built with -tags gui; guiAvailable() is display-dependent")
+	}
+	if got := detectMode([]string{"--config=dev"}, "auto"); got == "gui" {
+		t.Error("detectMode selected gui without a display")
+	}
+}
+
 func TestDetectMode_AllSupportedConfigFlags(t *testing.T) {
 	// Each supported config flag
 	flags := []string{

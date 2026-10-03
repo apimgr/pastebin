@@ -99,16 +99,12 @@ done
 
 # ── Tier 1 (SSR, plain net/http) — runs today, no browser dependency ──────
 __info "Running Tier 1 (SSR) e2e tests..."
-if docker run --rm \
-    -e GOFLAGS=-buildvcs=false \
-    -e CGO_ENABLED=0 \
-    -e E2E_BASE_URL="${E2E_BASE_URL}" \
-    -v "${E2E_PROJECT_DIR}:/src:ro" \
-    -v "${E2E_TEMP_DIR}/gocache:/root/.cache/go-build" \
-    --network host \
-    -w /src \
-    casjaysdev/go:latest \
-    go test -tags e2e -run 'TestTier1' -v ./tests/e2e/...; then
+if make -C "${E2E_PROJECT_DIR}" test \
+    TEST_TAGS="-tags e2e" \
+    TEST_PKGS="./tests/e2e/..." \
+    TEST_RUN="-run TestTier1" \
+    TEST_COVERAGE=0 \
+    EXTRA_ENV="-e E2E_BASE_URL=${E2E_BASE_URL}"; then
     __pass "Tier 1 (SSR) e2e suite"
 else
     __fail "Tier 1 (SSR) e2e suite"

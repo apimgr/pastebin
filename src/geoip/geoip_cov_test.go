@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -218,14 +219,13 @@ func TestEnsureFile_NonOKStatus_500(t *testing.T) {
 	}
 }
 
-// ─── Open: WHOIS-only config (covers cfg.EnableASN || cfg.EnableWHOIS path) ──
+// ─── Open: unparseable database files ────────────────────────────────────────
 
-// TestOpen_WHOISOnly exercises the Open code path where only EnableWHOIS is
-// set.  The ASN and country branches are entered via the combined flag check
-// (cfg.EnableASN || cfg.EnableWHOIS) and (cfg.EnableCountry || cfg.EnableWHOIS)
-// respectively, covering those outer if-arms even when EnableASN and
-// EnableCountry are false.
-func TestOpen_WHOISOnly(t *testing.T) {
+// TestOpen_InvalidDatabaseFiles verifies Open tolerates a database file that
+// exists but cannot be parsed.  ensureFile short-circuits on the size check, so
+// the "stub" content reaches maxminddb.Open, which fails and only logs a
+// warning — Open must still return a usable DB rather than an error.
+func TestOpen_InvalidDatabaseFiles(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-create stub files so ensureFile short-circuits on size check
 	// and maxminddb.Open logs a warning (covers the "open asn/country" log path).
@@ -235,9 +235,9 @@ func TestOpen_WHOISOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "country.mmdb"), []byte("stub"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	db, err := Open(Config{Dir: dir, EnableWHOIS: true})
+	db, err := Open(Config{Dir: dir, EnableASN: true, EnableCountry: true})
 	if err != nil {
-		t.Fatalf("Open(EnableWHOIS=true): unexpected error %v", err)
+		t.Fatalf("Open: unexpected error %v", err)
 	}
 	if db == nil {
 		t.Fatal("Open returned nil DB")
@@ -252,57 +252,73 @@ func TestOpen_WHOISOnly(t *testing.T) {
 // all three file downloads fail (unreachable server), so errs must be non-empty
 // and Update returns a non-nil error joining them.
 func TestUpdate_ErrorAggregation(t *testing.T) {
+	// Point every database URL at a local server that always fails, so the
+	// error-aggregation path is exercised deterministically and offline.
+	// The real CDN must not be contacted here: ensureFile carries a 5-minute
+	// context timeout, and Update downloads four databases, so a test that
+	// reaches the network blocks for minutes and trips the Go test timeout.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	restore := pointURLsAt(srv.URL, "/asn.mmdb")
+	defer restore()
+
 	dir := t.TempDir()
 	cfg := Config{
 		Dir:           dir,
 		EnableASN:     true,
-		EnableWHOIS:   true,
 		EnableCountry: true,
 		EnableCity:    true,
 	}
+
+	// Open tolerates download failures (it only logs warnings), so this
+	// returns a usable DB whose handles are all nil.
 	db, err := Open(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	// Update removes the files and re-downloads.  Port 1 is always unreachable.
-	// We override the package-level URLs indirectly by having no files present
-	// (they were never downloaded), so ensureFile will attempt to contact the
-	// real CDN.  In a sandboxed / offline environment that fails; in an online
-	// environment it succeeds.  Either way the function must not panic.
-	//
-	// To guarantee the error path without hitting the network, we use the
-	// Update() method directly after stub-creating invalid files so Open
-	// succeeds but the subsequent re-download or mmdb.Open fails.
-	//
-	// Pre-create stub files so Open can proceed without a download.
-	for _, name := range []string{"asn.mmdb", "country.mmdb", "city.mmdb"} {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte("not-a-real-mmdb"), 0o644); err != nil {
-			t.Fatal(err)
+	// Update removes the stubs and re-downloads; all four fail, and the
+	// per-database errors must be joined into one.
+	err = db.Update()
+	if err == nil {
+		t.Fatal("Update returned nil error; want combined download failures")
+	}
+	msg := err.Error()
+	for _, want := range []string{"asn:", "country:", "city ipv4:", "city ipv6:"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Update error missing %q; got: %s", want, msg)
 		}
 	}
+}
 
-	db2, err := Open(cfg)
-	if err != nil {
-		t.Fatal(err)
+// pointURLsAt redirects every database URL to base+path and returns a func
+// that restores the production URLs.
+func pointURLsAt(base, path string) func() {
+	origASN, origCountry := urlASN, urlCountry
+	origCityV4, origCityV6 := urlCityV4, urlCityV6
+	urlASN = base + path
+	urlCountry = base + path
+	urlCityV4 = base + path
+	urlCityV6 = base + path
+	return func() {
+		urlASN, urlCountry = origASN, origCountry
+		urlCityV4, urlCityV6 = origCityV4, origCityV6
 	}
-	defer db2.Close()
-
-	// Update removes the stubs and tries to download fresh copies.
-	// The result is either an error (offline) or success (online) — both are
-	// valid; we only assert no panic occurs.
-	_ = db2.Update()
 }
 
 // TestUpdate_ClosesOldReaderBeforeReplacing covers the
 // `if d.asnDB != nil { d.asnDB.Close() }` branch inside Update.  We first
 // call Update to download and open real database files, then call Update a
 // second time so the existing non-nil readers are closed before being replaced.
-// This test requires network access; if the CDN is unreachable both calls will
-// return errors, and we tolerate that without failing.
+// The databases are served by a local httptest server so the branch is
+// genuinely reached rather than skipped by an offline download failure.
 func TestUpdate_ClosesOldReaderBeforeReplacing(t *testing.T) {
+	serveMinimalMMDB(t)
+
 	dir := t.TempDir()
 	cfg := Config{
 		Dir:           dir,
@@ -316,17 +332,29 @@ func TestUpdate_ClosesOldReaderBeforeReplacing(t *testing.T) {
 	defer db.Close()
 
 	// First Update: downloads files and opens readers.
-	_ = db.Update()
-	// Second Update: if readers are now non-nil, Close() is called on them
+	if err := db.Update(); err != nil {
+		t.Fatalf("first Update: %v", err)
+	}
+	if db.asnDB == nil || db.countDB == nil {
+		t.Fatal("first Update left readers nil; branch would not be covered")
+	}
+
+	// Second Update: readers are now non-nil, so Close() is called on them
 	// before they are replaced — this is the branch we need to cover.
-	_ = db.Update()
+	if err := db.Update(); err != nil {
+		t.Fatalf("second Update: %v", err)
+	}
+	if db.asnDB == nil || db.countDB == nil {
+		t.Error("second Update left readers nil")
+	}
 }
 
 // TestClose_WithLoadedReaders covers the `if d.asnDB != nil`, `if d.countDB != nil`
 // branches inside Close by first downloading and opening real database files
-// via Update, then calling Close.  Requires network access; if the CDN is
-// unreachable the test is still valid — no panic is acceptable either way.
+// via Update, then calling Close.
 func TestClose_WithLoadedReaders(t *testing.T) {
+	serveMinimalMMDB(t)
+
 	dir := t.TempDir()
 	cfg := Config{
 		Dir:           dir,
@@ -338,10 +366,15 @@ func TestClose_WithLoadedReaders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Attempt to load real readers via Update; ignore errors (offline OK).
-	_ = db.Update()
+	// Load real readers via Update.
+	if err := db.Update(); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if db.asnDB == nil || db.countDB == nil {
+		t.Fatal("Update left readers nil; Close branches would not be covered")
+	}
 
-	// Close must not panic whether or not readers are loaded.
+	// Close must not panic with readers loaded.
 	db.Close()
 	// Second Close on the now-nil readers must also not panic.
 	db.Close()
@@ -518,7 +551,6 @@ func TestOpen_AllFeaturesDisabled_ConfigPreserved(t *testing.T) {
 		EnableASN:     false,
 		EnableCountry: false,
 		EnableCity:    false,
-		EnableWHOIS:   false,
 		DenyCountries: []string{"XX"},
 	})
 	if err != nil {

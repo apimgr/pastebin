@@ -163,6 +163,13 @@ Platform default paths:
 |----------|---------|-------------|
 | `PASTEBIN_SERVER_PRIMARY` | `https://pste.us` (embedded) | Server base URL override for self-hosted instances |
 | `PASTEBIN_TOKEN` | unset | Operator/owner API token (overridden by `--token`; falls back to `cli.yml` `auth.token`) |
+| `PASTEBIN_SERVER_TIMEOUT` | `cli.yml` value | Server request timeout override |
+| `PASTEBIN_SERVER_RETRY` | `cli.yml` value | Retry count override |
+| `PASTEBIN_SERVER_RETRY_DELAY` | `cli.yml` value | Retry delay override |
+| `PASTEBIN_SERVER_API_VERSION` | `cli.yml` value | API version override |
+| `PASTEBIN_OUTPUT_FORMAT` | `cli.yml` value | Output format override (`json`, `table`, `plain`) |
+| `PASTEBIN_OUTPUT_COLOR` | `auto` | Color output override (`auto`, `yes`, `no`) |
+| `PASTEBIN_DEBUG` | `cli.yml` value | Debug output override (truthy/falsy) |
 | `CLI_CONFIG` | Platform default | Path to the client `cli.yml` configuration file |
 | `NO_COLOR` | unset | Set to any value to disable ANSI color output |
 

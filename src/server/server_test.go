@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"image/png"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -218,19 +219,39 @@ func TestCSRFMiddleware(t *testing.T) {
 			wantNext:   true,
 		},
 		{
-			name: "cross-origin POST without cookie bypasses (non-browser CLI/compat client)",
+			name: "cross-origin POST without cookie and without bearer rejected (no absent-cookie bypass)",
 			build: func() *http.Request {
 				r := newReq(http.MethodPost, "http://example.com/api/v1/paste")
 				r.Header.Set("Origin", "http://evil.com")
+				return r
+			},
+			wantStatus: http.StatusForbidden,
+			wantNext:   false,
+		},
+		{
+			name: "cookieless POST with no origin rejected (token absent)",
+			build: func() *http.Request {
+				return newReq(http.MethodPost, "http://example.com/api/new")
+			},
+			wantStatus: http.StatusForbidden,
+			wantNext:   false,
+		},
+		{
+			name: "cookieless POST with bearer bypasses (API clients authenticate via Authorization, not CSRF)",
+			build: func() *http.Request {
+				r := newReq(http.MethodPost, "http://example.com/api/new")
+				r.Header.Set("Authorization", "Bearer tok_abc")
 				return r
 			},
 			wantStatus: http.StatusOK,
 			wantNext:   true,
 		},
 		{
-			name: "cookieless POST with no origin bypasses (curl/compat client)",
+			name: "cookieless POST with X-API-Token bypasses",
 			build: func() *http.Request {
-				return newReq(http.MethodPost, "http://example.com/api/new")
+				r := newReq(http.MethodPost, "http://example.com/api/new")
+				r.Header.Set("X-API-Token", "tok_abc")
+				return r
 			},
 			wantStatus: http.StatusOK,
 			wantNext:   true,
@@ -319,6 +340,138 @@ func TestCSRFMiddleware(t *testing.T) {
 				}
 				if body["error"] != "CSRF_FAILED" {
 					t.Errorf("error = %v, want CSRF_FAILED", body["error"])
+				}
+			}
+		})
+	}
+}
+
+// TestCSRFMiddlewareMultipartToken exercises the browser no-JS create path:
+// the form posts multipart/form-data (file upload support), and the hidden
+// csrf_token field must be read from the multipart body. Regression: the
+// middleware previously fell back to ParseForm only, which never parses
+// multipart bodies, so every browser form submit failed with CSRF_FAILED
+// (AI.md PART 11 "double-submit ... or a csrf_token form field").
+func TestCSRFMiddlewareMultipartToken(t *testing.T) {
+	s := newCSRFServer()
+	validToken, err := s.generateCSRFToken()
+	if err != nil {
+		t.Fatalf("generateCSRFToken: %v", err)
+	}
+
+	build := func(content *bytes.Buffer, contentType string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "http://example.com/pastes", content)
+		r.Header.Set("Content-Type", contentType)
+		r.Header.Set("Origin", "http://example.com")
+		r.AddCookie(&http.Cookie{Name: "csrf_token", Value: validToken})
+		return r
+	}
+
+	t.Run("multipart body with csrf_token field passes", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		if err := w.WriteField("csrf_token", validToken); err != nil {
+			t.Fatalf("WriteField: %v", err)
+		}
+		fw, err := w.CreateFormFile("files", "paste.txt")
+		if err != nil {
+			t.Fatalf("CreateFormFile: %v", err)
+		}
+		if _, err := fw.Write([]byte("hello")); err != nil {
+			t.Fatalf("file write: %v", err)
+		}
+		w.Close()
+
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nextCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+		rec := httptest.NewRecorder()
+		s.csrfMiddleware(next).ServeHTTP(rec, build(&buf, w.FormDataContentType()))
+
+		if rec.Code != http.StatusOK || !nextCalled {
+			t.Errorf("status = %d, nextCalled = %v; want 200/true (multipart csrf_token must be honored)", rec.Code, nextCalled)
+		}
+	})
+
+	t.Run("multipart body without csrf_token field is rejected", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		fw, err := w.CreateFormFile("files", "paste.txt")
+		if err != nil {
+			t.Fatalf("CreateFormFile: %v", err)
+		}
+		if _, err := fw.Write([]byte("hello")); err != nil {
+			t.Fatalf("file write: %v", err)
+		}
+		w.Close()
+
+		rec := httptest.NewRecorder()
+		s.csrfMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(rec, build(&buf, w.FormDataContentType()))
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want 403", rec.Code)
+		}
+	})
+}
+
+// TestCSRFFailureBrowserGetsHTML verifies that a CSRF rejection renders the
+// themed HTML error page for browser clients while API clients keep the
+// canonical CSRF_FAILED JSON envelope (AI.md PART 14 error table + PART 16
+// error-page rules). Regression: the failure path wrote JSON unconditionally,
+// so browsers rendered raw JSON.
+func TestCSRFFailureBrowserGetsHTML(t *testing.T) {
+	s := newCSRFServer()
+	// Parse the real embedded error page tree so the browser branch renders
+	// the production template rather than a synthetic stand-in.
+	tmplMap, err := s.buildTemplates()
+	if err != nil {
+		t.Fatalf("buildTemplates: %v", err)
+	}
+	if tmplMap["error.html"] == nil {
+		t.Fatal("error.html template not parsed")
+	}
+	s.templates = tmplMap
+
+	for _, tc := range []struct {
+		name       string
+		accept     string
+		ua         string
+		wantHTML   bool
+		wantSubstr string
+	}{
+		{name: "browser gets themed HTML", accept: "text/html,application/xhtml+xml", ua: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36", wantHTML: true, wantSubstr: "CSRF token validation failed"},
+		{name: "curl gets JSON envelope", accept: "*/*", ua: "curl/8.0", wantHTML: false, wantSubstr: "CSRF_FAILED"},
+		{name: "API client gets JSON envelope", accept: "application/json", ua: "pastebin-cli/1.0", wantHTML: false, wantSubstr: "CSRF_FAILED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "http://example.com/pastes", nil)
+			r.Header.Set("Accept", tc.accept)
+			r.Header.Set("User-Agent", tc.ua)
+			s.csrfFailureResponse(rec, r)
+
+			gotCT := rec.Header().Get("Content-Type")
+			body := rec.Body.String()
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want 403", rec.Code)
+			}
+			if tc.wantHTML {
+				if !strings.Contains(gotCT, "text/html") {
+					t.Errorf("Content-Type = %q, want text/html", gotCT)
+				}
+				if !strings.Contains(body, tc.wantSubstr) {
+					t.Errorf("body missing %q; got %.200q", tc.wantSubstr, body)
+				}
+				if strings.Contains(body, "CSRF_FAILED") {
+					t.Errorf("browser body must not contain raw error code; got %.200q", body)
+				}
+			} else {
+				if !strings.Contains(gotCT, "application/json") {
+					t.Errorf("Content-Type = %q, want application/json", gotCT)
+				}
+				if !strings.Contains(body, tc.wantSubstr) {
+					t.Errorf("body missing %q; got %.200q", tc.wantSubstr, body)
 				}
 			}
 		})
@@ -2920,7 +3073,7 @@ func TestHandleRecentSearchAndSort(t *testing.T) {
 }
 
 // TestHandleRecentPreferenceCookies verifies handleRecent's read/write of the
-// pastebin_pref_{sort,order,per_page} guest preference cookies (AI.md 23482):
+// pastebin_pref_{sort,order,per_page} guest preference cookies (AI.md 23485):
 // an explicit query param is persisted back to its cookie, and an absent
 // query param falls back to the visitor's previously saved preference.
 func TestHandleRecentPreferenceCookies(t *testing.T) {

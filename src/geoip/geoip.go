@@ -30,7 +30,13 @@ import (
 // geo-whois-asn-country package name is misleading and exposes only
 // country_code. Organization-name data comes solely from the ASN database's
 // autonomous_system_organization field — there is no urlWHOIS constant.
-const (
+//
+// These are vars, not consts, so tests can point them at an httptest server.
+// Update() deletes the destination before calling ensureFile, so every download
+// URL is always hit on the Update path — without this override, any test that
+// exercises Update talks to the real CDN and blocks for the 5-minute
+// ensureFile context timeout, per database.
+var (
 	urlASN     = "https://cdn.jsdelivr.net/npm/@ip-location-db/asn-mmdb/asn.mmdb"
 	urlCountry = "https://cdn.jsdelivr.net/npm/@ip-location-db/geo-whois-asn-country-mmdb/geo-whois-asn-country.mmdb"
 	urlCityV4  = "https://github.com/sapics/ip-location-db/releases/download/latest/dbip-city-ipv4.mmdb"
@@ -79,15 +85,9 @@ type Config struct {
 	EnableASN     bool
 	EnableCountry bool
 	EnableCity    bool
-	// EnableWHOIS is a compatibility alias only: PART 19 states no separate
-	// WHOIS database exists, so this never opens a "whois" database. Kept so
-	// config.go's Databases.WHOIS toggle can still request organization-name
-	// data by additionally enabling the ASN and Country lookups it depends on.
-	EnableWHOIS bool
-	// CountryMode selects the blocking policy (AI.md:27343): "none" disables
-	// country blocking, "deny" uses DenyCountries, "allow" uses AllowCountries.
-	// Empty = infer from which list is non-empty (allow takes precedence).
-	CountryMode    string
+	// DenyCountries blocks the listed codes; AllowCountries allows ONLY the
+	// listed ones. When both are set, AllowCountries wins; when both are empty
+	// no country blocking happens.
 	DenyCountries  []string
 	AllowCountries []string
 	// IPs that always bypass country blocking
@@ -119,7 +119,7 @@ func Open(cfg Config) (*DB, error) {
 		return nil, fmt.Errorf("geoip: create dir: %w", err)
 	}
 
-	if cfg.EnableASN || cfg.EnableWHOIS {
+	if cfg.EnableASN {
 		path := filepath.Join(cfg.Dir, "asn.mmdb")
 		if err := ensureFile(path, urlASN); err != nil {
 			log.Printf("geoip: warning: ASN database unavailable: %v", err)
@@ -133,7 +133,7 @@ func Open(cfg Config) (*DB, error) {
 		}
 	}
 
-	if cfg.EnableCountry || cfg.EnableWHOIS {
+	if cfg.EnableCountry {
 		path := filepath.Join(cfg.Dir, "country.mmdb")
 		if err := ensureFile(path, urlCountry); err != nil {
 			log.Printf("geoip: warning: country database unavailable: %v", err)
@@ -184,7 +184,7 @@ func (d *DB) Update() error {
 
 	var errs []string
 
-	if d.cfg.EnableASN || d.cfg.EnableWHOIS {
+	if d.cfg.EnableASN {
 		path := filepath.Join(d.cfg.Dir, "asn.mmdb")
 		// Remove so ensureFile always downloads.
 		_ = os.Remove(path)
@@ -200,7 +200,7 @@ func (d *DB) Update() error {
 		}
 	}
 
-	if d.cfg.EnableCountry || d.cfg.EnableWHOIS {
+	if d.cfg.EnableCountry {
 		path := filepath.Join(d.cfg.Dir, "country.mmdb")
 		_ = os.Remove(path)
 		if err := ensureFile(path, urlCountry); err != nil {
@@ -324,19 +324,12 @@ func (d *DB) Lookup(ip net.IP) *Info {
 	return info
 }
 
-// countryMode resolves the effective country-blocking mode (AI.md:27343).
-// An explicit CountryMode ("none", "deny", "allow") wins; when empty, the mode
-// is inferred from list contents for backward compatibility — allow_countries
-// takes precedence when both lists are set (AI.md:27298).
+// countryMode resolves the effective country-blocking mode.
+//
+// PART 19 defines the mode purely by the contents of the two lists: an
+// allowlist wins when both are populated, and with neither list set there is
+// no country blocking at all.
 func (d *DB) countryMode() string {
-	switch strings.ToLower(strings.TrimSpace(d.cfg.CountryMode)) {
-	case "none":
-		return "none"
-	case "deny":
-		return "deny"
-	case "allow":
-		return "allow"
-	}
 	if len(d.cfg.AllowCountries) > 0 {
 		return "allow"
 	}

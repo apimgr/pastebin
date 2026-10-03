@@ -51,8 +51,18 @@ REGISTRY  ?= ghcr.io/$(PROJECT_ORG)/$(PROJECT_NAME)
 DOCKER_MEM  ?= 4g
 DOCKER_CPUS ?= 2
 
+# Extra `docker run` flags forwarded to the toolchain container (e.g. EXTRA_ENV=-e FOO=bar)
+EXTRA_ENV ?=
+
+# `make test` knobs — defaults reproduce the standard full-suite run; tests/*.sh
+# override them so no script ever needs a raw `docker run ... go test`.
+TEST_TAGS     ?=
+TEST_PKGS     ?= ./...
+TEST_RUN      ?=
+TEST_COVERAGE ?= 1
+
 # GO_DOCKER_RUN is the shared docker run prefix with no image, so targets can add mounts before the image.
-GO_DOCKER_RUN := docker run --rm --name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) --memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) -v $(PWD):/app -v $(GO_CACHE):/usr/local/share/go/pkg/mod -v $(GO_BUILD):/usr/local/share/go/cache -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false
+GO_DOCKER_RUN := docker run --rm --name $(PROJECT_NAME)-$$(tr -dc 'a-z0-9' </dev/urandom | head -c8) --memory=$(DOCKER_MEM) --cpus=$(DOCKER_CPUS) -v $(PWD):/app -v $(GO_CACHE):/usr/local/share/go/pkg/mod -v $(GO_BUILD):/usr/local/share/go/cache -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false $(EXTRA_ENV)
 GO_DOCKER := $(GO_DOCKER_RUN) casjaysdev/go:latest
 
 .PHONY: build local release docker test dev clean
@@ -181,20 +191,27 @@ docker:
 #   - All other Go projects: 60% minimum; override upward in IDEA.md
 #     (## Project variables -> coverage_minimum: 80) when appropriate.
 # =============================================================================
+# Override knobs (used by tests/*.sh so they never bypass `make test`):
+#   TEST_TAGS="-tags e2e"  TEST_PKGS="./tests/e2e/..."  TEST_RUN="-run TestTier1"
+#   TEST_COVERAGE=0        skip the 60% gate (e2e suites measure integration, not unit coverage)
 test:
 	@mkdir -p $(GO_CACHE) $(GO_BUILD)
-	@echo "Running tests with coverage..."
+	@echo "Running tests$(if $(TEST_TAGS), with $(TEST_TAGS)) for $(TEST_PKGS)..."
 	@$(GO_DOCKER) sh -c " \
 		mkdir -p \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)\" && \
 		COVDIR=\$$(mktemp -d \"\$${TMPDIR:-/tmp}/$(PROJECT_ORG)/$(INTERNAL_NAME)-XXXXXX\") && \
 		go mod download && \
-		go test -v -cover -coverprofile=\$$COVDIR/coverage.out ./... && \
-		COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
-		echo \"Coverage: \$$COVERAGE%\" && \
-		if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \
-			echo \"ERROR: Coverage is \$$COVERAGE%, must be >= 60%\"; exit 1; \
-		fi && \
-		echo \"Tests complete - Coverage: \$$COVERAGE% (>= 60% required) ✓\""
+		if [ '$(TEST_COVERAGE)' = '1' ]; then \
+			go test -v $(TEST_TAGS) $(TEST_RUN) -cover -coverprofile=\$$COVDIR/coverage.out $(TEST_PKGS) && \
+			COVERAGE=\$$(go tool cover -func=\$$COVDIR/coverage.out | grep total | awk '{print \$$3}' | sed 's/%//') && \
+			echo \"Coverage: \$$COVERAGE%\" && \
+			if [ \$$(echo \"\$$COVERAGE < 60\" | bc -l) -eq 1 ]; then \
+				echo \"ERROR: Coverage is \$$COVERAGE%, must be >= 60%\"; exit 1; \
+			fi && \
+			echo \"Tests complete - Coverage: \$$COVERAGE% (>= 60% required) ✓\"; \
+		else \
+			go test -v $(TEST_TAGS) $(TEST_RUN) $(TEST_PKGS); \
+		fi"
 
 # =============================================================================
 # DEV - Quick build for local development (random temp dir, no version info)

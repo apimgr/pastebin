@@ -4,11 +4,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+
+	"github.com/apimgr/pastebin/src/config"
 )
 
 // TestParseAppPref verifies the pastebin_pref_{key} name/value allowlist
-// (AI.md 23482/23496) accepts well-formed pairs and rejects everything else.
+// (AI.md 23485/23501) accepts well-formed pairs and rejects everything else.
 func TestParseAppPref(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -27,6 +30,17 @@ func TestParseAppPref(t *testing.T) {
 		{"value with space rejected", "pastebin_pref_view_mode", "a b", "", false},
 		{"value with semicolon rejected", "pastebin_pref_view_mode", "a;b", "", false},
 		{"value too long rejected", "pastebin_pref_view_mode", string(make([]byte, 65)), "", false},
+		// Concrete keys carry a per-key enum, so a well-formed but
+		// unsupported value is rejected here rather than reaching a handler
+		// as a cookie the UI has no <option> to render back.
+		{"sort enum accepts a real column", "pastebin_pref_sort", "views", "sort", true},
+		{"sort enum rejects unknown column", "pastebin_pref_sort", "bogus", "", false},
+		{"sort enum rejects SQL fragment", "pastebin_pref_sort", "date;drop", "", false},
+		{"order enum accepts desc", "pastebin_pref_order", "desc", "order", true},
+		{"order enum rejects sideways", "pastebin_pref_order", "sideways", "", false},
+		{"per_page enum accepts a listed size", "pastebin_pref_per_page", "50", "per_page", true},
+		{"per_page enum rejects unlisted size", "pastebin_pref_per_page", "37", "", false},
+		{"per_page enum rejects non-numeric", "pastebin_pref_per_page", "lots", "", false},
 	}
 
 	for _, tc := range cases {
@@ -85,7 +99,7 @@ func TestExtractAppPrefs(t *testing.T) {
 
 // TestPreferencesExportQuery verifies theme/lang always round-trip and every
 // app-specific pastebin_pref_* entry is appended in stable (sorted) order
-// (AI.md 23502/23504).
+// (AI.md 23507/23503).
 func TestPreferencesExportQuery(t *testing.T) {
 	got := preferencesExportQuery("dark", "fr", nil)
 	want := "theme=dark&lang=fr"
@@ -100,5 +114,135 @@ func TestPreferencesExportQuery(t *testing.T) {
 	want = "theme=dark&lang=fr&pastebin_pref_per_page=50&pastebin_pref_view_mode=compact"
 	if got != want {
 		t.Fatalf("preferencesExportQuery(extra) = %q, want %q", got, want)
+	}
+}
+
+// TestResolvedPref verifies the preferences page reports the value the
+// recents list would actually use: the visitor's cookie when valid, the
+// hard default when absent or invalid (AI.md 23485 — every app-specific
+// pref needs a control with a definite current value).
+func TestResolvedPref(t *testing.T) {
+	cases := []struct {
+		name    string
+		cookies []*http.Cookie
+		key     string
+		want    string
+	}{
+		{"no cookie falls back to default", nil, prefKeySort, "date"},
+		{"no cookie per_page default", nil, prefKeyPerPage, "20"},
+		{"valid cookie wins", []*http.Cookie{
+			{Name: prefCookiePrefix + prefKeySort, Value: "views"},
+		}, prefKeySort, "views"},
+		{"invalid value falls back to default", []*http.Cookie{
+			{Name: prefCookiePrefix + prefKeyOrder, Value: "sideways"},
+		}, prefKeyOrder, "desc"},
+		{"one invalid key does not affect the others", []*http.Cookie{
+			{Name: prefCookiePrefix + prefKeySort, Value: "bogus"},
+			{Name: prefCookiePrefix + prefKeyPerPage, Value: "100"},
+		}, prefKeyPerPage, "100"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/server/preferences", nil)
+			for _, c := range tc.cookies {
+				r.AddCookie(c)
+			}
+			if got := resolvedPref(r, tc.key); got != tc.want {
+				t.Errorf("resolvedPref(%s) = %q, want %q", tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRememberPreference verifies a query-param choice is persisted only when
+// the read-side allowlist would accept it back. /pastes accepts a wider set of
+// sort columns and page sizes than the recents list's <select> offers; a value
+// outside the pref enums (e.g. "title", an alias of "name") is a valid one-shot
+// query but must not become a saved preference, or the preferences page would
+// show a default the visitor never chose (AI.md 23485 — the page's controls must
+// agree with what the list actually does).
+func TestRememberPreference(t *testing.T) {
+	// A "" want means no cookie is expected at all.
+	cases := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{"enum-legal sort is remembered", prefKeySort, "views", "views"},
+		{"enum-legal per_page is remembered", prefKeyPerPage, "50", "50"},
+		// "title" is a real publicPasteSortColumns entry, so /pastes honors it,
+		// but no <option> on the preferences page renders it.
+		{"sort alias with no option is not remembered", prefKeySort, "title", ""},
+		{"id column has no option", prefKeySort, "id", ""},
+		{"unlisted page size is not remembered", prefKeyPerPage, "37", ""},
+		{"non-numeric page size is not remembered", prefKeyPerPage, "lots", ""},
+		{"malformed value is not remembered", prefKeyOrder, "desc;drop", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newMinimalServer(config.DefaultConfig())
+			r := httptest.NewRequest(http.MethodGet, "/pastes", nil)
+			w := httptest.NewRecorder()
+			s.rememberPreference(w, r, tc.key, tc.value)
+
+			name := prefCookiePrefix + tc.key
+			got, ok := setCookiesOf(w)[name]
+			if tc.want == "" {
+				if ok {
+					t.Errorf("cookie %s = %q, want no cookie set", name, got)
+				}
+				return
+			}
+			if !ok || got != tc.want {
+				t.Errorf("cookie %s = %q (set=%v), want %q", name, got, ok, tc.want)
+			}
+			// Whatever was written must survive the read path unchanged.
+			if _, _, valid := parseAppPref(name, got); !valid {
+				t.Errorf("cookie %s = %q fails parseAppPref on read", name, got)
+			}
+		})
+	}
+}
+
+// TestPreferencesPageRenders guards the page against render-time template
+// errors. A missing FuncMap helper is NOT a parse-time error in text/template
+// — it only fails when the node executes — so a broken template still passes
+// every other test in this package and only shows up as a 500 in production.
+// (This is exactly how `(slice "dark" "light" "auto")` shipped: `slice` is a
+// text/template builtin for range-slicing, not a list-maker.)
+func TestPreferencesPageRenders(t *testing.T) {
+	s := &Server{cfg: config.DefaultConfig()}
+	pages, err := s.buildTemplates()
+	if err != nil {
+		t.Fatalf("buildTemplates: %v", err)
+	}
+	s.templates = pages
+
+	r := httptest.NewRequest(http.MethodGet, "/server/preferences", nil)
+	w := httptest.NewRecorder()
+	s.renderTemplate(w, r, "preferences.html", s.preferencesPageData(r, "dark", "en"))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+
+	// AI.md 23485: a control for every app-specific pastebin_pref_* setting.
+	// Each must post to the endpoint and render its current value as selected.
+	body := w.Body.String()
+	for _, want := range []string{
+		`name="pastebin_pref_sort"`,
+		`name="pastebin_pref_order"`,
+		`name="pastebin_pref_per_page"`,
+		// No cookie was sent, so each control must render the hard default as
+		// its selected option rather than leaving the first <option> selected
+		// by accident.
+		`<option value="date" selected>`,
+		`<option value="desc" selected>`,
+		`<option value="20" selected>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("preferences.html missing %q", want)
+		}
 	}
 }

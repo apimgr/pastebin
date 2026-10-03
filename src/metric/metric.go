@@ -4,8 +4,11 @@ package metric
 
 import (
 	"crypto/subtle"
+	"encoding/json"
+	"log"
 	"net/http"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,9 +17,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/apimgr/pastebin/src/common/httputil"
 )
 
 const ns = "pastebin"
+
+// Metrics service names (AI.md PART 20). Each has its own bearer token so
+// rotating one service's token never breaks the others.
+const (
+	ServicePrometheus = "prometheus"
+	ServiceGrafana    = "grafana"
+	ServiceLoki       = "loki"
+)
+
+// metricServices is the canonical service order, used for startup logging.
+var metricServices = []string{ServicePrometheus, ServiceGrafana, ServiceLoki}
 
 // Default histogram buckets, used when the config supplies no override.
 var (
@@ -322,14 +338,28 @@ var (
 // Collector bundles scrape-time collection dependencies.
 type Collector struct {
 	startTime time.Time
-	// bearer token for access control; empty = no auth
-	token string
+	// serviceTokens maps a metrics service name ("prometheus", "grafana",
+	// "loki") to its bearer token. An empty token disables that service: its
+	// endpoints answer 403 with an empty body. PART 20 forbids an
+	// unauthenticated default, so every service requires a token unless
+	// allowUnauthenticated is explicitly set.
+	serviceTokens map[string]string
+	// allowUnauthenticated is the firewalled-internal-networks escape hatch
+	// that skips token checks for every metrics service.
+	allowUnauthenticated bool
 	// tracks accumulated GC pause nanoseconds between scrapes
 	lastPauseTotalNs uint64
 
 	includeSystem  bool
 	includeRuntime bool
 	dataDir        string
+
+	// lokiMaxEntries and lokiMaxAge bound what the loki service returns.
+	lokiMaxEntries int
+	lokiMaxAge     time.Duration
+	// logProvider supplies recent structured log lines for the loki service.
+	// Nil means the loki service serves an empty stream rather than failing.
+	logProvider func() []LokiEntry
 
 	// Per-collector HTTP histograms, built from configured buckets.
 	httpReqDuration *prometheus.HistogramVec
@@ -352,16 +382,42 @@ type Collector struct {
 // Options configures a Collector. Buckets default to the package defaults
 // when empty; IncludeSystem/IncludeRuntime gate optional metric families.
 type Options struct {
-	Version         string
-	Commit          string
-	BuildDate       string
-	Token           string
-	StartTime       time.Time
-	IncludeSystem   bool
-	IncludeRuntime  bool
-	DurationBuckets []float64
-	SizeBuckets     []float64
-	DataDir         string
+	Version string
+	Commit  string
+	// Token is the prometheus-service bearer token. Retained as the primary
+	// field so callers that only expose a single token keep working; it is
+	// folded into ServiceTokens during construction.
+	Token     string
+	BuildDate string
+	// ServiceTokens holds the per-service bearer tokens for the metrics
+	// routes. Rotating one service's token never breaks the others.
+	ServiceTokens map[string]string
+	// AllowUnauthenticated skips token checks for every metrics service. It is
+	// an escape hatch for firewalled internal networks only.
+	AllowUnauthenticated bool
+	StartTime            time.Time
+	IncludeSystem        bool
+	IncludeRuntime       bool
+	DurationBuckets      []float64
+	SizeBuckets          []float64
+	DataDir              string
+	// LokiMaxEntries and LokiMaxAge bound what the loki service returns
+	// (AI.md PART 20). MaxAge is a Go duration string; an unparsable value
+	// falls back to one hour and an entry count of zero falls back to 1000.
+	LokiMaxEntries int
+	LokiMaxAge     string
+	// LogProvider supplies recent structured log lines for the loki service.
+	// It returns entries already ordered oldest-first and already sanitized.
+	// Nil means the loki service serves an empty stream rather than failing.
+	LogProvider func() []LokiEntry
+}
+
+// LokiEntry is one log line in the shape the loki service serves (AI.md
+// PART 20): a label set plus a timestamped line.
+type LokiEntry struct {
+	Labels map[string]string
+	Time   time.Time
+	Line   string
 }
 
 // New creates a Collector with the default metric set (runtime metrics on,
@@ -394,12 +450,45 @@ func NewWithOptions(o Options) *Collector {
 		sz = defaultSizeBuckets
 	}
 
+	// Per-service tokens win over the flat Token field, which is kept for
+	// configs that predate auth.tokens. Build a fresh map so a caller's map
+	// is never aliased into the collector.
+	tokens := make(map[string]string, len(metricServices)+1)
+	for _, svc := range metricServices {
+		if t := o.ServiceTokens[svc]; t != "" {
+			tokens[svc] = t
+		}
+	}
+	if _, ok := tokens[ServicePrometheus]; !ok && o.Token != "" {
+		tokens[ServicePrometheus] = o.Token
+	}
+
+	// Bound the loki service. A bad max_age warns and falls back rather than
+	// failing startup; the same lenient posture config validation takes.
+	lokiMaxEntries := o.LokiMaxEntries
+	if lokiMaxEntries <= 0 {
+		lokiMaxEntries = 1000
+	}
+	lokiMaxAge := time.Hour
+	if o.LokiMaxAge != "" {
+		d, err := time.ParseDuration(o.LokiMaxAge)
+		if err != nil || d <= 0 {
+			log.Printf("metric: loki.max_age %q invalid, using 1h", o.LokiMaxAge)
+		} else {
+			lokiMaxAge = d
+		}
+	}
+
 	c := &Collector{
-		startTime:      o.StartTime,
-		token:          o.Token,
-		includeSystem:  o.IncludeSystem && systemStatsSupported(),
-		includeRuntime: o.IncludeRuntime,
-		dataDir:        o.DataDir,
+		startTime:            o.StartTime,
+		serviceTokens:        tokens,
+		allowUnauthenticated: o.AllowUnauthenticated,
+		includeSystem:        o.IncludeSystem && systemStatsSupported(),
+		includeRuntime:       o.IncludeRuntime,
+		dataDir:              o.DataDir,
+		lokiMaxEntries:       lokiMaxEntries,
+		lokiMaxAge:           lokiMaxAge,
+		logProvider:          o.LogProvider,
 	}
 
 	c.httpReqDuration = registerHistogramVec(prometheus.NewHistogramVec(
@@ -483,21 +572,98 @@ func setBool(g prometheus.Gauge, b bool) {
 	g.Set(0)
 }
 
-// Handler returns an http.Handler that serves Prometheus metrics.
-// If a bearer token is configured, the Authorization header is validated.
+// DisabledServices returns the metrics services that have no configured token
+// and are therefore disabled (their endpoints answer 403). The names are
+// returned, never the tokens, so callers can log the reason at startup without
+// leaking a secret.
+func (c *Collector) DisabledServices() []string {
+	if c.allowUnauthenticated {
+		return nil
+	}
+	var disabled []string
+	for _, svc := range metricServices {
+		if c.serviceTokens[svc] == "" {
+			disabled = append(disabled, svc)
+		}
+	}
+	return disabled
+}
+
+// authzResult reports whether a metrics request may proceed.
+type authzResult int
+
+const (
+	// authzOK means the request may be served.
+	authzOK authzResult = iota
+	// authzUnauthorized means the bearer token was absent or wrong (401).
+	authzUnauthorized
+	// authzDisabled means the service has no token configured (403).
+	authzDisabled
+)
+
+// authorize applies the PART 20 token rules for a single metrics service.
+//
+// The escape hatch (allowUnauthenticated) skips checks entirely. Otherwise a
+// service with an empty token is disabled → 403 with an empty body, and a
+// non-empty token must match the Authorization header exactly. Query-string
+// tokens are deliberately not consulted: they leak into access logs and
+// intermediate proxies.
+func (c *Collector) authorize(service string, r *http.Request) authzResult {
+	if c.allowUnauthenticated {
+		return authzOK
+	}
+	want := c.serviceTokens[service]
+	if want == "" {
+		return authzDisabled
+	}
+	auth := r.Header.Get("Authorization")
+	// Constant-time comparison to prevent token timing attacks.
+	if subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+want)) != 1 {
+		return authzUnauthorized
+	}
+	return authzOK
+}
+
+// Handler returns an http.Handler that serves Prometheus metrics behind the
+// prometheus service's bearer token. ServiceHandler is the per-service entry
+// point used by the /server/metrics/{service} routes.
 func (c *Collector) Handler() http.Handler {
+	return c.ServiceHandler(ServicePrometheus)
+}
+
+// ServiceHandler returns an http.Handler serving the given metrics service,
+// enforcing that service's bearer token.
+func (c *Collector) ServiceHandler(service string) http.Handler {
 	inner := promhttp.Handler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Enforce bearer token auth if configured.
-		if c.token != "" {
-			auth := r.Header.Get("Authorization")
-			// Constant-time comparison to prevent token timing attacks.
-			expected := "Bearer " + c.token
-			if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
+		switch c.authorize(service, r) {
+		case authzDisabled:
+			// 403 with an empty body: the service is administratively off.
+			// Deliberately no body so a disabled service leaks nothing.
+			w.WriteHeader(http.StatusForbidden)
+			return
+		case authzUnauthorized:
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			// Prometheus scrapers are machine clients, so the rejection uses
+			// the canonical PART 14 JSON envelope rather than bare text.
+			httputil.WriteJSON(w, http.StatusUnauthorized, map[string]any{
+				"ok":      false,
+				"error":   "UNAUTHORIZED",
+				"message": "Unauthorized",
+			})
+			return
+		}
+
+		// PART 20: only the prometheus service speaks Prometheus text
+		// exposition. grafana serves a dashboard definition and loki serves a
+		// stream; both are JSON, so they must not reach the promhttp handler.
+		switch service {
+		case ServiceGrafana:
+			c.serveGrafana(w, r)
+			return
+		case ServiceLoki:
+			c.serveLoki(w, r)
+			return
 		}
 
 		// Collect runtime metrics just before scrape.
@@ -505,6 +671,108 @@ func (c *Collector) Handler() http.Handler {
 
 		inner.ServeHTTP(w, r)
 	})
+}
+
+// serveGrafana writes the importable dashboard definition as JSON. The
+// datasource stays a template variable so the payload imports against whatever
+// Prometheus datasource the operator already has.
+func (c *Collector) serveGrafana(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(Dashboard()); err != nil {
+		log.Printf("metric: encode grafana dashboard: %v", err)
+	}
+}
+
+// serveLoki writes recent structured log entries in the Loki push-API stream
+// format: {"streams":[{"stream":{labels},"values":[["<ns-ts>","<line>"]]}]}.
+// Entries are bounded by loki.max_entries and loki.max_age and arrive already
+// sanitized from the provider.
+func (c *Collector) serveLoki(w http.ResponseWriter, r *http.Request) {
+	// An absent provider is not an error: it just means no log source is wired
+	// yet, so the stream is empty rather than the scrape failing.
+	var entries []LokiEntry
+	if c.logProvider != nil {
+		entries = c.logProvider()
+	}
+
+	cutoff := time.Now().Add(-c.lokiMaxAge)
+	kept := entries[:0:0]
+	for _, e := range entries {
+		if !e.Time.IsZero() && e.Time.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	// Keep the newest max_entries; the provider returns oldest-first.
+	if len(kept) > c.lokiMaxEntries {
+		kept = kept[len(kept)-c.lokiMaxEntries:]
+	}
+
+	// Group by label set so Loki sees one entry per stream. Label keys are
+	// sorted by encoding/json for map[string]string, so grouping is stable.
+	type stream struct {
+		labels map[string]string
+		values []any
+	}
+	var order []string
+	streams := make(map[string]*stream)
+	for _, e := range kept {
+		key := labelsKey(e.Labels)
+		st, ok := streams[key]
+		if !ok {
+			st = &stream{labels: e.Labels}
+			streams[key] = st
+			order = append(order, key)
+		}
+		ts := e.Time
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+		st.values = append(st.values, []any{strconv.FormatInt(ts.UnixNano(), 10), e.Line})
+	}
+
+	out := make([]any, 0, len(order))
+	for _, key := range order {
+		out = append(out, map[string]any{
+			"stream": streams[key].labels,
+			"values": streams[key].values,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(w).Encode(map[string]any{"streams": out}); err != nil {
+		log.Printf("metric: encode loki streams: %v", err)
+	}
+}
+
+// labelsKey renders a label set as a stable, unambiguous string for stream
+// grouping. Keys and values are length-prefixed rather than joined with bare
+// separators: a comma-joined form collides, so {"a":"b,c=d"} and
+// {"a":"b","c":"d"} would hash to the same key and merge two distinct label
+// sets into one Loki stream, mislabelling every line in it.
+func labelsKey(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(strconv.Itoa(len(k)))
+		b.WriteByte(':')
+		b.WriteString(k)
+		b.WriteString(strconv.Itoa(len(labels[k])))
+		b.WriteByte(':')
+		b.WriteString(labels[k])
+	}
+	return b.String()
 }
 
 // collectRuntime updates runtime-derived gauges immediately before each scrape.

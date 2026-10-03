@@ -344,6 +344,8 @@
     "theme_desc": "Elige el aspecto del sitio en este navegador.",
     "lang_label": "Idioma",
     "lang_desc": "Elige tu idioma preferido para este navegador.",
+    "app_pref_title": "Preferencias de navegación",
+    "app_pref_desc": "Orden y tamaño de página predeterminados para la lista de pastes recientes.",
     "token_title": "Token guardado",
     "token_desc": "Olvida el token de propiedad del paste guardado en este navegador. Tus pastes no se eliminan; simplemente no podrás editarlos ni eliminarlos desde aquí a menos que vuelvas a introducir el token.",
     "export_title": "Exportar",

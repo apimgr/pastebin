@@ -301,32 +301,13 @@ func readTokenFile(path string) (string, error) {
 
 // ─── Display mode detection ───────────────────────────────────────────────────
 
-// detectMode returns "tui", "cli", or "plain" based on environment and args.
-// Implements PART 32 Automatic Mode Detection rules. displayMode is the
-// cli.yml `display.mode` override ("auto" (default), "tui", or "gui"); it
-// never comes from a CLI flag — PART 32 forbids --tui/--gui/--mode-ui flags.
-func detectMode(args []string, displayMode string) string {
-	// Exit-immediately flags — never TUI.
-	for _, arg := range args {
-		switch arg {
-		case "-h", "--help", "-v", "--version":
-			return "cli"
-		}
-	}
-
-	// Config override: force TUI even when stdout isn't a terminal.
-	// "gui" is not implemented (no native GUI toolkit shipped) — treated as
-	// unsupported and falls back to auto-detection rather than failing silently.
-	if displayMode == "tui" {
-		return "tui"
-	}
-
-	// Not a terminal → plain output (piped, cron, scripts).
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
-		return "plain"
-	}
-
-	// Config-only flags that still allow TUI launch (value: flag consumes the next arg).
+// argsAreConfigOnly reports whether args holds nothing but the config-only
+// flags — no command name and no flag outside the config allowlist. Those are
+// exactly the invocations that stay interactive (`pastebin-cli`,
+// `pastebin-cli --server URL`) rather than dispatching a command.
+func argsAreConfigOnly(args []string) bool {
+	// Config-only flags that still allow an interactive launch (value: flag
+	// consumes the next arg).
 	configFlags := map[string]bool{
 		"--config": true, "--server": true, "--token": true, "--token-file": true,
 		"--debug": true, "--color": true, "--json": true, "--lang": true,
@@ -340,16 +321,71 @@ func detectMode(args []string, displayMode string) string {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "-") {
-			return "cli"
+			return false
 		}
 		parts := strings.SplitN(arg, "=", 2)
 		if !configFlags[parts[0]] {
-			return "cli"
+			return false
 		}
 		// Space syntax: skip the flag's value (--flag value).
 		if valueFlags[parts[0]] && !strings.Contains(arg, "=") && i+1 < len(args) {
 			i++
 		}
+	}
+	return true
+}
+
+// detectMode returns "tui", "gui", "cli", or "plain" based on environment and
+// args. Implements PART 32 Automatic Mode Detection rules. displayMode is the
+// cli.yml `display.mode` override ("auto" (default), "tui", or "gui"); it
+// never comes from a CLI flag — PART 32 forbids --tui/--gui/--mode-ui flags.
+func detectMode(args []string, displayMode string) string {
+	// Exit-immediately flags — never TUI.
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help", "-v", "--version":
+			return "cli"
+		}
+	}
+
+	// A command (or a non-config flag) always wins over any display mode:
+	// `pastebin-cli list` must print a list, not open a window, even with
+	// display.mode: gui set. GUI/TUI are only ever candidates for the
+	// config-only invocations, which is the same set the PART 32 table
+	// describes as "Interactive terminal + config flags only".
+	if !argsAreConfigOnly(args) {
+		// Not a terminal → plain output (piped, cron, scripts).
+		if !term.IsTerminal(int(os.Stdout.Fd())) {
+			return "plain"
+		}
+		return "cli"
+	}
+
+	// Config override: force TUI even when stdout isn't a terminal.
+	if displayMode == "tui" {
+		return "tui"
+	}
+
+	// Config override: force the native GUI. This is checked before the
+	// stdout-is-a-terminal test because the GUI draws into its own window
+	// and does not care whether stdout is a TTY — main reports the error
+	// when no display is actually present, per the PART 32 table's
+	// "gui → error if no display available".
+	if displayMode == "gui" {
+		return "gui"
+	}
+
+	// Auto-detect: a real display outranks the terminal, per the PART 32
+	// table ("auto → Detect: GUI if display, TUI if terminal, error if
+	// neither"). Checked after the exit-immediately and config-override
+	// rules above, and before the terminal test below.
+	if guiAvailable() {
+		return "gui"
+	}
+
+	// Not a terminal → plain output (piped, cron, scripts).
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		return "plain"
 	}
 
 	return "tui"
@@ -750,15 +786,24 @@ func main() {
 
 	// Auto-detect display mode per PART 32, honoring the cli.yml
 	// display.mode override ("auto", "tui", or "gui" — never a CLI flag).
-	if fileCfg.Display.Mode == "gui" {
-		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("gui_unavailable"))
-		os.Exit(exitGeneral)
-	}
 	mode := detectMode(args, fileCfg.Display.Mode)
 	// cli.yml tui.enabled: false forces CLI-only mode even when the
 	// terminal would otherwise auto-detect TUI (PART 32, AI.md line 44633).
 	if mode == "tui" && !fileCfg.TUI.Enabled {
 		mode = "cli"
+	}
+	if mode == "gui" {
+		// PART 32: `gui` is "force native GUI (error if no display)", and
+		// auto-detect only picks GUI when one is actually present. So a
+		// failure here means the user explicitly asked for GUI and this
+		// build/OS has none — report that rather than silently degrading to
+		// the TUI they did not ask for.
+		if !guiAvailable() {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("gui_unavailable"))
+			os.Exit(exitGeneral)
+		}
+		runGUI(*server, locale, fileCfg)
+		return
 	}
 	if mode == "tui" {
 		runTUI(*server, locale, fileCfg)

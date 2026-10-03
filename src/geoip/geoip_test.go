@@ -18,7 +18,6 @@ func TestOpen_AllDisabled(t *testing.T) {
 		EnableASN:     false,
 		EnableCountry: false,
 		EnableCity:    false,
-		EnableWHOIS:   false,
 	})
 	if err != nil {
 		t.Fatalf("Open(all disabled): %v", err)

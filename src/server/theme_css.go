@@ -59,7 +59,14 @@ func (s *Server) handleCSS(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tmpl, err := cssParsed(name)
 		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			// A stylesheet is fetched by the browser as a machine-readable
+			// asset, so return the canonical JSON error envelope rather than
+			// the themed HTML page renderErrorPage would negotiate to.
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"ok":      false,
+				"error":   "SERVER_ERROR",
+				"message": "Internal server error",
+			})
 			return
 		}
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")

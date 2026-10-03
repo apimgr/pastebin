@@ -72,33 +72,11 @@ done
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 command -v incus >/dev/null 2>&1 || { echo "ERROR: incus not found. Install incus or use tests/docker.sh" >&2; exit 1; }
 
-# ── Build — use Makefile if present (output always lands in binaries/) ───────
+# ── Build — always via `make build` (output always lands in binaries/) ───────
 cd "${INCUS_PROJECT_DIR}"
-if [[ -f "Makefile" ]]; then
-    __info "Building with make build..."
-    make build
-else
-    __info "Building in Docker (no Makefile)..."
-    INCUS_GO_CACHE="${GO_CACHE:-$HOME/go/pkg/mod}"
-    INCUS_GO_BUILD="${GO_BUILD:-$HOME/.cache/go-build/${INCUS_PROJECT_NAME}}"
-    mkdir -p "${INCUS_GO_CACHE}" "${INCUS_GO_BUILD}" binaries
-    docker run --rm \
-        --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-        -v "${INCUS_PROJECT_DIR}":/app \
-        -v "${INCUS_GO_CACHE}":/usr/local/share/go/pkg/mod \
-        -v "${INCUS_GO_BUILD}":/usr/local/share/go/cache \
-        -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-        casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/"${INCUS_PROJECT_NAME}" ./src
-    if [[ -d "src/client" ]]; then
-        docker run --rm \
-            --name "${INCUS_PROJECT_NAME}-$(tr -dc 'a-z0-9' </dev/urandom | head -c8)" \
-            -v "${INCUS_PROJECT_DIR}":/app \
-            -v "${INCUS_GO_CACHE}":/usr/local/share/go/pkg/mod \
-            -v "${INCUS_GO_BUILD}":/usr/local/share/go/cache \
-            -w /app -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-            casjaysdev/go:latest go build -buildvcs=false -trimpath -ldflags "-s -w" -o /app/binaries/"${INCUS_PROJECT_NAME}"-cli ./src/client
-    fi
-fi
+[[ -f "Makefile" ]] || { echo "ERROR: Makefile not found in ${INCUS_PROJECT_DIR}" >&2; exit 1; }
+__info "Building with make build..."
+make build
 [[ -f "binaries/${INCUS_PROJECT_NAME}" ]] || { echo "ERROR: binary not found after build" >&2; exit 1; }
 __pass "Binaries built in binaries/"
 

@@ -344,6 +344,8 @@
     "theme_desc": "Choisissez l'apparence du site sur ce navigateur.",
     "lang_label": "Langue",
     "lang_desc": "Choisissez votre langue préférée pour ce navigateur.",
+    "app_pref_title": "Préférences de navigation",
+    "app_pref_desc": "Tri et taille de page par défaut pour la liste des pastes récents.",
     "token_title": "Jeton enregistré",
     "token_desc": "Oubliez le jeton de propriété du paste enregistré dans ce navigateur. Vos pastes ne sont pas supprimés ; vous ne pourrez simplement plus les modifier ni les supprimer d'ici, sauf si vous ressaisissez le jeton.",
     "export_title": "Exporter",

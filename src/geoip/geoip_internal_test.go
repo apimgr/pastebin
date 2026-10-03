@@ -151,10 +151,19 @@ func TestOpen_InvalidMmdbFile_Country(t *testing.T) {
 }
 
 func TestOpen_InvalidMmdbFile_City(t *testing.T) {
+	// Guard against a download: Open looks for the two PART 19 city files by
+	// their exact names, so a stub written under any other name would send
+	// ensureFile to the real CDN and block on its 5-minute context timeout.
+	serveDownloadFailure(t)
+
 	tmp := t.TempDir()
-	cityPath := filepath.Join(tmp, "city.mmdb")
-	if err := os.WriteFile(cityPath, []byte("not a real mmdb file"), 0o644); err != nil {
-		t.Fatal(err)
+	// PART 19 requires separate IPv4 and IPv6 city databases; a single
+	// combined city.mmdb is not sufficient. Both must be stubbed.
+	for _, name := range []string{"dbip-city-ipv4.mmdb", "dbip-city-ipv6.mmdb"} {
+		p := filepath.Join(tmp, name)
+		if err := os.WriteFile(p, []byte("not a real mmdb file"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cfg := Config{Dir: tmp, EnableCity: true}
 
@@ -483,22 +492,18 @@ func TestIsPrivate_ULAIPv6(t *testing.T) {
 
 // ─── Update — with DBs enabled (download errors expected in test) ─────────────
 
+// TestUpdate_WithEnabledDBs_ReturnsOnDownloadError verifies that Update
+// returns a non-nil error when every database download fails. The URLs point at
+// a local server that always answers 500, so the failure is immediate and
+// deterministic — without this the test would contact the real CDN and block on
+// ensureFile's 5-minute context timeout, per database.
 func TestUpdate_WithEnabledDBs_ReturnsOnDownloadError(t *testing.T) {
-	tmp := t.TempDir()
-	// Create stub files so Open treats them as "already present" and won't download.
-	asnPath := filepath.Join(tmp, "asn.mmdb")
-	countryPath := filepath.Join(tmp, "country.mmdb")
-	cityPath := filepath.Join(tmp, "city.mmdb")
-	for _, p := range []string{asnPath, countryPath, cityPath} {
-		if err := os.WriteFile(p, []byte("not-a-real-mmdb"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	serveDownloadFailure(t)
 
+	tmp := t.TempDir()
 	cfg := Config{
 		Dir:           tmp,
 		EnableASN:     true,
-		EnableWHOIS:   true,
 		EnableCountry: true,
 		EnableCity:    true,
 	}
@@ -508,87 +513,80 @@ func TestUpdate_WithEnabledDBs_ReturnsOnDownloadError(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Update() deletes the files and tries to download fresh copies from the CDN.
-	// In the test environment this will fail at download or at maxminddb.Open.
-	// Either outcome is acceptable — we only need the code paths exercised.
+	// Update() deletes the files and re-downloads; every download fails.
 	err = db.Update()
-	_ = err
+	if err == nil {
+		t.Fatal("Update returned nil error; want non-nil when all downloads fail")
+	}
 }
 
-// ─── country_mode (AI.md:27343) ──────────────────────────────────────────────
+// ─── country blocking modes (AI.md PART 19) ──────────────────────────────────
 
-// TestCountryMode_ExplicitNone verifies mode "none" disables country blocking
-// even when deny/allow lists are populated.
-func TestCountryMode_ExplicitNone(t *testing.T) {
+// TestCountryMode_NoLists verifies the default: with both lists empty there is
+// no country blocking at all, so every country is allowed.
+func TestCountryMode_NoLists(t *testing.T) {
 	tmp := t.TempDir()
-	db, _ := Open(Config{
-		Dir:            tmp,
-		CountryMode:    "none",
-		DenyCountries:  []string{"CN"},
-		AllowCountries: []string{"US"},
-	})
+	db, _ := Open(Config{Dir: tmp})
 	db.countryOverride = func(net.IP) string { return "CN" }
 	defer db.Close()
 
 	if db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("country_mode=none must never country-block")
+		t.Error("empty deny+allow lists must not country-block")
 	}
 }
 
-// TestCountryMode_ExplicitDeny verifies mode "deny" uses DenyCountries even
-// when AllowCountries is also set (explicit mode beats inference precedence).
-func TestCountryMode_ExplicitDeny(t *testing.T) {
+// TestCountryMode_Deny verifies deny_countries blocks the listed countries and
+// allows all others.
+func TestCountryMode_Deny(t *testing.T) {
 	tmp := t.TempDir()
 	db, _ := Open(Config{
-		Dir:            tmp,
-		CountryMode:    "deny",
-		DenyCountries:  []string{"CN"},
-		AllowCountries: []string{"US"},
+		Dir:           tmp,
+		DenyCountries: []string{"CN"},
 	})
 	db.countryOverride = func(net.IP) string { return "CN" }
 	defer db.Close()
 
 	if !db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("country_mode=deny must block a denied country")
+		t.Error("deny mode must block a denied country")
 	}
 
 	db.countryOverride = func(net.IP) string { return "DE" }
 	if db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("country_mode=deny must not block a country outside the deny list")
+		t.Error("deny mode must not block a country outside the deny list")
 	}
 }
 
-// TestCountryMode_ExplicitAllow verifies mode "allow" blocks everything not in
-// AllowCountries and fails open on unknown country.
-func TestCountryMode_ExplicitAllow(t *testing.T) {
+// TestCountryMode_Allow verifies allow_countries blocks everything not listed,
+// passes listed countries, and fails open when the country is undeterminable.
+func TestCountryMode_Allow(t *testing.T) {
 	tmp := t.TempDir()
 	db, _ := Open(Config{
 		Dir:            tmp,
-		CountryMode:    "allow",
 		AllowCountries: []string{"US"},
 	})
 	db.countryOverride = func(net.IP) string { return "CN" }
 	defer db.Close()
 
 	if !db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("country_mode=allow must block a non-allowed country")
+		t.Error("allow mode must block a non-allowed country")
 	}
 
 	db.countryOverride = func(net.IP) string { return "US" }
 	if db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("country_mode=allow must pass an allowed country")
+		t.Error("allow mode must pass an allowed country")
 	}
 
-	// Fail-open on unknown country (AI.md:27279).
+	// GeoIP is a risk signal, never the sole gate: a lookup that cannot
+	// resolve a country must not block the request.
 	db.countryOverride = nil
 	if db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("country_mode=allow must fail open when country is undeterminable")
+		t.Error("allow mode must fail open when country is undeterminable")
 	}
 }
 
-// TestCountryMode_InferredCompat verifies the legacy inference still applies
-// when country_mode is unset: allow list wins over deny list.
-func TestCountryMode_InferredCompat(t *testing.T) {
+// TestCountryMode_AllowWins verifies that when both lists are set,
+// allow_countries takes precedence — the spec's documented behavior.
+func TestCountryMode_AllowWins(t *testing.T) {
 	tmp := t.TempDir()
 	db, _ := Open(Config{
 		Dir:            tmp,
@@ -598,8 +596,9 @@ func TestCountryMode_InferredCompat(t *testing.T) {
 	db.countryOverride = func(net.IP) string { return "DE" }
 	defer db.Close()
 
-	// Inference: allow_countries takes precedence (AI.md:27298) → DE blocked.
+	// DE is in the deny list but not the allow list; allow mode wins, so it
+	// is blocked.
 	if !db.IsBlocked(net.ParseIP("8.8.8.8")) {
-		t.Error("inferred allow mode must block countries outside the allow list")
+		t.Error("allow_countries must take precedence when both lists are set")
 	}
 }

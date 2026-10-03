@@ -40,7 +40,11 @@ fi
 # =============================================================================
 FROM alpine:latest
 
-RUN apk add --no-cache \
+# apk upgrade pulls latest security patches (e.g. openssl/libcrypto3) for
+# the base image at build time. Kept in lockstep with docker/Dockerfile so the
+# dev and release images patch the same package set.
+RUN apk upgrade --no-cache && \
+    apk add --no-cache \
     git \
     curl \
     bash \

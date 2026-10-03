@@ -1,7 +1,7 @@
 package server
 
 // Tests for server utility functions: fmtUserDate, fmtUserTime,
-// handleThemeSet, assetPrefix, resolveCORSOrigin,
+// handlePreferencesSet, assetPrefix, resolveCORSOrigin,
 // txtExtensionMiddleware, metricsIPAllowlistMiddleware.
 
 import (
@@ -54,9 +54,9 @@ func TestFmtUserTime_NonZero(t *testing.T) {
 	}
 }
 
-// ─── handleThemeSet ───────────────────────────────────────────────────────────
+// ─── handlePreferencesSet ───────────────────────────────────────────────────────────
 
-func TestHandleThemeSet_ValidTheme(t *testing.T) {
+func TestHandlePreferencesSet_ValidTheme(t *testing.T) {
 	for _, theme := range []string{"light", "dark", "auto"} {
 		t.Run(theme, func(t *testing.T) {
 			s := newMinimalServer(config.DefaultConfig())
@@ -64,7 +64,7 @@ func TestHandleThemeSet_ValidTheme(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, "/server/theme", strings.NewReader(form.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
-			s.handleThemeSet(w, r)
+			s.handlePreferencesSet(w, r)
 
 			if w.Code != http.StatusSeeOther {
 				t.Errorf("theme=%s status = %d, want 303", theme, w.Code)
@@ -78,13 +78,13 @@ func TestHandleThemeSet_ValidTheme(t *testing.T) {
 	}
 }
 
-func TestHandleThemeSet_InvalidTheme_DefaultsDark(t *testing.T) {
+func TestHandlePreferencesSet_InvalidTheme_DefaultsDark(t *testing.T) {
 	s := newMinimalServer(config.DefaultConfig())
 	form := url.Values{"theme": {"invalid"}}
 	r := httptest.NewRequest(http.MethodPost, "/server/theme", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	s.handleThemeSet(w, r)
+	s.handlePreferencesSet(w, r)
 
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want 303", w.Code)
@@ -95,7 +95,7 @@ func TestHandleThemeSet_InvalidTheme_DefaultsDark(t *testing.T) {
 	}
 }
 
-func TestHandleThemeSet_RedirectsToReferer(t *testing.T) {
+func TestHandlePreferencesSet_RedirectsToReferer(t *testing.T) {
 	s := newMinimalServer(config.DefaultConfig())
 	form := url.Values{"theme": {"light"}}
 	r := httptest.NewRequest(http.MethodPost, "/server/theme", strings.NewReader(form.Encode()))
@@ -103,7 +103,7 @@ func TestHandleThemeSet_RedirectsToReferer(t *testing.T) {
 	r.Header.Set("Referer", "http://example.com/pastes")
 	r.Host = "example.com"
 	w := httptest.NewRecorder()
-	s.handleThemeSet(w, r)
+	s.handlePreferencesSet(w, r)
 
 	dest := w.Header().Get("Location")
 	if dest != "/pastes" {
@@ -111,7 +111,7 @@ func TestHandleThemeSet_RedirectsToReferer(t *testing.T) {
 	}
 }
 
-func TestHandleThemeSet_CrossOriginReferer_RedirectsToRoot(t *testing.T) {
+func TestHandlePreferencesSet_CrossOriginReferer_RedirectsToRoot(t *testing.T) {
 	s := newMinimalServer(config.DefaultConfig())
 	form := url.Values{"theme": {"dark"}}
 	r := httptest.NewRequest(http.MethodPost, "/server/theme", strings.NewReader(form.Encode()))
@@ -119,11 +119,95 @@ func TestHandleThemeSet_CrossOriginReferer_RedirectsToRoot(t *testing.T) {
 	r.Header.Set("Referer", "http://evil.com/phish")
 	r.Host = "example.com"
 	w := httptest.NewRecorder()
-	s.handleThemeSet(w, r)
+	s.handlePreferencesSet(w, r)
 
 	dest := w.Header().Get("Location")
 	if dest != "/" {
 		t.Errorf("cross-origin referer: Location = %q, want /", dest)
+	}
+}
+
+// ─── handlePreferencesSet: app-specific pastebin_pref_* fields ─────────────────
+
+// setCookiesOf extracts Set-Cookie headers from a recorder.
+func setCookiesOf(w *httptest.ResponseRecorder) map[string]string {
+	out := map[string]string{}
+	for _, c := range w.Result().Cookies() {
+		out[c.Name] = c.Value
+	}
+	return out
+}
+
+// postPrefs submits form to handlePreferencesSet and returns the cookies set.
+func postPrefs(t *testing.T, form url.Values) map[string]string {
+	t.Helper()
+	s := newMinimalServer(config.DefaultConfig())
+	r := httptest.NewRequest(http.MethodPost, "/server/preferences", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	s.handlePreferencesSet(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", w.Code)
+	}
+	return setCookiesOf(w)
+}
+
+func TestHandlePreferencesSet_AppPrefFields(t *testing.T) {
+	got := postPrefs(t, url.Values{
+		"pastebin_pref_sort":     {"views"},
+		"pastebin_pref_order":    {"asc"},
+		"pastebin_pref_per_page": {"50"},
+	})
+	for name, want := range map[string]string{
+		"pastebin_pref_sort":     "views",
+		"pastebin_pref_order":    "asc",
+		"pastebin_pref_per_page": "50",
+	} {
+		if got[name] != want {
+			t.Errorf("cookie %s = %q, want %q", name, got[name], want)
+		}
+	}
+	// This form carries no `theme` field, so the visitor's theme must be
+	// left alone rather than reset to the default as a side effect.
+	if _, ok := got["theme"]; ok {
+		t.Errorf("theme cookie set from an app-pref-only form: %v", got)
+	}
+}
+
+func TestHandlePreferencesSet_RejectsInvalidAppPrefValues(t *testing.T) {
+	got := postPrefs(t, url.Values{
+		"pastebin_pref_sort": {"bogus"},
+		// A value that fails the enum must not be stored, otherwise the
+		// preferences page has no matching <option> to render it as.
+		"pastebin_pref_order": {"sideways"},
+		// An enum-legal value on a well-formed key is still accepted, so
+		// the test above proves rejection is per-key, not blanket.
+		"pastebin_pref_per_page": {"100"},
+	})
+	for _, name := range []string{"pastebin_pref_sort", "pastebin_pref_order"} {
+		if v, ok := got[name]; ok {
+			t.Errorf("cookie %s should not be set, got %q", name, v)
+		}
+	}
+	if got["pastebin_pref_per_page"] != "100" {
+		t.Errorf("per_page = %q, want 100", got["pastebin_pref_per_page"])
+	}
+}
+
+func TestHandlePreferencesSet_IgnoresMalformedPrefFieldNames(t *testing.T) {
+	got := postPrefs(t, url.Values{
+		"pastebin_pref_BadKey": {"x"},
+		"pastebin_pref_":       {"x"},
+		"not_a_pref":           {"x"},
+		"theme":                {"light"},
+	})
+	for name := range got {
+		if name != "theme" {
+			t.Errorf("unexpected cookie %s = %q", name, got[name])
+		}
+	}
+	if got["theme"] != "light" {
+		t.Errorf("theme = %q, want light", got["theme"])
 	}
 }
 

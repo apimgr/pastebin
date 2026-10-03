@@ -69,8 +69,37 @@ func TestNew_ReturnsCollector(t *testing.T) {
 	}
 }
 
-func TestCollector_Handler_NoAuth(t *testing.T) {
+// TestCollector_Handler_NoToken_ServiceDisabled verifies the PART 20 rule that
+// there is no unauthenticated default: with no token configured for the
+// prometheus service, the service is disabled and the endpoint answers 403.
+func TestCollector_Handler_NoToken_ServiceDisabled(t *testing.T) {
 	c := New("1.0.0", "abc", "2024-01-01", time.Now(), "")
+	srv := httptest.NewServer(c.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// TestCollector_Handler_AllowUnauthenticated verifies the firewalled-internal
+// escape hatch: auth.allow_unauthenticated skips token checks for every metrics
+// service, so a token-less collector serves 200.
+func TestCollector_Handler_AllowUnauthenticated(t *testing.T) {
+	c := NewWithOptions(Options{
+		Version:              "1.0.0",
+		Commit:               "abc",
+		BuildDate:            "2024-01-01",
+		StartTime:            time.Now(),
+		IncludeRuntime:       true,
+		AllowUnauthenticated: true,
+	})
 	srv := httptest.NewServer(c.Handler())
 	defer srv.Close()
 

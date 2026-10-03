@@ -216,3 +216,9 @@ they are read individually (no `.env` file is ever loaded).
 | `TERMBIN_PORT`    | termbin listener port (default: `9999`) |
 | `TERMBIN_MAX_SIZE`| Max termbin payload in bytes (default: `32768`) |
 | `TERMBIN_TIMEOUT` | termbin idle/read timeout (default: `5s`) |
+
+### I2P compatibility listener
+
+| Variable | Description |
+|----------|-------------|
+| `I2P_ENABLED` | Enable the I2P sam-bridge listener (default: `false`) |

@@ -59,3 +59,33 @@ layer has no BSD backend yet — GUI mode is compiled out and unavailable on
 This section is kept for historical context (the cgo verification work that
 led to the decision) but no longer overrides `AI.md`, which now states the
 same toolkit choice natively.
+
+## PART 32 — `display.mode: auto` resolution
+
+`AI.md` PART 32 states the `auto` rule twice, and the two statements conflict:
+
+- the `display.mode` table: `auto` → "Detect: GUI if display, TUI if
+  terminal, error if neither"
+- the conditions table: "Interactive terminal + config flags only → TUI mode"
+
+`AI.md` is read-only and carries no way to break a tie, so this is recorded
+here as an override, decided by the project owner on 2026-09-27.
+
+**Override:** when `display.mode` is `auto`, the GUI wins whenever a display
+is actually available; the TUI is selected only when no display is present.
+`AI.md`'s conditions-table row is read as governing the terminal fallback
+path rather than as a competing statement of preference.
+
+This changes the no-arg default for desktop users running a binary built with
+`-tags gui`: they now get the GUI window instead of the TUI. Untagged release
+builds are unaffected, since GUI code is not linked in at all there and
+`auto` always falls through to the pre-existing TUI/plain logic.
+
+Two constraints hold regardless of which mode is selected, and are not part
+of the tie-break:
+
+- a command argument always beats both display modes — `pastebin-cli list`
+  prints a list even with `display.mode: gui` set
+- `display.mode: gui` is an explicit request, so when no display exists it
+  reports `gui_unavailable` and exits rather than silently degrading to the
+  TUI the user did not ask for

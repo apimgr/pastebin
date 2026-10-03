@@ -25,13 +25,23 @@ VERSION="${VERSION:-$(curl -sSL "https://api.github.com/repos/${REPO}/releases/l
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}-${PLATFORM}"
 
 echo "Installing ${BINARY} ${VERSION} for ${PLATFORM}..."
-curl -sSL "${URL}" -o "/tmp/${BINARY}"
-chmod +x "/tmp/${BINARY}"
+
+# mktemp: predictable shared paths like /tmp/pastebin are a symlink/hijack
+# target when this script runs as root (pass 1 security). The mkdir -p is
+# required, not decorative: mktemp creates the final file but NOT the
+# intervening directory, so without it a fresh machine fails with
+# "No such file or directory" before anything is downloaded. This is the
+# project's documented temp-dir convention (AI.md 32750-32751).
+mkdir -p "${TMPDIR:-/tmp}/apimgr"
+TMP_FILE="$(mktemp "${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX")"
+
+curl -sSL "${URL}" -o "${TMP_FILE}"
+chmod +x "${TMP_FILE}"
 
 if [ -w "${INSTALL_DIR}" ]; then
-    mv "/tmp/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+    mv "${TMP_FILE}" "${INSTALL_DIR}/${BINARY}"
 else
-    sudo mv "/tmp/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+    sudo mv "${TMP_FILE}" "${INSTALL_DIR}/${BINARY}"
 fi
 
 echo "Installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"

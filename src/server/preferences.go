@@ -14,16 +14,16 @@ import (
 )
 
 // prefCookiePrefix names every app-specific guest preference cookie
-// (AI.md 23480-23496: "{project_name}_pref_{key}"). AI.md's example category
+// (AI.md 23478-23501: "{project_name}_pref_{key}"). AI.md's example category
 // list ("default view mode, results-per-page, sort order, ...") maps
 // directly onto this app's existing /pastes recents controls, so the
 // concrete preferences are: sort, order, per_page (see handleRecent in
 // server.go). The export/import mechanism below stays generic so any future
 // `pastebin_pref_*` cookie round-trips automatically without a second
-// storage mechanism ever being invented (AI.md 23496).
+// storage mechanism ever being invented (AI.md 23498-23501).
 const prefCookiePrefix = "pastebin_pref_"
 
-// Concrete pastebin_pref_* keys (AI.md 23482 "Client-Side Preferences"):
+// Concrete pastebin_pref_* keys (AI.md 23485 "Client-Side Preferences"):
 // the /pastes recents list's sort column, sort direction, and page size.
 const (
 	prefKeySort    = "sort"
@@ -39,11 +39,69 @@ var prefKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 // prefValuePattern is a conservative allowlist for app-specific preference
 // values in the absence of any concrete preference (and therefore no
 // per-key enum) to validate against yet — printable ASCII, no control
-// characters, no cookie/URL metacharacters, bounded length.
+// characters, no cookie/URL metacharacters, bounded length. A concrete
+// preference listed in prefAllowedValues is checked against its own enum
+// first; anything else still has to satisfy this generic pattern.
 var prefValuePattern = regexp.MustCompile(`^[A-Za-z0-9_.\-]{1,64}$`)
 
+// prefAllowedValues is the per-key enum for app-specific preferences that
+// have a fixed set of legal values, with prefDefaultValue holding the value
+// each falls back to. Every value is one the preferences page can render
+// back as a selected <option>, and every value is one the query layer can
+// honor — see the enum/UI parity note on the sort entry below.
+var prefAllowedValues = map[string][]string{
+	// A deliberate subset of database.publicPasteSortColumns, holding
+	// exactly the columns the recents list actually offers. That table also
+	// accepts "title" (an alias of "name" — same SQL column) and "id", which
+	// have no <option> to render them from; accepting them here would let a
+	// cookie hold a value the preferences page shows as "nothing selected",
+	// and the page would then display one ordering while the recents list
+	// used another. Ordering stays a one-way door: /pastes still accepts any
+	// allow-listed column as a query param, but only these become a saved
+	// preference.
+	prefKeySort:    {"date", "name", "views"},
+	prefKeyOrder:   {"desc", "asc"},
+	prefKeyPerPage: {"20", "50", "100", "250"},
+}
+
+var prefDefaultValue = map[string]string{
+	prefKeySort:    "date",
+	prefKeyOrder:   "desc",
+	prefKeyPerPage: "20",
+}
+
+// validAppPrefValue reports whether value is acceptable for a concrete
+// app-specific preference key, using that key's enum when it has one. A key
+// with no enum is unconstrained here; the generic prefKeyPattern/
+// prefValuePattern check still applies to it via parseAppPref.
+func validAppPrefValue(key, value string) bool {
+	allowed, ok := prefAllowedValues[key]
+	if !ok {
+		return true
+	}
+	for _, v := range allowed {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// resolvedPref returns the effective value of a single app-specific
+// preference for this request: the visitor's cookie when it is present and
+// valid, otherwise the key's hard default. This mirrors the fallback chain in
+// handleRecent exactly, so the preferences page shows the value the recents
+// list would actually use. The cookie is still left unset until the visitor
+// saves — resolving a value here does not write anything.
+func resolvedPref(r *http.Request, key string) string {
+	if v, ok := appPreferencesFromRequest(r)[key]; ok {
+		return v
+	}
+	return prefDefaultValue[key]
+}
+
 // appPreferencesFromRequest returns every `pastebin_pref_*` cookie present
-// on the request, keyed by the bare `{key}` suffix (AI.md 23496: "cookie-only,
+// on the request, keyed by the bare `{key}` suffix (AI.md 23498-23501: "cookie-only,
 // read per request, never persisted server-side").
 func appPreferencesFromRequest(r *http.Request) map[string]string {
 	prefs := make(map[string]string)
@@ -58,7 +116,7 @@ func appPreferencesFromRequest(r *http.Request) map[string]string {
 // extractAppPrefs scans a set of query values (either the live request query
 // or a decoded import `code`) for `pastebin_pref_*` params, applying the same
 // key/value allowlist as appPreferencesFromRequest — an imported value is
-// still untrusted input (AI.md 22908), so it is revalidated the same way.
+// still untrusted input (AI.md 23512), so it is revalidated the same way.
 func extractAppPrefs(values url.Values) map[string]string {
 	prefs := make(map[string]string)
 	for name, vals := range values {
@@ -73,7 +131,10 @@ func extractAppPrefs(values url.Values) map[string]string {
 }
 
 // parseAppPref validates a single `pastebin_pref_{key}` name/value pair
-// against prefKeyPattern/prefValuePattern, returning the bare key on success.
+// against prefKeyPattern/prefValuePattern and, for a known key, that key's
+// enum — returning the bare key on success. Anything rejected is treated as
+// absent, so a hand-edited or imported cookie simply falls back to the
+// default rather than reaching a handler.
 func parseAppPref(name, value string) (key string, val string, ok bool) {
 	if !strings.HasPrefix(name, prefCookiePrefix) {
 		return "", "", false
@@ -82,13 +143,15 @@ func parseAppPref(name, value string) (key string, val string, ok bool) {
 	if !prefKeyPattern.MatchString(key) || !prefValuePattern.MatchString(value) {
 		return "", "", false
 	}
+	if !validAppPrefValue(key, value) {
+		return "", "", false
+	}
 	return key, value, true
 }
 
 // setPreferenceCookie writes a client-side preference cookie using the same
-// Secure/SameSite/MaxAge shape as handleThemeSet and handleConsentSet
-// (AI.md 22886-22890: "the server sets the same cookies on its POST/GET
-// preference endpoints").
+// Secure/SameSite/MaxAge shape as handlePreferencesSet and handleConsentSet
+// (AI.md 23489: "the server sets the same cookies on its POST endpoints").
 func (s *Server) setPreferenceCookie(w http.ResponseWriter, r *http.Request, name, value string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
@@ -99,6 +162,24 @@ func (s *Server) setPreferenceCookie(w http.ResponseWriter, r *http.Request, nam
 		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// rememberPreference persists an explicit query-param choice as the visitor's
+// saved preference, but only when the value passes the exact same allowlist
+// parseAppPref applies on read. A /pastes query legitimately accepts a wider
+// set than the recents list's own <select> offers — ?limit=37 is a valid page
+// size, and "title"/"id" are valid ORDER BY columns (see
+// database.publicPasteSortColumns) — but persisting one of those would write a
+// cookie that is silently dropped on the next request, leaving the preferences
+// page showing a default the visitor never picked. Those values stay a
+// one-request override and are simply not remembered; the allowlist is what
+// keeps the list's actual ordering and the preferences page's displayed state
+// in agreement.
+func (s *Server) rememberPreference(w http.ResponseWriter, r *http.Request, key, value string) {
+	if _, _, ok := parseAppPref(prefCookiePrefix+key, value); !ok {
+		return
+	}
+	s.setPreferenceCookie(w, r, prefCookiePrefix+key, value)
 }
 
 // cookieSecure resolves the Secure attribute for every client-readable cookie
@@ -116,10 +197,10 @@ func (s *Server) cookieSecure(r *http.Request) bool {
 }
 
 // handlePreferences serves the guest preferences hub — GET /server/preferences,
-// API-mirrored at GET /api/{api_version}/server/preferences (AI.md 22904). It
+// API-mirrored at GET /api/{api_version}/server/preferences (AI.md 23508). It
 // reports the two exportable preferences (theme, lang) resolved from the
 // request's cookies; nothing is read from or written to the database — there
-// is no preferences table (AI.md 22909).
+// is no preferences table (AI.md 23513).
 func (s *Server) handlePreferences(w http.ResponseWriter, r *http.Request) {
 	theme := s.themeFromRequest(r)
 	lang := i18n.LangFromRequest(r)
@@ -163,6 +244,14 @@ func (s *Server) preferencesPageData(r *http.Request, theme, lang string) map[st
 	data := s.pageData()
 	data["PrefTheme"] = theme
 	data["PrefLang"] = lang
+	// App-specific guest preferences (AI.md 23485: "a control for every
+	// app-specific `{project_name}_pref_*` setting"). Gaps are filled with the
+	// hard defaults so every control renders with a definite selected option
+	// rather than a blank one — the cookies themselves stay unset until the
+	// visitor actually saves, matching handleRecent's fallback chain.
+	data["PrefSort"] = resolvedPref(r, prefKeySort)
+	data["PrefOrder"] = resolvedPref(r, prefKeyOrder)
+	data["PrefPerPage"] = resolvedPref(r, prefKeyPerPage)
 	// Seed the cookie-consent toggles from the visitor's existing choice (if
 	// any), falling back to the configured defaults — the preferences page is
 	// the one place a visitor can revisit and change consent after the
@@ -178,7 +267,7 @@ func (s *Server) preferencesPageData(r *http.Request, theme, lang string) map[st
 	}
 	data["ConsentPreferences"] = consentPreferences
 	data["ConsentAnalytics"] = consentAnalytics
-	// CCPA opt-out toggle (AI.md 23480: every cookie in the table needs a
+	// CCPA opt-out toggle (AI.md 23485: every cookie in the table needs a
 	// control here, including CCPA) — same Privacy/CCPAOptedOut shape
 	// privacyPageData exposes to privacy.tmpl, so the same template partial
 	// pattern works unchanged on this page.
@@ -194,9 +283,9 @@ func (s *Server) preferencesPageData(r *http.Request, theme, lang string) map[st
 
 // preferencesExportQuery builds the canonical `theme=...&lang=...&pastebin_pref_{key}=...`
 // query string for the current preferences — the query string IS the portable
-// preference state (AI.md 22901: "the code/URL is the preference values, not
+// preference state (AI.md 23505: "the code/URL is the preference values, not
 // a lookup key"). theme, lang, and every app-specific `pastebin_pref_*`
-// cookie round-trip (AI.md 23502); `cookie_consent`/`ccpa_opt_out`/
+// cookie round-trip (AI.md 23507); `cookie_consent`/`ccpa_opt_out`/
 // `pastebin_build` are never included since they aren't in extra (they don't
 // carry the `pastebin_pref_` prefix appPreferencesFromRequest filters on).
 func preferencesExportQuery(theme, lang string, extra map[string]string) string {
@@ -221,7 +310,7 @@ func preferencesExportQuery(theme, lang string, extra map[string]string) string 
 }
 
 // handlePreferencesExport serves GET /server/preferences/export, API-mirrored
-// at GET /api/{api_version}/server/preferences/export (AI.md 22905). It
+// at GET /api/{api_version}/server/preferences/export (AI.md 23509). It
 // returns the current theme/lang preferences as a full importable URL and as
 // a base64url short code for manual retyping on a device without copy/paste.
 func (s *Server) handlePreferencesExport(w http.ResponseWriter, r *http.Request) {
@@ -273,15 +362,15 @@ func sortedPrefKeys(prefs map[string]string) []string {
 }
 
 // handlePreferencesImport serves GET /server/preferences/import, API-mirrored
-// at GET /api/{api_version}/server/preferences/import (AI.md 22908). It
+// at GET /api/{api_version}/server/preferences/import (AI.md 23512). It
 // accepts either explicit `theme`/`lang` query params (from a shared full
 // URL) or a `code` param (a pasted base64url short code, with an optional
-// leading full-URL prefix already stripped client-side per AI.md 22907;
+// leading full-URL prefix already stripped client-side per AI.md 23511;
 // stripped again here defensively for the no-JS path). Every value is
 // revalidated against its normal allowlist — an imported value is still
-// untrusted input (AI.md 22908) — anything unknown or malformed is silently
+// untrusted input (AI.md 23512) — anything unknown or malformed is silently
 // dropped rather than applied. Nothing is persisted server-side: decode →
-// validate → set cookie → redirect happens in this one request (AI.md 22909).
+// validate → set cookie → redirect happens in this one request (AI.md 23513).
 func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -325,7 +414,7 @@ func (s *Server) handlePreferencesImport(w http.ResponseWriter, r *http.Request)
 		s.setPreferenceCookie(w, r, prefCookiePrefix+key, value)
 	}
 
-	// Never linger on the visible URL/browser history (AI.md 22908).
+	// Never linger on the visible URL/browser history (AI.md 23512).
 	dest := "/"
 	if ref := r.Header.Get("Referer"); ref != "" {
 		if u, err := url.Parse(ref); err == nil && u.Host == r.Host {

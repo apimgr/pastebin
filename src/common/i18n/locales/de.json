@@ -344,6 +344,8 @@
     "theme_desc": "Wählen Sie, wie die Website in diesem Browser aussieht.",
     "lang_label": "Sprache",
     "lang_desc": "Wählen Sie Ihre bevorzugte Sprache für diesen Browser.",
+    "app_pref_title": "Navigations-Einstellungen",
+    "app_pref_desc": "Standardsortierung und Seitengröße für die Liste der letzten Pastes.",
     "token_title": "Gespeichertes Token",
     "token_desc": "Vergessen Sie das in diesem Browser gespeicherte Besitz-Token für Pastes. Ihre Pastes werden nicht gelöscht — Sie können sie von hier aus nur nicht mehr bearbeiten oder löschen, es sei denn, Sie geben das Token erneut ein.",
     "export_title": "Exportieren",

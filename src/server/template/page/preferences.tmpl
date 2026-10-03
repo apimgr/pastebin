@@ -21,7 +21,7 @@
                     <h2 class="section-mt">{{t .Lang "preferences.theme_label"}}</h2>
                     <p>{{t .Lang "preferences.theme_desc"}}</p>
                     <div class="pref-options" role="group" aria-label="{{t .Lang "preferences.theme_label"}}">
-                        {{range $mode := (slice "dark" "light" "auto")}}
+                        {{range $mode := (list "dark" "light" "auto")}}
                         <form method="post" action="{{$.AssetPrefix}}/server/preferences" class="pref-option-form">
                             <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                             <input type="hidden" name="theme" value="{{$mode}}">
@@ -35,12 +35,46 @@
                     <h2 class="section-mt">{{t .Lang "preferences.lang_label"}}</h2>
                     <p>{{t .Lang "preferences.lang_desc"}}</p>
                     <div class="pref-options" role="group" aria-label="{{t .Lang "preferences.lang_label"}}">
-                        {{range $code := (slice "en" "es" "fr" "de" "zh" "ar" "ja")}}
+                        {{range $code := (list "en" "es" "fr" "de" "zh" "ar" "ja")}}
                         <a href="{{$.AssetPrefix}}/server/preferences?lang={{$code}}"
                            class="btn {{if eq $.PrefLang $code}}btn-primary{{else}}btn-secondary{{end}}"
                            aria-pressed="{{if eq $.PrefLang $code}}true{{else}}false{{end}}">{{t $.Lang (print "lang." $code)}}</a>
                         {{end}}
                     </div>
+
+                    <h2 class="section-mt">{{t .Lang "preferences.app_pref_title"}}</h2>
+                    <p>{{t .Lang "preferences.app_pref_desc"}}</p>
+                    <form method="post" action="{{.AssetPrefix}}/server/preferences" class="pref-form">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <div class="form-group">
+                            <label class="form-label" for="pref-sort">{{t .Lang "recent.sort_label"}}</label>
+                            <select id="pref-sort" name="pastebin_pref_sort" class="form-select">
+                                {{$sort := .PrefSort}}
+                                {{range $col := (list "date" "name" "views")}}
+                                <option value="{{$col}}" {{if eq $sort $col}}selected{{end}}>{{t $.Lang (print "recent.sort_" $col)}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pref-order">{{t .Lang "recent.order_label"}}</label>
+                            <select id="pref-order" name="pastebin_pref_order" class="form-select">
+                                {{$order := .PrefOrder}}
+                                <option value="desc" {{if eq $order "desc"}}selected{{end}}>{{t .Lang "recent.order_desc"}}</option>
+                                <option value="asc" {{if eq $order "asc"}}selected{{end}}>{{t .Lang "recent.order_asc"}}</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="pref-per-page">{{t .Lang "recent.limit_label"}}</label>
+                            <select id="pref-per-page" name="pastebin_pref_per_page" class="form-select">
+                                {{$perPage := .PrefPerPage}}
+                                {{range $n := (list "20" "50" "100" "250")}}
+                                <option value="{{$n}}" {{if eq $perPage $n}}selected{{end}}>{{$n}}</option>
+                                {{end}}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary"
+                                data-action="submit-loading" data-loading-text="{{t .Lang "js.saving"}}">{{t .Lang "common.save"}}</button>
+                    </form>
 
                     <h2 class="section-mt">{{t .Lang "preferences.token_title"}}</h2>
                     <p>{{t .Lang "preferences.token_desc"}}</p>

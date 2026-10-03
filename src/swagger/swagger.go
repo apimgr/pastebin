@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/apimgr/pastebin/src/common/buildinfo"
+	"github.com/apimgr/pastebin/src/common/httputil"
 	"github.com/apimgr/pastebin/src/common/i18n"
 )
 
@@ -111,7 +112,13 @@ func (h *Handler) ServeSpec(w http.ResponseWriter, r *http.Request) {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(spec); err != nil {
-		http.Error(w, "spec generation error", http.StatusInternalServerError)
+		// The spec endpoint is consumed by machines, so the failure body is
+		// the canonical PART 14 JSON envelope rather than bare text.
+		httputil.WriteJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":      false,
+			"error":   "SERVER_ERROR",
+			"message": "Spec generation error",
+		})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
