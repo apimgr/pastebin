@@ -125,12 +125,9 @@ freebsd/{amd64,arm64}` — netbsd and openbsd are not release targets, so
 `make build`/`make release` never hit this. It only bites someone deliberately
 cross-compiling for netbsd/arm64.
 
-- [ ] Either (a) accept and document netbsd/arm64 as unsupported in `README.md`
-  (one line under the platform list, since AI.md 44331 only claims BSD
-  *GUI*-exclusion, not per-arch server builds), or (b) wait for
-  `modernc.org/libc` to add netbsd/arm64 and bump the `modernc.org/sqlite`
-  pin. Do **not** attempt a local `replace`/fork workaround for an unclaimed
-  target — that is a large maintenance liability for zero shipped benefit.
+- [x] Document NetBSD/arm64 as unsupported in `README.md` because the upstream
+  `modernc.org/libc` dependency provides no NetBSD/arm64 `errno` implementation;
+  no local replace/fork workaround was added (2026-10-04).
 
 ## E2E Tier 2 / Tier 3 are stubbed out (PART 28 "Browser E2E Testing")
 

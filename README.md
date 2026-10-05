@@ -224,6 +224,8 @@ curl -q -LSsf -X POST https://pste.us/api/v1/pastes \
 - Go (latest stable)
 - Docker (for containerized builds)
 
+The server does not support cross-compilation to NetBSD arm64 because the upstream `modernc.org/libc` dependency currently provides no NetBSD arm64 `errno` implementation. NetBSD amd64 remains supported for cross-compilation.
+
 ### Build
 
 Requires Docker (no local Go toolchain needed):
