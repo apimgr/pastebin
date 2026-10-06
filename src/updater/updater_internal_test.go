@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ─── matchesBranch ────────────────────────────────────────────────────────────
@@ -32,14 +33,15 @@ func TestMatchesBranch(t *testing.T) {
 		{"beta", "v1.0.0-beta", true, true},
 		{"beta", "v1.0.0", true, false},
 		{"beta", "v1.0.0-rc1", true, false},
-		// daily branch — 14-char tag with no dots
-		{"daily", "20250115120000", true, true},
-		// too short (13)
-		{"daily", "2025011512000", true, false},
-		// too long (15)
-		{"daily", "202501151200000", true, false},
-		// contains dot
+		// daily branch — the single rolling "daily" tag
+		{"daily", "daily", true, true},
+		// a timestamp-shaped tag is not the daily tag
+		{"daily", "20250115120000", true, false},
 		{"daily", "v1.0.20250115", true, false},
+		// beta channel must not accept the rolling daily tag
+		{"beta", "daily", true, false},
+		// stable branch must not accept the rolling daily tag
+		{"stable", "daily", true, false},
 		// unknown branch behaves like stable
 		{"unknown", "v2.0.0", false, true},
 		{"unknown", "v2.0.0", true, false},
@@ -239,7 +241,7 @@ func TestCheckForUpdate_Stable_HitsLatestEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _ = CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	_, _ = CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if !latestCalled {
 		t.Error("stable branch should hit /releases/latest endpoint")
 	}
@@ -255,7 +257,7 @@ func TestCheckForUpdateURL_BetaAlreadyUpToDate(t *testing.T) {
 	defer srv.Close()
 
 	// Current version matches the only beta release → should return nil, nil.
-	rel, err := CheckForUpdateURL(context.Background(), "v1.0.0-beta", "beta", srv.URL+"/releases")
+	rel, err := CheckForUpdateURL(context.Background(), "v1.0.0-beta", "beta", 0, srv.URL+"/releases")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -270,7 +272,7 @@ func TestCheckForUpdateURL_NonStableInvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := CheckForUpdateURL(context.Background(), "v1.0.0", "beta", srv.URL+"/releases")
+	_, err := CheckForUpdateURL(context.Background(), "v1.0.0", "beta", 0, srv.URL+"/releases")
 	if err == nil {
 		t.Error("expected error for invalid JSON release list, got nil")
 	}
@@ -377,5 +379,280 @@ func TestDoUpdate_NoChecksumRefuses(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "checksums.txt") {
 		t.Errorf("expected unverified-update refusal, got: %v", err)
+	}
+}
+
+// ─── isSameVersion / isDailyTag ──────────────────────────────────────────────
+
+// TestIsSameVersion verifies the tag comparison ignores the "v" prefix that
+// release.yml omits from the stamped Version but includes in tag_name.
+func TestIsSameVersion(t *testing.T) {
+	cases := []struct {
+		tag     string
+		current string
+		want    bool
+	}{
+		// stamped Version has no "v", tag_name does — must still match
+		{"v1.0.0", "1.0.0", true},
+		{"1.0.0", "v1.0.0", true},
+		{"v1.0.0", "v1.0.0", true},
+		{"1.0.0", "1.0.0", true},
+		// genuine version differences must not match
+		{"v1.0.1", "1.0.0", false},
+		{"v2.0.0", "1.0.0", false},
+		// a rolling tag never equals a version string
+		{"daily", "1.0.0", false},
+	}
+	for _, tc := range cases {
+		if got := isSameVersion(tc.tag, tc.current); got != tc.want {
+			t.Errorf("isSameVersion(%q, %q) = %v, want %v", tc.tag, tc.current, got, tc.want)
+		}
+	}
+}
+
+// TestIsDailyTag verifies the rolling daily tag is recognised exactly.
+func TestIsDailyTag(t *testing.T) {
+	cases := map[string]bool{
+		"daily":          true,
+		"v1.0.0":         false,
+		"20250115120000": false,
+		"":               false,
+	}
+	for tag, want := range cases {
+		if got := isDailyTag(tag); got != want {
+			t.Errorf("isDailyTag(%q) = %v, want %v", tag, got, want)
+		}
+	}
+}
+
+// ─── CheckForUpdateURL version comparison ────────────────────────────────────
+
+// TestCheckForUpdateURL_StablePrefixMismatchIsUpToDate is the regression test for
+// the perpetual "update available" report: a binary stamped "1.0.0" against a
+// release tagged "v1.0.0" is up to date, not an update.
+func TestCheckForUpdateURL_StablePrefixMismatchIsUpToDate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, Release{TagName: "v1.0.0"})
+	}))
+	defer srv.Close()
+
+	rel, err := CheckForUpdateURL(context.Background(), "1.0.0", "stable", 0, srv.URL+"/releases/latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rel != nil {
+		t.Errorf("expected nil (up to date) for v-prefixed tag vs unprefixed version, got %+v", rel)
+	}
+}
+
+// TestCheckForUpdateURL_StableGenuineUpgrade verifies a real version bump is
+// still reported once the prefix normalization is applied.
+func TestCheckForUpdateURL_StableGenuineUpgrade(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, Release{TagName: "v1.1.0"})
+	}))
+	defer srv.Close()
+
+	rel, err := CheckForUpdateURL(context.Background(), "1.0.0", "stable", 0, srv.URL+"/releases/latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rel == nil {
+		t.Fatal("expected an update for 1.0.0 -> v1.1.0")
+	}
+	if rel.TagName != "v1.1.0" {
+		t.Errorf("TagName = %q, want v1.1.0", rel.TagName)
+	}
+}
+
+// TestCheckForUpdateURL_DailyRollingTagUsesBuildEpoch verifies the rolling
+// "daily" tag is resolved by publish time against the binary's build epoch,
+// since the tag name itself never changes.
+func TestCheckForUpdateURL_DailyRollingTagUsesBuildEpoch(t *testing.T) {
+	newer := time.Unix(2_000_000_000, 0).UTC()
+	releases := []Release{{TagName: "daily", Prerelease: true, PublishedAt: newer}}
+
+	cases := []struct {
+		name       string
+		buildEpoch int64
+		wantUpdate bool
+	}{
+		// binary built before the release was published — newer nightly exists
+		{"build predates release", 1_000_000_000, true},
+		// binary built after the nightly was published — nothing to do
+		{"build postdates release", 3_000_000_000, false},
+		// exactly at the publish instant is not "newer"
+		{"build equals publish", newer.Unix(), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, releases)
+			}))
+			defer srv.Close()
+
+			rel, err := CheckForUpdateURL(context.Background(), "1.0.0", "daily", tc.buildEpoch, srv.URL+"/releases")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotUpdate := rel != nil; gotUpdate != tc.wantUpdate {
+				t.Errorf("update reported = %v, want %v (rel=%+v)", gotUpdate, tc.wantUpdate, rel)
+			}
+		})
+	}
+}
+
+// TestCheckForUpdateURL_DailySkipsBetaAndStableTags verifies the daily channel
+// does not stop at an unversioned older release: a real version ahead of the
+// running one is still offered.
+func TestCheckForUpdateURL_DailySkipsBetaAndStableTags(t *testing.T) {
+	releases := []Release{{TagName: "v1.1.0"}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, releases)
+	}))
+	defer srv.Close()
+
+	rel, err := CheckForUpdateURL(context.Background(), "1.0.0", "daily", 0, srv.URL+"/releases")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rel == nil || rel.TagName != "v1.1.0" {
+		t.Errorf("expected the v1.1.0 upgrade, got %+v", rel)
+	}
+}
+
+// ─── restartArgs ─────────────────────────────────────────────────────────────
+
+// TestRestartArgs_StripsUpdateSelector is the regression test for the infinite
+// update loop: re-execing with the original argv would replay "--update yes"
+// forever and never start the server.
+func TestRestartArgs_StripsUpdateSelector(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "space separated update yes",
+			in:   []string{"pastebin", "--update", "yes"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "inline update value",
+			in:   []string{"pastebin", "--update=yes"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "single dash update",
+			in:   []string{"pastebin", "-update", "yes"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "update branch consumes the channel",
+			in:   []string{"pastebin", "--update", "branch", "daily"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "bare positional action",
+			in:   []string{"pastebin", "yes"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "bare positional check",
+			in:   []string{"pastebin", "check"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "bare branch with channel",
+			in:   []string{"pastebin", "branch", "beta"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "other flags are preserved",
+			in:   []string{"pastebin", "--update", "yes", "--port", "8080", "--debug"},
+			want: []string{"pastebin", "--port", "8080", "--debug"},
+		},
+		{
+			name: "flags before the update selector survive",
+			in:   []string{"pastebin", "--config", "/etc/pastebin", "--update", "yes"},
+			want: []string{"pastebin", "--config", "/etc/pastebin"},
+		},
+		{
+			name: "value that looks like an action is not stripped",
+			in:   []string{"pastebin", "--update", "yes", "--baseurl", "help"},
+			want: []string{"pastebin", "--baseurl", "help"},
+		},
+		{
+			// Regression: the flag package accepts the single-dash inline form,
+			// which must not survive the strip or the restarted process re-runs
+			// the update it just installed, looping forever.
+			name: "single dash inline update value",
+			in:   []string{"pastebin", "-update=yes"},
+			want: []string{"pastebin"},
+		},
+		{
+			// Regression: --update followed by another flag must not swallow
+			// that flag as its action, orphaning the flag's value as a stray
+			// positional and dropping the flag entirely.
+			name: "update followed by another flag keeps the flag",
+			in:   []string{"pastebin", "--update", "--port", "8080"},
+			want: []string{"pastebin", "--port", "8080"},
+		},
+		{
+			// Regression: "--maintenance update" is a documented alias for
+			// "--update yes". Left in argv it restarts the new binary back into
+			// the update flow, which exits without starting the server.
+			name: "maintenance update alias is stripped",
+			in:   []string{"pastebin", "--maintenance", "update"},
+			want: []string{"pastebin"},
+		},
+		{
+			name: "maintenance update alias is stripped with other flags",
+			in:   []string{"pastebin", "--port", "8090", "--maintenance", "update"},
+			want: []string{"pastebin", "--port", "8090"},
+		},
+		{
+			// A different maintenance operation is not an update selector and
+			// must survive the restart untouched.
+			name: "other maintenance operation is preserved",
+			in:   []string{"pastebin", "--maintenance", "backup"},
+			want: []string{"pastebin", "--maintenance", "backup"},
+		},
+		{
+			name: "update branch followed by a flag keeps the flag",
+			in:   []string{"pastebin", "--update", "branch", "--port", "8080"},
+			want: []string{"pastebin", "--port", "8080"},
+		},
+		{
+			name: "no update selector is unchanged",
+			in:   []string{"pastebin", "--port", "8080"},
+			want: []string{"pastebin", "--port", "8080"},
+		},
+		{
+			name: "trailing update flag with no value",
+			in:   []string{"pastebin", "--update"},
+			want: []string{"pastebin"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := restartArgs(tc.in)
+			if len(got) != len(tc.want) {
+				t.Fatalf("restartArgs(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("restartArgs(%q) = %q, want %q", tc.in, got, tc.want)
+				}
+			}
+			// The result must never still carry an update selector.
+			for _, a := range got {
+				if a == "--update" || a == "-update" || strings.HasPrefix(a, "--update=") {
+					t.Fatalf("restartArgs(%q) still carries update selector %q: %q", tc.in, a, got)
+				}
+			}
+		})
 	}
 }

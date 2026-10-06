@@ -698,6 +698,7 @@
       "err_no_server_edit": "أو حرّر {path} مباشرة.",
       "warn_invalid_server_url": "عنوان خادم غير صالح {value}، سيتم الإبقاء على الإعداد الحالي",
       "warn_load_config": "تعذر تحميل cli.yml: {error}",
+      "err_load_config": "خطأ: تعذر تحميل cli.yml: {error}",
       "warn_save_config": "تعذر حفظ cli.yml: {error}",
       "warn_read_token_file": "تعذرت قراءة {source} {path}: {error}",
       "warn_invalid_timeout": "قيمة server.timeout غير صالحة {value} في cli.yml، سيتم استخدام {default}",

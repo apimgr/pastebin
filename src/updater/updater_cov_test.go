@@ -23,7 +23,7 @@ func TestCheckForUpdate_StableURLShape(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := CheckForUpdate(ctx, "v1.0.0", "stable")
+	_, err := CheckForUpdate(ctx, "v1.0.0", "stable", 0)
 	if err == nil {
 		t.Fatal("expected error with cancelled context, got nil")
 	}
@@ -35,7 +35,7 @@ func TestCheckForUpdate_EmptyBranchURLShape(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := CheckForUpdate(ctx, "v1.0.0", "")
+	_, err := CheckForUpdate(ctx, "v1.0.0", "", 0)
 	if err == nil {
 		t.Fatal("expected error with cancelled context, got nil")
 	}
@@ -48,7 +48,7 @@ func TestCheckForUpdate_NonStableURLShape(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := CheckForUpdate(ctx, "v1.0.0", "beta")
+	_, err := CheckForUpdate(ctx, "v1.0.0", "beta", 0)
 	if err == nil {
 		t.Fatal("expected error with cancelled context, got nil")
 	}
@@ -67,7 +67,7 @@ func TestCheckForUpdateURL_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := CheckForUpdateURL(ctx, "v1.0.0", "stable", srv.URL+"/releases/latest")
+	_, err := CheckForUpdateURL(ctx, "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err == nil {
 		t.Fatal("expected error with cancelled context, got nil")
 	}
@@ -81,7 +81,7 @@ func TestCheckForUpdateURL_UnexpectedStatusCode(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	_, err := CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err == nil {
 		t.Fatal("expected error for 503, got nil")
 	}
@@ -93,7 +93,7 @@ func TestCheckForUpdateURL_UnexpectedStatusCode(t *testing.T) {
 // TestCheckForUpdateURL_BadURL covers the http.NewRequestWithContext error
 // branch by passing a URL that cannot be parsed.
 func TestCheckForUpdateURL_BadURL(t *testing.T) {
-	_, err := CheckForUpdateURL(context.Background(), "v1.0.0", "stable", "://bad-url")
+	_, err := CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, "://bad-url")
 	if err == nil {
 		t.Fatal("expected error for malformed URL, got nil")
 	}
@@ -110,7 +110,7 @@ func TestCheckForUpdateURL_DailyNoMatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rel, err := CheckForUpdateURL(context.Background(), "v1.0.0", "daily", srv.URL+"/releases")
+	rel, err := CheckForUpdateURL(context.Background(), "v1.0.0", "daily", 0, srv.URL+"/releases")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

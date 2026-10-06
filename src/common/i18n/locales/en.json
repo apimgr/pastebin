@@ -698,6 +698,7 @@
       "err_no_server_edit": "Or edit {path} directly.",
       "warn_invalid_server_url": "invalid server URL {value}, keeping current config",
       "warn_load_config": "could not load cli.yml: {error}",
+      "err_load_config": "Error: could not load cli.yml: {error}",
       "warn_save_config": "could not save cli.yml: {error}",
       "warn_read_token_file": "could not read {source} {path}: {error}",
       "warn_invalid_timeout": "invalid server.timeout {value} in cli.yml, using default {default}",

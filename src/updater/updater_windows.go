@@ -4,15 +4,19 @@ package updater
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // replaceBinary replaces the running binary on Windows.
 // Windows cannot rename over a running executable, so we rename the current
 // binary to .old and move the new binary into its place.  The .old file is
-// left on disk; next startup can clean it up.
+// still locked by this process, so it is scheduled for deletion at the next
+// reboot — otherwise every update would orphan a copy of the old binary.
 func replaceBinary(currentPath, newBinaryPath string) error {
 	oldPath := currentPath + ".old"
 
@@ -31,18 +35,33 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 		return fmt.Errorf("move new binary: %w", err)
 	}
 
+	// Schedule the old binary for deletion on reboot (MOVEFILE_DELAY_UNTIL_REBOOT).
+	// Best effort: the swap above has already succeeded, so a scheduling failure
+	// must not abort the install. Failing here would report "update failed" and
+	// skip RestartSelf, leaving the new binary on disk but the old image still
+	// running. The stale .old copy is a harmless leftover, so log and continue.
+	oldPathPtr, err := windows.UTF16PtrFromString(oldPath)
+	if err == nil {
+		err = windows.MoveFileEx(oldPathPtr, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+	}
+	if err != nil {
+		log.Printf("updater: could not schedule %s for deletion at reboot: %v", oldPath, err)
+	}
+
 	return nil
 }
 
 // RestartSelf spawns a new instance of the updated binary and exits the
-// current process.  Windows does not support exec-over-self.
+// current process.  Windows does not support exec-over-self.  The update
+// selector is dropped from argv so the new process starts the server instead
+// of re-running the update.
 func RestartSelf() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(exe, os.Args[1:]...)
+	cmd := exec.Command(exe, restartArgs(os.Args)[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

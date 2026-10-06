@@ -580,9 +580,15 @@ func main() {
 	}
 
 	// Load cli.yml.
-	fileCfg, err := loadCLIConfig()
-	if err != nil {
-		log.Println("warning: " + tf("warn_load_config", "error", err))
+	fileCfg, cfgErr := loadCLIConfig()
+	if cfgErr != nil {
+		// A present but unreadable or malformed cli.yml is a configuration
+		// failure, not a network/runtime warning. PART 32 reserves exit code 2
+		// for this case so scripts can distinguish it from connection failures.
+		// Help/version/shell must never be gated behind this, so the exit is
+		// deferred until after those branches have had their chance to run;
+		// fileCfg stays zero-valued and supplies only compiled defaults.
+		log.Println(tf("err_load_config", "error", cfgErr))
 	}
 
 	server := flag.String("server", envOrDefault("PASTEBIN_SERVER_PRIMARY", fileCfg.Server.Primary), "server base URL")
@@ -694,6 +700,13 @@ func main() {
 			os.Exit(exitUsage)
 		}
 		return
+	}
+
+	// --help/--version/--shell are served above and are never gated on a
+	// readable cli.yml. Everything past this point needs working config, so a
+	// malformed file exits with the configuration code (PART 32).
+	if cfgErr != nil {
+		os.Exit(exitConfig)
 	}
 
 	// Apply saveIfUnset: persist server to cli.yml when config was empty or invalid.

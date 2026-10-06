@@ -38,9 +38,11 @@ type Asset struct {
 }
 
 // CheckForUpdate queries GitHub Releases for a newer version on the given
-// branch ("stable", "beta", or "daily").  Returns nil, nil when already
-// up to date or when no release is found.
-func CheckForUpdate(ctx context.Context, currentVersion, branch string) (*Release, error) {
+// branch ("stable", "beta", or "daily").  buildEpoch is the caller's embedded
+// BuildEpoch and is only consulted for the rolling "daily" tag, whose tag name
+// never changes while its contents are rebuilt nightly.  Returns nil, nil when
+// already up to date or when no release is found.
+func CheckForUpdate(ctx context.Context, currentVersion, branch string, buildEpoch int64) (*Release, error) {
 	var apiURL string
 	switch branch {
 	case "stable", "":
@@ -48,13 +50,13 @@ func CheckForUpdate(ctx context.Context, currentVersion, branch string) (*Releas
 	default:
 		apiURL = apiBase
 	}
-	return CheckForUpdateURL(ctx, currentVersion, branch, apiURL)
+	return CheckForUpdateURL(ctx, currentVersion, branch, buildEpoch, apiURL)
 }
 
 // CheckForUpdateURL is the testable core of CheckForUpdate.  It queries the
 // given apiURL (so tests can inject an httptest server) and otherwise behaves
 // identically to CheckForUpdate.
-func CheckForUpdateURL(ctx context.Context, currentVersion, branch, apiURL string) (*Release, error) {
+func CheckForUpdateURL(ctx context.Context, currentVersion, branch string, buildEpoch int64, apiURL string) (*Release, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
@@ -84,7 +86,7 @@ func CheckForUpdateURL(ctx context.Context, currentVersion, branch, apiURL strin
 		if err := json.NewDecoder(lr).Decode(&rel); err != nil {
 			return nil, fmt.Errorf("decode release: %w", err)
 		}
-		if rel.TagName == currentVersion {
+		if isSameVersion(rel.TagName, currentVersion) {
 			return nil, nil
 		}
 		return &rel, nil
@@ -95,11 +97,120 @@ func CheckForUpdateURL(ctx context.Context, currentVersion, branch, apiURL strin
 		return nil, fmt.Errorf("decode releases: %w", err)
 	}
 	for _, r := range releases {
-		if matchesBranch(r, branch) && r.TagName != currentVersion {
+		if !matchesBranch(r, branch) {
+			continue
+		}
+		// The daily channel is a single rolling tag: its name never changes
+		// while the release is rebuilt nightly, so a newer nightly exists only
+		// when the release was published after this binary was built.
+		if isDailyTag(r.TagName) {
+			if r.PublishedAt.Unix() > buildEpoch {
+				return &r, nil
+			}
+			continue
+		}
+		if !isSameVersion(r.TagName, currentVersion) {
 			return &r, nil
 		}
 	}
 	return nil, nil
+}
+
+// isSameVersion reports whether the release tag names the version this binary
+// already carries.  release.yml stamps Version from release.txt without the "v"
+// prefix while publishing tag_name as "v1.0.0", so the tag is compared with and
+// without that prefix rather than byte-for-byte.
+func isSameVersion(tag, currentVersion string) bool {
+	return tag == currentVersion || strings.TrimPrefix(tag, "v") == strings.TrimPrefix(currentVersion, "v")
+}
+
+// isDailyTag reports whether tag is the rolling daily tag, which daily.yml
+// deletes and recreates every night.
+func isDailyTag(tag string) bool {
+	return tag == "daily"
+}
+
+// flagTakesValue reports whether the named flag consumes the following word
+// from argv.  A word that is a flag's value is never a positional subcommand,
+// even when it happens to read "check", "yes" or "help" — "--baseurl help" is
+// a legitimate invocation and its value must survive the restart.
+func flagTakesValue(arg string) bool {
+	name := strings.TrimLeft(arg, "-")
+	if strings.Contains(name, "=") {
+		// "--flag=value" carries its value inline, so nothing follows it.
+		return false
+	}
+	switch name {
+	case "port", "address", "mode", "config", "data", "log",
+		"cache", "backup", "pid", "baseurl", "color", "lang",
+		"shell", "service", "maintenance", "update":
+		return true
+	}
+	return false
+}
+
+// restartArgs returns the command line to re-exec after an update install.
+// The update selectors must be stripped: re-execing the original argv would
+// replay "--update yes" against the freshly installed binary, re-running the
+// update forever and never starting the server.  Every other flag (--config,
+// --port, --debug, …) is preserved so the server restarts as it was configured.
+func restartArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		// "--update=yes" carries its action inline. The flag package accepts the
+		// single-dash form too, so match on the name with any leading dashes
+		// trimmed — otherwise "-update=yes" survives the strip and the restarted
+		// process re-runs the update it just installed, looping forever.
+		if name := strings.TrimLeft(arg, "-"); strings.HasPrefix(name, "update=") {
+			continue
+		}
+		// "--maintenance update" is a documented alias for "--update yes"
+		// (src/main.go) that reaches the same install path, so it is an update
+		// selector too. Left in place it restarts the new binary straight back
+		// into the update flow, which finds the version it just installed and
+		// exits without ever starting the server.
+		if strings.TrimLeft(arg, "-") == "maintenance" &&
+			i+1 < len(args) && args[i+1] == "update" {
+			i++
+			continue
+		}
+		// "--update yes" consumes the following word as its action. Only consume
+		// it when it actually looks like an action: a following flag belongs to
+		// the server invocation and must be preserved for flagTakesValue.
+		if arg == "--update" || arg == "-update" {
+			if i+1 < len(args) && args[i+1] != "" && !strings.HasPrefix(args[i+1], "-") {
+				action := args[i+1]
+				i++
+				// "--update branch daily" consumes the channel as a second word.
+				if action == "branch" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					i++
+				}
+			}
+			continue
+		}
+		// A bare "branch <channel>" positional names the channel too.
+		if arg == "branch" {
+			i++
+			continue
+		}
+		// Preserve a flag and its value before considering the value for
+		// stripping, so "--baseurl help" keeps both words.
+		if strings.HasPrefix(arg, "-") {
+			out = append(out, arg)
+			if flagTakesValue(arg) && i+1 < len(args) {
+				i++
+				out = append(out, args[i])
+			}
+			continue
+		}
+		// A bare positional such as "pastebin yes" also selects an action.
+		if arg == "check" || arg == "yes" || arg == "help" {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }
 
 // DoUpdate downloads the release binary, verifies it, and replaces the
@@ -260,8 +371,8 @@ func matchesBranch(r Release, branch string) bool {
 		return true
 	}
 	isBeta := strings.HasSuffix(r.TagName, "-beta")
-	// Daily builds are timestamps: YYYYMMDDHHMMSS (14 chars, no dots).
-	isDaily := len(r.TagName) == 14 && !strings.Contains(r.TagName, ".")
+	// The daily channel is a single rolling release: tag "daily", rebuilt nightly.
+	isDaily := isDailyTag(r.TagName)
 	switch branch {
 	case "beta":
 		return isBeta

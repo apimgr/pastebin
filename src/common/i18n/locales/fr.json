@@ -569,6 +569,7 @@
       "err_no_server_edit": "Ou modifiez directement {path}.",
       "warn_invalid_server_url": "URL de serveur invalide {value}, configuration actuelle conservée",
       "warn_load_config": "impossible de charger cli.yml : {error}",
+      "err_load_config": "Erreur : impossible de charger cli.yml : {error}",
       "warn_save_config": "impossible d'enregistrer cli.yml : {error}",
       "warn_read_token_file": "impossible de lire {source} {path} : {error}",
       "warn_invalid_timeout": "server.timeout invalide {value} dans cli.yml, valeur par défaut {default} utilisée",

@@ -569,6 +569,7 @@
       "err_no_server_edit": "或直接编辑 {path}。",
       "warn_invalid_server_url": "服务器 URL 无效 {value}，保留当前配置",
       "warn_load_config": "无法加载 cli.yml：{error}",
+      "err_load_config": "错误：无法加载 cli.yml：{error}",
       "warn_save_config": "无法保存 cli.yml：{error}",
       "warn_read_token_file": "无法读取 {source} {path}：{error}",
       "warn_invalid_timeout": "cli.yml 中的 server.timeout 无效 {value}，使用默认值 {default}",

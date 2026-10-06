@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/apimgr/pastebin/src/updater"
 )
@@ -23,7 +24,7 @@ func TestCheckForUpdate_StableNewerVersion(t *testing.T) {
 	defer srv.Close()
 
 	// Use stable branch (calls /releases/latest).
-	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err != nil {
 		t.Fatalf("CheckForUpdate error: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestCheckForUpdate_AlreadyUpToDate(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err != nil {
 		t.Fatalf("CheckForUpdate error: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestCheckForUpdate_404NoUpdate(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err != nil {
 		t.Fatalf("unexpected error on 404: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestCheckForUpdate_ServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	_, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err == nil {
 		t.Error("expected error for 500 response, got nil")
 	}
@@ -89,7 +90,7 @@ func TestCheckForUpdate_BetaBranch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "beta", srv.URL+"/releases")
+	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "beta", 0, srv.URL+"/releases")
 	if err != nil {
 		t.Fatalf("CheckForUpdate beta error: %v", err)
 	}
@@ -103,8 +104,8 @@ func TestCheckForUpdate_BetaBranch(t *testing.T) {
 
 func TestCheckForUpdate_DailyBranch(t *testing.T) {
 	releases := []updater.Release{
-		// daily
-		{TagName: "20250115120000", Prerelease: false},
+		// daily rolling tag
+		{TagName: "daily", Prerelease: false, PublishedAt: time.Unix(1, 0)},
 		{TagName: "v1.5.0", Prerelease: false},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +113,7 @@ func TestCheckForUpdate_DailyBranch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "daily", srv.URL+"/releases")
+	rel, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "daily", 0, srv.URL+"/releases")
 	if err != nil {
 		t.Fatalf("CheckForUpdate daily error: %v", err)
 	}
@@ -127,7 +128,7 @@ func TestCheckForUpdate_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", srv.URL+"/releases/latest")
+	_, err := updater.CheckForUpdateURL(context.Background(), "v1.0.0", "stable", 0, srv.URL+"/releases/latest")
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}

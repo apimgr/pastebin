@@ -751,14 +751,14 @@ func applyRetention(cfg BackupConfig) error {
 // update_installed email is sent before the process restarts. deferDays delays
 // eligibility: a release must be at least that many days old before the task
 // acts on it. A nil mailer or empty operatorEmail silently skips email.
-func UpdateCheck(currentVersion, branch, operatorEmail string, autoInstall bool, deferDays int, notifyAvailable, notifyInstalled bool, mailer Mailer) func(ctx context.Context) error {
+func UpdateCheck(currentVersion, branch string, buildEpoch int64, operatorEmail string, autoInstall bool, deferDays int, notifyAvailable, notifyInstalled bool, mailer Mailer) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		if branch == "" {
 			branch = "stable"
 		}
 		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		rel, err := updater.CheckForUpdate(checkCtx, currentVersion, branch)
+		rel, err := updater.CheckForUpdate(checkCtx, currentVersion, branch, buildEpoch)
 		if err != nil {
 			return fmt.Errorf("update_check: %w", err)
 		}

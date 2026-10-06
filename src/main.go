@@ -595,7 +595,7 @@ Examples:
 		case updateCmd == "check":
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			rel, err := updater.CheckForUpdate(ctx, Version, configuredBranch)
+			rel, err := updater.CheckForUpdate(ctx, Version, configuredBranch, buildEpoch())
 			if err != nil {
 				fmt.Fprintf(stderr, "%s: update check: %v\n", binaryName, err)
 				return 1
@@ -611,7 +611,7 @@ Examples:
 		case updateCmd == "yes":
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
-			rel, err := updater.CheckForUpdate(ctx, Version, configuredBranch)
+			rel, err := updater.CheckForUpdate(ctx, Version, configuredBranch, buildEpoch())
 			if err != nil {
 				fmt.Fprintf(stderr, "%s: update check: %v\n", binaryName, err)
 				return 1
@@ -1174,7 +1174,7 @@ Examples:
 	// Daily update check (PART 18/22): runs at 06:00, notify-only by default;
 	// auto-installs when server.update.auto_install is true (default false).
 	logSchedErr(sched.Register("update_check", "Update Check", "0 6 * * *", true,
-		task.UpdateCheck(Version, cfg.Server.Update.Branch, taskOperatorEmail, cfg.Server.Update.AutoInstall, cfg.Server.Update.DeferDays,
+		task.UpdateCheck(Version, cfg.Server.Update.Branch, buildEpoch(), taskOperatorEmail, cfg.Server.Update.AutoInstall, cfg.Server.Update.DeferDays,
 			cfg.Server.Notifications.Email.Events.UpdateAvailable, cfg.Server.Notifications.Email.Events.UpdateInstalled, taskMailer)))
 
 	// Retry policy (PART 18). Network-dependent tasks retry on failure by

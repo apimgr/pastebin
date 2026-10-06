@@ -29,12 +29,13 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 }
 
 // RestartSelf replaces the current process image with the updated binary via
-// syscall.Exec (Unix exec-over-self).  This function does not return on
-// success.
+// syscall.Exec (Unix exec-over-self), dropping the update selector from argv so
+// the new image starts the server instead of re-running the update.  This
+// function does not return on success.
 func RestartSelf() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(exe, os.Args, os.Environ())
+	return syscall.Exec(exe, restartArgs(os.Args), os.Environ())
 }

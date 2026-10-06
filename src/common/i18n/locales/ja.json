@@ -569,6 +569,7 @@
       "err_no_server_edit": "または {path} を直接編集してください。",
       "warn_invalid_server_url": "サーバー URL が無効です {value}。現在の設定を維持します",
       "warn_load_config": "cli.yml を読み込めませんでした: {error}",
+      "err_load_config": "エラー: cli.yml を読み込めませんでした: {error}",
       "warn_save_config": "cli.yml を保存できませんでした: {error}",
       "warn_read_token_file": "{source} {path} を読み込めませんでした: {error}",
       "warn_invalid_timeout": "cli.yml の server.timeout が無効です {value}。既定値 {default} を使用します",
