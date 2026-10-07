@@ -6,9 +6,9 @@ Pastebin is a full-stack Go web application for creating and sharing text snippe
 
 project_name: pastebin
 project_org: apimgr
-# FROZEN — set at creation, defaults to project_org, never changes
+# STABLE — set at creation, defaults to project_org; not changed by a rename
 internal_org: apimgr
-# FROZEN — equals project_name on first install, never changes
+# STABLE — equals project_name on first install; reset only on an explicit org/repo rename or a fork's first setup
 internal_name: pastebin
 app_name: Pastebin
 official_site: https://pste.us
