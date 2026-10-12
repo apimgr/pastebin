@@ -386,7 +386,7 @@ func run(rawArgs []string, stdout, stderr io.Writer) int {
 				}
 				restorePass = string(pw)
 			}
-			if err := maintenance.Restore(maintenanceArg, mcConfigDir, mcDataDir, restorePass); err != nil {
+			if err := maintenance.RestoreWithVersion(maintenanceArg, mcConfigDir, mcDataDir, restorePass, Version); err != nil {
 				fmt.Fprintf(stderr, "%s: maintenance restore: %v\n", binaryName, err)
 				return 1
 			}

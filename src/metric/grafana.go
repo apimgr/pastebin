@@ -49,10 +49,7 @@ func target(expr string, legend string) map[string]any {
 // per metric category section. Grafana lays panels out by gridPos, so each
 // panel gets its own row band.
 func panel(id, row int, title, unit string, targets ...map[string]any) map[string]any {
-	ts := make([]map[string]any, 0, len(targets))
-	for _, t := range targets {
-		ts = append(ts, t)
-	}
+	ts := append(make([]map[string]any, 0, len(targets)), targets...)
 	return map[string]any{
 		"id":          id,
 		"type":        "timeseries",

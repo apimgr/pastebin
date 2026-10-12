@@ -27,7 +27,7 @@ services:
     restart: "no"
     logging: *default-logging
     environment:
-      PORT: 80
+      PORT: 64582
       DEBUG: true
       MODE: development
       TZ: ${TZ:-America/New_York}
@@ -38,10 +38,6 @@ services:
       # This file MUST be copied to a temp directory before running
       - ./volumes/config:/config:z
       - ./volumes/data:/data:z
-    ports:
-      - "172.17.0.1:64581:80"
-      # termbin raw-TCP: no reverse proxy can front it, so bind all interfaces
-      - "64599:9999"
     healthcheck:
       test: ['CMD', '/usr/local/bin/pastebin', '--status']
       interval: 10s
@@ -51,6 +47,19 @@ services:
     depends_on:
       pastebin-cache-test:
         condition: service_healthy
+    networks:
+      - pastebin-test
+
+  pastebin-e2e-browser:
+    image: chromedp/headless-shell:latest
+    pull_policy: always
+    container_name: pastebin-e2e-browser
+    restart: "no"
+    logging: *default-logging
+    command:
+      - --no-sandbox
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
     networks:
       - pastebin-test
 
@@ -75,3 +84,4 @@ networks:
   pastebin-test:
     name: pastebin-test
     external: false
+    internal: true

@@ -500,6 +500,12 @@ func BackupHourly(cfg BackupConfig) func(ctx context.Context) error {
 			return nil
 		}
 
+		if skip, reason := diskPreCheck(cfg); skip {
+			log.Printf("backup_hourly: skipped: %s", reason)
+			auditBackupSkipped(cfg, reason)
+			return nil
+		}
+
 		ext := ".tar.gz"
 		if cfg.Password != "" {
 			ext = ".tar.gz.enc"

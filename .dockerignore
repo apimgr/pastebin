@@ -13,6 +13,8 @@
 binaries/
 releases/
 volumes/
+.gomodcache/
+.gocache/
 docs/
 tests/
 *.md

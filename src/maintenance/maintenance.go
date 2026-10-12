@@ -222,6 +222,12 @@ func Backup(opts BackupOptions) error {
 // Per PART 21, the backup is fully verified before any data is written;
 // restore only proceeds when every verification check passes.
 func Restore(archivePath, configDir, dataDir, password string) error {
+	return RestoreWithVersion(archivePath, configDir, dataDir, password, "")
+}
+
+// RestoreWithVersion warns when the backup was produced by a different app
+// version, then restores it after all integrity checks pass.
+func RestoreWithVersion(archivePath, configDir, dataDir, password, runningVersion string) error {
 	// Verify the backup before touching any live config or data (PART 21:
 	// "Only proceed with restore if ALL verification checks pass").
 	if err := VerifyBackup(archivePath, password); err != nil {
@@ -244,6 +250,36 @@ func Restore(archivePath, configDir, dataDir, password string) error {
 		}
 	}
 
+	manifestGzip, err := gzip.NewReader(strings.NewReader(string(data)))
+	if err != nil {
+		return fmt.Errorf("opening gzip: %w", err)
+	}
+	manifestTar := tar.NewReader(manifestGzip)
+	var manifest Manifest
+	for {
+		hdr, readErr := manifestTar.Next()
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			manifestGzip.Close()
+			return fmt.Errorf("reading backup manifest: %w", readErr)
+		}
+		if hdr.Name == "manifest.json" {
+			if err := json.NewDecoder(manifestTar).Decode(&manifest); err != nil {
+				manifestGzip.Close()
+				return fmt.Errorf("reading backup manifest: %w", err)
+			}
+			break
+		}
+	}
+	if err := manifestGzip.Close(); err != nil {
+		return fmt.Errorf("closing backup manifest: %w", err)
+	}
+	if runningVersion != "" && manifest.AppVersion != "" && !sameAppVersion(runningVersion, manifest.AppVersion) {
+		fmt.Fprintf(os.Stderr, "Warning: backup app version %s differs from running version %s; restore may require schema updates\n", manifest.AppVersion, runningVersion)
+	}
+
 	gr, err := gzip.NewReader(strings.NewReader(string(data)))
 	if err != nil {
 		return fmt.Errorf("opening gzip: %w", err)
@@ -260,7 +296,6 @@ func Restore(archivePath, configDir, dataDir, password string) error {
 			return fmt.Errorf("reading archive: %w", err)
 		}
 		if hdr.Name == "manifest.json" {
-			// skip — informational only
 			continue
 		}
 		if err := extractEntry(tr, hdr, configDir, dataDir); err != nil {
@@ -270,6 +305,10 @@ func Restore(archivePath, configDir, dataDir, password string) error {
 
 	fmt.Printf("Restore complete from: %s\n", archivePath)
 	return nil
+}
+
+func sameAppVersion(a, b string) bool {
+	return strings.TrimPrefix(a, "v") == strings.TrimPrefix(b, "v")
 }
 
 // SetYAMLField updates a top-level YAML key in the given config file.

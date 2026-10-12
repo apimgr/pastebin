@@ -4520,16 +4520,12 @@ func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
 // ─── Misc handlers ────────────────────────────────────────────────────────────
 
 func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
-	version := s.version
-	if version == "" {
-		version = "dev"
-	}
 	// PWA manifest is revalidated on every load (PART 16) so a new build's icons
 	// and metadata are picked up promptly; the version-derived ETag lets the
 	// browser short-circuit with 304 when nothing changed.
 	w.Header().Set("Content-Type", "application/manifest+json")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("ETag", fmt.Sprintf(`"manifest-%s"`, version))
+	w.Header().Set("ETag", `"`+buildinfo.AssetStamp()+`"`)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name":             s.liveCfg().Web.SiteTitle,
 		"short_name":       "Paste",
@@ -4556,15 +4552,11 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleServiceWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	// Inject server version so cache names are tied to the release.
-	version := s.version
-	if version == "" {
-		version = "dev"
-	}
-	// Version-derived ETag lets a controlled browser revalidate the worker
-	// script cheaply (PART 16 — /sw.js is no-cache + ETag).
-	w.Header().Set("ETag", fmt.Sprintf(`"sw-%s"`, version))
-	sw := fmt.Sprintf(`// Pastebin Service Worker — version %s
+	stamp := buildinfo.AssetStamp()
+	// The full build stamp changes for every build, including builds in the
+	// same release channel, so controlled browsers install the matching worker.
+	w.Header().Set("ETag", `"`+stamp+`"`)
+	sw := fmt.Sprintf(`// Pastebin Service Worker — build %s
 const CACHE_VERSION = %q;
 const CACHE_NAME = 'pastebin-cache-' + CACHE_VERSION;
 const PRECACHE_ASSETS = [
@@ -4682,7 +4674,7 @@ function offlineFallbackResponse() {
       headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   );
 }
-`, version, version)
+`, stamp, stamp)
 	w.Write([]byte(sw))
 }
 

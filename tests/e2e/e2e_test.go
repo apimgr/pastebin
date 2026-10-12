@@ -1,34 +1,27 @@
 //go:build e2e
 
-// Package e2e contains browser/end-to-end tests for pastebin (AI.md PART 28,
-// "Browser E2E Testing"). This file is compiled ONLY under the `e2e` build
-// tag, so `make test` (the pre-commit gate) never runs it — it is invoked
-// on-demand via tests/e2e.sh against a running instance (E2E_BASE_URL).
-//
-// Three Mandatory E2E Tiers per PART 28:
-//   Tier 1 — SSR:          plain net/http request/response inspection
-//   Tier 2 — No-JS browser: chromedp with script execution disabled
-//   Tier 3 — Full browser:  chromedp with JS on, zero console errors
-//
-// NOTE: Tier 2 and Tier 3 require github.com/chromedp/chromedp, which is not
-// yet a dependency of this module. Adding it means editing the shared
-// go.mod/go.sum while many other automated passes are concurrently working
-// in this repository, and it cannot be verified here (no Go toolchain on the
-// host, per AI.md/testing-rules.md). That addition is deliberately deferred
-// to its own isolated, verifiable commit rather than risked here. Only Tier 1
-// is implemented in this file today; TestTier2NoJS and TestTier3FullBrowser
-// are stubbed out with t.Skip so the suite's shape matches the spec and the
-// tags/names are ready for the chromedp implementation to fill in.
+// Package e2e contains browser/end-to-end tests for pastebin (AI.md PART 28).
+// This file is compiled only with the e2e build tag and targets the live test
+// stack started by tests/e2e.sh.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/chromedp"
+	"golang.org/x/net/html"
 )
 
 // baseURL returns the E2E_BASE_URL the running stack is reachable at,
@@ -46,10 +39,19 @@ func client() *http.Client {
 	return &http.Client{Timeout: 15 * time.Second}
 }
 
+func getHTML(c *http.Client, endpoint string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/html")
+	return c.Do(req)
+}
+
 // TestTier1Healthz verifies /server/healthz responds and is not redirected.
 func TestTier1Healthz(t *testing.T) {
 	base := baseURL(t)
-	resp, err := client().Get(base + "/server/healthz")
+	resp, err := getHTML(client(), base+"/server/healthz")
 	if err != nil {
 		t.Fatalf("GET /server/healthz: %v", err)
 	}
@@ -59,13 +61,11 @@ func TestTier1Healthz(t *testing.T) {
 	}
 }
 
-// TestTier1HomeNoJS verifies the home page renders usable server-side HTML
-// (create form present) without requiring JavaScript to execute — this is
-// the SSR baseline that Tier 2 (No-JS chromedp) will later exercise inside
-// an actual browser engine.
-func TestTier1HomeNoJS(t *testing.T) {
+// TestTier1HomeSSR verifies the homepage renders its server-side create link
+// and metadata without requiring JavaScript.
+func TestTier1HomeSSR(t *testing.T) {
 	base := baseURL(t)
-	resp, err := client().Get(base + "/")
+	resp, err := getHTML(client(), base+"/")
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
@@ -78,11 +78,88 @@ func TestTier1HomeNoJS(t *testing.T) {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 	html := string(body)
-	if !strings.Contains(html, "<form") {
-		t.Error("home page has no <form> — create form must work without JS")
+	if !strings.Contains(html, `href="/create"`) {
+		t.Error("home page has no server-rendered create link")
+	}
+	for _, marker := range []string{"<title>", `name="description"`, `name="viewport"`, `lang="en"`} {
+		if !strings.Contains(html, marker) {
+			t.Errorf("home page is missing required SSR metadata %q", marker)
+		}
 	}
 	if strings.Contains(html, "<script") && !strings.Contains(html, "static/js/app.js") {
 		t.Error("home page references JS other than the single app.js bundle")
+	}
+}
+
+// TestTier1InternalLinkCrawl follows same-origin links and rejects broken
+// routes, server errors, and blank HTML pages.
+func TestTier1InternalLinkCrawl(t *testing.T) {
+	base := baseURL(t)
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("parse base URL: %v", err)
+	}
+	queue := []string{"/"}
+	visited := make(map[string]bool)
+	for len(queue) > 0 {
+		path := queue[0]
+		queue = queue[1:]
+		if visited[path] {
+			continue
+		}
+		visited[path] = true
+		if len(visited) > 200 {
+			t.Fatal("internal link crawl exceeded 200 pages")
+		}
+		resp, err := getHTML(client(), base+path)
+		if err != nil {
+			t.Errorf("GET %s: %v", path, err)
+			continue
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			t.Errorf("read %s: %v", path, readErr)
+			continue
+		}
+		if resp.StatusCode >= http.StatusInternalServerError {
+			t.Errorf("GET %s returned %d", path, resp.StatusCode)
+			continue
+		}
+		if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+			continue
+		}
+		if len(strings.TrimSpace(string(body))) == 0 {
+			t.Errorf("GET %s returned blank HTML", path)
+			continue
+		}
+		doc, err := html.Parse(strings.NewReader(string(body)))
+		if err != nil {
+			t.Errorf("parse HTML at %s: %v", path, err)
+			continue
+		}
+		var visit func(*html.Node)
+		visit = func(node *html.Node) {
+			if node.Type == html.ElementNode && node.Data == "a" {
+				for _, attr := range node.Attr {
+					if attr.Key != "href" || attr.Val == "" || strings.HasPrefix(attr.Val, "#") {
+						continue
+					}
+					ref, parseErr := url.Parse(attr.Val)
+					if parseErr != nil {
+						continue
+					}
+					dest := baseURL.ResolveReference(ref)
+					if dest.Scheme == baseURL.Scheme && dest.Host == baseURL.Host {
+						queue = append(queue, dest.RequestURI())
+					}
+				}
+			}
+			for child := node.FirstChild; child != nil; child = child.NextSibling {
+				visit(child)
+			}
+		}
+		visit(doc)
 	}
 }
 
@@ -196,17 +273,142 @@ func TestTier1UnknownID(t *testing.T) {
 	}
 }
 
-// TestTier2NoJS is a placeholder for the chromedp-based No-JS tier described
-// in AI.md PART 28. Implement once github.com/chromedp/chromedp is added to
-// go.mod in its own isolated commit.
-func TestTier2NoJS(t *testing.T) {
-	t.Skip("Tier 2 (No-JS chromedp) pending github.com/chromedp/chromedp dependency addition")
+func browserContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+	endpoint := os.Getenv("E2E_BROWSER_URL")
+	if endpoint == "" {
+		t.Skip("E2E_BROWSER_URL not set — run via tests/e2e.sh")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	allocCtx, allocCancel := chromedp.NewRemoteAllocator(ctx, endpoint)
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
+	cleanup := func() {
+		browserCancel()
+		allocCancel()
+		cancel()
+	}
+	if err := chromedp.Run(browserCtx); err != nil {
+		cleanup()
+		t.Fatalf("connect to headless browser: %v", err)
+	}
+	return browserCtx, cleanup
 }
 
-// TestTier3FullBrowser is a placeholder for the chromedp-based full-browser
-// tier (JS on, zero console errors) described in AI.md PART 28. Implement
-// once github.com/chromedp/chromedp is added to go.mod in its own isolated
-// commit.
+// TestTier2NoJS verifies that the server-rendered paste creation form is usable
+// in a real browser with script execution disabled.
+func TestTier2NoJS(t *testing.T) {
+	base := baseURL(t)
+	ctx, cancel := browserContext(t)
+	defer cancel()
+	var html string
+	err := chromedp.Run(ctx,
+		emulation.SetScriptExecutionDisabled(true),
+		chromedp.Navigate(base+"/create"),
+		chromedp.OuterHTML("html", &html),
+	)
+	if err != nil {
+		t.Fatalf("load create page without JavaScript: %v", err)
+	}
+	if !strings.Contains(html, `id="paste-form"`) || !strings.Contains(html, `name="content"`) {
+		t.Fatalf("no-JS page is missing the server-rendered paste form")
+	}
+	content := "e2e browser no javascript paste"
+	var viewLink string
+	err = chromedp.Run(ctx,
+		chromedp.SendKeys(`#content`, content),
+		chromedp.Click(`#paste-form button[type="submit"]`),
+		chromedp.WaitVisible(`.result a.long-string`, chromedp.ByQuery),
+		chromedp.AttributeValue(`.result a.long-string`, "href", &viewLink, nil, chromedp.ByQuery),
+		chromedp.Navigate(viewLink),
+		chromedp.WaitVisible(`#paste-code`, chromedp.ByQuery),
+		chromedp.OuterHTML(`#paste-code`, &html, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatalf("create and view paste without JavaScript: %v", err)
+	}
+	if !strings.Contains(html, content) {
+		t.Fatalf("no-JS paste view is missing created content: %s", html)
+	}
+}
+
+// TestTier3FullBrowser checks the home page and all resources it loads for
+// browser console errors and failed network requests.
 func TestTier3FullBrowser(t *testing.T) {
-	t.Skip("Tier 3 (full browser chromedp) pending github.com/chromedp/chromedp dependency addition")
+	base := baseURL(t)
+	ctx, cancel := browserContext(t)
+	defer cancel()
+	var failures []string
+	var failuresMu sync.Mutex
+	chromedp.ListenTarget(ctx, func(event any) {
+		var failure string
+		switch e := event.(type) {
+		case *runtime.EventExceptionThrown:
+			failure = e.ExceptionDetails.Text
+		case *runtime.EventConsoleAPICalled:
+			if e.Type == runtime.APITypeError {
+				for _, arg := range e.Args {
+					failure += " " + arg.Value.String()
+				}
+			}
+		case *network.EventLoadingFailed:
+			failure = e.ErrorText
+		}
+		if failure != "" {
+			failuresMu.Lock()
+			failures = append(failures, failure)
+			failuresMu.Unlock()
+		}
+	})
+	var html string
+	err := chromedp.Run(ctx,
+		network.Enable(),
+		chromedp.Navigate(base+"/"),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.Sleep(500*time.Millisecond),
+		chromedp.OuterHTML("html", &html),
+	)
+	if err != nil {
+		t.Fatalf("load home page in browser: %v", err)
+	}
+	if !strings.Contains(html, `href="/create"`) {
+		t.Fatal("home page is missing the server-rendered create link")
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base+"/create"),
+		chromedp.WaitVisible(`#paste-form`, chromedp.ByQuery),
+		chromedp.OuterHTML("html", &html),
+	); err != nil {
+		t.Fatalf("load create page in browser: %v", err)
+	}
+	if !strings.Contains(html, `name="content"`) {
+		t.Fatal("create page is missing the server-rendered paste content field")
+	}
+	for _, page := range []string{"/recent", "/server/about", "/server/help", "/server/privacy", "/server/terms", "/server/docs/swagger", "/server/docs/graphql"} {
+		if err := chromedp.Run(ctx,
+			chromedp.Navigate(base+page),
+			chromedp.WaitReady("body", chromedp.ByQuery),
+			chromedp.Evaluate(`document.title`, &html),
+		); err != nil {
+			t.Errorf("load %s in browser: %v", page, err)
+		} else if strings.TrimSpace(html) == "" {
+			t.Errorf("%s rendered without a page title", page)
+		}
+	}
+	var hasOverflow bool
+	var overflowDetails string
+	if err := chromedp.Run(ctx,
+		emulation.SetDeviceMetricsOverride(375, 812, 1, false),
+		chromedp.Navigate(base+"/"),
+		chromedp.Evaluate(`document.documentElement.scrollWidth > window.innerWidth`, &hasOverflow),
+		chromedp.Evaluate(`JSON.stringify(Array.from(document.querySelectorAll('body *')).map(el => { const r = el.getBoundingClientRect(); return {tag: el.tagName, id: el.id, className: typeof el.className === 'string' ? el.className : '', left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth}; }).filter(el => el.right > window.innerWidth || el.left < 0).slice(0, 20))`, &overflowDetails),
+	); err != nil {
+		t.Errorf("check mobile layout: %v", err)
+	} else if hasOverflow {
+		t.Errorf("home page has horizontal overflow at 375px viewport: %s", overflowDetails)
+	}
+	failuresMu.Lock()
+	defer failuresMu.Unlock()
+	if len(failures) > 0 {
+		t.Errorf("browser reported console or network errors: %s", strings.Join(failures, "; "))
+	}
 }

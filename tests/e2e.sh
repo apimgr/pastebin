@@ -15,11 +15,7 @@
 #   Tier 2 — No-JS:      chromedp with script execution disabled
 #   Tier 3 — Full browser: chromedp with JS on, zero console errors
 #
-# Tier 2/3 require the github.com/chromedp/chromedp module. That dependency
-# has not been added to go.mod yet (deliberately deferred — see README note
-# in tests/e2e/e2e_test.go) to avoid a risky unverified go.mod edit while
-# other automated work is touching this repository concurrently. Until it
-# lands, this script runs Tier 1 only and prints a clear notice for Tier 2/3.
+# Tiers 2/3 connect to the headless-shell service in the test compose stack.
 #
 # Usage: bash tests/e2e.sh [--keep]
 # Options:
@@ -34,10 +30,10 @@ E2E_PROJECT_ORG="apimgr"
 E2E_PROJECT_NAME="pastebin"
 E2E_IMAGE_NAME="${E2E_PROJECT_NAME}:e2e-$$"
 E2E_COMPOSE_PROJECT="${E2E_PROJECT_NAME}-e2e-$$"
-E2E_CONTAINER_NAME="${E2E_PROJECT_NAME}-e2e"
+E2E_CONTAINER_NAME="${E2E_PROJECT_NAME}-test"
 E2E_PORT="64582"
-E2E_BRIDGE_IP="172.17.0.1"
-E2E_BASE_URL="http://${E2E_BRIDGE_IP}:${E2E_PORT}"
+E2E_BASE_URL="http://pastebin:${E2E_PORT}"
+E2E_BROWSER_URL="http://pastebin-e2e-browser:9222"
 E2E_TEMP_DIR=""
 E2E_KEEP=false
 E2E_ERRORS=0
@@ -81,7 +77,10 @@ docker build -f "${E2E_PROJECT_DIR}/docker/Dockerfile" -t "${E2E_IMAGE_NAME}" "$
 
 # ── Bring up the stack from the mandated test compose file ────────────────
 cp -- "${E2E_PROJECT_DIR}/docker/docker-compose.test.yml" "${E2E_TEMP_DIR}/docker-compose.yml"
-sed -i.bak "s|image: .*${E2E_PROJECT_NAME}.*|image: ${E2E_IMAGE_NAME}|" "${E2E_TEMP_DIR}/docker-compose.yml" 2>/dev/null || true
+sed -i.bak \
+    -e "s|image: .*${E2E_PROJECT_NAME}.*|image: ${E2E_IMAGE_NAME}|" \
+    -e 's|pull_policy: always|pull_policy: missing|' \
+    "${E2E_TEMP_DIR}/docker-compose.yml" 2>/dev/null || true
 \rm -f -- "${E2E_TEMP_DIR}/docker-compose.yml.bak"
 
 (
@@ -90,29 +89,33 @@ sed -i.bak "s|image: .*${E2E_PROJECT_NAME}.*|image: ${E2E_IMAGE_NAME}|" "${E2E_T
 )
 
 __info "Waiting for ${E2E_BASE_URL}/server/healthz..."
+E2E_READY=false
 for _ in $(seq 1 30); do
-    if curl -q -LSs -o /dev/null -w '%{http_code}' "${E2E_BASE_URL}/server/healthz" 2>/dev/null | grep -q '^200$'; then
+    if timeout 4s docker exec "${E2E_CONTAINER_NAME}" curl -q -LSs --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${E2E_PORT}/server/healthz" 2>/dev/null | grep -q '^200$'; then
+        E2E_READY=true
         break
     fi
     sleep 2
 done
-
-# ── Tier 1 (SSR, plain net/http) — runs today, no browser dependency ──────
-__info "Running Tier 1 (SSR) e2e tests..."
-if make -C "${E2E_PROJECT_DIR}" test \
-    TEST_TAGS="-tags e2e" \
-    TEST_PKGS="./tests/e2e/..." \
-    TEST_RUN="-run TestTier1" \
-    TEST_COVERAGE=0 \
-    EXTRA_ENV="-e E2E_BASE_URL=${E2E_BASE_URL}"; then
-    __pass "Tier 1 (SSR) e2e suite"
-else
-    __fail "Tier 1 (SSR) e2e suite"
+if [[ "${E2E_READY}" != true ]]; then
+    __fail "server did not become healthy"
+    exit 1
 fi
 
-# ── Tier 2/3 (chromedp) — deferred until the dependency is added ──────────
-__info "Tier 2 (No-JS browser) and Tier 3 (Full browser) require github.com/chromedp/chromedp,"
-__info "not yet vendored into go.mod (see tests/e2e/e2e_test.go header). Skipping."
+# ── Tiers 1–3 (SSR, no-JS browser, full browser) ─────────────────────────
+__info "Running all browser E2E tiers..."
+if (
+    cd -- "${E2E_PROJECT_DIR}"
+    bash "${HOME}/.codex/hooks/test-lint-run.sh" test -- make test \
+    TEST_TAGS="-tags e2e" \
+    TEST_PKGS="./tests/e2e/..." \
+    TEST_COVERAGE=0 \
+    EXTRA_ENV="--network pastebin-test -e E2E_BASE_URL=${E2E_BASE_URL} -e E2E_BROWSER_URL=${E2E_BROWSER_URL}"
+); then
+    __pass "E2E tiers 1–3"
+else
+    __fail "E2E tiers 1–3"
+fi
 
 if [[ "${E2E_ERRORS}" -gt 0 ]]; then
     __fail "${E2E_ERRORS} e2e failure(s)"

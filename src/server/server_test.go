@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apimgr/pastebin/src/common/buildinfo"
 	"github.com/apimgr/pastebin/src/config"
 	"github.com/apimgr/pastebin/src/database"
 	"github.com/apimgr/pastebin/src/handler"
@@ -1275,6 +1276,7 @@ func TestHandleFavicon(t *testing.T) {
 // ─── Server.handleManifest ────────────────────────────────────────────────────
 
 func TestHandleManifest(t *testing.T) {
+	buildinfo.Set("1.2.3", "abcdef0")
 	cfg := &config.Config{}
 	cfg.Web.SiteTitle = "Test Paste"
 	s := newMinimalServer(cfg)
@@ -1285,6 +1287,9 @@ func TestHandleManifest(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("manifest status = %d, want 200", w.Code)
+	}
+	if got, want := w.Header().Get("ETag"), `"`+buildinfo.AssetStamp()+`"`; got != want {
+		t.Errorf("manifest ETag = %q, want build stamp %q", got, want)
 	}
 	var body map[string]interface{}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
@@ -1299,15 +1304,16 @@ func TestHandleManifest(t *testing.T) {
 
 func TestHandleServiceWorker(t *testing.T) {
 	cases := []struct {
-		name    string
-		version string
-		wantVer string
+		name      string
+		version   string
+		wantStamp string
 	}{
-		{"with version", "1.2.3", "1.2.3"},
-		{"empty version uses dev", "", "dev"},
+		{"with version", "1.2.3", "1.2.3-abcdef0"},
+		{"empty version uses dev", "", "dev-abcdef0"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			buildinfo.Set(tc.version, "abcdef0")
 			s := &Server{version: tc.version, cfg: &config.Config{}}
 			r := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
 			w := httptest.NewRecorder()
@@ -1316,9 +1322,12 @@ func TestHandleServiceWorker(t *testing.T) {
 			if ct := w.Header().Get("Content-Type"); ct != "application/javascript" {
 				t.Errorf("Content-Type = %q, want application/javascript", ct)
 			}
+			if got, want := w.Header().Get("ETag"), `"`+tc.wantStamp+`"`; got != want {
+				t.Errorf("service worker ETag = %q, want build stamp %q", got, want)
+			}
 			body := w.Body.String()
-			if !strings.Contains(body, tc.wantVer) {
-				t.Errorf("service worker body should contain version %q", tc.wantVer)
+			if !strings.Contains(body, `const CACHE_VERSION = "`+tc.wantStamp+`";`) {
+				t.Errorf("service worker cache version should use build stamp %q", tc.wantStamp)
 			}
 		})
 	}
