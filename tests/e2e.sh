@@ -34,7 +34,10 @@ E2E_CONTAINER_NAME="${E2E_PROJECT_NAME}-test"
 E2E_PORT="64582"
 E2E_BASE_URL="http://pastebin:${E2E_PORT}"
 E2E_BROWSER_URL="http://pastebin-e2e-browser:9222"
+E2E_SERVER_IP=""
+E2E_BROWSER_IP=""
 E2E_TEMP_DIR=""
+E2E_ARTIFACT_DIR=""
 E2E_KEEP=false
 E2E_ERRORS=0
 
@@ -43,6 +46,7 @@ __pass() { printf "[PASS] %s\n" "$*"; }
 __fail() { printf "[FAIL] %s\n" "$*" >&2; E2E_ERRORS=$((E2E_ERRORS + 1)); }
 __info() { printf "[INFO] %s\n" "$*"; }
 
+# shellcheck disable=SC2329 # Called indirectly by the EXIT/INT/TERM trap.
 __cleanup() {
     if [[ "${E2E_KEEP}" == true ]]; then
         __info "Keeping stack and temp dir at ${E2E_TEMP_DIR} (--keep)"
@@ -50,11 +54,17 @@ __cleanup() {
     fi
     if [[ -n "${E2E_TEMP_DIR}" && -d "${E2E_TEMP_DIR}" ]]; then
         (cd -- "${E2E_TEMP_DIR}" && docker compose -p "${E2E_COMPOSE_PROJECT}" down -v --remove-orphans >/dev/null 2>&1 || true)
+        if [[ "${E2E_ERRORS}" -gt 0 && -n "${E2E_ARTIFACT_DIR}" && -d "${E2E_ARTIFACT_DIR}" ]]; then
+            local preserved_dir
+            preserved_dir="$(mktemp -d "${TMPDIR:-/tmp}/${E2E_PROJECT_ORG}/${E2E_PROJECT_NAME}-e2e-artifacts-XXXXXX")"
+            cp -a -- "${E2E_ARTIFACT_DIR}/." "${preserved_dir}/"
+            __info "Failure artifacts preserved at ${preserved_dir}"
+        fi
         \rm -rf -- "${E2E_TEMP_DIR}"
     fi
     docker rmi -f "${E2E_IMAGE_NAME}" >/dev/null 2>&1 || true
 }
-trap __cleanup EXIT INT TERM
+trap "__cleanup" EXIT INT TERM
 
 for arg in "$@"; do
     case "${arg}" in
@@ -69,6 +79,23 @@ command -v docker >/dev/null 2>&1 || { __fail "docker not found — required for
 mkdir -p "${TMPDIR:-/tmp}/${E2E_PROJECT_ORG}"
 E2E_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${E2E_PROJECT_ORG}/${E2E_PROJECT_NAME}-XXXXXX")"
 mkdir -p "${E2E_TEMP_DIR}/volumes/config" "${E2E_TEMP_DIR}/volumes/data"
+mkdir -p "${E2E_TEMP_DIR}/volumes/config/pastebin"
+E2E_ARTIFACT_DIR="${E2E_TEMP_DIR}/artifacts"
+mkdir -p "${E2E_ARTIFACT_DIR}"
+cat >"${E2E_TEMP_DIR}/volumes/config/pastebin/server.yml" <<'EOF'
+server:
+  geoip:
+    enabled: false
+  tor:
+    binary: /__pastebin_e2e__/tor
+rate_limit:
+  enabled: true
+  write:
+    requests: 1000
+    window: 60
+  global_burst: 2000
+EOF
+chmod 600 "${E2E_TEMP_DIR}/volumes/config/pastebin/server.yml"
 __info "Temp dir: ${E2E_TEMP_DIR}"
 
 # ── Build local image ───────────────────────────────────────────────────────
@@ -99,8 +126,19 @@ for _ in $(seq 1 30); do
 done
 if [[ "${E2E_READY}" != true ]]; then
     __fail "server did not become healthy"
+    docker logs "${E2E_CONTAINER_NAME}" >"${E2E_ARTIFACT_DIR}/server.log" 2>&1 || true
+    docker logs pastebin-e2e-browser >"${E2E_ARTIFACT_DIR}/browser.log" 2>&1 || true
     exit 1
 fi
+
+E2E_SERVER_IP="$(docker inspect --format '{{(index .NetworkSettings.Networks "pastebin-test").IPAddress}}' "${E2E_CONTAINER_NAME}")"
+E2E_BROWSER_IP="$(docker inspect --format '{{(index .NetworkSettings.Networks "pastebin-test").IPAddress}}' pastebin-e2e-browser)"
+if [[ -z "${E2E_SERVER_IP}" || -z "${E2E_BROWSER_IP}" ]]; then
+    __fail "could not resolve test service addresses"
+    exit 1
+fi
+E2E_BASE_URL="http://${E2E_SERVER_IP}:${E2E_PORT}"
+E2E_BROWSER_URL="http://${E2E_BROWSER_IP}:9222"
 
 # ── Tiers 1–3 (SSR, no-JS browser, full browser) ─────────────────────────
 __info "Running all browser E2E tiers..."
@@ -109,12 +147,15 @@ if (
     bash "${HOME}/.codex/hooks/test-lint-run.sh" test -- make test \
     TEST_TAGS="-tags e2e" \
     TEST_PKGS="./tests/e2e/..." \
+    TEST_RUN="-count=1" \
     TEST_COVERAGE=0 \
-    EXTRA_ENV="--network pastebin-test -e E2E_BASE_URL=${E2E_BASE_URL} -e E2E_BROWSER_URL=${E2E_BROWSER_URL}"
+    EXTRA_ENV="--network pastebin-test -e E2E_BASE_URL=${E2E_BASE_URL} -e E2E_BROWSER_URL=${E2E_BROWSER_URL} -e E2E_ARTIFACT_DIR=${E2E_ARTIFACT_DIR}"
 ); then
     __pass "E2E tiers 1–3"
 else
     __fail "E2E tiers 1–3"
+    docker logs "${E2E_CONTAINER_NAME}" >"${E2E_ARTIFACT_DIR}/server.log" 2>&1 || true
+    docker logs pastebin-e2e-browser >"${E2E_ARTIFACT_DIR}/browser.log" 2>&1 || true
 fi
 
 if [[ "${E2E_ERRORS}" -gt 0 ]]; then

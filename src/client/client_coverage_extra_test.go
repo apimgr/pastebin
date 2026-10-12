@@ -288,7 +288,7 @@ func TestCmdUpdate_SendsUserAgent(t *testing.T) {
 
 // ─── cmdCreate — visibility and expiry fields ─────────────────────────────────
 
-func TestCmdCreate_DefaultVisibilityIsPublic(t *testing.T) {
+func TestCmdCreate_DefaultVisibilityIsUnlisted(t *testing.T) {
 	var received map[string]interface{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -307,9 +307,9 @@ func TestCmdCreate_DefaultVisibilityIsPublic(t *testing.T) {
 	c := &client{server: srv.URL}
 	c.cmdCreate([]string{f})
 
-	// Default visibility should be 0 (public)
-	if vis, ok := received["visibility"].(float64); !ok || vis != 0 {
-		t.Errorf("visibility = %v; want 0 (public)", received["visibility"])
+	// Anonymous pastes default to unlisted, so they do not appear in recent listings.
+	if vis, ok := received["visibility"].(float64); !ok || vis != 1 {
+		t.Errorf("visibility = %v; want 1 (unlisted)", received["visibility"])
 	}
 }
 

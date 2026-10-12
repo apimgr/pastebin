@@ -779,6 +779,7 @@
       "help_flag_lang": "لغة الإخراج (الافتراضي: تُكتشف من LANG)",
       "help_flag_config": "اسم أو مسار ملف الإعدادات (الافتراضي: cli.yml)",
       "help_flag_debug": "تفعيل إخراج التصحيح",
+      "help_flag_verbose": "عرض تشخيصات إضافية للطلبات",
       "help_flag_update": "فحص تحديثات الأداة أو تطبيقها",
       "help_flag_version": "طباعة الإصدار",
       "help_flag_shell_completions": "طباعة إكمال الصدفة",

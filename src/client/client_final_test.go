@@ -310,14 +310,14 @@ func TestCLIConfig_AllFieldsSerialized(t *testing.T) {
 	cfg.TUI.Unicode = true
 	cfg.Logging.Level = "debug"
 	cfg.Logging.File = "/var/log/cli.log"
-	cfg.Logging.MaxSize = 10
+	cfg.Logging.MaxSize = "10MB"
 	cfg.Logging.MaxFiles = 5
 	cfg.Cache.Enabled = true
 	cfg.Cache.TTL = "10m"
-	cfg.Cache.MaxSize = 200
+	cfg.Cache.MaxSize = "200MB"
 	cfg.Debug = true
 	cfg.Defaults.Lang = "es"
-	cfg.Defaults.Public = true
+	cfg.Defaults.Public = "public"
 	cfg.Defaults.Expire = "1d"
 	cfg.Defaults.Syntax = "go"
 	cfg.Defaults.Output = "raw"

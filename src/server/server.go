@@ -1369,7 +1369,9 @@ func (s *Server) setupRoutes() {
 
 	// ── dpaste compatibility ─────────────────────────────────────────────────
 	r.Post("/api/", s.maybeRateLimit(s.compatHandler.DpasteCreate))
+	r.Post("/api", s.maybeRateLimit(s.compatHandler.DpasteCreate))
 	r.Post("/api/v2/", s.maybeRateLimit(s.compatHandler.DpasteCreate))
+	r.Post("/api/v2", s.maybeRateLimit(s.compatHandler.DpasteCreate))
 
 	// ── Versioned API (native) ───────────────────────────────────────────────
 	r.Get("/api", s.handleAPIInfo)
@@ -2338,7 +2340,8 @@ func isCSRFExempt(path string, patterns []string) bool {
 func (s *Server) noTrailingSlash(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if p != "/" && strings.HasSuffix(p, "/") {
+		dpasteEndpoint := r.Method == http.MethodPost && (p == "/api/" || p == "/api/v2/")
+		if p != "/" && strings.HasSuffix(p, "/") && !dpasteEndpoint {
 			// Skip redirect for explicit file requests (last segment has a ".").
 			lastSeg := p[strings.LastIndex(p, "/"):]
 			if !strings.Contains(lastSeg, ".") {

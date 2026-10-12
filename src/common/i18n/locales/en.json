@@ -779,6 +779,7 @@
       "help_flag_lang": "Output language (default: auto-detect from LANG)",
       "help_flag_config": "Config profile name or path (default: cli.yml)",
       "help_flag_debug": "Enable debug output",
+      "help_flag_verbose": "Show extra request diagnostics",
       "help_flag_update": "Check for or apply CLI updates",
       "help_flag_version": "Print version",
       "help_flag_shell_completions": "Print shell completions",

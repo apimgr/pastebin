@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -187,21 +188,21 @@ type cliConfig struct {
 	Logging struct {
 		Level    string `yaml:"level"`
 		File     string `yaml:"file"`
-		MaxSize  int    `yaml:"max_size"`
+		MaxSize  string `yaml:"max_size"`
 		MaxFiles int    `yaml:"max_files"`
 	} `yaml:"logging"`
 	Cache struct {
 		Enabled bool   `yaml:"enabled"`
 		TTL     string `yaml:"ttl"`
-		MaxSize int    `yaml:"max_size"`
+		MaxSize string `yaml:"max_size"`
 	} `yaml:"cache"`
 	Debug    bool `yaml:"debug"`
 	Defaults struct {
 		Lang   string `yaml:"lang"`
-		Public bool   `yaml:"public"`
+		Public string `yaml:"public"`
 		Expire string `yaml:"expire"`
 		Syntax string `yaml:"syntax"`
-		Output string `yaml:"output"`
+		Output string `yaml:"output,omitempty"`
 		Limit  int    `yaml:"limit"`
 	} `yaml:"defaults"`
 }
@@ -218,12 +219,19 @@ func loadCLIConfig() (cliConfig, error) {
 	cfg.Display.Mode = "auto"
 	cfg.Output.Format = "table"
 	cfg.Output.Color = "auto"
+	cfg.Output.Pager = "auto"
 	cfg.TUI.Enabled = true
 	cfg.TUI.Unicode = true
+	cfg.TUI.Mouse = true
+	cfg.Logging.Level = "warn"
+	cfg.Logging.MaxSize = "10MB"
+	cfg.Logging.MaxFiles = 5
+	cfg.Cache.Enabled = true
 	cfg.Cache.TTL = "5m"
-	cfg.Cache.MaxSize = 100
+	cfg.Cache.MaxSize = "100MB"
 	cfg.Defaults.Expire = "never"
-	cfg.Defaults.Syntax = "text"
+	cfg.Defaults.Syntax = "auto"
+	cfg.Defaults.Public = "unlisted"
 	cfg.Defaults.Limit = 20
 
 	data, err := os.ReadFile(paths.Resolved())
@@ -256,7 +264,13 @@ func saveCLIConfig(cfg cliConfig) error {
 	}
 	// cli.yml holds the API token as well as server connection config —
 	// create it with user-only permissions (PART 32).
-	return os.WriteFile(p, data, 0o600)
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		return os.Chmod(p, 0o600)
+	}
+	return nil
 }
 
 // saveIfUnset updates dst with src when dst is empty or invalid, and
@@ -470,6 +484,10 @@ func resolveOutputFormat(asJSON bool, output string) string {
 	switch strings.ToLower(strings.TrimSpace(output)) {
 	case "json":
 		return "json"
+	case "yaml", "yml":
+		return "yaml"
+	case "csv":
+		return "csv"
 	case "table":
 		return "table"
 	case "plain":
@@ -479,6 +497,25 @@ func resolveOutputFormat(asJSON bool, output string) string {
 		return "json"
 	}
 	return "plain"
+}
+
+func normalizeExpiry(value string) (string, error) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "never" || value == "" {
+		return "never", nil
+	}
+	if parsed, err := config.ParseBool(value, true); err == nil && !parsed {
+		return "never", nil
+	}
+	switch value {
+	case "1h", "1d", "1w", "1m", "3m", "6m", "1y", "18m", "2y":
+		return value, nil
+	}
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || seconds < 1 || seconds > 10*365*24*60*60 {
+		return "", fmt.Errorf("invalid expiry")
+	}
+	return strconv.FormatInt(seconds, 10), nil
 }
 
 // checkCLIUpdate queries /api/autodiscover and enforces cli_min_version.
@@ -581,6 +618,8 @@ func main() {
 
 	// Load cli.yml.
 	fileCfg, cfgErr := loadCLIConfig()
+	fileCfg = applyCLIConfigEnv(fileCfg)
+	initializeLogging(fileCfg)
 	if cfgErr != nil {
 		// A present but unreadable or malformed cli.yml is a configuration
 		// failure, not a network/runtime warning. PART 32 reserves exit code 2
@@ -597,15 +636,19 @@ func main() {
 	asJSON := flag.Bool("json", jsonDefault, "machine-readable JSON output (alias for --output json)")
 	// PART 32 "Output Formats": json, table, plain. --json remains as a
 	// back-compat boolean alias, folded into the resolved format below.
-	outputFlag := flag.String("output", envOrDefault("PASTEBIN_OUTPUT_FORMAT", firstNonEmpty(fileCfg.Output.Format, "plain")), "output format: json, table, plain")
+	outputDefault := firstNonEmpty(fileCfg.Defaults.Output, fileCfg.Output.Format)
+	outputFlag := flag.String("output", envOrDefault("PASTEBIN_FORMAT", envOrDefault("PASTEBIN_OUTPUT_FORMAT", firstNonEmpty(outputDefault, "plain"))), "output format: json, yaml, table, plain, csv")
 	colorFlag := flag.String("color", envOrDefault("PASTEBIN_OUTPUT_COLOR", firstNonEmpty(fileCfg.Output.Color, "auto")), "color output: auto, yes, no")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	showHelp := flag.Bool("help", false, "show help and exit")
 	debugDefault, _ := config.ParseBool(envOrDefault("PASTEBIN_DEBUG", ""), fileCfg.Debug)
 	debugFlag := flag.Bool("debug", debugDefault, "enable debug output")
+	verboseDefault, _ := config.ParseBool(envOrDefault("PASTEBIN_OUTPUT_VERBOSE", ""), fileCfg.Output.Verbose)
+	verboseFlag := flag.Bool("verbose", verboseDefault, "show extra request diagnostics")
+	quietDefault, _ := config.ParseBool(envOrDefault("PASTEBIN_OUTPUT_QUIET", ""), fileCfg.Output.Quiet)
 	doUpdate := flag.String("update", "", "check for CLI updates: 'check' or 'yes'")
 	// PART 32: --lang sets the output/UI language; default auto-detects from the LANG env var.
-	langFlag := flag.String("lang", "auto", "output language code (default: auto-detect from LANG)")
+	langFlag := flag.String("lang", envOrDefault("PASTEBIN_LANG", "auto"), "output language code (default: auto-detect from LANG)")
 	// PART 32: operator/owner API token. Priority: --token flag → PASTEBIN_TOKEN env → cli.yml auth.token.
 	tokenFlag := flag.String("token", "", "operator/owner API token (or set PASTEBIN_TOKEN)")
 	// PART 32: alternative to --token — read the token from a file instead of the command line.
@@ -661,11 +704,14 @@ func main() {
 		return
 	}
 
-	if *debugFlag {
+	if *debugFlag || *verboseFlag {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
 
 	args := flag.Args()
+	if len(args) == 0 && !term.IsTerminal(int(os.Stdin.Fd())) {
+		args = []string{"create"}
+	}
 
 	// --shell completions / --shell init — handle before server check.
 	if len(args) >= 1 && args[0] == "--shell" {
@@ -792,7 +838,8 @@ func main() {
 	outputFormat := resolveOutputFormat(*asJSON, *outputFlag)
 
 	if *doUpdate != "" {
-		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, outputFormat: outputFormat, lang: locale, token: token, apiVersion: resolvedAPIVersion, timeout: timeout, retry: retry, retryDelay: retryDelay}
+		quietUpdate := quietDefault || silentAutoUpdate(fileCfg, *doUpdate, term.IsTerminal(int(os.Stdin.Fd())))
+		c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, outputFormat: outputFormat, lang: locale, token: token, apiVersion: resolvedAPIVersion, timeout: timeout, retry: retry, retryDelay: retryDelay, quiet: quietUpdate, verbose: *verboseFlag}
 		c.cmdUpdate(*doUpdate)
 		return
 	}
@@ -839,7 +886,20 @@ func main() {
 		os.Exit(exitConnection)
 	}
 
-	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, outputFormat: outputFormat, lang: locale, token: token, apiVersion: resolvedAPIVersion, timeout: timeout, retry: retry, retryDelay: retryDelay}
+	c := &client{server: strings.TrimRight(*server, "/"), asJSON: *asJSON, outputFormat: outputFormat, lang: locale, token: token, apiVersion: resolvedAPIVersion, timeout: timeout, retry: retry, retryDelay: retryDelay, quiet: quietDefault, verbose: *verboseFlag, pager: envOrDefault("PASTEBIN_OUTPUT_PAGER", fileCfg.Output.Pager)}
+	cacheTTL := parseDurationOr(fileCfg.Cache.TTL, 5*time.Minute)
+	cacheMaxSize, _ := parseByteSize(fileCfg.Cache.MaxSize)
+	c.cache = responseCacheConfig{enabled: fileCfg.Cache.Enabled, ttl: cacheTTL, maxSize: cacheMaxSize}
+	c.defaults.Public = envOrDefault("PASTEBIN_PUBLIC", fileCfg.Defaults.Public)
+	c.defaults.Expire = envOrDefault("PASTEBIN_EXPIRE", fileCfg.Defaults.Expire)
+	c.defaults.Syntax = envOrDefault("PASTEBIN_SYNTAX", fileCfg.Defaults.Syntax)
+	if limit := envOrDefault("PASTEBIN_LIMIT", ""); limit != "" {
+		if n, err := strconv.Atoi(limit); err == nil {
+			c.defaults.Limit = n
+		}
+	} else {
+		c.defaults.Limit = fileCfg.Defaults.Limit
+	}
 
 	switch args[0] {
 	case "create":
@@ -861,8 +921,7 @@ func main() {
 	case "version":
 		printVersionInfo(*server)
 	default:
-		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("unknown_command", "command", strconv.Quote(args[0])))
-		os.Exit(exitUsage)
+		c.cmdCreate(args)
 	}
 }
 
@@ -890,6 +949,8 @@ func runTUI(server, lang string, cfg cliConfig) {
 		SaveURL: saveCLIConfigURL,
 		CfgPath: paths.Resolved(),
 		Theme:   cfg.TUI.Theme,
+		Mouse:   cfg.TUI.Mouse,
+		Unicode: cfg.TUI.Unicode,
 	}
 	if err := tui.Run(tuiCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_tui", "error", err))
@@ -920,6 +981,16 @@ type client struct {
 	retry int
 	// retryDelay is the resolved cli.yml server.retry_delay (PART 32): fixed delay between retries.
 	retryDelay time.Duration
+	quiet      bool
+	verbose    bool
+	pager      string
+	cache      responseCacheConfig
+	defaults   struct {
+		Public string
+		Expire string
+		Syntax string
+		Limit  int
+	}
 }
 
 // defaultClientTimeout/defaultClientRetry/defaultClientRetryDelay mirror the
@@ -965,6 +1036,9 @@ func (c *client) doWithRetry(httpClient *http.Client, req *http.Request) (*http.
 	var lastErr error
 	for attempt := 0; attempt <= c.retry; attempt++ {
 		if attempt > 0 {
+			if c.verbose {
+				log.Printf("retrying request after attempt %d", attempt)
+			}
 			time.Sleep(c.retryDelay)
 			// Requests with a body (POST) must have it rewound before each
 			// retry — http.NewRequest populates GetBody for bytes.Reader
@@ -1033,16 +1107,34 @@ func (c *client) cmdCreate(args []string) {
 	// ContinueOnError so a bad flag falls through to the exitUsage=64 handling
 	// below instead of ExitOnError's hardcoded os.Exit(2).
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
-	lang := fs.String("lang", "text", "syntax language")
-	expiry := fs.String("expiry", "never", "expiry: 1h 1d 1w 1m 3m 6m 1y 2y never or seconds")
+	syntaxDefault := c.defaults.Syntax
+	if syntaxDefault == "" {
+		syntaxDefault = "auto"
+	}
+	lang := fs.String("lang", syntaxDefault, "syntax language")
+	fs.StringVar(lang, "syntax", syntaxDefault, "alias for --lang")
+	expiryDefault := c.defaults.Expire
+	if expiryDefault == "" {
+		expiryDefault = "never"
+	}
+	expiry := fs.String("expire", expiryDefault, "expiry: 1h 1d 1w 1m 3m 6m 1y 18m 2y never or seconds")
+	fs.StringVar(expiry, "expiry", expiryDefault, "alias for --expire")
 	burn := fs.Int("burn", 0, "delete after N views (0 = disabled)")
-	unlisted := fs.Bool("unlisted", false, "create as unlisted (not shown in recent)")
+	publicDefault := c.defaults.Public
+	if publicDefault == "" {
+		publicDefault = "unlisted"
+	}
+	visibility := fs.String("public", publicDefault, "visibility: public or unlisted")
+	unlisted := fs.Bool("unlisted", false, "alias for --public unlisted")
 	title := fs.String("title", "", "paste title")
+	outputFlag := fs.String("output", c.outputFormat, "output format: json, yaml, table, plain, csv")
+	jsonFlag := fs.Bool("json", false, "alias for --output json")
 	asLink := fs.Bool("link", false, "create as a link — content/arg must be an absolute http:// or https:// URL; server issues a 302 redirect instead of rendering")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderCommandArgs(args, "--lang", "--syntax", "--expire", "--expiry", "--burn", "--public", "--title", "--output")); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "create", "error", err))
 		os.Exit(exitUsage)
 	}
+	c.outputFormat = resolveOutputFormat(*jsonFlag, *outputFlag)
 
 	var content []byte
 	var err error
@@ -1071,7 +1163,7 @@ func (c *client) cmdCreate(args []string) {
 					fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_read_file", "error", err))
 					os.Exit(exitGeneral)
 				}
-				if effLang == "text" {
+				if effLang == "text" || effLang == "auto" {
 					effLang = detectLang(arg)
 				}
 				if effTitle == "" {
@@ -1089,16 +1181,25 @@ func (c *client) cmdCreate(args []string) {
 		}
 	}
 
-	vis := 0
+	vis, visibilityErr := parseVisibility(*visibility)
+	if visibilityErr != nil {
+		fmt.Fprintf(os.Stderr, "%s: invalid visibility %q; use public or unlisted\n", binName(), *visibility)
+		os.Exit(exitUsage)
+	}
 	if *unlisted {
 		vis = 1
+	}
+	expiryValue, expiryErr := normalizeExpiry(*expiry)
+	if expiryErr != nil {
+		fmt.Fprintf(os.Stderr, "%s: invalid expiry %q; use a supported duration, seconds, or never\n", binName(), *expiry)
+		os.Exit(exitUsage)
 	}
 
 	body := map[string]interface{}{
 		"content":    string(content),
 		"title":      effTitle,
 		"language":   effLang,
-		"expires_in": *expiry,
+		"expires_in": expiryValue,
 		"burn_after": *burn,
 		"visibility": vis,
 	}
@@ -1146,14 +1247,43 @@ func (c *client) cmdCreate(args []string) {
 	}
 
 	if c.outputFormat == "json" {
-		enc := json.NewEncoder(os.Stdout)
+		var output bytes.Buffer
+		enc := json.NewEncoder(&output)
 		enc.SetIndent("", "  ")
 		enc.Encode(result)
+		_ = writePagedOutput(output.Bytes(), c.pager)
+		return
+	}
+	if c.outputFormat == "yaml" {
+		output, err := yaml.Marshal(result)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: failed to encode YAML: %v\n", binName(), err)
+			os.Exit(exitGeneral)
+		}
+		_ = writePagedOutput(output, c.pager)
+		return
+	}
+	if c.outputFormat == "csv" {
+		var output bytes.Buffer
+		writer := csv.NewWriter(&output)
+		_ = writer.Write([]string{"id", "link", "owner_token"})
+		data := responseData(result)
+		token := stringValue(data["owner_token"])
+		if token == "" {
+			token = stringValue(data["delete_token"])
+		}
+		_ = writer.Write([]string{stringValue(data["id"]), stringValue(data["link"]), token})
+		writer.Flush()
+		_ = writePagedOutput(output.Bytes(), c.pager)
 		return
 	}
 
-	link, _ := result["link"].(string)
-	token, _ := result["delete_token"].(string)
+	data := responseData(result)
+	link := stringValue(data["link"])
+	token := stringValue(data["owner_token"])
+	if token == "" {
+		token = stringValue(data["delete_token"])
+	}
 	fmt.Printf("%-14s%s\n", t("create_url_label"), link)
 	if token != "" {
 		fmt.Printf("%-14s%s\n", t("create_token_label"), token)
@@ -1165,7 +1295,9 @@ func (c *client) cmdGet(args []string) {
 	// ContinueOnError so a bad flag falls through to the exitUsage=64 handling
 	// below instead of ExitOnError's hardcoded os.Exit(2).
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
+	outputFlag := fs.String("output", c.outputFormat, "output format: json, yaml, table, plain, csv")
+	jsonFlag := fs.Bool("json", false, "alias for --output json")
+	if err := fs.Parse(reorderCommandArgs(args, "--output")); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "get", "error", err))
 		os.Exit(exitUsage)
 	}
@@ -1173,6 +1305,7 @@ func (c *client) cmdGet(args []string) {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("get_usage"))
 		os.Exit(exitUsage)
 	}
+	c.outputFormat = resolveOutputFormat(*jsonFlag, *outputFlag)
 	id := fs.Arg(0)
 
 	// PART 32 "Output Formats": --output json returns the full paste
@@ -1180,7 +1313,7 @@ func (c *client) cmdGet(args []string) {
 	// single resource, so it degrades to plain) return raw content only,
 	// as documented in the "--output plain" example.
 	path := "/raw/" + url.PathEscape(id)
-	if c.outputFormat == "json" {
+	if c.outputFormat == "json" || c.outputFormat == "yaml" {
 		path = "/api/" + c.apiVer() + "/pastes/" + url.PathEscape(id)
 	}
 
@@ -1201,7 +1334,32 @@ func (c *client) cmdGet(args []string) {
 		os.Exit(exitGeneral)
 	}
 
-	if _, err := io.Copy(os.Stdout, resp.Body); err != nil {
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_read_response", "command", "get", "error", err))
+		os.Exit(exitGeneral)
+	}
+	switch c.outputFormat {
+	case "yaml":
+		var value interface{}
+		if err := json.Unmarshal(content, &value); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: invalid JSON response: %v\n", binName(), err)
+			os.Exit(exitGeneral)
+		}
+		content, err = yaml.Marshal(value)
+	case "csv":
+		var output bytes.Buffer
+		writer := csv.NewWriter(&output)
+		_ = writer.Write([]string{"content"})
+		_ = writer.Write([]string{string(content)})
+		writer.Flush()
+		content = output.Bytes()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: failed to format response: %v\n", binName(), err)
+		os.Exit(exitGeneral)
+	}
+	if err := writePagedOutput(content, c.pager); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_read_response", "command", "get", "error", err))
 		os.Exit(exitGeneral)
 	}
@@ -1211,7 +1369,9 @@ func (c *client) cmdDelete(args []string) {
 	// ContinueOnError so a bad flag falls through to the exitUsage=64 handling
 	// below instead of ExitOnError's hardcoded os.Exit(2).
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
-	if err := fs.Parse(args); err != nil {
+	outputFlag := fs.String("output", c.outputFormat, "output format: json, yaml, table, plain, csv")
+	jsonFlag := fs.Bool("json", false, "alias for --output json")
+	if err := fs.Parse(reorderCommandArgs(args, "--output")); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "delete", "error", err))
 		os.Exit(exitUsage)
 	}
@@ -1219,6 +1379,7 @@ func (c *client) cmdDelete(args []string) {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), t("delete_usage"))
 		os.Exit(exitUsage)
 	}
+	c.outputFormat = resolveOutputFormat(*jsonFlag, *outputFlag)
 	id, token := fs.Arg(0), fs.Arg(1)
 
 	req, err := http.NewRequest(
@@ -1253,24 +1414,57 @@ func (c *client) cmdDelete(args []string) {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_server_returned", "command", "delete", "status", resp.StatusCode))
 		os.Exit(exitGeneral)
 	}
+	c.cache.invalidate()
 
 	if c.outputFormat == "json" {
 		io.Copy(os.Stdout, resp.Body)
 		return
 	}
-	fmt.Println(tf("delete_ok", "id", id))
+	if c.outputFormat == "yaml" {
+		var result interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_decode", "error", err))
+			os.Exit(exitGeneral)
+		}
+		output, err := yaml.Marshal(result)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: failed to encode YAML: %v\n", binName(), err)
+			os.Exit(exitGeneral)
+		}
+		_ = writePagedOutput(output, c.pager)
+		return
+	}
+	if c.outputFormat == "csv" {
+		var output bytes.Buffer
+		writer := csv.NewWriter(&output)
+		_ = writer.Write([]string{"id", "status"})
+		_ = writer.Write([]string{id, "deleted"})
+		writer.Flush()
+		_ = writePagedOutput(output.Bytes(), c.pager)
+		return
+	}
+	if !c.quiet {
+		fmt.Println(tf("delete_ok", "id", id))
+	}
 }
 
 func (c *client) cmdList(args []string) {
 	// ContinueOnError so a bad flag falls through to the exitUsage=64 handling
 	// below instead of ExitOnError's hardcoded os.Exit(2).
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
-	limit := fs.Int("limit", 20, "number of pastes to list (max 100)")
+	outputFlag := fs.String("output", c.outputFormat, "output format: json, yaml, table, plain, csv")
+	jsonFlag := fs.Bool("json", false, "alias for --output json")
+	defaultLimit := c.defaults.Limit
+	if defaultLimit < 1 || defaultLimit > 250 {
+		defaultLimit = 20
+	}
+	limit := fs.Int("limit", defaultLimit, "number of pastes to list (max 250)")
 	page := fs.Int("page", 1, "page number")
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(reorderCommandArgs(args, "--output", "--limit", "--page")); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %s\n", binName(), tf("op_flags", "command", "list", "error", err))
 		os.Exit(exitUsage)
 	}
+	c.outputFormat = resolveOutputFormat(*jsonFlag, *outputFlag)
 
 	resp, err := c.get(fmt.Sprintf("/api/%s/pastes?page=%d&limit=%d", c.apiVer(), *page, *limit))
 	if err != nil {
@@ -1301,19 +1495,44 @@ func (c *client) cmdList(args []string) {
 	}
 
 	if c.outputFormat == "json" {
-		enc := json.NewEncoder(os.Stdout)
+		var output bytes.Buffer
+		enc := json.NewEncoder(&output)
 		enc.SetIndent("", "  ")
 		enc.Encode(result)
+		_ = writePagedOutput(output.Bytes(), c.pager)
+		return
+	}
+	if c.outputFormat == "yaml" {
+		output, err := yaml.Marshal(result)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: failed to encode YAML: %v\n", binName(), err)
+			os.Exit(exitGeneral)
+		}
+		_ = writePagedOutput(output, c.pager)
+		return
+	}
+	if c.outputFormat == "csv" {
+		var output bytes.Buffer
+		writer := csv.NewWriter(&output)
+		_ = writer.Write([]string{"id", "title", "language", "views", "created_at"})
+		for _, paste := range result.Pastes {
+			_ = writer.Write([]string{paste.ID, paste.Title, paste.Language, strconv.Itoa(paste.Views), paste.CreatedAt.Format(time.RFC3339)})
+		}
+		writer.Flush()
+		_ = writePagedOutput(output.Bytes(), c.pager)
 		return
 	}
 
 	if len(result.Pastes) == 0 {
-		fmt.Println(t("list_empty"))
+		if !c.quiet {
+			fmt.Println(t("list_empty"))
+		}
 		return
 	}
 
 	if c.outputFormat == "table" {
 		headers := []string{t("list_col_id"), t("list_col_title"), t("list_col_lang"), t("list_col_created")}
+		var output bytes.Buffer
 		rows := make([][]string, 0, len(result.Pastes))
 		for _, p := range result.Pastes {
 			title := p.Title
@@ -1322,13 +1541,15 @@ func (c *client) cmdList(args []string) {
 			}
 			rows = append(rows, []string{p.ID, title, p.Language, p.CreatedAt.Format("2006-01-02")})
 		}
-		renderBorderedTable(os.Stdout, headers, rows)
-		fmt.Printf("\n%s\n", tf("list_footer",
+		renderBorderedTable(&output, headers, rows)
+		fmt.Fprintf(&output, "\n%s\n", tf("list_footer",
 			"total", result.Pagination.Total, "page", *page, "pages", result.Pagination.Pages))
+		_ = writePagedOutput(output.Bytes(), c.pager)
 		return
 	}
 
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	var output bytes.Buffer
+	tw := tabwriter.NewWriter(&output, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
 		t("list_col_id"), t("list_col_title"), t("list_col_lang"), t("list_col_views"), t("list_col_created"))
 	for _, p := range result.Pastes {
@@ -1342,8 +1563,9 @@ func (c *client) cmdList(args []string) {
 		)
 	}
 	tw.Flush()
-	fmt.Printf("\n%s\n", tf("list_footer",
+	fmt.Fprintf(&output, "\n%s\n", tf("list_footer",
 		"total", result.Pagination.Total, "page", *page, "pages", result.Pagination.Pages))
+	_ = writePagedOutput(output.Bytes(), c.pager)
 }
 
 // renderBorderedTable prints a PART 32 "Output Formats" style box-drawing
@@ -1459,13 +1681,19 @@ func (c *client) cmdUpdate(action string) {
 	}
 
 	if !versionLessThan(Version, info.Version) {
-		fmt.Println(tf("update_up_to_date", "binary", binName(), "version", Version))
+		if !c.quiet {
+			fmt.Println(tf("update_up_to_date", "binary", binName(), "version", Version))
+		}
 		return
 	}
 
-	fmt.Println(tf("update_available", "current", Version, "latest", info.Version))
+	if !c.quiet {
+		fmt.Println(tf("update_available", "current", Version, "latest", info.Version))
+	}
 	if action != "yes" {
-		fmt.Println(tf("update_run_to_install", "binary", binName()))
+		if !c.quiet {
+			fmt.Println(tf("update_run_to_install", "binary", binName()))
+		}
 		return
 	}
 
@@ -1489,7 +1717,10 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", t("err_resolve_symlinks"), err)
 	}
+	return c.downloadAndApplyUpdateAt(downloadURL, expectedSHA, exe, reExec)
+}
 
+func (c *client) downloadAndApplyUpdateAt(downloadURL, expectedSHA, exe string, reexec func(string) error) error {
 	// Download to ${TMPDIR:-/tmp}/apimgr/pastebin-XXXXXX/cli.update.tmp, verify
 	// there, then atomically replace the installed binary (PART 32 step 3–5).
 	tmpDir, tmpFile, err := updateTempDir()
@@ -1540,7 +1771,7 @@ func (c *client) downloadAndApplyUpdate(downloadURL, expectedSHA string) error {
 	}
 
 	// Re-exec or inform the user on Windows.
-	return reExec(exe)
+	return reexec(exe)
 }
 
 // updateTempDir creates the PART 32 CLI update staging directory
@@ -1614,8 +1845,15 @@ func (c *client) clientTimeout() time.Duration {
 }
 
 func (c *client) get(path string) (*http.Response, error) {
+	requestURL := c.url(path)
+	cacheKey := requestURL + "\n" + c.lang
+	if c.token == "" {
+		if cached, ok := c.cache.get(cacheKey); ok {
+			return cached, nil
+		}
+	}
 	httpClient := &http.Client{Timeout: c.clientTimeout()}
-	req, err := http.NewRequest(http.MethodGet, c.url(path), nil)
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1625,7 +1863,18 @@ func (c *client) get(path string) (*http.Response, error) {
 		req.Header.Set("Accept-Language", c.lang)
 	}
 	c.setAuth(req)
-	return c.doWithRetry(httpClient, req)
+	resp, err := c.doWithRetry(httpClient, req)
+	if err != nil || c.token != "" || !c.cache.enabled {
+		return resp, err
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	c.cache.put(cacheKey, resp, body)
+	return resp, nil
 }
 
 func (c *client) postJSON(path string, body interface{}) (*http.Response, error) {
@@ -1645,7 +1894,11 @@ func (c *client) postJSON(path string, body interface{}) (*http.Response, error)
 		req.Header.Set("Accept-Language", c.lang)
 	}
 	c.setAuth(req)
-	return c.doWithRetry(httpClient, req)
+	resp, err := c.doWithRetry(httpClient, req)
+	if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.cache.invalidate()
+	}
+	return resp, err
 }
 
 // ─── Language detection ───────────────────────────────────────────────────────
@@ -1685,6 +1938,126 @@ func firstNonEmpty(s, def string) string {
 		return s
 	}
 	return def
+}
+
+func applyCLIConfigEnv(cfg cliConfig) cliConfig {
+	cfg.Server.Primary = envOrDefault("PASTEBIN_SERVER_PRIMARY", cfg.Server.Primary)
+	cfg.Server.APIVersion = envOrDefault("PASTEBIN_SERVER_API_VERSION", cfg.Server.APIVersion)
+	cfg.Server.Timeout = envOrDefault("PASTEBIN_SERVER_TIMEOUT", cfg.Server.Timeout)
+	cfg.Server.RetryDelay = envOrDefault("PASTEBIN_SERVER_RETRY_DELAY", cfg.Server.RetryDelay)
+	if value := os.Getenv("PASTEBIN_SERVER_RETRY"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.Server.Retry = parsed
+		}
+	}
+	cfg.Update.Channel = envOrDefault("PASTEBIN_UPDATE_CHANNEL", cfg.Update.Channel)
+	cfg.Update.CheckInterval = envOrDefault("PASTEBIN_UPDATE_CHECK_INTERVAL", cfg.Update.CheckInterval)
+	applyBoolEnv("PASTEBIN_UPDATE_AUTO", &cfg.Update.Auto)
+	cfg.Display.Mode = envOrDefault("PASTEBIN_DISPLAY_MODE", cfg.Display.Mode)
+	cfg.Output.Format = envOrDefault("PASTEBIN_FORMAT", envOrDefault("PASTEBIN_OUTPUT_FORMAT", cfg.Output.Format))
+	cfg.Output.Color = envOrDefault("PASTEBIN_OUTPUT_COLOR", cfg.Output.Color)
+	cfg.Output.Pager = envOrDefault("PASTEBIN_OUTPUT_PAGER", cfg.Output.Pager)
+	applyBoolEnv("PASTEBIN_OUTPUT_QUIET", &cfg.Output.Quiet)
+	applyBoolEnv("PASTEBIN_OUTPUT_VERBOSE", &cfg.Output.Verbose)
+	applyBoolEnv("PASTEBIN_TUI_ENABLED", &cfg.TUI.Enabled)
+	cfg.TUI.Theme = envOrDefault("PASTEBIN_TUI_THEME", cfg.TUI.Theme)
+	applyBoolEnv("PASTEBIN_TUI_MOUSE", &cfg.TUI.Mouse)
+	applyBoolEnv("PASTEBIN_TUI_UNICODE", &cfg.TUI.Unicode)
+	cfg.Logging.Level = envOrDefault("PASTEBIN_LOGGING_LEVEL", cfg.Logging.Level)
+	cfg.Logging.File = envOrDefault("PASTEBIN_LOGGING_FILE", cfg.Logging.File)
+	cfg.Logging.MaxSize = envOrDefault("PASTEBIN_LOGGING_MAX_SIZE", cfg.Logging.MaxSize)
+	if value := os.Getenv("PASTEBIN_LOGGING_MAX_FILES"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.Logging.MaxFiles = parsed
+		}
+	}
+	applyBoolEnv("PASTEBIN_CACHE_ENABLED", &cfg.Cache.Enabled)
+	cfg.Cache.TTL = envOrDefault("PASTEBIN_CACHE_TTL", cfg.Cache.TTL)
+	cfg.Cache.MaxSize = envOrDefault("PASTEBIN_CACHE_MAX_SIZE", cfg.Cache.MaxSize)
+	applyBoolEnv("PASTEBIN_DEBUG", &cfg.Debug)
+	cfg.Defaults.Lang = envOrDefault("PASTEBIN_LANG", envOrDefault("PASTEBIN_DEFAULTS_LANG", cfg.Defaults.Lang))
+	cfg.Defaults.Public = envOrDefault("PASTEBIN_PUBLIC", cfg.Defaults.Public)
+	cfg.Defaults.Expire = envOrDefault("PASTEBIN_EXPIRE", cfg.Defaults.Expire)
+	cfg.Defaults.Syntax = envOrDefault("PASTEBIN_SYNTAX", cfg.Defaults.Syntax)
+	cfg.Defaults.Output = envOrDefault("PASTEBIN_DEFAULTS_OUTPUT", cfg.Defaults.Output)
+	if value := os.Getenv("PASTEBIN_LIMIT"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			cfg.Defaults.Limit = parsed
+		}
+	}
+	return cfg
+}
+
+func applyBoolEnv(name string, target *bool) {
+	if value := os.Getenv(name); value != "" {
+		if parsed, err := config.ParseBool(value, *target); err == nil {
+			*target = parsed
+		}
+	}
+}
+
+func silentAutoUpdate(cfg cliConfig, action string, interactive bool) bool {
+	return cfg.Update.Auto && action == "yes" && !interactive
+}
+
+func responseData(result map[string]interface{}) map[string]interface{} {
+	if data, ok := result["data"].(map[string]interface{}); ok {
+		return data
+	}
+	return result
+}
+
+func stringValue(value interface{}) string {
+	valueString, _ := value.(string)
+	return valueString
+}
+
+func parseVisibility(value string) (int, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "public":
+		return 0, nil
+	case "unlisted":
+		return 1, nil
+	default:
+		isPublic, err := config.ParseBool(value, false)
+		if err != nil {
+			return 0, err
+		}
+		if isPublic {
+			return 0, nil
+		}
+		return 1, nil
+	}
+}
+
+func reorderCommandArgs(args []string, valueFlags ...string) []string {
+	withValue := make(map[string]bool, len(valueFlags))
+	for _, name := range valueFlags {
+		withValue[name] = true
+	}
+	flags := make([]string, 0, len(args))
+	positional := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			positional = append(positional, args[i:]...)
+			break
+		}
+		if !strings.HasPrefix(arg, "-") {
+			positional = append(positional, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		name := arg
+		if eq := strings.IndexByte(name, '='); eq >= 0 {
+			continue
+		}
+		if withValue[name] && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, positional...)
 }
 
 func printUsage() {
@@ -1731,6 +2104,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "    --lang <code>        %s\n", t("help_flag_lang"))
 	fmt.Fprintf(os.Stderr, "    --config <name>      %s\n", t("help_flag_config"))
 	fmt.Fprintf(os.Stderr, "    --debug              %s\n", t("help_flag_debug"))
+	fmt.Fprintf(os.Stderr, "    --verbose            %s\n", t("help_flag_verbose"))
 	fmt.Fprintf(os.Stderr, "    --update check|yes   %s\n", t("help_flag_update"))
 	fmt.Fprintf(os.Stderr, "    --version            %s\n", t("help_flag_version"))
 	fmt.Fprintf(os.Stderr, "    --shell completions [SHELL]  %s\n", t("help_flag_shell_completions"))

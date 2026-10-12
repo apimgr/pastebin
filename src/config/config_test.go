@@ -94,6 +94,16 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 }
 
+func TestLoad_UnknownKeyReturnsError(t *testing.T) {
+	path := tempConfigPath(t)
+	if err := os.WriteFile(path, []byte("server:\n  port: \"12345\"\n  unknown_option: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), "unknown_option") {
+		t.Fatalf("Load error = %v; want an unknown-key error", err)
+	}
+}
+
 // TestLoad_CreatesFileIfAbsent verifies that Load creates the file when it is missing.
 func TestLoad_CreatesFileIfAbsent(t *testing.T) {
 	path := tempConfigPath(t)

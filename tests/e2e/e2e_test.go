@@ -6,12 +6,16 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +43,57 @@ func client() *http.Client {
 	return &http.Client{Timeout: 15 * time.Second}
 }
 
+func csrfClient(t *testing.T, base string) (*http.Client, string) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &http.Client{Timeout: 15 * time.Second, Jar: jar}
+	resp, err := getHTML(c, base+"/create")
+	if err != nil {
+		t.Fatalf("GET /create for CSRF token: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /create for CSRF token returned %d", resp.StatusCode)
+	}
+	doc, err := html.Parse(resp.Body)
+	if err != nil {
+		t.Fatalf("parse create form: %v", err)
+	}
+	var token string
+	var find func(*html.Node)
+	find = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "input" {
+			name, value := "", ""
+			for _, attr := range node.Attr {
+				if attr.Key == "name" {
+					name = attr.Val
+				}
+				if attr.Key == "value" {
+					value = attr.Val
+				}
+			}
+			if name == "csrf_token" {
+				token = value
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			find(child)
+		}
+	}
+	find(doc)
+	if token == "" {
+		t.Fatal("create form omitted CSRF token")
+	}
+	return c, token
+}
+
+func addCSRFToken(req *http.Request, token string) {
+	req.Header.Set("X-CSRF-Token", token)
+}
+
 func getHTML(c *http.Client, endpoint string) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -46,6 +101,45 @@ func getHTML(c *http.Client, endpoint string) (*http.Response, error) {
 	}
 	req.Header.Set("Accept", "text/html")
 	return c.Do(req)
+}
+
+func createPaste(t *testing.T, base string, payload map[string]interface{}) (string, string) {
+	t.Helper()
+	c, csrfToken := csrfClient(t, base)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/pastes", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 pastebin-e2e")
+	addCSRFToken(req, csrfToken)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("create paste: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		t.Fatalf("create paste status = %d, body=%s", resp.StatusCode, body)
+	}
+	var result struct {
+		Data struct {
+			ID         string `json:"id"`
+			OwnerToken string `json:"owner_token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || result.Data.ID == "" {
+		t.Fatalf("create response lacks paste id: %s (%v)", body, err)
+	}
+	return result.Data.ID, result.Data.OwnerToken
 }
 
 // TestTier1Healthz verifies /server/healthz responds and is not redirected.
@@ -91,6 +185,45 @@ func TestTier1HomeSSR(t *testing.T) {
 	}
 }
 
+func TestTier1BrowserCacheRefresh(t *testing.T) {
+	base := baseURL(t)
+	request, _ := http.NewRequest(http.MethodGet, base+"/", nil)
+	request.Header.Set("Accept", "text/html")
+	request.Header.Set("Cookie", "pastebin_build=stale-build")
+	resp, err := client().Do(request)
+	if err != nil {
+		t.Fatalf("GET / with stale build cookie: %v", err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("Clear-Site-Data"); got != `"cache", "storage"` {
+		t.Errorf("stale build Clear-Site-Data = %q", got)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("HTML Cache-Control = %q, want no-store", got)
+	}
+	if !strings.Contains(strings.Join(resp.Header.Values("Set-Cookie"), "\n"), "pastebin_build=") {
+		t.Error("HTML response did not refresh the build stamp cookie")
+	}
+
+	assetResp, err := client().Get(base + "/static/js/app.js")
+	if err != nil {
+		t.Fatalf("GET unversioned static asset: %v", err)
+	}
+	assetResp.Body.Close()
+	stamp := strings.Trim(assetResp.Header.Get("ETag"), `"`)
+	if assetResp.StatusCode != http.StatusOK || stamp == "" || assetResp.Header.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("unversioned asset response = %d, cache=%q, etag=%q", assetResp.StatusCode, assetResp.Header.Get("Cache-Control"), assetResp.Header.Get("ETag"))
+	}
+	versionedResp, err := client().Get(base + "/static/js/app.js?v=" + url.QueryEscape(stamp))
+	if err != nil {
+		t.Fatalf("GET versioned static asset: %v", err)
+	}
+	versionedResp.Body.Close()
+	if versionedResp.StatusCode != http.StatusOK || versionedResp.Header.Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Errorf("versioned asset response = %d, cache=%q", versionedResp.StatusCode, versionedResp.Header.Get("Cache-Control"))
+	}
+}
+
 // TestTier1InternalLinkCrawl follows same-origin links and rejects broken
 // routes, server errors, and blank HTML pages.
 func TestTier1InternalLinkCrawl(t *testing.T) {
@@ -101,6 +234,7 @@ func TestTier1InternalLinkCrawl(t *testing.T) {
 	}
 	queue := []string{"/"}
 	visited := make(map[string]bool)
+	assets := make(map[string]bool)
 	for len(queue) > 0 {
 		path := queue[0]
 		queue = queue[1:]
@@ -138,11 +272,16 @@ func TestTier1InternalLinkCrawl(t *testing.T) {
 			t.Errorf("parse HTML at %s: %v", path, err)
 			continue
 		}
+		if err := validatePageMetadata(doc); err != nil {
+			t.Errorf("GET %s: %v", path, err)
+		}
 		var visit func(*html.Node)
 		visit = func(node *html.Node) {
-			if node.Type == html.ElementNode && node.Data == "a" {
+			if node.Type == html.ElementNode {
 				for _, attr := range node.Attr {
-					if attr.Key != "href" || attr.Val == "" || strings.HasPrefix(attr.Val, "#") {
+					isLink := node.Data == "a" && attr.Key == "href"
+					isAsset := (node.Data == "script" && attr.Key == "src") || (node.Data == "img" && attr.Key == "src") || (node.Data == "link" && attr.Key == "href")
+					if (!isLink && !isAsset) || attr.Val == "" || strings.HasPrefix(attr.Val, "#") {
 						continue
 					}
 					ref, parseErr := url.Parse(attr.Val)
@@ -151,7 +290,23 @@ func TestTier1InternalLinkCrawl(t *testing.T) {
 					}
 					dest := baseURL.ResolveReference(ref)
 					if dest.Scheme == baseURL.Scheme && dest.Host == baseURL.Host {
-						queue = append(queue, dest.RequestURI())
+						if isAsset {
+							assetPath := dest.RequestURI()
+							if !assets[assetPath] {
+								assets[assetPath] = true
+								assetResp, assetErr := client().Get(base + assetPath)
+								if assetErr != nil {
+									t.Errorf("load referenced asset %s: %v", assetPath, assetErr)
+								} else {
+									assetResp.Body.Close()
+									if assetResp.StatusCode != http.StatusOK {
+										t.Errorf("referenced asset %s returned %d", assetPath, assetResp.StatusCode)
+									}
+								}
+							}
+						} else {
+							queue = append(queue, dest.RequestURI())
+						}
 					}
 				}
 			}
@@ -163,11 +318,95 @@ func TestTier1InternalLinkCrawl(t *testing.T) {
 	}
 }
 
+func TestTier1ThemeAndLocaleRendering(t *testing.T) {
+	base := baseURL(t)
+	for _, tc := range []struct {
+		cookie string
+		lang   string
+		class  string
+	}{
+		{"theme=dark", "en", "theme-dark"},
+		{"theme=light", "es", "theme-light"},
+		{"theme=auto", "fr", "theme-auto"},
+	} {
+		req, _ := http.NewRequest(http.MethodGet, base+"/?lang="+tc.lang, nil)
+		req.Header.Set("Accept", "text/html")
+		req.Header.Set("Cookie", tc.cookie)
+		resp, err := client().Do(req)
+		if err != nil {
+			t.Errorf("GET home for %s/%s: %v", tc.cookie, tc.lang, err)
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), tc.class) || !strings.Contains(string(body), `lang="`+tc.lang+`"`) {
+			t.Errorf("home page did not render %s and lang %s", tc.class, tc.lang)
+		}
+	}
+}
+
+func validatePageMetadata(doc *html.Node) error {
+	var title, language, charset, viewport string
+	var inspect func(*html.Node)
+	inspect = func(node *html.Node) {
+		if node.Type == html.ElementNode {
+			switch node.Data {
+			case "html":
+				for _, attr := range node.Attr {
+					if attr.Key == "lang" {
+						language = strings.TrimSpace(attr.Val)
+					}
+				}
+			case "title":
+				if node.FirstChild != nil {
+					title = strings.TrimSpace(node.FirstChild.Data)
+				}
+			case "meta":
+				name, content := "", ""
+				for _, attr := range node.Attr {
+					switch attr.Key {
+					case "name":
+						name = strings.ToLower(attr.Val)
+					case "content":
+						content = attr.Val
+					case "charset":
+						charset = strings.ToLower(attr.Val)
+					}
+				}
+				if name == "viewport" {
+					viewport = content
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			inspect(child)
+		}
+	}
+	inspect(doc)
+	var missing []string
+	if title == "" {
+		missing = append(missing, "non-empty <title>")
+	}
+	if language == "" {
+		missing = append(missing, "<html lang>")
+	}
+	if charset != "utf-8" && charset != "utf8" {
+		missing = append(missing, "UTF-8 charset meta")
+	}
+	if viewport == "" {
+		missing = append(missing, "viewport meta")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 // TestTier1PasteLifecycle exercises create -> view -> raw -> delete via the
 // native JSON API end to end (AI.md IDEA.md API Endpoints table).
 func TestTier1PasteLifecycle(t *testing.T) {
 	base := baseURL(t)
-	c := client()
+	c, csrfToken := csrfClient(t, base)
 
 	createBody := strings.NewReader(`{"content":"e2e tier1 content","title":"e2e","language":"text","expiry":"1h"}`)
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/pastes", createBody)
@@ -175,6 +414,9 @@ func TestTier1PasteLifecycle(t *testing.T) {
 		t.Fatalf("build create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 pastebin-e2e")
+	addCSRFToken(req, csrfToken)
 	resp, err := c.Do(req)
 	if err != nil {
 		t.Fatalf("POST /api/v1/pastes: %v", err)
@@ -245,6 +487,274 @@ func TestTier1PasteLifecycle(t *testing.T) {
 	}
 }
 
+func TestTier1PasteVisibilitySyntaxDownloadEmbedAndQR(t *testing.T) {
+	base := baseURL(t)
+	id, ownerToken := createPaste(t, base, map[string]interface{}{
+		"content": "package main\nfunc main() {}", "title": "e2e-go.go",
+		"language": "go", "visibility": "unlisted", "expires_in": "never",
+	})
+	if ownerToken == "" {
+		t.Fatal("create response omitted owner_token")
+	}
+	c := client()
+	listResp, err := c.Get(base + "/api/v1/pastes?limit=250")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listBody, _ := io.ReadAll(listResp.Body)
+	listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK || strings.Contains(string(listBody), id) {
+		t.Fatalf("unlisted paste appeared in recent listing (status %d): %s", listResp.StatusCode, listBody)
+	}
+	viewResp, err := getHTML(c, base+"/"+id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewBody, _ := io.ReadAll(viewResp.Body)
+	viewResp.Body.Close()
+	if viewResp.StatusCode != http.StatusOK || !strings.Contains(string(viewBody), "e2e-go.go") || !strings.Contains(string(viewBody), "<span") {
+		t.Fatalf("paste view did not render title and server syntax highlighting (status %d)", viewResp.StatusCode)
+	}
+	for _, endpoint := range []struct {
+		path string
+		want string
+	}{{"/dl/" + id, "application/octet-stream"}, {"/emb/" + id, "text/html"}, {"/qr/" + id + "/image", "image/png"}} {
+		resp, err := c.Get(base + endpoint.path)
+		if err != nil {
+			t.Errorf("GET %s: %v", endpoint.path, err)
+			continue
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || !strings.Contains(resp.Header.Get("Content-Type"), endpoint.want) {
+			t.Errorf("GET %s status/content-type = %d/%q; want 200/%q", endpoint.path, resp.StatusCode, resp.Header.Get("Content-Type"), endpoint.want)
+		}
+	}
+	delReq, _ := http.NewRequest(http.MethodDelete, base+"/api/v1/pastes/"+id, nil)
+	delReq.Header.Set("Authorization", "Bearer "+ownerToken)
+	delResp, err := c.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delResp.Body.Close()
+	if delResp.StatusCode != http.StatusOK && delResp.StatusCode != http.StatusNoContent {
+		t.Errorf("owner-token delete status = %d", delResp.StatusCode)
+	}
+}
+
+func TestTier1BurnAfterReadDeletesAtThreshold(t *testing.T) {
+	base := baseURL(t)
+	id, _ := createPaste(t, base, map[string]interface{}{"content": "burn once", "burn_after": 1, "expires_in": "never"})
+	first, err := client().Get(base + "/raw/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first read status = %d, want 200", first.StatusCode)
+	}
+	second, err := client().Get(base + "/raw/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.Body.Close()
+	if second.StatusCode != http.StatusNotFound && second.StatusCode != http.StatusGone {
+		t.Fatalf("second read status = %d, want 404/410", second.StatusCode)
+	}
+}
+
+func TestTier1ExpiredPasteReturnsNotFound(t *testing.T) {
+	base := baseURL(t)
+	id, _ := createPaste(t, base, map[string]interface{}{"content": "expire soon", "expires_in": "1"})
+	time.Sleep(2 * time.Second)
+	resp, err := client().Get(base + "/raw/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusGone {
+		t.Fatalf("expired paste status = %d, want 404/410", resp.StatusCode)
+	}
+}
+
+func TestTier1CSRFAndThemedErrorPage(t *testing.T) {
+	base := baseURL(t)
+	req, _ := http.NewRequest(http.MethodPost, base+"/create", strings.NewReader("content=csrf+probe"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://attacker.invalid")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, err := client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-site form submission status = %d, want 403", resp.StatusCode)
+	}
+	errorResp, err := getHTML(client(), base+"/missing-e2e-route")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(errorResp.Body)
+	errorResp.Body.Close()
+	if errorResp.StatusCode != http.StatusNotFound || !strings.Contains(string(body), "theme-") || strings.Contains(strings.ToLower(string(body)), "goroutine ") {
+		t.Errorf("404 page did not render as a themed error page (status %d)", errorResp.StatusCode)
+	}
+}
+
+func TestTier1FormValidationErrorsRenderOnServer(t *testing.T) {
+	base := baseURL(t)
+	c, csrfToken := csrfClient(t, base)
+	form := url.Values{"content": {""}, "csrf_token": {csrfToken}}
+	req, err := http.NewRequest(http.MethodPost, base+"/create", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Mozilla/5.0 pastebin-e2e")
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("POST invalid create form: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+		t.Fatalf("invalid create form response = %d/%q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(strings.ToLower(string(body)), "content") {
+		t.Errorf("server-rendered validation response omitted the content error: %s", body)
+	}
+}
+
+func TestTier1InvalidOwnerTokenDoesNotRevealPasteExistence(t *testing.T) {
+	base := baseURL(t)
+	id, _ := createPaste(t, base, map[string]interface{}{"content": "protected owner-token paste"})
+	req, err := http.NewRequest(http.MethodDelete, base+"/api/v1/pastes/"+id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok_invalid-owner-token")
+	resp, err := client().Do(req)
+	if err != nil {
+		t.Fatalf("DELETE with invalid owner token: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("invalid owner-token delete status = %d, want 404", resp.StatusCode)
+	}
+	if strings.Contains(string(body), "protected owner-token paste") || strings.Contains(string(body), id) {
+		t.Errorf("invalid owner-token response revealed paste data: %s", body)
+	}
+}
+
+func TestTier1CompatibilityAndDocsRoutes(t *testing.T) {
+	base := baseURL(t)
+	c, csrfToken := csrfClient(t, base)
+	compatReq, _ := http.NewRequest(http.MethodPost, base+"/documents", strings.NewReader("hastebin compatible content"))
+	addCSRFToken(compatReq, csrfToken)
+	compatResp, err := c.Do(compatReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compatBody, _ := io.ReadAll(compatResp.Body)
+	compatResp.Body.Close()
+	var doc struct {
+		Key string `json:"key"`
+	}
+	if compatResp.StatusCode != http.StatusOK || json.Unmarshal(compatBody, &doc) != nil || doc.Key == "" {
+		t.Fatalf("hastebin compatibility response = %d %s", compatResp.StatusCode, compatBody)
+	}
+	for _, route := range []string{"/server/docs/swagger", "/server/docs/graphql"} {
+		resp, err := getHTML(client(), base+route)
+		if err != nil {
+			t.Errorf("GET %s: %v", route, err)
+			continue
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s status = %d, want 200", route, resp.StatusCode)
+		}
+	}
+}
+
+// TestTier1CompatibilityCreateProtocols covers the form and raw-body protocols
+// that expose distinct wire formats instead of the native JSON API.
+func TestTier1CompatibilityCreateProtocols(t *testing.T) {
+	base := baseURL(t)
+	c, csrfToken := csrfClient(t, base)
+	tests := []struct {
+		name     string
+		endpoint string
+		form     url.Values
+		want     string
+	}{
+		{name: "pastebin", endpoint: "/api/api_post.php", form: url.Values{"api_paste_code": {"pastebin protocol content"}}, want: "pastebin protocol content"},
+		{name: "lenpaste", endpoint: "/api/new", form: url.Values{"body": {"lenpaste protocol content"}}, want: "lenpaste protocol content"},
+		{name: "stikked", endpoint: "/api/create", form: url.Values{"text": {"stikked protocol content"}}, want: "stikked protocol content"},
+		{name: "dpaste", endpoint: "/api/v2/", form: url.Values{"content": {"dpaste protocol content"}, "format": {"json"}}, want: "dpaste protocol content"},
+		{name: "sprunge", endpoint: "/", form: url.Values{"sprunge": {"sprunge protocol content"}}, want: "sprunge protocol content"},
+		{name: "ixio", endpoint: "/", form: url.Values{"f:1": {"ixio protocol content"}}, want: "ixio protocol content"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, base+tc.endpoint, strings.NewReader(tc.form.Encode()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			addCSRFToken(req, csrfToken)
+			resp, err := c.Do(req)
+			if err != nil {
+				t.Fatalf("POST %s: %v", tc.endpoint, err)
+			}
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("POST %s status = %d, body=%s", tc.endpoint, resp.StatusCode, body)
+			}
+			var pasteURL string
+			if tc.name == "dpaste" || tc.name == "lenpaste" {
+				var result struct {
+					URL string `json:"url"`
+				}
+				if err := json.Unmarshal(body, &result); err != nil {
+					t.Fatalf("parse dpaste response: %v; body=%s", err, body)
+				}
+				pasteURL = result.URL
+			} else {
+				pasteURL = strings.TrimSpace(string(body))
+			}
+			parsed, err := url.Parse(pasteURL)
+			if err != nil || parsed == nil || parsed.Path == "" {
+				t.Fatalf("invalid create response URL %q from body %s: %v", pasteURL, body, err)
+			}
+			parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+			id := parts[len(parts)-1]
+			rawResp, err := client().Get(base + "/raw/" + id)
+			if err != nil {
+				t.Fatalf("GET raw paste: %v", err)
+			}
+			raw, err := io.ReadAll(rawResp.Body)
+			rawResp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rawResp.StatusCode != http.StatusOK || string(raw) != tc.want {
+				t.Fatalf("raw response = %d %q, want %q", rawResp.StatusCode, raw, tc.want)
+			}
+		})
+	}
+}
+
 // TestTier1UnknownID verifies an unknown paste ID returns 404 via both the
 // web route and the API route, never a 500 or a redirect to a login page
 // that doesn't exist in this project.
@@ -283,6 +793,9 @@ func browserContext(t *testing.T) (context.Context, context.CancelFunc) {
 	allocCtx, allocCancel := chromedp.NewRemoteAllocator(ctx, endpoint)
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 	cleanup := func() {
+		if t.Failed() {
+			captureFailureArtifacts(t, browserCtx)
+		}
 		browserCancel()
 		allocCancel()
 		cancel()
@@ -292,6 +805,25 @@ func browserContext(t *testing.T) (context.Context, context.CancelFunc) {
 		t.Fatalf("connect to headless browser: %v", err)
 	}
 	return browserCtx, cleanup
+}
+
+func captureFailureArtifacts(t *testing.T, ctx context.Context) {
+	t.Helper()
+	dir := os.Getenv("E2E_ARTIFACT_DIR")
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "apimgr", "pastebin-e2e-artifacts")
+	}
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	name := strings.NewReplacer("/", "_", "\\", "_").Replace(t.Name())
+	var screenshot []byte
+	var pageHTML string
+	if chromedp.Run(ctx, chromedp.CaptureScreenshot(&screenshot), chromedp.OuterHTML("html", &pageHTML)) != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, name+".png"), screenshot, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, name+".html"), []byte(pageHTML), 0o600)
 }
 
 // TestTier2NoJS verifies that the server-rendered paste creation form is usable
@@ -314,12 +846,23 @@ func TestTier2NoJS(t *testing.T) {
 	}
 	content := "e2e browser no javascript paste"
 	var viewLink string
+	var ownerToken string
 	err = chromedp.Run(ctx,
 		chromedp.SendKeys(`#content`, content),
 		chromedp.Click(`#paste-form button[type="submit"]`),
 		chromedp.WaitVisible(`.result a.long-string`, chromedp.ByQuery),
 		chromedp.AttributeValue(`.result a.long-string`, "href", &viewLink, nil, chromedp.ByQuery),
-		chromedp.Navigate(viewLink),
+		chromedp.Text(`#created-token`, &ownerToken, chromedp.ByQuery),
+	)
+	if err != nil {
+		t.Fatalf("create paste without JavaScript: %v", err)
+	}
+	viewURL, err := url.Parse(viewLink)
+	if err != nil {
+		t.Fatalf("parse created paste URL: %v", err)
+	}
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(base+viewURL.EscapedPath()),
 		chromedp.WaitVisible(`#paste-code`, chromedp.ByQuery),
 		chromedp.OuterHTML(`#paste-code`, &html, chromedp.ByQuery),
 	)
@@ -328,6 +871,9 @@ func TestTier2NoJS(t *testing.T) {
 	}
 	if !strings.Contains(html, content) {
 		t.Fatalf("no-JS paste view is missing created content: %s", html)
+	}
+	if strings.TrimSpace(ownerToken) == "" {
+		t.Fatal("no-JS create flow did not display the one-time owner token")
 	}
 }
 
@@ -352,6 +898,10 @@ func TestTier3FullBrowser(t *testing.T) {
 			}
 		case *network.EventLoadingFailed:
 			failure = e.ErrorText
+		case *network.EventResponseReceived:
+			if e.Type != network.ResourceTypeDocument && e.Response.Status >= 400 {
+				failure = fmt.Sprintf("%s returned %v", e.Response.URL, e.Response.Status)
+			}
 		}
 		if failure != "" {
 			failuresMu.Lock()
@@ -394,16 +944,26 @@ func TestTier3FullBrowser(t *testing.T) {
 			t.Errorf("%s rendered without a page title", page)
 		}
 	}
-	var hasOverflow bool
+	const browserPasteContent = "e2e full browser rendered paste content"
+	pasteID, _ := createPaste(t, base, map[string]interface{}{"content": browserPasteContent, "syntax": "text"})
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base+"/"+pasteID),
+		chromedp.WaitVisible(`#paste-code`, chromedp.ByQuery),
+		chromedp.Text(`#paste-code`, &html, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("load created paste in full browser: %v", err)
+	}
+	if !strings.Contains(html, browserPasteContent) {
+		t.Errorf("full browser paste content = %q, want it to contain %q", strings.TrimSpace(html), browserPasteContent)
+	}
 	var overflowDetails string
 	if err := chromedp.Run(ctx,
 		emulation.SetDeviceMetricsOverride(375, 812, 1, false),
 		chromedp.Navigate(base+"/"),
-		chromedp.Evaluate(`document.documentElement.scrollWidth > window.innerWidth`, &hasOverflow),
-		chromedp.Evaluate(`JSON.stringify(Array.from(document.querySelectorAll('body *')).map(el => { const r = el.getBoundingClientRect(); return {tag: el.tagName, id: el.id, className: typeof el.className === 'string' ? el.className : '', left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth}; }).filter(el => el.right > window.innerWidth || el.left < 0).slice(0, 20))`, &overflowDetails),
+		chromedp.Evaluate(`JSON.stringify(Array.from(document.querySelectorAll('body *')).filter(el => !(el.closest('.nav-panel') && !document.querySelector('.nav-checkbox:checked'))).map(el => { const r = el.getBoundingClientRect(); return {tag: el.tagName, id: el.id, className: typeof el.className === 'string' ? el.className : '', left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth}; }).filter(el => el.right > window.innerWidth || el.left < 0).slice(0, 20))`, &overflowDetails),
 	); err != nil {
 		t.Errorf("check mobile layout: %v", err)
-	} else if hasOverflow {
+	} else if overflowDetails != "[]" {
 		t.Errorf("home page has horizontal overflow at 375px viewport: %s", overflowDetails)
 	}
 	failuresMu.Lock()

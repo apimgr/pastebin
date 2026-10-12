@@ -650,6 +650,7 @@
       "help_flag_lang": "出力言語 (既定: LANG から自動判定)",
       "help_flag_config": "設定プロファイル名またはパス (既定: cli.yml)",
       "help_flag_debug": "デバッグ出力を有効化",
+      "help_flag_verbose": "追加のリクエスト診断を表示",
       "help_flag_update": "CLI の更新を確認または適用",
       "help_flag_version": "バージョンを表示",
       "help_flag_shell_completions": "シェル補完を出力",

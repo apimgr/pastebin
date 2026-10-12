@@ -11,15 +11,17 @@ The `pastebin-cli` binary is a fully spec-compliant command-line client.
 | `--token-file PATH` | Read the API token from a file |
 | `--config NAME` | Config profile name or path (default: `cli.yml`; `.yml` checked before `.yaml`) |
 | `--json` | Output in JSON format |
+| `--output FORMAT` | Select `json`, `yaml`, `table`, `plain`, or `csv`; may follow a command and its positional arguments |
 | `--color MODE` | Color output: `auto`, `yes`, or `no` |
 | `--lang CODE` | Output language code (default: auto-detect from `LANG`) |
 | `--debug` | Enable debug output |
+| `--verbose` | Show extra request diagnostics (also configurable with `output.verbose`) |
 | `--shell {completions,init,help} [SHELL]` | Emit shell completions or init snippet (auto-detects `$SHELL` if omitted) |
 | `--update check\|yes` | Check for or apply CLI updates |
 | `-h, --help` | Show help |
 | `-v, --version` | Show version |
 
-Environment variables: `PASTEBIN_SERVER_PRIMARY`, `PASTEBIN_TOKEN`, `CLI_CONFIG`, and `NO_COLOR`. See the README for details.
+Environment variables: `PASTEBIN_SERVER_PRIMARY`, `PASTEBIN_TOKEN`, `PASTEBIN_OUTPUT_FORMAT`, `PASTEBIN_OUTPUT_PAGER`, `PASTEBIN_OUTPUT_VERBOSE`, `PASTEBIN_OUTPUT_QUIET`, `PASTEBIN_PUBLIC`, `PASTEBIN_EXPIRE`, `PASTEBIN_SYNTAX`, `PASTEBIN_LIMIT`, `CLI_CONFIG`, and `NO_COLOR`. Response caching and rotating logs use the configured `cache.*` and `logging.*` settings in `cli.yml`.
 
 ## Commands
 
@@ -35,10 +37,12 @@ pastebin-cli create [file] [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--lang LANG` | Chroma language identifier (e.g. `go`, `python`, `text`) |
-| `--expiry DURATION` | `1h`, `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `18m`, `2y`, `never`, or seconds |
+| `--lang LANG` | Chroma language identifier (e.g. `go`, `python`, `text`); default follows `defaults.syntax` |
+| `--syntax LANG` | Alias for `--lang` |
+| `--expire DURATION`, `--expiry DURATION` | `1h`, `1d`, `1w`, `1m`, `3m`, `6m`, `1y`, `18m`, `2y`, `never`, or seconds; default follows `defaults.expire` |
 | `--burn N` | Delete after N views (1–9999; `0` = disabled) |
-| `--unlisted` | Create as unlisted (not shown in recent pastes) |
+| `--public public\|unlisted` | Set visibility; default is unlisted and follows `defaults.public` |
+| `--unlisted` | Alias for `--public unlisted` |
 | `--title TITLE` | Optional paste title |
 
 **Examples:**
@@ -47,8 +51,12 @@ pastebin-cli create [file] [flags]
 # Paste from stdin
 echo "Hello, World!" | pastebin-cli create
 
+# Paste from stdin without an explicit command
+echo "Hello, World!" | pastebin-cli
+
 # Paste a file
 pastebin-cli create myfile.go --lang go
+pastebin-cli myfile.go --syntax go
 
 # Burn-after-read with expiry
 pastebin-cli create --burn 1 --expiry 1h secret.txt
@@ -72,13 +80,14 @@ Delete Token: 64-char-hex-token (save this — shown once only)
 Fetch and print the raw content of a paste.
 
 ```bash
-pastebin-cli get <id>
+pastebin-cli get <id> [--output FORMAT]
 ```
 
 **Example:**
 
 ```bash
 pastebin-cli get abc12345
+pastebin-cli get abc12345 --output json
 ```
 
 ### delete
@@ -100,7 +109,7 @@ pastebin-cli delete abc12345 64-char-hex-token
 List recent public pastes.
 
 ```bash
-pastebin-cli list [--limit N]
+pastebin-cli list [--limit N] [--output FORMAT]
 ```
 
 **Example:**

@@ -39,6 +39,10 @@ type ClientConfig struct {
 	// Theme is the resolved tui.theme value from cli.yml ("dark", "light",
 	// or "auto"). Empty defaults to dark (AI.md "CLI Theme Configuration").
 	Theme string
+	// Mouse enables Bubble Tea mouse events when configured.
+	Mouse bool
+	// Unicode selects Unicode UI symbols; false renders ASCII fallbacks.
+	Unicode bool
 }
 
 // Model is the root bubbletea model for the TUI.
@@ -66,7 +70,11 @@ func checkServerURL(server string) bool {
 // Run initialises and starts the bubbletea program.
 func Run(cfg ClientConfig) error {
 	m := newModel(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if cfg.Mouse {
+		opts = append(opts, tea.WithMouseCellMotion())
+	}
+	p := tea.NewProgram(m, opts...)
 	_, err := p.Run()
 	return err
 }
@@ -77,6 +85,7 @@ func newModel(cfg ClientConfig) Model {
 	// Resolve dark/light/auto per AI.md "CLI Theme Configuration" —
 	// GetTerminalPalette handles the "auto" -> system-detect branch.
 	CurrentTheme = theme.GetTerminalPalette(cfg.Theme)
+	useUnicode = cfg.Unicode
 	styles := StylesFromTerminalPalette(CurrentTheme)
 	ts := terminal.GetTerminalSize()
 
@@ -239,17 +248,21 @@ func (m Model) handleEsc() (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (m Model) View() string {
+	var view string
 	switch m.state {
 	case stateSetup:
-		return m.viewSetup()
+		view = m.viewSetup()
 	case stateListing:
-		return m.viewListing()
+		view = m.viewListing()
 	case stateDetail:
-		return m.viewDetail()
+		view = m.viewDetail()
 	case stateHelp:
-		return m.viewHelpOverlay()
+		view = m.viewHelpOverlay()
 	}
-	return ""
+	if !useUnicode {
+		return asciiSymbols(view)
+	}
+	return view
 }
 
 // viewSetup renders the setup wizard centred on screen.

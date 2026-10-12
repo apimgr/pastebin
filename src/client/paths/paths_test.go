@@ -144,6 +144,19 @@ func TestConfigFile_XDGConfigHome(t *testing.T) {
 	}
 }
 
+func TestCacheDir_XDGCacheHome(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("XDG_CACHE_HOME applies to Linux/Unix")
+	}
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	got := CacheDir()
+	want := filepath.Join(dir, internalOrg, internalName)
+	if got != want {
+		t.Fatalf("CacheDir() = %q, want %q", got, want)
+	}
+}
+
 // TestConfigFile_LinuxWithoutXDG verifies the Linux default (~/.config) when
 // XDG_CONFIG_HOME is unset.
 func TestConfigFile_LinuxWithoutXDG(t *testing.T) {

@@ -650,6 +650,7 @@
       "help_flag_lang": "Ausgabesprache (Standard: automatisch aus LANG)",
       "help_flag_config": "Name oder Pfad des Konfigurationsprofils (Standard: cli.yml)",
       "help_flag_debug": "Debug-Ausgabe aktivieren",
+      "help_flag_verbose": "Zusätzliche Anfragediagnosen anzeigen",
       "help_flag_update": "CLI-Updates prüfen oder anwenden",
       "help_flag_version": "Version ausgeben",
       "help_flag_shell_completions": "Shell-Vervollständigung ausgeben",

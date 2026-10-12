@@ -28,6 +28,7 @@ services:
     logging: *default-logging
     environment:
       PORT: 64582
+      BASE_URL: http://172.29.250.2:64582
       DEBUG: true
       MODE: development
       TZ: ${TZ:-America/New_York}
@@ -48,7 +49,8 @@ services:
       pastebin-cache-test:
         condition: service_healthy
     networks:
-      - pastebin-test
+      pastebin-test:
+        ipv4_address: 172.29.250.2
 
   pastebin-e2e-browser:
     image: chromedp/headless-shell:latest
@@ -56,12 +58,9 @@ services:
     container_name: pastebin-e2e-browser
     restart: "no"
     logging: *default-logging
-    command:
-      - --no-sandbox
-      - --remote-debugging-address=0.0.0.0
-      - --remote-debugging-port=9222
     networks:
-      - pastebin-test
+      pastebin-test:
+        ipv4_address: 172.29.250.3
 
   pastebin-cache-test:
     image: valkey/valkey:alpine
@@ -78,10 +77,14 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - pastebin-test
+      pastebin-test:
+        ipv4_address: 172.29.250.4
 
 networks:
   pastebin-test:
     name: pastebin-test
     external: false
     internal: true
+    ipam:
+      config:
+        - subnet: 172.29.250.0/24

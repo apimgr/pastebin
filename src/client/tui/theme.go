@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/apimgr/pastebin/src/common/theme"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -34,6 +36,19 @@ var lightTheme = theme.TerminalPaletteLight
 // to dark. lipgloss (via termenv) auto-detects NO_COLOR and downgrades to
 // plain output on its own — no additional check is needed here.
 var CurrentTheme = darkTheme
+
+var useUnicode = true
+
+func asciiSymbols(s string) string {
+	return strings.NewReplacer(
+		"─", "-", "…", "...", "█", "|", "│", "|",
+		"┌", "+", "┐", "+", "└", "+", "┘", "+",
+		"├", "+", "┤", "+", "┬", "+", "┴", "+", "┼", "+",
+		"╭", "+", "╮", "+", "╰", "+", "╯", "+",
+		"↑", "up", "↓", "down", "→", "->", "←", "<-",
+		"✓", "[ok]", "✗", "[x]",
+	).Replace(s)
+}
 
 // StylesFromTerminalPalette builds a TUIStyles set from the given
 // theme.TerminalPalette (AI.md PART 32 "TUI Styles from Palette").

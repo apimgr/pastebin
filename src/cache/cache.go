@@ -217,7 +217,19 @@ func newRedisCache(cfg Config, prefix string, defaultTTL time.Duration) (*redisC
 	var err error
 
 	if cfg.URL != "" {
-		opts, err = redis.ParseURL(cfg.URL)
+		cacheURL := cfg.URL
+		if cfg.Type == "valkey" {
+			cacheURL = strings.TrimPrefix(cacheURL, "valkey://")
+			cacheURL = strings.TrimPrefix(cacheURL, "valkeys://")
+			if cacheURL != cfg.URL {
+				scheme := "redis://"
+				if strings.HasPrefix(cfg.URL, "valkeys://") {
+					scheme = "rediss://"
+				}
+				cacheURL = scheme + cacheURL
+			}
+		}
+		opts, err = redis.ParseURL(cacheURL)
 		if err != nil {
 			return nil, fmt.Errorf("cache: parse url: %w", err)
 		}

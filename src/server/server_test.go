@@ -1570,17 +1570,20 @@ func TestNoTrailingSlash(t *testing.T) {
 
 	cases := []struct {
 		name       string
+		method     string
 		path       string
 		wantStatus int
 	}{
-		{"root unchanged", "/", http.StatusOK},
-		{"normal path unchanged", "/paste/abc", http.StatusOK},
-		{"trailing slash redirected", "/paste/", http.StatusMovedPermanently},
-		{"file with dot in last segment still redirects", "/static/app.js/", http.StatusMovedPermanently},
+		{"root unchanged", http.MethodGet, "/", http.StatusOK},
+		{"normal path unchanged", http.MethodGet, "/paste/abc", http.StatusOK},
+		{"trailing slash redirected", http.MethodGet, "/paste/", http.StatusMovedPermanently},
+		{"file with dot in last segment still redirects", http.MethodGet, "/static/app.js/", http.StatusMovedPermanently},
+		{"dpaste v1 endpoint preserves POST slash", http.MethodPost, "/api/", http.StatusOK},
+		{"dpaste v2 endpoint preserves POST slash", http.MethodPost, "/api/v2/", http.StatusOK},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			r := httptest.NewRequest(tc.method, tc.path, nil)
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, r)
 			if w.Code != tc.wantStatus {

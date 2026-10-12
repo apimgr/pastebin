@@ -42,6 +42,56 @@ func ConfigFile() string {
 	}
 }
 
+// DataDir returns the invoking user's persistent data directory.
+func DataDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), internalOrg, internalName, "data")
+	}
+	if runtime.GOOS == "darwin" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".local", "share", internalOrg, internalName)
+	}
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, internalOrg, internalName)
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", internalOrg, internalName)
+}
+
+// CacheDir returns the invoking user's cache directory for API responses.
+func CacheDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), internalOrg, internalName, "cache")
+	}
+	if runtime.GOOS == "darwin" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".cache", internalOrg, internalName)
+	}
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return filepath.Join(xdg, internalOrg, internalName)
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", internalOrg, internalName)
+}
+
+// LogDir returns the invoking user's log directory.
+func LogDir() string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), internalOrg, internalName, "log")
+	}
+	if runtime.GOOS == "darwin" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, ".local", "log", internalOrg, internalName)
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "log", internalOrg, internalName)
+}
+
+// LogFile returns the default per-user CLI log path.
+func LogFile() string {
+	return filepath.Join(LogDir(), "cli.log")
+}
+
 // Resolved returns the active config path, falling back to the default
 // cli.yml location when no --config profile/path was selected.
 func Resolved() string {
@@ -117,12 +167,11 @@ func fileExists(path string) bool {
 // EnsureDirs creates the standard user-scope directories for the CLI client
 // (config, data, cache, log). Called at startup before any config is loaded.
 func EnsureDirs() {
-	home, _ := os.UserHomeDir()
 	dirs := []string{
-		filepath.Join(home, ".config", internalOrg, internalName),
-		filepath.Join(home, ".local", "share", internalOrg, internalName),
-		filepath.Join(home, ".cache", internalOrg, internalName),
-		filepath.Join(home, ".local", "log", internalOrg, internalName),
+		filepath.Dir(ConfigFile()),
+		DataDir(),
+		CacheDir(),
+		LogDir(),
 	}
 	for _, d := range dirs {
 		os.MkdirAll(d, 0o700)

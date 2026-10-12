@@ -650,6 +650,7 @@
       "help_flag_lang": "Langue de sortie (par défaut : détectée depuis LANG)",
       "help_flag_config": "Nom ou chemin du profil de configuration (par défaut : cli.yml)",
       "help_flag_debug": "Activer la sortie de débogage",
+      "help_flag_verbose": "Afficher des diagnostics supplémentaires des requêtes",
       "help_flag_update": "Vérifier ou appliquer les mises à jour de la CLI",
       "help_flag_version": "Afficher la version",
       "help_flag_shell_completions": "Afficher la complétion du shell",

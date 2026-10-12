@@ -120,8 +120,26 @@ volumes/
 *.swp
 *.swo
 
-# AI config directories (regenerated from AI.md rules, not committed)
-.claude/
+# Claude Code team configuration is committed; local runtime and worktree data is not.
+.claude/*
+!.claude/CLAUDE.md
+!.claude/agents/
+!.claude/commands/
+!.claude/hooks/
+!.claude/memory/
+!.claude/plans/
+!.claude/rules/
+!.claude/settings.json
+.claude/backups/
+.claude/cache/
+.claude/history.jsonl
+.claude/settings.local.json
+.claude/*.lock
+.claude/worktrees/
+!.claude/memory/**
+!.claude/plans/**
+!.claude/rules/**
+
 .cursor/
 .aider/
 .ai/

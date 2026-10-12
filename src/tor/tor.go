@@ -446,14 +446,18 @@ func (m *Manager) closeSvcLocked() {
 
 // Running returns true when Tor is active.
 func (m *Manager) Running() bool {
-	m.mu.Lock()
+	if !m.mu.TryLock() {
+		return false
+	}
 	defer m.mu.Unlock()
 	return m.svc != nil
 }
 
 // OnionAddress returns the full .onion address, or empty string if not running.
 func (m *Manager) OnionAddress() string {
-	m.mu.Lock()
+	if !m.mu.TryLock() {
+		return ""
+	}
 	defer m.mu.Unlock()
 	if m.svc != nil {
 		return m.svc.onionAddress

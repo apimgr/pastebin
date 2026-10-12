@@ -7,6 +7,7 @@ package cache_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,20 @@ func TestNew_Drivers(t *testing.T) {
 			}
 			if c == nil {
 				t.Error("expected non-nil Cache, got nil")
+			}
+		})
+	}
+}
+
+func TestNew_ValkeyURLSchemesParse(t *testing.T) {
+	for _, rawURL := range []string{"valkey://127.0.0.1:1", "valkeys://127.0.0.1:1"} {
+		t.Run(rawURL, func(t *testing.T) {
+			_, err := cache.New(cache.Config{Type: "valkey", URL: rawURL})
+			if err == nil {
+				t.Fatal("cache.New unexpectedly connected to an unavailable Valkey server")
+			}
+			if strings.Contains(err.Error(), "parse url") {
+				t.Fatalf("Valkey URL scheme was rejected before dialing: %v", err)
 			}
 		})
 	}

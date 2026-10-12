@@ -1871,7 +1871,7 @@ func Load(path string) (*Config, error) {
 		return cfg, err
 	}
 
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	if err := decodeConfig(data, cfg); err != nil {
 		return cfg, err
 	}
 
@@ -3055,12 +3055,18 @@ func persistPortOnly(path string, port string) error {
 	if data, err := os.ReadFile(path); err == nil {
 		// Abort rather than clobber: if the existing file is malformed, saving
 		// defaults over it would silently destroy the operator's config.
-		if err := yaml.Unmarshal(data, base); err != nil {
+		if err := decodeConfig(data, base); err != nil {
 			return fmt.Errorf("parse existing config %s: %w", path, err)
 		}
 	}
 	base.Server.Port = port
 	return Save(path, base)
+}
+
+func decodeConfig(data []byte, cfg *Config) error {
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	decoder.KnownFields(true)
+	return decoder.Decode(cfg)
 }
 
 // SplitPorts parses a port specification into an optional plain-HTTP port and an

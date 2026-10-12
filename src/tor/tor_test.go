@@ -123,6 +123,19 @@ func TestManager_OnionAddressEmptyWhenNotStarted(t *testing.T) {
 	}
 }
 
+func TestManager_StatusReadsDoNotWaitForLifecycleOperation(t *testing.T) {
+	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.Running() {
+		t.Fatal("Running() = true while lifecycle state is locked")
+	}
+	if address := m.OnionAddress(); address != "" {
+		t.Fatalf("OnionAddress() = %q while lifecycle state is locked; want empty", address)
+	}
+}
+
 func TestManager_GetHTTPClient_Direct(t *testing.T) {
 	m := NewManager(context.Background(), 8080, Config{}, http.NewServeMux())
 	c := m.GetHTTPClient(false)

@@ -650,6 +650,7 @@
       "help_flag_lang": "Idioma de salida (por defecto: detectado desde LANG)",
       "help_flag_config": "Nombre o ruta del perfil de configuración (por defecto: cli.yml)",
       "help_flag_debug": "Activar la salida de depuración",
+      "help_flag_verbose": "Mostrar diagnósticos adicionales de solicitudes",
       "help_flag_update": "Comprobar o aplicar actualizaciones de la CLI",
       "help_flag_version": "Mostrar la versión",
       "help_flag_shell_completions": "Imprimir el autocompletado del shell",
