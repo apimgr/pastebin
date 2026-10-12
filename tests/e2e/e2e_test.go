@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -669,6 +671,19 @@ func TestTier1CompatibilityAndDocsRoutes(t *testing.T) {
 	if compatResp.StatusCode != http.StatusOK || json.Unmarshal(compatBody, &doc) != nil || doc.Key == "" {
 		t.Fatalf("hastebin compatibility response = %d %s", compatResp.StatusCode, compatBody)
 	}
+	documentResp, err := client().Get(base + "/documents/" + url.PathEscape(doc.Key))
+	if err != nil {
+		t.Fatalf("GET hastebin document: %v", err)
+	}
+	var document struct {
+		Key  string `json:"key"`
+		Data string `json:"data"`
+	}
+	documentBody, err := io.ReadAll(documentResp.Body)
+	documentResp.Body.Close()
+	if err != nil || documentResp.StatusCode != http.StatusOK || json.Unmarshal(documentBody, &document) != nil || document.Key != doc.Key || document.Data != "hastebin compatible content" {
+		t.Fatalf("hastebin retrieval = %d %s (%v)", documentResp.StatusCode, documentBody, err)
+	}
 	for _, route := range []string{"/server/docs/swagger", "/server/docs/graphql"} {
 		resp, err := getHTML(client(), base+route)
 		if err != nil {
@@ -680,6 +695,157 @@ func TestTier1CompatibilityAndDocsRoutes(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s status = %d, want 200", route, resp.StatusCode)
 		}
+	}
+}
+
+func TestTier1MicrobinRoundTrip(t *testing.T) {
+	base := baseURL(t)
+	c, csrfToken := csrfClient(t, base)
+	const content = "microbin protocol content"
+	payload, _ := json.Marshal(map[string]string{"content": content, "syntax": "text"})
+	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/pasta", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 pastebin-e2e")
+	addCSRFToken(req, csrfToken)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("create microbin paste: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var created struct {
+		Data struct {
+			ID         string `json:"id"`
+			OwnerToken string `json:"owner_token"`
+		} `json:"data"`
+	}
+	if (resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK) || json.Unmarshal(body, &created) != nil || created.Data.ID == "" || created.Data.OwnerToken == "" {
+		t.Fatalf("microbin create response = %d %s", resp.StatusCode, body)
+	}
+	getReq, err := http.NewRequest(http.MethodGet, base+"/api/v1/pasta/"+url.PathEscape(created.Data.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getReq.Header.Set("Accept", "application/json")
+	getReq.Header.Set("User-Agent", "Mozilla/5.0 pastebin-e2e")
+	getResp, err := client().Do(getReq)
+	if err != nil {
+		t.Fatalf("get microbin paste: %v", err)
+	}
+	var result struct {
+		Data struct {
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	getBody, err := io.ReadAll(getResp.Body)
+	getResp.Body.Close()
+	if err != nil || getResp.StatusCode != http.StatusOK || json.Unmarshal(getBody, &result) != nil || result.Data.Content != content {
+		t.Fatalf("microbin get response = %d %s (%v)", getResp.StatusCode, getBody, err)
+	}
+	delReq, _ := http.NewRequest(http.MethodDelete, base+"/api/v1/pasta/"+url.PathEscape(created.Data.ID), nil)
+	delReq.Header.Set("Authorization", "Bearer "+created.Data.OwnerToken)
+	delResp, err := client().Do(delReq)
+	if err != nil {
+		t.Fatalf("delete microbin paste: %v", err)
+	}
+	delResp.Body.Close()
+	if delResp.StatusCode != http.StatusOK && delResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("microbin delete status = %d", delResp.StatusCode)
+	}
+}
+
+func TestTier1ZeroXUploadProtocol(t *testing.T) {
+	base := baseURL(t)
+	c, csrfToken := csrfClient(t, base)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "e2e.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const content = "0x0.st protocol content"
+	if _, err := io.WriteString(part, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	addCSRFToken(req, csrfToken)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("upload 0x0 file: %v", err)
+	}
+	responseBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || strings.TrimSpace(resp.Header.Get("X-Token")) == "" {
+		t.Fatalf("0x0 create response = %d %s", resp.StatusCode, responseBody)
+	}
+	parsed, err := url.Parse(strings.TrimSpace(string(responseBody)))
+	if err != nil || parsed == nil {
+		t.Fatalf("parse 0x0 raw URL %q: %v", responseBody, err)
+	}
+	rawResp, err := client().Get(base + parsed.Path)
+	if err != nil {
+		t.Fatalf("get 0x0 raw paste: %v", err)
+	}
+	raw, _ := io.ReadAll(rawResp.Body)
+	rawResp.Body.Close()
+	if rawResp.StatusCode != http.StatusOK || string(raw) != content {
+		t.Fatalf("0x0 raw response = %d %q, want %q", rawResp.StatusCode, raw, content)
+	}
+}
+
+func TestTier1TermbinTCPProtocol(t *testing.T) {
+	base := baseURL(t)
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(baseURL.Hostname(), "9999"), 5*time.Second)
+	if err != nil {
+		t.Fatalf("connect to termbin listener: %v", err)
+	}
+	defer conn.Close()
+	const content = "termbin raw TCP protocol content"
+	if _, err := io.WriteString(conn, content); err != nil {
+		t.Fatalf("write termbin paste: %v", err)
+	}
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		if err := tcpConn.CloseWrite(); err != nil {
+			t.Fatalf("finish termbin upload: %v", err)
+		}
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	response, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("read termbin URL: %v", err)
+	}
+	if !strings.HasPrefix(string(response), base+"/") || !strings.HasSuffix(string(response), "\n") {
+		t.Fatalf("termbin response = %q, want a base URL ending in newline", response)
+	}
+	pasteURL, err := url.Parse(strings.TrimSpace(string(response)))
+	if err != nil || pasteURL.Path == "" {
+		t.Fatalf("parse termbin response %q: %v", response, err)
+	}
+	rawResp, err := client().Get(base + "/raw" + pasteURL.Path)
+	if err != nil {
+		t.Fatalf("get termbin paste: %v", err)
+	}
+	raw, _ := io.ReadAll(rawResp.Body)
+	rawResp.Body.Close()
+	if rawResp.StatusCode != http.StatusOK || string(raw) != content {
+		t.Fatalf("termbin raw response = %d %q, want %q", rawResp.StatusCode, raw, content)
 	}
 }
 
@@ -850,12 +1016,22 @@ func TestTier2NoJS(t *testing.T) {
 	err = chromedp.Run(ctx,
 		chromedp.SendKeys(`#content`, content),
 		chromedp.Click(`#paste-form button[type="submit"]`),
-		chromedp.WaitVisible(`.result a.long-string`, chromedp.ByQuery),
-		chromedp.AttributeValue(`.result a.long-string`, "href", &viewLink, nil, chromedp.ByQuery),
-		chromedp.Text(`#created-token`, &ownerToken, chromedp.ByQuery),
 	)
 	if err != nil {
-		t.Fatalf("create paste without JavaScript: %v", err)
+		t.Fatalf("submit create form without JavaScript: %v", err)
+	}
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	err = chromedp.Run(waitCtx, chromedp.WaitVisible(`.result a.long-string`, chromedp.ByQuery))
+	waitCancel()
+	if err != nil {
+		_ = chromedp.Run(ctx, chromedp.OuterHTML("html", &html))
+		t.Fatalf("create paste without JavaScript: %v; page=%s", err, html)
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.AttributeValue(`.result a.long-string`, "href", &viewLink, nil, chromedp.ByQuery),
+		chromedp.Text(`#created-token`, &ownerToken, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("read no-JS create result: %v", err)
 	}
 	viewURL, err := url.Parse(viewLink)
 	if err != nil {
