@@ -44,7 +44,7 @@ __check_status() {
     local desc="$1" method="$2" url="$3" expected="$4"
     shift 4
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X "${method}" "$@" "${url}")
+    code=$(curl -q -s -o /dev/null -w "%{http_code}" -X "${method}" "$@" "${url}")
     if [[ "${code}" == "${expected}" ]]; then
         __pass "${desc} → ${code}"
     else
@@ -56,7 +56,7 @@ __check_body() {
     local desc="$1" url="$2" pattern="$3"
     shift 3
     local body
-    body=$(curl -sf "$@" "${url}" 2>/dev/null || true)
+    body=$(curl -q -sf "$@" "${url}" 2>/dev/null || true)
     if printf '%s' "${body}" | grep -qi -- "${pattern}"; then
         __pass "${desc}"
     else
@@ -100,6 +100,38 @@ docker build \
 mkdir -p "${TMPDIR:-/tmp}/${DOCKER_PROJECT_ORG}"
 DOCKER_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${DOCKER_PROJECT_ORG}/${DOCKER_PROJECT_NAME}-XXXXXX")"
 mkdir -p "${DOCKER_TEMP_DIR}/volumes/config" "${DOCKER_TEMP_DIR}/volumes/data"
+mkdir -p "${DOCKER_TEMP_DIR}/volumes/config/pastebin"
+cat >"${DOCKER_TEMP_DIR}/volumes/config/pastebin/server.yml" <<'EOF'
+server:
+  geoip:
+    enabled: false
+  tor:
+    binary: /__pastebin_e2e__/tor
+  notifications:
+    email:
+      enabled: false
+      smtp:
+        host: localhost
+rate_limit:
+  enabled: true
+  write:
+    requests: 1000
+    window: 60
+  global_burst: 2000
+EOF
+chmod 600 "${DOCKER_TEMP_DIR}/volumes/config/pastebin/server.yml"
+mkdir -p "${DOCKER_TEMP_DIR}/tormig-config/pastebin"
+cat >"${DOCKER_TEMP_DIR}/tormig-config/pastebin/server.yml" <<'EOF'
+server:
+  geoip:
+    enabled: false
+  notifications:
+    email:
+      enabled: false
+      smtp:
+        host: localhost
+EOF
+chmod 600 "${DOCKER_TEMP_DIR}/tormig-config/pastebin/server.yml"
 cp "${DOCKER_PROJECT_DIR}/docker/docker-compose.test.yml" "${DOCKER_TEMP_DIR}/docker-compose.yml"
 # Point the stack at the locally built image and never pull a published one.
 sed -i \
@@ -114,7 +146,7 @@ __info "Starting compose project ${DOCKER_COMPOSE_PROJECT} on port ${DOCKER_PORT
 # Wait for server to become ready (up to 30 s)
 __info "Waiting for server to start..."
 for ((i = 1; i <= 30; i++)); do
-    if curl --silent --fail "${DOCKER_BASE_URL}/server/healthz" >/dev/null 2>&1; then
+    if curl -q --silent --fail "${DOCKER_BASE_URL}/server/healthz" >/dev/null 2>&1; then
         break
     fi
     sleep 1
@@ -125,6 +157,11 @@ for ((i = 1; i <= 30; i++)); do
     fi
 done
 __pass "Server is up"
+if docker logs "${DOCKER_CONTAINER_NAME}" 2>&1 | grep -q -- "privilege: dropped to ${DOCKER_PROJECT_NAME}"; then
+    __pass "Server dropped to the dedicated ${DOCKER_PROJECT_NAME} account"
+else
+    __fail "Server did not drop to the dedicated ${DOCKER_PROJECT_NAME} account"
+fi
 
 # ── Health endpoints ──────────────────────────────────────────────────────────
 __check_status "GET /server/healthz"        GET "${DOCKER_BASE_URL}/server/healthz"        200
@@ -158,10 +195,16 @@ __check_status "GET /api/v1/pastes.txt → 200" GET "${DOCKER_BASE_URL}/api/v1/p
 # ── Create paste: multiple request formats ───────────────────────────────────
 __info "--- Paste creation ---"
 
+DOCKER_CSRF_TOKEN=$(curl -q -sS -D - -o /dev/null "${DOCKER_BASE_URL}/create" | \
+    sed -n 's/^Set-Cookie: csrf_token=\([^;]*\).*/\1/ip' | head -1)
+[[ -n "${DOCKER_CSRF_TOKEN}" ]] || __fail "Could not obtain CSRF token from /create"
+DOCKER_CSRF_ARGS=(--cookie "csrf_token=${DOCKER_CSRF_TOKEN}" --header "X-CSRF-Token: ${DOCKER_CSRF_TOKEN}")
+
 # JSON body
-DOCKER_RESPONSE=$(curl -sf \
+DOCKER_RESPONSE=$(curl -q -sf \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data '{"content":"hello from docker test","language":"text"}' \
     "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (JSON): request failed"
 DOCKER_PASTE_ID=$(printf '%s' "${DOCKER_RESPONSE}" | grep -o -- '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -170,9 +213,10 @@ DOCKER_OWNER_TOKEN=$(printf '%s' "${DOCKER_RESPONSE}" | grep -o -- '"owner_token
 __pass "Create paste (JSON): id=${DOCKER_PASTE_ID}"
 
 # Raw body (curl pipe style)
-DOCKER_RAW_RESPONSE=$(curl -sf \
+DOCKER_RAW_RESPONSE=$(curl -q -sf \
     --header "Content-Type: text/plain" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data "raw paste from curl" \
     "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (raw): request failed"
 printf '%s' "${DOCKER_RAW_RESPONSE}" | grep -q -- '"id"' || \
@@ -183,8 +227,9 @@ __pass "Create paste (raw body)"
 # --no-location: report the initial response code, not a followed redirect's
 # (some environments set "location" in .curlrc, which would otherwise make
 # curl auto-follow the 303 and report the redirected page's 200 instead)
-DOCKER_FORM_CODE=$(curl -s -o /dev/null -w "%{http_code}" --no-location \
+DOCKER_FORM_CODE=$(curl -q -s -o /dev/null -w "%{http_code}" --no-location \
     --header "Content-Type: application/x-www-form-urlencoded" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data "content=form+paste+test" \
     "${DOCKER_BASE_URL}/pastes")
 [[ "${DOCKER_FORM_CODE}" =~ ^(201|303|302)$ ]] || \
@@ -192,9 +237,10 @@ DOCKER_FORM_CODE=$(curl -s -o /dev/null -w "%{http_code}" --no-location \
 __pass "Create paste (form): code=${DOCKER_FORM_CODE}"
 
 # With expiry
-DOCKER_EXP_RESPONSE=$(curl -sf \
+DOCKER_EXP_RESPONSE=$(curl -q -sf \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data '{"content":"expiring paste","expires_in":"1h"}' \
     "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (expiry): request failed"
 printf '%s' "${DOCKER_EXP_RESPONSE}" | grep -q -- '"expires_at"' || \
@@ -202,9 +248,10 @@ printf '%s' "${DOCKER_EXP_RESPONSE}" | grep -q -- '"expires_at"' || \
 __pass "Create paste (with expiry)"
 
 # With burn_after
-DOCKER_BURN_RESPONSE=$(curl -sf \
+DOCKER_BURN_RESPONSE=$(curl -q -sf \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data '{"content":"burn after 2","burn_after":2}' \
     "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (burn_after): request failed"
 printf '%s' "${DOCKER_BURN_RESPONSE}" | grep -q -- '"burn_after"' || \
@@ -212,9 +259,10 @@ printf '%s' "${DOCKER_BURN_RESPONSE}" | grep -q -- '"burn_after"' || \
 __pass "Create paste (burn_after=2)"
 
 # Unlisted
-DOCKER_UNLIST_RESPONSE=$(curl -sf \
+DOCKER_UNLIST_RESPONSE=$(curl -q -sf \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data '{"content":"unlisted paste","visibility":"unlisted"}' \
     "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (unlisted): request failed"
 printf '%s' "${DOCKER_UNLIST_RESPONSE}" | grep -q -- '"visibility"' || \
@@ -223,9 +271,10 @@ __pass "Create paste (unlisted)"
 
 # Link paste (is_link)
 DOCKER_LINK_TARGET="https://example.com/docker-test-target"
-DOCKER_LINK_RESPONSE=$(curl -sf \
+DOCKER_LINK_RESPONSE=$(curl -q -sf \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data "{\"content\":\"${DOCKER_LINK_TARGET}\",\"is_link\":true}" \
     "${DOCKER_BASE_URL}/api/v1/pastes") || __fail "Create paste (link): request failed"
 DOCKER_LINK_ID=$(printf '%s' "${DOCKER_LINK_RESPONSE}" | grep -o -- '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -238,9 +287,10 @@ __pass "Create paste (link): id=${DOCKER_LINK_ID}"
 # IDEA.md); content that isn't a bare http(s) URL simply becomes an ordinary
 # (non-link) paste rather than being rejected — the client-supplied
 # "is_link":true flag here is ignored.
-DOCKER_LINK_NONHTTP_RESPONSE=$(curl -sf \
+DOCKER_LINK_NONHTTP_RESPONSE=$(curl -q -sf \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data '{"content":"javascript:alert(1)","is_link":true}' \
     "${DOCKER_BASE_URL}/api/v1/pastes") || \
     __fail "Create paste (link, non-http scheme): request failed"
@@ -248,7 +298,7 @@ printf '%s' "${DOCKER_LINK_NONHTTP_RESPONSE}" | grep -q -- '"is_link": *false' |
     __fail "Create paste (link, non-http scheme): expected is_link:false in: ${DOCKER_LINK_NONHTTP_RESPONSE}"
 __pass "Create paste (link, non-http scheme ignored, stored as ordinary paste)"
 
-DOCKER_LINK_LOCATION=$(curl -s -D - -o /dev/null --no-location "${DOCKER_BASE_URL}/${DOCKER_LINK_ID}" | \
+DOCKER_LINK_LOCATION=$(curl -q -s -D - -o /dev/null --no-location "${DOCKER_BASE_URL}/${DOCKER_LINK_ID}" | \
     tr -d '\r' | awk '/^[Ll]ocation:/ {print $2}')
 [[ "${DOCKER_LINK_LOCATION}" == "${DOCKER_LINK_TARGET}" ]] || \
     __fail "Link paste view: expected Location ${DOCKER_LINK_TARGET}, got ${DOCKER_LINK_LOCATION}"
@@ -257,7 +307,7 @@ DOCKER_LINK_LOCATION=$(curl -s -D - -o /dev/null --no-location "${DOCKER_BASE_UR
 __check_status "Link paste view → 302" GET "${DOCKER_BASE_URL}/${DOCKER_LINK_ID}" 302 --no-location
 __pass "Link paste view redirects to target"
 
-DOCKER_LINK_RAW=$(curl -sf "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_LINK_ID}/raw") || \
+DOCKER_LINK_RAW=$(curl -q -sf "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_LINK_ID}/raw") || \
     __fail "Link paste raw: request failed"
 [[ "${DOCKER_LINK_RAW}" == "${DOCKER_LINK_TARGET}" ]] || \
     __fail "Link paste raw: expected ${DOCKER_LINK_TARGET}, got ${DOCKER_LINK_RAW}"
@@ -265,7 +315,7 @@ __pass "Link paste raw returns target URL without redirecting"
 
 # ── Retrieve paste ───────────────────────────────────────────────────────────
 __info "--- Paste retrieval ---"
-DOCKER_GET=$(curl -sf \
+DOCKER_GET=$(curl -q -sf \
     --header "Accept: application/json" \
     "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}") || __fail "Get paste: request failed"
 printf '%s' "${DOCKER_GET}" | grep -q -- "hello from docker test" || \
@@ -273,13 +323,13 @@ printf '%s' "${DOCKER_GET}" | grep -q -- "hello from docker test" || \
 __pass "Get paste (JSON)"
 
 # Raw text
-DOCKER_RAW=$(curl -sf "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}/raw") || __fail "Get raw paste: request failed"
+DOCKER_RAW=$(curl -q -sf "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}/raw") || __fail "Get raw paste: request failed"
 [[ "${DOCKER_RAW}" == "hello from docker test" ]] || \
     __fail "Get raw paste: unexpected content: ${DOCKER_RAW}"
 __pass "Get raw paste"
 
 # List pastes
-DOCKER_LIST=$(curl -sf --header "Accept: application/json" "${DOCKER_BASE_URL}/api/v1/pastes") || \
+DOCKER_LIST=$(curl -q -sf --header "Accept: application/json" "${DOCKER_BASE_URL}/api/v1/pastes") || \
     __fail "List pastes: request failed"
 printf '%s' "${DOCKER_LIST}" | grep -q -- "${DOCKER_PASTE_ID}" || \
     __fail "List pastes: paste ID not found"
@@ -293,13 +343,14 @@ __check_status "Delete with wrong token → 404" DELETE \
     "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}" 404 \
     --header "Authorization: Bearer tok_wrongwrongwrongwrongwrongwrongwx"
 
-# No token → 401
-__check_status "Delete with no token → 401" DELETE \
-    "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}" 401
+# No owner token → 401
+__check_status "Delete with no owner token → 401" DELETE \
+    "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}" 401 \
+    "${DOCKER_CSRF_ARGS[@]}"
 
 # Correct owner token → 200
 if [[ -n "${DOCKER_OWNER_TOKEN}" ]]; then
-    DOCKER_DEL=$(curl -sf \
+    DOCKER_DEL=$(curl -q -sf \
         --request DELETE \
         --header "Authorization: Bearer ${DOCKER_OWNER_TOKEN}" \
         "${DOCKER_BASE_URL}/api/v1/pastes/${DOCKER_PASTE_ID}") || __fail "Delete paste: request failed"
@@ -316,6 +367,7 @@ fi
 __info "--- Error cases ---"
 __check_status "Get nonexistent paste → 404" GET "${DOCKER_BASE_URL}/api/v1/pastes/notexist" 404
 __check_status "Empty content → 400" POST "${DOCKER_BASE_URL}/api/v1/pastes" 400 \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --header "Content-Type: application/json" \
     --header "Accept: application/json" \
     --data '{"content":""}'
@@ -323,7 +375,8 @@ __check_status "Empty content → 400" POST "${DOCKER_BASE_URL}/api/v1/pastes" 4
 # ── Compat APIs ───────────────────────────────────────────────────────────────
 __info "--- Compat API endpoints ---"
 # pastebin.com compat
-DOCKER_COMPAT_RESPONSE=$(curl -sf \
+DOCKER_COMPAT_RESPONSE=$(curl -q -sf \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data "api_paste_code=compat+test&api_paste_private=0" \
     "${DOCKER_BASE_URL}/api/api_post.php") || __fail "pastebin.com compat POST: request failed"
 printf '%s' "${DOCKER_COMPAT_RESPONSE}" | grep -qi -- "http\|paste\|error" || \
@@ -331,12 +384,14 @@ printf '%s' "${DOCKER_COMPAT_RESPONSE}" | grep -qi -- "http\|paste\|error" || \
 __pass "pastebin.com compat POST /api/api_post.php"
 
 __check_status "pastebin.com login stub → 200" POST "${DOCKER_BASE_URL}/api/api_login.php" 200 \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data "api_dev_key=x&api_user_name=x&api_user_password=x"
 
 # lenpaste compat — wire protocol is form-encoded (netshare.PasteAddFromForm
 # in forksmgr/lcomrade-lenpaste reads req.PostForm, not a JSON body); the
 # content field is "body", not "text"
 __check_status "lenpaste /api/new → 200/201" POST "${DOCKER_BASE_URL}/api/new" 200 \
+    "${DOCKER_CSRF_ARGS[@]}" \
     --data "body=lenpaste+compat+test"
 
 __check_status "lenpaste /api/v1/getServerInfo → 200" GET "${DOCKER_BASE_URL}/api/v1/getServerInfo" 200
@@ -358,7 +413,7 @@ __check_status "GET /.well-known/security.txt → 200" GET "${DOCKER_BASE_URL}/.
 
 # ── Security headers ─────────────────────────────────────────────────────────
 __info "--- Security headers ---"
-DOCKER_HEADERS=$(curl -sI "${DOCKER_BASE_URL}/" | tr '[:upper:]' '[:lower:]')
+DOCKER_HEADERS=$(curl -q -sI "${DOCKER_BASE_URL}/" | tr '[:upper:]' '[:lower:]')
 printf '%s' "${DOCKER_HEADERS}" | grep -q -- "x-content-type-options" || \
     __fail "Missing X-Content-Type-Options header"
 __pass "X-Content-Type-Options present"
@@ -395,6 +450,7 @@ __tormig_wait_hostname() {
 docker volume create "${DOCKER_TORMIG_VOLUME}" >/dev/null
 docker run -d --name "${DOCKER_TORMIG_NAME}" \
     -e MODE=dev -e DEBUG=1 \
+    -v "${DOCKER_TEMP_DIR}/tormig-config:/config:z" \
     -v "${DOCKER_TORMIG_VOLUME}:/data" \
     "${DOCKER_IMAGE_NAME}" >/dev/null
 
@@ -408,14 +464,12 @@ if __tormig_wait_hostname 200; then
         __fail "Fresh key file is ${DOCKER_TORMIG_KEYSIZE_1} bytes, expected 96 (native format)"
     fi
 
-    docker rm -f "${DOCKER_TORMIG_NAME}" >/dev/null 2>&1
-
     # Synthesize a pre-migration legacy key: strip the 32-byte native header
     # ("== ed25519v1-secret: type0 ==\0\0") off the 96-byte native key,
     # leaving the same 64-byte expanded key the old saveKey() wrote raw.
     # Remove the derived hostname/public-key so only the legacy secret
     # key remains for the app to discover and migrate on next startup.
-    docker run --rm --entrypoint sh -v "${DOCKER_TORMIG_VOLUME}:/data" "${DOCKER_IMAGE_NAME}" -c '
+    docker exec --user pastebin "${DOCKER_TORMIG_NAME}" sh -c '
         set -e
         cd /data/pastebin/tor/site
         tail -c 64 hs_ed25519_secret_key > hs_ed25519_secret_key.legacy
@@ -423,9 +477,11 @@ if __tormig_wait_hostname 200; then
         chmod 600 hs_ed25519_secret_key
         rm -f hostname hs_ed25519_public_key
     '
+    docker rm -f "${DOCKER_TORMIG_NAME}" >/dev/null 2>&1
 
     docker run -d --name "${DOCKER_TORMIG_NAME}" \
         -e MODE=dev -e DEBUG=1 \
+        -v "${DOCKER_TEMP_DIR}/tormig-config:/config:z" \
         -v "${DOCKER_TORMIG_VOLUME}:/data" \
         "${DOCKER_IMAGE_NAME}" >/dev/null
 

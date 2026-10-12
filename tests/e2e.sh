@@ -31,7 +31,7 @@ E2E_PROJECT_NAME="pastebin"
 E2E_IMAGE_NAME="${E2E_PROJECT_NAME}:e2e-$$"
 E2E_COMPOSE_PROJECT="${E2E_PROJECT_NAME}-e2e-$$"
 E2E_CONTAINER_NAME="${E2E_PROJECT_NAME}-test"
-E2E_PORT="64582"
+E2E_PORT="80"
 E2E_BASE_URL="http://pastebin:${E2E_PORT}"
 E2E_BROWSER_URL="http://pastebin-e2e-browser:9222"
 E2E_SERVER_IP=""
@@ -100,13 +100,16 @@ __info "Temp dir: ${E2E_TEMP_DIR}"
 
 # ── Build local image ───────────────────────────────────────────────────────
 __info "Building local image ${E2E_IMAGE_NAME}..."
-docker build -f "${E2E_PROJECT_DIR}/docker/Dockerfile" -t "${E2E_IMAGE_NAME}" "${E2E_PROJECT_DIR}"
+docker build --build-arg BUILD_TAGS=e2e -f "${E2E_PROJECT_DIR}/docker/Dockerfile" -t "${E2E_IMAGE_NAME}" "${E2E_PROJECT_DIR}"
 
 # ── Bring up the stack from the mandated test compose file ────────────────
 cp -- "${E2E_PROJECT_DIR}/docker/docker-compose.test.yml" "${E2E_TEMP_DIR}/docker-compose.yml"
 sed -i.bak \
     -e "s|image: .*${E2E_PROJECT_NAME}.*|image: ${E2E_IMAGE_NAME}|" \
     -e 's|pull_policy: always|pull_policy: missing|' \
+    -e '/^  pastebin-test:$/,/^    external: false$/ { /^    external: false$/a\
+    internal: true
+    }' \
     "${E2E_TEMP_DIR}/docker-compose.yml" 2>/dev/null || true
 \rm -f -- "${E2E_TEMP_DIR}/docker-compose.yml.bak"
 

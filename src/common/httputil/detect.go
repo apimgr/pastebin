@@ -125,6 +125,9 @@ func GetAPIResponseFormat(r *http.Request) string {
 	if strings.Contains(accept, "text/plain") {
 		return "text"
 	}
+	if strings.Contains(accept, "application/json") {
+		return "json"
+	}
 
 	// Non-interactive clients (curl, wget, empty UA) get plain text.
 	if IsNonInteractiveClient(r) {

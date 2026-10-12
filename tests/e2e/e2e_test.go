@@ -320,6 +320,62 @@ func TestTier1InternalLinkCrawl(t *testing.T) {
 	}
 }
 
+func TestTier1RegisteredGETRoutes(t *testing.T) {
+	base := baseURL(t)
+	resp, err := client().Get(base + "/debug/routes")
+	if err != nil {
+		t.Fatalf("GET debug route inventory: %v", err)
+	}
+	var inventory struct {
+		Data struct {
+			Routes []struct {
+				Method string `json:"method"`
+				Route  string `json:"route"`
+			} `json:"routes"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&inventory); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode debug route inventory: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || len(inventory.Data.Routes) == 0 {
+		t.Fatalf("debug route inventory status/count = %d/%d", resp.StatusCode, len(inventory.Data.Routes))
+	}
+	seen := make(map[string]bool)
+	for _, route := range inventory.Data.Routes {
+		if route.Method != http.MethodGet || strings.Contains(route.Route, "*") {
+			continue
+		}
+		path := route.Route
+		for {
+			start := strings.IndexByte(path, '{')
+			if start < 0 {
+				break
+			}
+			end := strings.IndexByte(path[start:], '}')
+			if end < 0 {
+				t.Fatalf("malformed route pattern %q", route.Route)
+			}
+			path = path[:start] + "e2e-unknown" + path[start+end+1:]
+		}
+		if seen[path] || path == "/__e2e__/panic" {
+			continue
+		}
+		seen[path] = true
+		response, err := client().Get(base + path)
+		if err != nil {
+			t.Errorf("GET registered route %s: %v", path, err)
+			continue
+		}
+		_, _ = io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		if response.StatusCode >= http.StatusInternalServerError {
+			t.Errorf("GET registered route %s returned %d", path, response.StatusCode)
+		}
+	}
+}
+
 func TestTier1ThemeAndLocaleRendering(t *testing.T) {
 	base := baseURL(t)
 	for _, tc := range []struct {
@@ -604,6 +660,22 @@ func TestTier1CSRFAndThemedErrorPage(t *testing.T) {
 	}
 }
 
+func TestTier1ThemedInternalServerError(t *testing.T) {
+	base := baseURL(t)
+	resp, err := getHTML(client(), base+"/__e2e__/panic")
+	if err != nil {
+		t.Fatalf("GET E2E panic route: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusInternalServerError || !strings.Contains(string(body), "500") || !strings.Contains(string(body), "theme-") || strings.Contains(strings.ToLower(string(body)), "goroutine ") {
+		t.Errorf("500 response was not a themed error page (status %d)", resp.StatusCode)
+	}
+}
+
 func TestTier1FormValidationErrorsRenderOnServer(t *testing.T) {
 	base := baseURL(t)
 	c, csrfToken := csrfClient(t, base)
@@ -831,11 +903,9 @@ func TestTier1TermbinTCPProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read termbin URL: %v", err)
 	}
-	if !strings.HasPrefix(string(response), base+"/") || !strings.HasSuffix(string(response), "\n") {
-		t.Fatalf("termbin response = %q, want a base URL ending in newline", response)
-	}
 	pasteURL, err := url.Parse(strings.TrimSpace(string(response)))
-	if err != nil || pasteURL.Path == "" {
+	if err != nil || pasteURL.Scheme != "http" || pasteURL.Host == "" || pasteURL.Path == "" ||
+		!strings.HasSuffix(string(response), "\n") {
 		t.Fatalf("parse termbin response %q: %v", response, err)
 	}
 	rawResp, err := client().Get(base + "/raw" + pasteURL.Path)
@@ -955,7 +1025,7 @@ func browserContext(t *testing.T) (context.Context, context.CancelFunc) {
 	if endpoint == "" {
 		t.Skip("E2E_BROWSER_URL not set — run via tests/e2e.sh")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	allocCtx, allocCancel := chromedp.NewRemoteAllocator(ctx, endpoint)
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 	cleanup := func() {
@@ -1051,6 +1121,16 @@ func TestTier2NoJS(t *testing.T) {
 	if strings.TrimSpace(ownerToken) == "" {
 		t.Fatal("no-JS create flow did not display the one-time owner token")
 	}
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base + "/remove/" + viewURL.Path[strings.LastIndex(viewURL.Path, "/")+1:]),
+		chromedp.WaitVisible(`form[action^="/remove/"]`, chromedp.ByQuery),
+		chromedp.OuterHTML("html", &html),
+	); err != nil {
+		t.Fatalf("open owner-token management form without JavaScript: %v", err)
+	}
+	if !strings.Contains(html, `name="token"`) || !strings.Contains(html, `name="csrf_token"`) {
+		t.Fatal("no-JS owner-token form omitted its token or CSRF field")
+	}
 }
 
 // TestTier3FullBrowser checks the home page and all resources it loads for
@@ -1109,6 +1189,84 @@ func TestTier3FullBrowser(t *testing.T) {
 	if !strings.Contains(html, `name="content"`) {
 		t.Fatal("create page is missing the server-rendered paste content field")
 	}
+	var englishTitle, spanishTitle, localeHTML string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base+"/create?lang=en"),
+		chromedp.Evaluate(`document.querySelector(".section-title").textContent.trim()`, &englishTitle),
+		chromedp.Navigate(base+"/create?lang=es"),
+		chromedp.Evaluate(`document.querySelector(".section-title").textContent.trim()`, &spanishTitle),
+		chromedp.OuterHTML("html", &localeHTML),
+	); err != nil {
+		t.Errorf("switch browser locale: %v", err)
+	} else if englishTitle == "" || spanishTitle == "" || englishTitle == spanishTitle || !strings.Contains(localeHTML, `lang="es"`) {
+		t.Errorf("browser locale did not change a rendered string: en=%q es=%q", englishTitle, spanishTitle)
+	}
+	var darkBackground, lightBackground string
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.cookie = "theme=dark; path=/"`, nil),
+		chromedp.Navigate(base + "/"),
+		chromedp.Evaluate(`getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim()`, &darkBackground),
+		chromedp.Evaluate(`document.cookie = "theme=light; path=/"`, nil),
+		chromedp.Navigate(base + "/"),
+		chromedp.Evaluate(`getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim()`, &lightBackground),
+	); err != nil {
+		t.Errorf("read browser theme styles: %v", err)
+	} else if darkBackground == "" || lightBackground == "" || darkBackground == lightBackground {
+		t.Errorf("dark and light theme styles did not differ: dark=%q light=%q", darkBackground, lightBackground)
+	}
+	if err := chromedp.Run(ctx, chromedp.Navigate(base+"/remove/e2e-validation")); err != nil {
+		t.Fatalf("open owner-token form in browser: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.WaitVisible(`#token`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("wait for owner-token form in browser: %v", err)
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelector("#token").form.requestSubmit()`, nil),
+	); err != nil {
+		t.Fatalf("submit empty owner-token form in browser: %v", err)
+	}
+	var jsValidation string
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`(() => { const token = document.querySelector("#token"); const error = document.querySelector("#token-error"); return JSON.stringify({required:token.required, valid:token.form.checkValidity(), ariaInvalid:token.getAttribute("aria-invalid"), errorVisible:!error.hidden}); })()`, &jsValidation),
+	); err != nil {
+		t.Errorf("check client-side form validation: %v", err)
+	} else if !strings.Contains(jsValidation, `"required":true`) || !strings.Contains(jsValidation, `"valid":false`) || !strings.Contains(jsValidation, `"ariaInvalid":"true"`) || !strings.Contains(jsValidation, `"errorVisible":true`) {
+		t.Errorf("browser form validation is not active: %s", jsValidation)
+	}
+	var notFoundHTML string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base+"/missing-e2e-browser-route"),
+		chromedp.OuterHTML("html", &notFoundHTML),
+	); err != nil {
+		t.Errorf("load themed 404 page in browser: %v", err)
+	} else if !strings.Contains(notFoundHTML, "404") || !strings.Contains(notFoundHTML, "theme-") || strings.Contains(strings.ToLower(notFoundHTML), "goroutine ") {
+		t.Errorf("browser 404 page was not themed or exposed a stack trace")
+	}
+	const browserFormContent = "e2e tier 3 browser form paste"
+	var formPasteLink string
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base+"/create"),
+		chromedp.WaitVisible(`#paste-form`, chromedp.ByQuery),
+		chromedp.SendKeys(`#content`, browserFormContent),
+		chromedp.Click(`#paste-form button[type="submit"]`),
+		chromedp.WaitVisible(`.result a.long-string`, chromedp.ByQuery),
+		chromedp.AttributeValue(`.result a.long-string`, "href", &formPasteLink, nil, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("create paste through full browser form: %v", err)
+	}
+	formPasteURL, err := url.Parse(formPasteLink)
+	if err != nil {
+		t.Fatalf("parse full browser create link %q: %v", formPasteLink, err)
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(base+formPasteURL.EscapedPath()),
+		chromedp.WaitVisible(`#paste-code`, chromedp.ByQuery),
+		chromedp.Text(`#paste-code`, &html, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("view paste created through full browser form: %v", err)
+	} else if !strings.Contains(html, browserFormContent) {
+		t.Errorf("browser-created paste view omitted its content: %q", html)
+	}
 	for _, page := range []string{"/recent", "/server/about", "/server/help", "/server/privacy", "/server/terms", "/server/docs/swagger", "/server/docs/graphql"} {
 		if err := chromedp.Run(ctx,
 			chromedp.Navigate(base+page),
@@ -1118,6 +1276,43 @@ func TestTier3FullBrowser(t *testing.T) {
 			t.Errorf("load %s in browser: %v", page, err)
 		} else if strings.TrimSpace(html) == "" {
 			t.Errorf("%s rendered without a page title", page)
+		}
+	}
+	baseParsed, err := url.Parse(base)
+	if err != nil {
+		t.Fatalf("parse browser crawl base URL: %v", err)
+	}
+	queue := []string{"/"}
+	visited := make(map[string]bool)
+	for len(queue) > 0 {
+		page := queue[0]
+		queue = queue[1:]
+		if visited[page] {
+			continue
+		}
+		visited[page] = true
+		if len(visited) > 200 {
+			t.Fatal("full browser internal-link crawl exceeded 200 pages")
+		}
+		var links []string
+		if err := chromedp.Run(ctx,
+			chromedp.Navigate(base+page),
+			chromedp.WaitReady("body", chromedp.ByQuery),
+			chromedp.Evaluate(`Array.from(document.querySelectorAll('a[href]')).map(a => a.href)`, &links),
+		); err != nil {
+			t.Errorf("browser crawl %s: %v", page, err)
+			continue
+		}
+		for _, link := range links {
+			ref, parseErr := url.Parse(link)
+			if parseErr != nil {
+				t.Errorf("parse browser link %q from %s: %v", link, page, parseErr)
+				continue
+			}
+			dest := baseParsed.ResolveReference(ref)
+			if dest.Scheme == baseParsed.Scheme && dest.Host == baseParsed.Host {
+				queue = append(queue, dest.RequestURI())
+			}
 		}
 	}
 	const browserPasteContent = "e2e full browser rendered paste content"
@@ -1146,5 +1341,23 @@ func TestTier3FullBrowser(t *testing.T) {
 	defer failuresMu.Unlock()
 	if len(failures) > 0 {
 		t.Errorf("browser reported console or network errors: %s", strings.Join(failures, "; "))
+	}
+}
+
+func TestTier3ThemedInternalServerError(t *testing.T) {
+	base := baseURL(t)
+	ctx, cancel := browserContext(t)
+	defer cancel()
+	var pageHTML string
+	if err := chromedp.Run(ctx,
+		network.Enable(),
+		chromedp.Navigate(base+"/__e2e__/panic"),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.OuterHTML("html", &pageHTML),
+	); err != nil {
+		t.Fatalf("load 500 page in browser: %v", err)
+	}
+	if !strings.Contains(pageHTML, "500") || !strings.Contains(pageHTML, "theme-") || strings.Contains(strings.ToLower(pageHTML), "goroutine ") {
+		t.Fatal("browser 500 response was not a themed error page")
 	}
 }

@@ -20,6 +20,8 @@ INCUS_IMAGE="images:debian/trixie"
 INCUS_KEEP=false
 INCUS_PORT="80"
 INCUS_ERRORS=0
+INCUS_TEMP_DIR=""
+INCUS_BUILD_DIR=""
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 __pass() { printf "[PASS] %s\n" "$*"; }
@@ -58,6 +60,9 @@ __cleanup() {
     else
         __info "Keeping container ${INCUS_CONTAINER_NAME} (--keep flag set)"
     fi
+    if [[ -n "${INCUS_TEMP_DIR}" && -d "${INCUS_TEMP_DIR}" ]]; then
+        rm -rf -- "${INCUS_TEMP_DIR}"
+    fi
 }
 trap __cleanup EXIT
 
@@ -72,13 +77,17 @@ done
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 command -v incus >/dev/null 2>&1 || { echo "ERROR: incus not found. Install incus or use tests/docker.sh" >&2; exit 1; }
 
-# ── Build — always via `make build` (output always lands in binaries/) ───────
+# ── Build in an isolated temporary directory ────────────────────────────────
 cd "${INCUS_PROJECT_DIR}"
 [[ -f "Makefile" ]] || { echo "ERROR: Makefile not found in ${INCUS_PROJECT_DIR}" >&2; exit 1; }
-__info "Building with make build..."
-make build
-[[ -f "binaries/${INCUS_PROJECT_NAME}" ]] || { echo "ERROR: binary not found after build" >&2; exit 1; }
-__pass "Binaries built in binaries/"
+mkdir -p "${TMPDIR:-/tmp}/${INCUS_PROJECT_ORG}"
+INCUS_TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${INCUS_PROJECT_ORG}/${INCUS_PROJECT_NAME}-XXXXXX")"
+__info "Building with make dev in an isolated temporary workspace..."
+TMPDIR="${INCUS_TEMP_DIR}" make dev
+INCUS_BUILD_DIR="$(find "${INCUS_TEMP_DIR}/${INCUS_PROJECT_ORG}" -mindepth 1 -maxdepth 1 -type d -name "${INCUS_PROJECT_NAME}-*" -print -quit)"
+[[ -d "${INCUS_BUILD_DIR}" ]] || { echo "ERROR: temporary build directory not found" >&2; exit 1; }
+[[ -f "${INCUS_BUILD_DIR}/${INCUS_PROJECT_NAME}" ]] || { echo "ERROR: binary not found after build" >&2; exit 1; }
+__pass "Binaries built in temporary workspace"
 
 # ── Launch container ─────────────────────────────────────────────────────────
 __info "Launching Incus container (Debian + systemd) ${INCUS_CONTAINER_NAME}"
@@ -97,16 +106,34 @@ __pass "Container booted"
 
 # ── Copy binaries to container ────────────────────────────────────────────────
 __info "Copying binaries to container..."
-incus file push "binaries/${INCUS_PROJECT_NAME}" "${INCUS_CONTAINER_NAME}/usr/local/bin/"
+incus file push "${INCUS_BUILD_DIR}/${INCUS_PROJECT_NAME}" "${INCUS_CONTAINER_NAME}/usr/local/bin/"
 __vm "chmod +x /usr/local/bin/${INCUS_PROJECT_NAME}"
 
-if [[ -f "binaries/${INCUS_PROJECT_NAME}-cli" ]]; then
-    incus file push "binaries/${INCUS_PROJECT_NAME}-cli" "${INCUS_CONTAINER_NAME}/usr/local/bin/"
+if [[ -f "${INCUS_BUILD_DIR}/${INCUS_PROJECT_NAME}-cli" ]]; then
+    incus file push "${INCUS_BUILD_DIR}/${INCUS_PROJECT_NAME}-cli" "${INCUS_CONTAINER_NAME}/usr/local/bin/"
     __vm "chmod +x /usr/local/bin/${INCUS_PROJECT_NAME}-cli"
 fi
 
-# Ensure curl is available for testing
-__vm "command -v curl >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq curl)" >/dev/null 2>&1
+__info "Preparing isolated service configuration..."
+INCUS_CONFIG_DIR="${INCUS_TEMP_DIR}/config"
+mkdir -p "${INCUS_CONFIG_DIR}"
+cat >"${INCUS_CONFIG_DIR}/server.yml" <<'EOF'
+server:
+  port: "80"
+  address: 0.0.0.0
+  geoip:
+    enabled: false
+  notifications:
+    email:
+      enabled: false
+      smtp:
+        host: localhost
+EOF
+__vm "mkdir -p /etc/${INCUS_PROJECT_ORG}/${INCUS_PROJECT_NAME}"
+incus file push "${INCUS_CONFIG_DIR}/server.yml" "${INCUS_CONTAINER_NAME}/etc/${INCUS_PROJECT_ORG}/${INCUS_PROJECT_NAME}/server.yml"
+
+# Ensure curl and binary inspection tools are available for testing
+__vm "command -v curl >/dev/null 2>&1 && command -v file >/dev/null 2>&1 && command -v useradd >/dev/null 2>&1 && command -v groupadd >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq curl file passwd)" >/dev/null 2>&1
 
 # ── Version / help / binary info ──────────────────────────────────────────────
 __vm "${INCUS_PROJECT_NAME} --version" >/dev/null || __fail "Binary failed to run --version"
@@ -125,10 +152,11 @@ __pass "--service --install"
 __vm "systemctl start ${INCUS_PROJECT_NAME}" || __fail "systemctl start failed"
 sleep 3
 # inside container — not a host-service mutation
-__vm "systemctl is-active ${INCUS_PROJECT_NAME}" | grep -q -- "^active$" || \
+if __vm "systemctl is-active ${INCUS_PROJECT_NAME}" | grep -q -- "^active$"; then
+    __pass "Service is active"
+else
     __fail "Service is not active after start"
-__pass "Service is active"
-
+fi
 INCUS_BASE="http://localhost:${INCUS_PORT}"
 
 # ── Health endpoints ──────────────────────────────────────────────────────────
@@ -136,6 +164,19 @@ __check_status "GET /server/healthz"        GET "${INCUS_BASE}/server/healthz"  
 __check_status "GET /api/v1/server/healthz" GET "${INCUS_BASE}/api/v1/server/healthz" 200
 __check_body "healthz has version field" "${INCUS_BASE}/api/v1/server/healthz" "version"
 __check_body "healthz has status field"  "${INCUS_BASE}/api/v1/server/healthz" "ok\|status\|healthy"
+
+INCUS_SERVICE_PID=$(__vm "systemctl show -p MainPID --value ${INCUS_PROJECT_NAME}")
+INCUS_SERVICE_USER=$(__vm "ps -o user= -p ${INCUS_SERVICE_PID}" | xargs)
+if [[ "${INCUS_SERVICE_USER}" == "${INCUS_PROJECT_NAME}" ]]; then
+    __pass "Service runs as the dedicated ${INCUS_PROJECT_NAME} account"
+else
+    __fail "Service runs as ${INCUS_SERVICE_USER:-unknown}, expected ${INCUS_PROJECT_NAME}"
+fi
+
+# Mutating requests use the same double-submit token as browser forms.
+INCUS_CSRF_TOKEN=$(__vm "curl -sS -D - -o /dev/null '${INCUS_BASE}/create' | sed -n 's/^Set-Cookie: csrf_token=\\([^;]*\\).*/\\1/ip' | head -1")
+[[ -n "${INCUS_CSRF_TOKEN}" ]] || __fail "Could not obtain CSRF token from /create"
+INCUS_CSRF_ARGS="--cookie csrf_token=${INCUS_CSRF_TOKEN} --header 'X-CSRF-Token: ${INCUS_CSRF_TOKEN}'"
 
 # ── Content negotiation: frontend routes ─────────────────────────────────────
 __info "--- Content negotiation: frontend routes ---"
@@ -155,9 +196,9 @@ __check_status "GET /api/v1/pastes.txt -> 200" GET "${INCUS_BASE}/api/v1/pastes.
 
 # ── Create / retrieve / delete paste ──────────────────────────────────────────
 __info "--- Paste creation ---"
-INCUS_CREATE_DATA='{\"content\":\"hello from incus test\",\"language\":\"text\"}'
+INCUS_CREATE_DATA='{"content":"hello from incus test","language":"text"}'
 INCUS_RESPONSE=$(__vm "curl -sf --header 'Content-Type: application/json' \
-    --header 'Accept: application/json' --data '${INCUS_CREATE_DATA}' \
+    --header 'Accept: application/json' ${INCUS_CSRF_ARGS} --data '${INCUS_CREATE_DATA}' \
     ${INCUS_BASE}/api/v1/pastes")
 INCUS_PASTE_ID=$(printf '%s' "${INCUS_RESPONSE}" | grep -o -- '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
 INCUS_OWNER_TOKEN=$(printf '%s' "${INCUS_RESPONSE}" | grep -o -- '"owner_token": *"[^"]*"' | cut -d'"' -f4)
@@ -175,9 +216,9 @@ __pass "Get raw paste"
 
 __info "--- Link paste (is_link) ---"
 INCUS_LINK_TARGET="https://example.com/incus-test-target"
-INCUS_LINK_DATA="{\\\"content\\\":\\\"${INCUS_LINK_TARGET}\\\",\\\"is_link\\\":true}"
+printf -v INCUS_LINK_DATA '{"content":"%s","is_link":true}' "${INCUS_LINK_TARGET}"
 INCUS_LINK_RESPONSE=$(__vm "curl -sf --header 'Content-Type: application/json' \
-    --header 'Accept: application/json' --data '${INCUS_LINK_DATA}' \
+    --header 'Accept: application/json' ${INCUS_CSRF_ARGS} --data '${INCUS_LINK_DATA}' \
     ${INCUS_BASE}/api/v1/pastes")
 INCUS_LINK_ID=$(printf '%s' "${INCUS_LINK_RESPONSE}" | grep -o -- '"id": *"[^"]*"' | head -1 | cut -d'"' -f4)
 [[ -n "${INCUS_LINK_ID}" ]] || __fail "Create paste (link) failed: ${INCUS_LINK_RESPONSE}"
@@ -197,7 +238,8 @@ INCUS_LINK_RAW=$(__vm "curl -sf ${INCUS_BASE}/api/v1/pastes/${INCUS_LINK_ID}/raw
 __pass "Link paste raw returns target URL without redirecting"
 
 __info "--- Paste deletion ---"
-__check_status "Delete with no token -> 401" DELETE "${INCUS_BASE}/api/v1/pastes/${INCUS_PASTE_ID}" 401
+__check_status "Delete with invalid token -> 404" DELETE "${INCUS_BASE}/api/v1/pastes/${INCUS_PASTE_ID}" 404 \
+    "--header 'Authorization: Bearer invalid'"
 if [[ -n "${INCUS_OWNER_TOKEN}" ]]; then
     INCUS_DEL=$(__vm "curl -sf --request DELETE --header 'Authorization: Bearer ${INCUS_OWNER_TOKEN}' ${INCUS_BASE}/api/v1/pastes/${INCUS_PASTE_ID}")
     printf '%s' "${INCUS_DEL}" | grep -qi -- '"ok".*true\|deleted' || __fail "Delete paste: unexpected response: ${INCUS_DEL}"
@@ -207,13 +249,13 @@ fi
 
 # ── Compat APIs ────────────────────────────────────────────────────────────────
 __info "--- Compat API endpoints ---"
-INCUS_COMPAT_RESPONSE=$(__vm "curl -sf --data 'api_paste_code=compat+test&api_paste_private=0' ${INCUS_BASE}/api/api_post.php")
+INCUS_COMPAT_RESPONSE=$(__vm "curl -sf ${INCUS_CSRF_ARGS} --data 'api_paste_code=compat+test&api_paste_private=0' ${INCUS_BASE}/api/api_post.php")
 printf '%s' "${INCUS_COMPAT_RESPONSE}" | grep -qi -- "http\|paste\|error" || \
     __fail "pastebin.com compat POST: unexpected response: ${INCUS_COMPAT_RESPONSE}"
 __pass "pastebin.com compat POST /api/api_post.php"
 
-__check_status "lenpaste /api/new -> 200/201" POST "${INCUS_BASE}/api/new" 200 \
-    "--header 'Content-Type: application/json' --data '{\"text\":\"lenpaste compat test\"}'"
+__check_status "lenpaste /api/new -> 200" POST "${INCUS_BASE}/api/new" 200 \
+	"${INCUS_CSRF_ARGS} --data 'body=lenpaste+compat+test'"
 __check_status "lenpaste /api/v1/getServerInfo -> 200" GET "${INCUS_BASE}/api/v1/getServerInfo" 200
 
 # ── Swagger / GraphQL endpoints ───────────────────────────────────────────────
@@ -227,7 +269,7 @@ __check_status "GET /server/docs/graphql -> 200"   GET "${INCUS_BASE}/server/doc
 # ── Static / SEO endpoints ────────────────────────────────────────────────────
 __info "--- Static endpoints ---"
 __check_status "GET /robots.txt -> 200"   GET "${INCUS_BASE}/robots.txt"   200
-__check_status "GET /security.txt -> 200" GET "${INCUS_BASE}/security.txt" 200
+__check_status "GET /.well-known/security.txt -> 200" GET "${INCUS_BASE}/.well-known/security.txt" 200
 
 # ── Binary rename tests ───────────────────────────────────────────────────────
 __info "--- Binary rename tests ---"
@@ -252,9 +294,11 @@ if __vm "test -f /usr/local/bin/${INCUS_PROJECT_NAME}-cli" 2>/dev/null; then
         __fail "CLI --help does not show renamed binary name"
     fi
 
-    __vm "${INCUS_PROJECT_NAME}-cli --server ${INCUS_BASE} status" >/dev/null || \
-        __fail "CLI status (no token) failed"
-    __pass "CLI status against running server"
+    if __vm "${INCUS_PROJECT_NAME}-cli --server ${INCUS_BASE} status" >/dev/null 2>&1; then
+        __fail "CLI status without an API token unexpectedly succeeded"
+    else
+        __pass "CLI status rejects missing API token"
+    fi
 else
     __info "client not installed - skipping"
 fi
@@ -263,11 +307,14 @@ fi
 # inside container — not a host-service mutation
 __vm "systemctl stop ${INCUS_PROJECT_NAME}" || __fail "systemctl stop failed"
 sleep 2
-__vm "systemctl is-active ${INCUS_PROJECT_NAME}" | grep -qv -- "^active$" || \
+INCUS_SERVICE_STATE=$(__vm "systemctl is-active ${INCUS_PROJECT_NAME}" 2>/dev/null || true)
+if [[ "${INCUS_SERVICE_STATE}" == "active" ]]; then
     __fail "Service is still active after stop"
-__pass "Service stopped"
+else
+    __pass "Service stopped (${INCUS_SERVICE_STATE})"
+fi
 
-__vm "${INCUS_PROJECT_NAME} --service --uninstall" || __fail "--service --uninstall failed"
+__vm "printf 'y\\n' | ${INCUS_PROJECT_NAME} --service --uninstall" || __fail "--service --uninstall failed"
 __pass "--service --uninstall"
 
 # ── Final result ─────────────────────────────────────────────────────────────

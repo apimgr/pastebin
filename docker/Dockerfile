@@ -11,6 +11,7 @@ ARG VERSION=dev
 ARG BUILD_EPOCH
 ARG COMMIT_ID
 ARG OFFICIAL_SITE
+ARG BUILD_TAGS
 
 WORKDIR /app
 
@@ -21,7 +22,9 @@ RUN go mod download
 # Copy source and build server binary
 COPY . .
 RUN mkdir -p /app/binary && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+    set --; \
+    if [ -n "${BUILD_TAGS}" ]; then set -- -tags "${BUILD_TAGS}"; fi; \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build "$@" \
     -buildvcs=false -trimpath \
     -ldflags "-s -w -X 'main.Version=${VERSION}' -X 'main.CommitID=${COMMIT_ID}' -X 'main.BuildEpoch=${BUILD_EPOCH}' -X 'main.OfficialSite=${OFFICIAL_SITE}'" \
     -o /app/binary/pastebin ./src
@@ -59,6 +62,7 @@ RUN apk upgrade --no-cache && \
     git \
     curl \
     bash \
+    shadow \
     tini \
     tor
 

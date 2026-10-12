@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"runtime"
 	"strconv"
+	"strings"
 )
 
 // EnsureServiceAccount creates the unprivileged system account the server drops
@@ -76,11 +77,13 @@ func EnsureServiceAccount(username string) error {
 		if err := os.MkdirAll(homeDir, 0755); err != nil {
 			return fmt.Errorf("service account home %s: %w", homeDir, err)
 		}
-		exec.Command("groupadd", "-r", "-g", idStr, name).Run() //nolint:errcheck
-		if err := exec.Command("useradd", "-r", "-u", idStr, "-g", idStr,
+		if output, err := exec.Command("groupadd", "-r", "-g", idStr, name).CombinedOutput(); err != nil {
+			return fmt.Errorf("create service group %s: %w: %s", name, err, strings.TrimSpace(string(output)))
+		}
+		if output, err := exec.Command("useradd", "-r", "-u", idStr, "-g", idStr,
 			"-d", homeDir, "-s", "/sbin/nologin",
-			"-c", appName+" service account", name).Run(); err != nil {
-			return err
+			"-c", appName+" service account", name).CombinedOutput(); err != nil {
+			return fmt.Errorf("create service user %s: %w: %s", name, err, strings.TrimSpace(string(output)))
 		}
 		// PART 23: ownership is applied after the account exists.
 		return os.Chown(homeDir, id, id)

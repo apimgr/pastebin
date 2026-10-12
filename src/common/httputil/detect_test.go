@@ -155,17 +155,16 @@ func TestWithTxtExtension_SetsContextFlag(t *testing.T) {
 	}
 }
 
-// TestGetAPIResponseFormat_AcceptJSON verifies the AI.md PART 14 4-step content
-// negotiation priority (.txt ext -> Accept:text/plain -> non-interactive client
-// -> default JSON) has no special case for an explicit Accept: application/json
-// header — a non-interactive client (curl) still receives plain text.
+// TestGetAPIResponseFormat_AcceptJSON verifies explicit JSON negotiation takes
+// precedence over client detection, while API requests without an explicit
+// format continue to use the client type.
 func TestGetAPIResponseFormat_AcceptJSON(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)
 	r.Header.Set("Accept", "application/json")
 	r.Header.Set("User-Agent", "curl/7.68.0")
 	got := GetAPIResponseFormat(r)
-	if got != "text" {
-		t.Errorf("Accept: application/json (curl): got %q, want %q", got, "text")
+	if got != "json" {
+		t.Errorf("Accept: application/json (curl): got %q, want %q", got, "json")
 	}
 
 	r2 := httptest.NewRequest(http.MethodGet, "/api/v1/pastes", nil)

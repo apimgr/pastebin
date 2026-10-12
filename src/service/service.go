@@ -506,11 +506,29 @@ func GetBinaryPath() string {
 	}
 }
 
+func ensureSystemdWritablePaths(paths []string) error {
+	for _, dir := range paths {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
 // installSystemd creates the systemd service file (PART 24 compliant).
 // The binary starts as root, binds ports, then drops privileges to the service
 // user itself — no User= directive needed in the unit file.
 func installSystemd() error {
 	binaryPath := GetBinaryPath()
+	writablePaths := []string{
+		fmt.Sprintf("/etc/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/lib/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/cache/%s/%s", orgName, appName),
+		fmt.Sprintf("/var/log/%s/%s", orgName, appName),
+	}
+	if err := ensureSystemdWritablePaths(writablePaths); err != nil {
+		return fmt.Errorf("failed to prepare systemd writable paths: %w", err)
+	}
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=%s service
@@ -531,6 +549,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+RuntimeDirectory=%s
+ReadWritePaths=/etc
 ReadWritePaths=/etc/%s/%s
 ReadWritePaths=/var/lib/%s/%s
 ReadWritePaths=/var/cache/%s/%s
@@ -538,13 +558,14 @@ ReadWritePaths=/var/log/%s/%s
 
 [Install]
 WantedBy=multi-user.target
-`, appName, binaryPath, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
+`, appName, binaryPath, orgName, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
 
 	servicePath := fmt.Sprintf("/etc/systemd/system/%s.service", appName)
 
-	// PART 23: --install only writes, enables, and starts the unit. The service
-	// account and runtime directories are provisioned by the binary at normal
-	// startup (Server Startup Sequence step 8), never here.
+	// systemd requires ReadWritePaths to exist before it creates the restricted
+	// mount namespace. /etc is writable only during root startup so the binary
+	// can create its service account; the process drops privileges immediately
+	// afterward (PART 23, Server Startup Sequence step 8).
 
 	// Write service file
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {

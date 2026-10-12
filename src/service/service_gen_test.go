@@ -36,6 +36,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+RuntimeDirectory=%s
+ReadWritePaths=/etc
 ReadWritePaths=/etc/%s/%s
 ReadWritePaths=/var/lib/%s/%s
 ReadWritePaths=/var/cache/%s/%s
@@ -43,7 +45,7 @@ ReadWritePaths=/var/log/%s/%s
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
+`, binaryPath, orgName, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
 
 	requiredDirectives := []string{
 		"Type=simple",
@@ -52,6 +54,8 @@ WantedBy=multi-user.target
 		"NoNewPrivileges=yes",
 		"ProtectSystem=strict",
 		"PrivateTmp=yes",
+		"RuntimeDirectory=" + orgName,
+		"ReadWritePaths=/etc",
 	}
 
 	for _, directive := range requiredDirectives {
@@ -118,6 +122,25 @@ func TestSystemdUnitContent_HasReadWritePaths(t *testing.T) {
 	}
 }
 
+func TestEnsureSystemdWritablePathsCreatesDirectories(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{
+		filepath.Join(root, "etc", "pastebin"),
+		filepath.Join(root, "lib", "pastebin"),
+	}
+	if err := ensureSystemdWritablePaths(paths); err != nil {
+		t.Fatalf("ensure systemd writable paths: %v", err)
+	}
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("stat %s: %v", path, err)
+		} else if !info.IsDir() {
+			t.Errorf("%s is not a directory", path)
+		}
+	}
+}
+
 // buildSystemdUnit returns the systemd unit content string for testing.
 // This is a helper that mirrors the format string in installSystemd().
 func buildSystemdUnit(binaryPath string) string {
@@ -140,6 +163,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+RuntimeDirectory=%s
+ReadWritePaths=/etc
 ReadWritePaths=/etc/%s/%s
 ReadWritePaths=/var/lib/%s/%s
 ReadWritePaths=/var/cache/%s/%s
@@ -147,7 +172,7 @@ ReadWritePaths=/var/log/%s/%s
 
 [Install]
 WantedBy=multi-user.target
-`, binaryPath, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
+`, binaryPath, orgName, orgName, appName, orgName, appName, orgName, appName, orgName, appName)
 }
 
 // ─── Launchd Plist Content Verification ──────────────────────────────────────

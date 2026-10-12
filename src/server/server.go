@@ -1166,6 +1166,7 @@ func (s *Server) setupRoutes() {
 	// Persist ?lang= as the lang cookie on ordinary navigation (AI.md
 	// Client-Side Preferences), not just via /server/preferences/import.
 	r.Use(s.langCookieMiddleware)
+	registerE2ETestRoutes(r)
 
 	// ── Static assets & PWA ──────────────────────────────────────────────────
 	// common.css / components.css / public.css are rendered server-side from
@@ -2408,6 +2409,32 @@ func (s *Server) startTermbin(ctx context.Context, cfg *config.Config) func() {
 	return func() { _ = ln.Close() }
 }
 
+// startManagedNetworkServices launches children after the HTTP listener binds
+// and the process drops privileges, so their private state is owned by the
+// dedicated service account and the child processes run as that account too.
+func (s *Server) startManagedNetworkServices() {
+	if s.torManager != nil {
+		go func() {
+			if err := s.torManager.Start(); err != nil {
+				log.Printf("tor: start failed: %v", err)
+			} else if s.torManager.Running() {
+				go s.torManager.Monitor()
+				s.persistOnionAddress()
+			}
+		}()
+	}
+	if s.i2pManager != nil {
+		go func() {
+			if err := s.i2pManager.Start(); err != nil {
+				log.Printf("i2p: start failed: %v", err)
+			} else if s.i2pManager.Running() {
+				go s.i2pManager.Monitor()
+				s.persistB32Address()
+			}
+		}()
+	}
+}
+
 // Run starts the HTTP server on addr and blocks until ctx is cancelled or a
 // fatal error occurs, performing graceful shutdown and closing the GeoIP
 // database, cache store, and other owned resources on exit.
@@ -2425,21 +2452,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 		defer s.notifier.Shutdown(10 * time.Second)
 	}
 
-	// Start Tor hidden service in the background (non-fatal if Tor binary not
-	// found). Real Tor bootstrap (torrc write, process start, hostname-file
-	// publish) can take many seconds; it must never gate the primary HTTP
-	// listener below from accepting connections (PART 31.1: "All Tor
-	// operations are best-effort, non-blocking"). Manager.Start/Close share a
-	// mutex, so Close (deferred here) safely waits out an in-flight Start.
 	if s.torManager != nil {
-		go func() {
-			if err := s.torManager.Start(); err != nil {
-				log.Printf("tor: start failed: %v", err)
-			} else if s.torManager.Running() {
-				go s.torManager.Monitor()
-				s.persistOnionAddress()
-			}
-		}()
 		defer s.torManager.Close()
 	}
 
@@ -2467,16 +2480,6 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			DataDir:          s.dataDir,
 			LogDir:           s.logDir,
 		}, s.router)
-		// Same non-blocking, best-effort contract as Tor (backend-rules.md
-		// PART 31.2): I2P bootstrap must never gate the primary HTTP listener.
-		go func() {
-			if err := s.i2pManager.Start(); err != nil {
-				log.Printf("i2p: start failed: %v", err)
-			} else if s.i2pManager.Running() {
-				go s.i2pManager.Monitor()
-				s.persistB32Address()
-			}
-		}()
 		defer s.i2pManager.Close()
 	}
 
@@ -2601,6 +2604,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 			if err != nil {
 				return fmt.Errorf("bind %s: %w", addr, err)
 			}
+			s.startManagedNetworkServices()
 			go func() {
 				if err := srv.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
 					errCh <- err
@@ -2624,6 +2628,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	if err != nil {
 		return fmt.Errorf("bind %s: %w", addr, err)
 	}
+	s.startManagedNetworkServices()
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errCh <- err
@@ -2718,6 +2723,7 @@ func (s *Server) runDualPort(ctx context.Context, cfg *config.Config, host, http
 		_ = httpLn.Close()
 		return fmt.Errorf("dual-port: %w", dropErr)
 	}
+	s.startManagedNetworkServices()
 
 	log.Printf("dual-port: HTTP on %s, HTTPS on %s", httpAddr, httpsAddr)
 
