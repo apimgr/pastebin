@@ -1081,9 +1081,15 @@ func TestTier2NoJS(t *testing.T) {
 		t.Fatalf("no-JS page is missing the server-rendered paste form")
 	}
 	content := "e2e browser no javascript paste"
+	title := "e2e-nojs-unlisted"
 	var viewLink string
 	var ownerToken string
 	err = chromedp.Run(ctx,
+		chromedp.SetValue(`#title`, title, chromedp.ByQuery),
+		chromedp.SetValue(`#language`, "go", chromedp.ByQuery),
+		chromedp.SetValue(`#expires`, "1h", chromedp.ByQuery),
+		chromedp.SetValue(`#visibility`, "1", chromedp.ByQuery),
+		chromedp.SetValue(`#burn_after`, "2", chromedp.ByQuery),
 		chromedp.SendKeys(`#content`, content),
 		chromedp.Click(`#paste-form button[type="submit"]`),
 	)
@@ -1107,16 +1113,34 @@ func TestTier2NoJS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse created paste URL: %v", err)
 	}
+	var renderedMarkup string
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(base+viewURL.EscapedPath()),
 		chromedp.WaitVisible(`#paste-code`, chromedp.ByQuery),
-		chromedp.OuterHTML(`#paste-code`, &html, chromedp.ByQuery),
+		chromedp.Text(`#paste-code`, &html, chromedp.ByQuery),
+		chromedp.OuterHTML(`#paste-code`, &renderedMarkup, chromedp.ByQuery),
 	)
 	if err != nil {
 		t.Fatalf("create and view paste without JavaScript: %v", err)
 	}
 	if !strings.Contains(html, content) {
 		t.Fatalf("no-JS paste view is missing created content: %s", html)
+	}
+	if !strings.Contains(renderedMarkup, "<span") {
+		t.Errorf("no-JS paste view did not render server-side syntax highlighting: %s", html)
+	}
+	pasteID := viewURL.Path[strings.LastIndex(viewURL.Path, "/")+1:]
+	recentResp, err := client().Get(base + "/recent?search=" + url.QueryEscape(title))
+	if err != nil {
+		t.Fatalf("search recent pastes for unlisted title: %v", err)
+	}
+	recentHTML, readErr := io.ReadAll(recentResp.Body)
+	recentResp.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read recent paste results: %v", readErr)
+	}
+	if recentResp.StatusCode != http.StatusOK || strings.Contains(string(recentHTML), pasteID) {
+		t.Errorf("unlisted paste appeared in recent results: status=%d", recentResp.StatusCode)
 	}
 	if strings.TrimSpace(ownerToken) == "" {
 		t.Fatal("no-JS create flow did not display the one-time owner token")

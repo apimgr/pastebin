@@ -9,8 +9,10 @@
   browser and no-JavaScript form creation, raw/download/embed/QR views, expiry,
   burn-after-read, owner-token API rejection and management form rendering,
   all listed compat create/read protocols, theme and locale changes, responsive
-  layout, CSRF, docs pages, and themed 404/500 responses. Compatibility wire
-  protocols and several other IDEA features still lack scenarios in all tiers.
+  layout, CSRF, docs pages, and themed 404/500 responses. Tier 2 also submits
+  an unlisted, expiring Go paste and verifies rendered highlighting and that it
+  stays out of recent results. Compatibility wire protocols and several other
+  IDEA features still lack scenarios in all tiers.
 - Crawl every navigable page in all applicable tiers and check every referenced
   asset and browser console result. Tier 1 smoke-requests every registered GET
   route, crawls internal links, and checks referenced assets. Tier 3 now follows
